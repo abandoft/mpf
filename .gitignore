@@ -1,4 +1,76 @@
+# CMake out-of-source builds and accidental in-source output
 /build/
-.DS_Store
+/build-*/
+/cmake-build-*/
+/CMakeFiles/
+/CMakeCache.txt
+/CTestTestfile.cmake
+/cmake_install.cmake
+/compile_commands.json
+/CMakeUserPresets.json
+/install_manifest.txt
+/Makefile
+/build.ninja
+/rules.ninja
+/.ninja_deps
+/.ninja_log
+/Testing/
+
+# Compiled objects, libraries, executables and debug databases
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.dSYM/
+
+# Coverage, profiling, sanitizer and fuzzing artifacts
+*.gcda
+*.gcno
+*.gcov
+*.profdata
+*.profraw
+coverage/
+crash-*
+leak-*
+oom-*
+slow-unit-*
+timeout-*
+
+# Python and Node.js helper-tool state
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDEs, editors and local tooling
+.idea/
+.vs/
+.vscode/
+*.code-workspace
 *.swp
 *.swo
+*~
+
+# Local environment files (keep checked-in examples)
+.env
+.env.*
+!.env.example
+
+# Operating-system metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
