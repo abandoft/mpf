@@ -17,7 +17,7 @@
 | IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；Analyzer 结果在边界抽取为 revision-checked 稠密 `SemanticTable`，MIR 只消费 side table；MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime/alias；目标 lowering 产出带 origin chunk 的最终 LIR，emitter 仅序列化 |
 | Python 最新能力 | relational/equality 比较链、右结合条件表达式、短路/惰性/单次求值；基础参数关联和递归固定序列解包 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流 |
-| 工程门禁 | 143 项内部测试；48 个差分 case、134 条工具完整环境执行路径；58 项 CTest；fuzz smoke、可选 libFuzzer、性能发布阈值、阶段报告；本轮生产代码覆盖率 88.33%（13505/15289） |
+| 工程门禁 | 143 项内部测试；48 个差分 case、134 条工具完整环境执行路径；58 项 CTest；fuzz smoke、可选 libFuzzer、性能发布阈值、阶段报告；本轮生产代码覆盖率 88.34%（13517/15301） |
 | 发布状态 | 0.x；没有长期 API/ABI 或完整语言兼容承诺 |
 
 ## 本轮商业级收尾验收（完成）

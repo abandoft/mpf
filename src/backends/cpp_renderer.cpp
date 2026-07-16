@@ -265,6 +265,15 @@ class Renderer final {
            "stop;\n"
            "  return inclusive ? cursor >= stop : cursor > stop;\n"
            "}\n"
+           "template <typename Cursor, typename Stop, typename Step> bool range_next(\n"
+           "    Cursor& cursor, const Stop& stop, const Step& step, bool inclusive, bool& "
+           "first) {\n"
+           "  if (first)\n"
+           "    first = false;\n"
+           "  else\n"
+           "    cursor += step;\n"
+           "  return range_continue(cursor, stop, step, inclusive);\n"
+           "}\n"
            "inline int fortran_compare(const std::string& left, const std::string& right) {\n"
            "  const auto width = std::max(left.size(), right.size());\n"
            "  for (std::size_t index = 0; index < width; ++index) {\n"
@@ -1824,6 +1833,7 @@ class Renderer final {
         const auto start = mangler_->temporary("start");
         const auto stop = mangler_->temporary("stop");
         const auto step = mangler_->temporary("step");
+        const auto first = mangler_->temporary("range_first");
         auto variable = mangler_->name(statement.name);
         if (active_optional_parameters_.count(statement.name) != 0U) {
           variable += ".value()";
@@ -1858,12 +1868,14 @@ class Renderer final {
           output_ << "bool " << completion << " = true;\n";
         }
         indentation();
-        output_ << "for (";
         if (statement.retain_last_loop_value) output_ << "auto ";
-        output_ << cursor << " = " << start;
-        output_ << "; mpf_runtime::range_continue(" << cursor << ", " << stop << ", " << step
-                << ", " << (statement.inclusive_stop ? "true" : "false") << "); " << cursor
-                << " += " << step << ") {\n";
+        output_ << cursor << " = " << start << ";\n";
+        indentation();
+        output_ << "bool " << first << " = true;\n";
+        indentation();
+        output_ << "while (mpf_runtime::range_next(" << cursor << ", " << stop << ", " << step
+                << ", " << (statement.inclusive_stop ? "true" : "false") << ", " << first
+                << ")) {\n";
         ++indent_;
         loop_completion_flags_.push_back(completion);
         if (statement.retain_last_loop_value) {

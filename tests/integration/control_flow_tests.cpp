@@ -31,7 +31,8 @@ TEST_CASE("Python range and while lower through both backends") {
   REQUIRE(cpp.success());
   REQUIRE(javascript.code.find("for (let mpf_internal_cursor") != std::string::npos);
   REQUIRE(javascript.code.find("while (__mpf_truthy(total < 12))") != std::string::npos);
-  REQUIRE(cpp.code.find("for (auto mpf_internal_cursor") != std::string::npos);
+  REQUIRE(cpp.code.find("auto mpf_internal_cursor") != std::string::npos);
+  REQUIRE(cpp.code.find("while (mpf_runtime::range_next(") != std::string::npos);
   REQUIRE(cpp.code.find("while (mpf_runtime::truthy(mpf_runtime::py_compare(") !=
           std::string::npos);
   REQUIRE(cpp.code.find("std::less<>{}") != std::string::npos);
@@ -71,8 +72,8 @@ TEST_CASE("Fortran counted DO exposes the terminal induction value") {
   const auto result =
       transpile_flow(source, mpf::SourceLanguage::fortran, mpf::TargetLanguage::cpp);
   REQUIRE(result.success());
-  REQUIRE(result.code.find("for (index = mpf_internal_start") != std::string::npos);
-  REQUIRE(result.code.find("index += mpf_internal_step") != std::string::npos);
+  REQUIRE(result.code.find("index = mpf_internal_start") != std::string::npos);
+  REQUIRE(result.code.find("while (mpf_runtime::range_next(index") != std::string::npos);
 }
 
 TEST_CASE("Fortran SELECT CASE lowers scalar values ranges and default through both backends") {

@@ -63,7 +63,7 @@ jobs:
       - name: Test complete platform contract
         run: >-
           ctest --test-dir build/compatibility -C Release --output-on-failure
-          --label-exclude performance
+          --label-exclude performance --parallel 2
       - name: Verify install layout
         run: >-
           cmake --install build/compatibility --config Release

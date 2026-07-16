@@ -20,7 +20,7 @@ MPF 的验证体系分为七层：
 | CTest | 58 项，包含 48 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译和 3 项后端隔离测试 |
 | Differential corpus | Python 20、Fortran 18、Matlab 10，共 48 个 case |
 | 工具完整环境执行路径 | 134 条程序路径，另有每 case 一条 oracle |
-| 生产代码行覆盖率 | 88.33%（13505/15289），门槛 85% |
+| 生产代码行覆盖率 | 88.34%（13517/15301），门槛 85% |
 
 ## Differential corpus
 
@@ -81,7 +81,7 @@ cmake --preset coverage
 cmake --build --preset coverage
 ```
 
-coverage preset 使用 Clang source-based coverage，将多进程 `.profraw` 合并后排除 `build/`、`tests/`、不贡献 profile 的子构建 isolation case 和已由独立 workflow 拥有的性能阈值，只统计生产源码；报告位于 `build/coverage/coverage/`。当前门槛为 85%，本次架构收尾后实测 88.33%（13505/15289）。独立 `Security` workflow 先探测仓库的 GitHub Advanced Security 能力；公共仓库或已授权 GHAS 的私有仓库对 C/C++ 运行 CodeQL `security-extended`，并在 pull request 上拒绝引入 moderate 及以上已知漏洞的依赖变更。未授权私有仓库明确记录 capability notice，并继续依赖始终执行的 clang-tidy/Clang analyzer、Sanitizer 和零告警构建门禁。
+coverage preset 使用 Clang source-based coverage，将多进程 `.profraw` 合并后排除 `build/`、`tests/`、不贡献 profile 的子构建 isolation case 和已由独立 workflow 拥有的性能阈值，只统计生产源码；报告位于 `build/coverage/coverage/`。当前门槛为 85%，本次架构收尾后实测 88.34%（13517/15301）。独立 `Security` workflow 先探测仓库的 GitHub Advanced Security 能力；公共仓库或已授权 GHAS 的私有仓库对 C/C++ 运行 CodeQL `security-extended`，并在 pull request 上拒绝引入 moderate 及以上已知漏洞的依赖变更。未授权私有仓库明确记录 capability notice，并继续依赖始终执行的 clang-tidy/Clang analyzer、Sanitizer 和零告警构建门禁。
 
 完整的 workflow 边界、required check 名称、超时和产物策略见 [GitHub Actions 职责矩阵](../.github/workflows/README.md)。
 
