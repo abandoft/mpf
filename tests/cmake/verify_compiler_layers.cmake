@@ -184,9 +184,20 @@ endif()
 
 file(READ "${SOURCE_DIR}/src/ir/mir.hpp" mir_contract)
 if(NOT EXISTS "${SOURCE_DIR}/src/ir/mir_verifier.cpp" OR
-   NOT EXISTS "${SOURCE_DIR}/src/ir/mir_opcode.hpp")
-  message(FATAL_ERROR "MIR verifier/opcode contract is not split into dedicated components")
+   NOT EXISTS "${SOURCE_DIR}/src/ir/mir_opcode.hpp" OR
+   NOT EXISTS "${SOURCE_DIR}/src/ir/mir_optimization.cpp")
+  message(FATAL_ERROR "MIR verifier/opcode/optimization contracts are not split into dedicated components")
 endif()
+file(READ "${SOURCE_DIR}/src/ir/mir_optimization.cpp" mir_optimization_contract)
+foreach(required_pass IN ITEMS
+    "mir-shape-canonicalization"
+    "mir-copy-propagation"
+    "mir-constant-folding-dce"
+    "mir-cfg-cleanup")
+  if(NOT mir_optimization_contract MATCHES "${required_pass}")
+    message(FATAL_ERROR "shared MIR default optimization is missing: ${required_pass}")
+  endif()
+endforeach()
 foreach(required IN ITEMS
     "MirExpressionId"
     "MirStatementId"
@@ -450,6 +461,7 @@ foreach(required IN ITEMS
     "frontend->verify"
     "frontend->lower"
     "mir::lower_from_hir"
+    "mir::run_default_optimization_pipeline"
     "mir::analyze_alias_effects"
     "mir::verify_alias_effects"
     "backend->lower"
@@ -461,3 +473,11 @@ foreach(required IN ITEMS
     message(FATAL_ERROR "compiler driver is missing production stage: ${required}")
   endif()
 endforeach()
+string(FIND "${driver}" "mir::run_default_optimization_pipeline" mir_optimization_index)
+string(FIND "${driver}" "mir::analyze_alias_effects" mir_analysis_index)
+string(FIND "${driver}" "backend->lower" backend_lowering_index)
+if(mir_optimization_index LESS 0 OR mir_analysis_index LESS mir_optimization_index OR
+   backend_lowering_index LESS mir_analysis_index)
+  message(FATAL_ERROR
+    "shared MIR optimization must precede final alias/effect analysis and target lowering")
+endif()

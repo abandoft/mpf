@@ -13,6 +13,7 @@ mpf_add_differential_case(fortran-argument-association fortran examples/fortran/
 mpf_add_differential_case(fortran-optional-writeback fortran examples/fortran/optional_writeback.f90 "44 22 2 6 20 22 5 20 22 42 42")
 mpf_add_differential_case(fortran-select-case fortran examples/fortran/select_case.f90 "7 42")
 mpf_add_differential_case(python-basic python examples/python/basic.py "42")
+mpf_add_differential_case(python-optimization python examples/python/optimization.py "9")
 mpf_add_differential_case(python-scalars python examples/python/scalars.py "answer 3.5" lines)
 mpf_add_differential_case(python-truthiness python examples/python/truthiness.py "1848 1 0 2 2")
 mpf_add_differential_case(python-logical-lines python examples/python/logical_lines.py "43")

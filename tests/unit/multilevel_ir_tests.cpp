@@ -19,6 +19,7 @@
 #include "ir/dump.hpp"
 #include "ir/hir.hpp"
 #include "ir/mir.hpp"
+#include "ir/mir_optimization.hpp"
 #include "ir/pass_manager.hpp"
 #include "semantic/analyzer.hpp"
 #include "source/source_manager.hpp"
@@ -227,7 +228,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v3") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v4") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v1") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
   REQUIRE(first_mir.find("terminator op") != std::string::npos);
@@ -300,6 +301,99 @@ TEST_CASE("MIR alias and effect analysis is independent revision-bound and cache
   REQUIRE(write != weakened.instructions.end());
   write->effects = mpf::detail::mir::Effect::none;
   REQUIRE(!mpf::detail::mir::verify_alias_effects(mir.program, weakened, "weakened").empty());
+}
+
+TEST_CASE("default MIR optimization is verified deterministic and analysis-safe") {
+  auto lowered = lower_python("value = (1 + 2) * (5 - 2)\nprint(value)\n");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+
+  const auto root = std::find_if(
+      mir.program.expressions.begin() + 1, mir.program.expressions.end(),
+      [&](const mpf::detail::mir::Expression& expression) {
+        const auto* attributes = mpf::detail::mir::attributes(mir.program, expression.id);
+        return expression.valid() && expression.kind == mpf::detail::ExpressionKind::binary &&
+               attributes != nullptr && attributes->spelling == "*";
+      });
+  REQUIRE(root != mir.program.expressions.end());
+  const auto duplicate_shape = mpf::detail::ShapeId{
+      static_cast<mpf::detail::ShapeId::value_type>(mir.program.shapes.size())};
+  mir.program.shapes.push_back(mir.program.shapes[root->shape_id.value()]);
+  root->shape_id = duplicate_shape;
+  mir.program.instructions[root->instruction.value()].shape = duplicate_shape;
+  REQUIRE(mpf::detail::mir::verify(mir.program, "optimizer-input").empty());
+
+  const auto revision = mir.program.revision;
+  const auto instructions = mir.program.instructions.size() - 1U;
+  const auto shapes = mir.program.shapes.size();
+  const auto optimized = mpf::detail::mir::run_default_optimization_pipeline(mir.program);
+  REQUIRE(optimized.diagnostics.empty());
+  REQUIRE(optimized.instrumentation.size() == 4U);
+  REQUIRE(optimized.instrumentation[0].name == "mir-shape-canonicalization");
+  REQUIRE(optimized.instrumentation[1].name == "mir-copy-propagation");
+  REQUIRE(optimized.instrumentation[2].name == "mir-constant-folding-dce");
+  REQUIRE(optimized.instrumentation[3].name == "mir-cfg-cleanup");
+  REQUIRE(mir.program.revision == revision + 4U);
+  REQUIRE(mir.program.attributes.mir_revision == mir.program.revision);
+  REQUIRE(optimized.statistics.folded_expressions == 3U);
+  REQUIRE(optimized.statistics.retired_expressions != 0U);
+  REQUIRE(optimized.statistics.removed_instructions != 0U);
+  REQUIRE(optimized.statistics.canonicalized_shapes == 1U);
+  REQUIRE(optimized.statistics.instructions_before == instructions);
+  REQUIRE(optimized.statistics.instructions_after < optimized.statistics.instructions_before);
+  REQUIRE(mir.program.shapes.size() + 1U == shapes);
+  REQUIRE(mpf::detail::mir::verify(mir.program, "optimizer-output").empty());
+
+  auto stale_tombstone = mir.program;
+  const auto retired = std::find_if(
+      stale_tombstone.expressions.begin() + 1, stale_tombstone.expressions.end(),
+      [](const mpf::detail::mir::Expression& expression) { return expression.retired; });
+  REQUIRE(retired != stale_tombstone.expressions.end());
+  stale_tombstone.attributes.expressions[retired->id.value()].spelling = "stale";
+  REQUIRE(!mpf::detail::mir::verify(stale_tombstone, "stale-tombstone").empty());
+
+  const auto folded = std::find_if(
+      mir.program.expressions.begin() + 1, mir.program.expressions.end(),
+      [&](const mpf::detail::mir::Expression& expression) {
+        const auto* attributes = mpf::detail::mir::attributes(mir.program, expression.id);
+        return expression.valid() &&
+               expression.kind == mpf::detail::ExpressionKind::number_literal &&
+               attributes != nullptr && attributes->spelling == "9";
+      });
+  REQUIRE(folded != mir.program.expressions.end());
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, effects, "optimized").empty());
+
+  const auto second = mpf::detail::mir::run_default_optimization_pipeline(mir.program);
+  REQUIRE(second.diagnostics.empty());
+  REQUIRE(second.statistics.folded_expressions == 0U);
+  REQUIRE(second.statistics.retired_expressions == 0U);
+  REQUIRE(second.statistics.removed_instructions == 0U);
+  REQUIRE(second.statistics.propagated_block_arguments == 0U);
+  REQUIRE(second.statistics.removed_blocks == 0U);
+  REQUIRE(second.statistics.canonicalized_shapes == 0U);
+  REQUIRE(second.statistics.instructions_before == second.statistics.instructions_after);
+  REQUIRE(second.statistics.blocks_before == second.statistics.blocks_after);
+}
+
+TEST_CASE("MIR constant folding rejects overflow and target precision loss") {
+  for (const auto source : {"value = 9223372036854775807 + 1\nprint(value)\n",
+                            "value = 9007199254740992 + 1\nprint(value)\n"}) {
+    auto lowered = lower_python(source);
+    auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+    REQUIRE(analysis.empty());
+    auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                                std::move(analysis.semantics), analysis.names);
+    REQUIRE(mir.diagnostics.empty());
+    const auto optimized = mpf::detail::mir::run_default_optimization_pipeline(mir.program);
+    REQUIRE(optimized.diagnostics.empty());
+    REQUIRE(optimized.statistics.folded_expressions == 0U);
+    REQUIRE(optimized.statistics.retired_expressions == 0U);
+    REQUIRE(mpf::detail::mir::verify(mir.program, "precision-output").empty());
+  }
 }
 
 TEST_CASE("frontends seed complete revision-checked dense semantic side tables") {
@@ -656,6 +750,53 @@ TEST_CASE("TypeScript for lowering owns initializer condition update and continu
   REQUIRE(direct_update_block.valid());
   REQUIRE(!direct_mir.program.blocks[direct_update_block.value()].arguments.empty());
   REQUIRE(mpf::detail::mir::verify(direct_mir.program, "typescript-direct-continue").empty());
+  const auto direct_optimized =
+      mpf::detail::mir::run_default_optimization_pipeline(direct_mir.program);
+  REQUIRE(direct_optimized.diagnostics.empty());
+  REQUIRE(direct_optimized.statistics.propagated_block_arguments != 0U);
+  REQUIRE(mpf::detail::mir::verify(direct_mir.program, "typescript-for-optimized").empty());
+
+  std::size_t predecessor_index = 0U;
+  std::size_t successor_index = 0U;
+  std::size_t owner_index = 0U;
+  mpf::detail::BlockId forwarded_target;
+  for (std::size_t function_index = 1;
+       function_index < direct_mir.program.functions.size() && !forwarded_target.valid();
+       ++function_index) {
+    for (const auto block_id : direct_mir.program.functions[function_index].blocks) {
+      const auto& terminator = direct_mir.program.blocks[block_id.value()].terminator;
+      for (std::size_t edge = 0; edge < terminator.successors.size(); ++edge) {
+        const auto target = terminator.successors[edge];
+        if (terminator.successor_arguments[edge].empty() &&
+            direct_mir.program.blocks[target.value()].arguments.empty()) {
+          predecessor_index = block_id.value();
+          successor_index = edge;
+          owner_index = function_index;
+          forwarded_target = target;
+          break;
+        }
+      }
+      if (forwarded_target.valid()) break;
+    }
+  }
+  REQUIRE(forwarded_target.valid());
+  const auto forwarding_id = mpf::detail::BlockId{
+      static_cast<mpf::detail::BlockId::value_type>(direct_mir.program.blocks.size())};
+  mpf::detail::mir::BasicBlock forwarding;
+  forwarding.id = forwarding_id;
+  forwarding.terminator.kind = mpf::detail::mir::TerminatorKind::branch;
+  forwarding.terminator.successors = {forwarded_target};
+  forwarding.terminator.successor_arguments = {{}};
+  direct_mir.program.blocks.push_back(std::move(forwarding));
+  direct_mir.program.blocks[predecessor_index].terminator.successors[successor_index] =
+      forwarding_id;
+  direct_mir.program.functions[owner_index].blocks.push_back(forwarding_id);
+  REQUIRE(mpf::detail::mir::verify(direct_mir.program, "forwarding-input").empty());
+  const auto forwarding_optimized =
+      mpf::detail::mir::run_default_optimization_pipeline(direct_mir.program);
+  REQUIRE(forwarding_optimized.diagnostics.empty());
+  REQUIRE(forwarding_optimized.statistics.removed_blocks == 1U);
+  REQUIRE(mpf::detail::mir::verify(direct_mir.program, "forwarding-output").empty());
   auto corrupt_for = direct_mir.program;
   const auto corrupt_loop =
       std::find_if(corrupt_for.statements.begin() + 1, corrupt_for.statements.end(),
@@ -1782,6 +1923,19 @@ TEST_CASE("MIR verifier rejects ownership control-flow and dominance corruption"
   auto lowered_mir = mpf::detail::mir::lower_from_hir(
       std::move(lowered.program), std::move(analysis.semantics), analysis.names);
   REQUIRE(lowered_mir.diagnostics.empty());
+
+  auto cyclic_expression = lowered_mir.program;
+  const auto cyclic = std::find_if(
+      cyclic_expression.expressions.begin() + 1, cyclic_expression.expressions.end(),
+      [](const mpf::detail::mir::Expression& expression) { return !expression.children.empty(); });
+  REQUIRE(cyclic != cyclic_expression.expressions.end());
+  cyclic->children.front() = cyclic->id;
+  cyclic_expression.instructions[cyclic->instruction.value()].operands.front() = cyclic->value_id;
+  REQUIRE(!mpf::detail::mir::verify(cyclic_expression, "negative-expression-cycle").empty());
+
+  auto false_tombstone = lowered_mir.program;
+  false_tombstone.expressions[1].retired = true;
+  REQUIRE(!mpf::detail::mir::verify(false_tombstone, "negative-live-tombstone").empty());
 
   auto missing_definition = lowered_mir.program;
   auto instruction = std::find_if(

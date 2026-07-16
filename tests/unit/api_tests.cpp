@@ -97,7 +97,7 @@ TEST_CASE("filename extension selects the frontend") {
   options.emit_source_banner = false;
   const auto result = mpf::Transpiler{}.transpile("value = 40 + 2\n", options);
   REQUIRE(result.success());
-  REQUIRE(result.code.find("value = 40 + 2;") != std::string::npos);
+  REQUIRE(result.code.find("value = 42;") != std::string::npos);
 }
 
 TEST_CASE("TypeScript extensions select the independent frontend") {
@@ -225,8 +225,31 @@ TEST_CASE(
   REQUIRE(result.report.peak_arena_bytes != 0);
   REQUIRE(result.report.stages.size() >= 7);
   REQUIRE(result.report.stages.front().stage == "source-complexity");
+  REQUIRE(std::any_of(
+      result.report.stages.begin(), result.report.stages.end(),
+      [](const mpf::StageReport& stage) { return stage.stage == "mir-constant-folding-dce"; }));
   REQUIRE(result.report.to_json().find("\"peakArenaBytes\":") != std::string::npos);
+  REQUIRE(result.report.to_json().find("\"mirOptimization\":") != std::string::npos);
   REQUIRE(result.report.to_json().find("\"target-lir\"") != std::string::npos);
+}
+
+TEST_CASE("shared MIR optimization is visible to both targets and reports exact work") {
+  for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+    mpf::TranspileOptions options;
+    options.language = mpf::SourceLanguage::python;
+    options.target = target;
+    options.emit_source_banner = false;
+    const auto result =
+        mpf::Transpiler{}.transpile("value = (1 + 2) * (5 - 2)\nprint(value)\n", options);
+    REQUIRE(result.success());
+    REQUIRE(result.code.find("= 9;") != std::string::npos);
+    REQUIRE(result.code.find("1 + 2") == std::string::npos);
+    REQUIRE(result.report.mir_optimization.folded_expressions == 3U);
+    REQUIRE(result.report.mir_optimization.retired_expressions != 0U);
+    REQUIRE(result.report.mir_optimization.removed_instructions != 0U);
+    REQUIRE(result.report.mir_optimization.instructions_after <
+            result.report.mir_optimization.instructions_before);
+  }
 }
 
 TEST_CASE("diagnostic text renderer includes source context and a stable range") {

@@ -918,8 +918,10 @@ TEST_CASE("Fortran free and fixed source forms normalize before both backends") 
     const auto fixed_result = mpf::Transpiler{}.transpile(fixed_source, fixed_options);
     REQUIRE(free_result.success());
     REQUIRE(fixed_result.success());
-    REQUIRE(free_result.code.find("40 + 2") != std::string::npos);
-    REQUIRE(fixed_result.code.find("40 + 2") != std::string::npos);
+    REQUIRE(free_result.code.find("42") != std::string::npos);
+    REQUIRE(fixed_result.code.find("42") != std::string::npos);
+    REQUIRE(free_result.code.find("40 + 2") == std::string::npos);
+    REQUIRE(fixed_result.code.find("40 + 2") == std::string::npos);
   }
 }
 
