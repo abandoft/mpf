@@ -127,6 +127,7 @@ class Renderer final {
                "#include <cmath>\n"
                "#include <cstddef>\n"
                "#include <cstdint>\n"
+               "#include <functional>\n"
                "#include <iostream>\n"
                "#include <limits>\n"
                "#include <numeric>\n"
@@ -257,6 +258,12 @@ class Renderer final {
            "  bool first = true;\n"
            "  ((std::cout << (first ? \"\" : \" \"), print_value(value), first = false), ...);\n"
            "  std::cout << '\\n';\n"
+           "}\n"
+           "template <typename Cursor, typename Stop, typename Step> bool range_continue(\n"
+           "    const Cursor& cursor, const Stop& stop, const Step& step, bool inclusive) {\n"
+           "  if (step >= static_cast<Step>(0)) return inclusive ? cursor <= stop : cursor < "
+           "stop;\n"
+           "  return inclusive ? cursor >= stop : cursor > stop;\n"
            "}\n"
            "inline int fortran_compare(const std::string& left, const std::string& right) {\n"
            "  const auto width = std::max(left.size(), right.size());\n"
@@ -679,7 +686,18 @@ class Renderer final {
            "}\n";
     if (include_python_runtime) {
       output_
-          << "inline bool truthy(std::nullptr_t) { return false; }\n"
+          << "template <typename Left, typename Right, typename Operation> bool py_compare(\n"
+             "    const Left& left, const Right& right, Operation operation) {\n"
+             "  if constexpr (std::is_arithmetic<std::decay_t<Left>>::value &&\n"
+             "                std::is_arithmetic<std::decay_t<Right>>::value) {\n"
+             "    using Common = std::common_type_t<std::decay_t<Left>, "
+             "std::decay_t<Right>>;\n"
+             "    return operation(static_cast<Common>(left), static_cast<Common>(right));\n"
+             "  } else {\n"
+             "    return operation(left, right);\n"
+             "  }\n"
+             "}\n"
+             "inline bool truthy(std::nullptr_t) { return false; }\n"
              "inline bool truthy(bool value) { return value; }\n"
              "template <typename T, typename = std::enable_if_t<std::is_arithmetic<T>::value>> "
              "bool truthy(T value) { return value != static_cast<T>(0); }\n"
@@ -746,6 +764,27 @@ class Renderer final {
     return operation.c_str();
   }
 
+  static const char* cpp_python_comparison(const std::string& operation) noexcept {
+    if (operation == "===" || operation == "==") return "std::equal_to<>{}";
+    if (operation == "!==" || operation == "!=") return "std::not_equal_to<>{}";
+    if (operation == "<") return "std::less<>{}";
+    if (operation == "<=") return "std::less_equal<>{}";
+    if (operation == ">") return "std::greater<>{}";
+    if (operation == ">=") return "std::greater_equal<>{}";
+    return nullptr;
+  }
+
+  void emit_named_comparison(const std::string& left, const std::string& operation,
+                             const std::string& right) {
+    const auto* comparator =
+        emission_.dynamic_truthiness ? cpp_python_comparison(operation) : nullptr;
+    if (comparator != nullptr) {
+      output_ << "mpf_runtime::py_compare(" << left << ", " << right << ", " << comparator << ')';
+      return;
+    }
+    output_ << left << ' ' << cpp_comparison_operator(operation) << ' ' << right;
+  }
+
   void emit_comparison_chain(const Expression& expression) {
     std::vector<std::string> operands;
     operands.reserve(expression.children.size());
@@ -756,12 +795,12 @@ class Renderer final {
       emit_expression(expression.children[index]);
       output_ << "; ";
       if (index == 0) continue;
-      const auto* operation = cpp_comparison_operator(expression.operators[index - 1]);
+      const auto& operation = expression.operators[index - 1];
       if (index < expression.children.size() - 1)
         output_ << "if (!(";
       else
         output_ << "return ";
-      output_ << operands[index - 1] << ' ' << operation << ' ' << operands[index];
+      emit_named_comparison(operands[index - 1], operation, operands[index]);
       if (index < expression.children.size() - 1)
         output_ << ")) return false; ";
       else
@@ -1058,6 +1097,15 @@ class Renderer final {
           output_ << ") / static_cast<double>(";
           emit_expression(expression.children[1]);
           output_ << ')';
+        } else if (const auto* comparator = emission_.dynamic_truthiness
+                                                ? cpp_python_comparison(expression.value)
+                                                : nullptr;
+                   comparator != nullptr) {
+          output_ << "mpf_runtime::py_compare(";
+          emit_expression(expression.children[0]);
+          output_ << ", ";
+          emit_expression(expression.children[1]);
+          output_ << ", " << comparator << ')';
         } else {
           emit_expression(expression.children[0], own);
           const auto cpp_operator = expression.value == "==="   ? "=="
@@ -1813,9 +1861,8 @@ class Renderer final {
         output_ << "for (";
         if (statement.retain_last_loop_value) output_ << "auto ";
         output_ << cursor << " = " << start;
-        output_ << "; " << step << " >= 0 ? " << cursor
-                << (statement.inclusive_stop ? " <= " : " < ") << stop << " : " << cursor
-                << (statement.inclusive_stop ? " >= " : " > ") << stop << "; " << cursor
+        output_ << "; mpf_runtime::range_continue(" << cursor << ", " << stop << ", " << step
+                << ", " << (statement.inclusive_stop ? "true" : "false") << "); " << cursor
                 << " += " << step << ") {\n";
         ++indent_;
         loop_completion_flags_.push_back(completion);

@@ -47,7 +47,9 @@ add_test(NAME mpf.performance.release-gate
     -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/performance/baseline.json
     -DREPORT=${CMAKE_BINARY_DIR}/performance-report.json
     -P ${PROJECT_SOURCE_DIR}/cmake/verify_performance.cmake)
-set_tests_properties(mpf.performance.release-gate PROPERTIES LABELS "performance" TIMEOUT 180)
+set_tests_properties(mpf.performance.release-gate PROPERTIES
+  LABELS "performance;coverage-excluded"
+  TIMEOUT 180)
 add_custom_target(mpf-performance
   COMMAND ${CMAKE_COMMAND}
     -DBENCHMARK=$<TARGET_FILE:mpf-benchmark>
@@ -115,6 +117,9 @@ function(mpf_add_differential_case name language input expected_output)
   if(NOT source_executable STREQUAL "")
     list(APPEND tool_arguments "-DSOURCE_EXECUTABLE=${source_executable}")
   endif()
+  if(source_kind STREQUAL "fortran")
+    list(APPEND tool_arguments "-DFORTRAN_STANDARD=${MPF_FORTRAN_REFERENCE_STANDARD}")
+  endif()
 
   add_test(NAME mpf.differential.${name}
     COMMAND ${CMAKE_COMMAND}
@@ -146,7 +151,9 @@ function(mpf_add_backend_isolation_test name javascript cpp)
       -DENABLE_CPP=${cpp}
       -DCONFIG=Release
       -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_backend_isolation.cmake)
-  set_tests_properties(mpf.backend-isolation.${name} PROPERTIES TIMEOUT 300)
+  set_tests_properties(mpf.backend-isolation.${name} PROPERTIES
+    LABELS "isolation;coverage-excluded"
+    TIMEOUT 300)
 endfunction()
 
 if(TARGET mpfc)
@@ -164,6 +171,12 @@ if(TARGET mpfc)
   find_program(MPF_NODE_EXECUTABLE node)
   find_package(Python3 COMPONENTS Interpreter QUIET)
   find_program(MPF_GFORTRAN_EXECUTABLE gfortran)
+  set(MPF_FORTRAN_REFERENCE_STANDARD "f2018" CACHE STRING
+      "Strict gfortran -std mode used by the differential oracle")
+  if(NOT MPF_FORTRAN_REFERENCE_STANDARD MATCHES "^f(95|2003|2008|2018|2023)$")
+    message(FATAL_ERROR
+      "MPF_FORTRAN_REFERENCE_STANDARD must name a strict gfortran standard mode")
+  endif()
   if(MPF_REQUIRE_DIFFERENTIAL_RUNTIME AND
      (NOT MPF_NODE_EXECUTABLE OR NOT Python3_Interpreter_FOUND OR
       Python3_VERSION VERSION_LESS "3.14"))

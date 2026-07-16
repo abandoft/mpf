@@ -138,9 +138,12 @@ if(DEFINED SOURCE_KIND AND SOURCE_KIND STREQUAL "python" AND
   set(source_available TRUE)
 elseif(DEFINED SOURCE_KIND AND SOURCE_KIND STREQUAL "fortran" AND
        DEFINED SOURCE_EXECUTABLE AND NOT SOURCE_EXECUTABLE STREQUAL "")
+  if(NOT DEFINED FORTRAN_STANDARD OR FORTRAN_STANDARD STREQUAL "")
+    set(FORTRAN_STANDARD f2018)
+  endif()
   set(source_program "${TEST_BINARY_DIR}/source-fortran-program")
   execute_process(
-    COMMAND "${SOURCE_EXECUTABLE}" -std=f2023 -Wall -Wextra -Werror
+    COMMAND "${SOURCE_EXECUTABLE}" "-std=${FORTRAN_STANDARD}" -Wall -Wextra -Werror
             "${INPUT}" -o "${source_program}"
     RESULT_VARIABLE source_compile_status
     OUTPUT_VARIABLE source_compile_output
@@ -166,6 +169,7 @@ file(WRITE "${TEST_BINARY_DIR}/differential-result.txt"
   "node=${NODE}\n"
   "source-kind=${SOURCE_KIND}\n"
   "source-executable=${SOURCE_EXECUTABLE}\n"
+  "fortran-standard=${FORTRAN_STANDARD}\n"
   "cxx-compiler=${CXX_COMPILER}\n"
   "generator=${GENERATOR}\n"
   "expected=${expected_output}\n"

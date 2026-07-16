@@ -32,7 +32,9 @@ TEST_CASE("Python range and while lower through both backends") {
   REQUIRE(javascript.code.find("for (let mpf_internal_cursor") != std::string::npos);
   REQUIRE(javascript.code.find("while (__mpf_truthy(total < 12))") != std::string::npos);
   REQUIRE(cpp.code.find("for (auto mpf_internal_cursor") != std::string::npos);
-  REQUIRE(cpp.code.find("while (mpf_runtime::truthy(total < 12))") != std::string::npos);
+  REQUIRE(cpp.code.find("while (mpf_runtime::truthy(mpf_runtime::py_compare(") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("std::less<>{}") != std::string::npos);
 }
 
 TEST_CASE("Python truthiness and operand-returning short-circuit logic lower independently") {

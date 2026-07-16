@@ -243,6 +243,7 @@ if(MPF_ENABLE_COVERAGE)
       ${CMAKE_CTEST_COMMAND}
       --test-dir ${CMAKE_BINARY_DIR}
       --build-config $<CONFIG>
+      --label-exclude coverage-excluded
       --output-on-failure
     COMMAND ${CMAKE_COMMAND}
       -DPROFILE_DIR=${CMAKE_CURRENT_BINARY_DIR}/profiles
@@ -252,10 +253,9 @@ if(MPF_ENABLE_COVERAGE)
       -DPRIMARY_OBJECT=$<TARGET_FILE:mpf-tests>
       -DEXTRA_OBJECT=$<TARGET_FILE:mpfc>
       -DFUZZ_OBJECT=$<TARGET_FILE:mpf-fuzz-smoke>
-      -DBENCHMARK_OBJECT=$<TARGET_FILE:mpf-benchmark>
       -DMIN_LINE_PERCENT=85
       -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_coverage.cmake
-    DEPENDS mpf-tests mpfc mpf-fuzz-smoke mpf-benchmark
+    DEPENDS mpf-tests mpfc mpf-fuzz-smoke
     USES_TERMINAL
     COMMENT "Running tests and enforcing MPF source coverage")
 endif()
