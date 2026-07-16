@@ -3,7 +3,7 @@
 - Analyzer 当前全部节点输出迁入按 `HirNodeId` O(1) 索引的紧凑 `SemanticTable`；表绑定 HIR revision，verifier 检查完整 ID 覆盖、origin 和关联 arity。分析结束后类型、shape、binding、call argument association、递归 assignment-pattern 路径及 flow 元数据从 HIR move-extract，MIR 对缺失/陈旧表失败关闭且不再读取 HIR 语义投影。
 - 一般静态 rank 对象语义扩展到任意维常量声明、嵌套 shape、RESHAPE、直接 index/section 读取与写入。JavaScript 使用通用 column-major 坐标递归，`cpp` 使用 C++17 模板递归构造/选择/写回嵌套 vector；新增三维 Fortran tensor 由 gfortran、Node.js 和生成 C++ 实际执行的差分门禁。
 - Frontend descriptor 升级到 API v4，manifest 声明可验证的 minimum/maximum language version；公共 `LanguageVersion`、CLI `--language-version` 和 `MPF1201` 失败关闭已接入。首批 feature gate 覆盖 Python 3.8 positional-only parameter 与 Fortran 2003 bracket array constructor，并接受 Python `pass`、Fortran `CONTINUE` no-op 产生式。
-- 删除职责泛化的 `.github/workflows/ci.yml`，GitHub Actions 改为 validation、跨平台/差分、质量、Sanitizer、覆盖率、性能、安全和发布独立失败域；统一最小权限、并发取消、超时、失败产物和发布 SHA-256。Fortran 外部 oracle 回退到 gfortran 实际支持的严格 `f2018`；修复 CodeQL workflow 读权限及 MSVC `/WX` 发现的生成 C++ bool/int 比较和常量步长循环警告。
+- 删除职责泛化的 `.github/workflows/ci.yml`，GitHub Actions 改为 validation、跨平台/差分、质量、Sanitizer、覆盖率、性能、安全和发布独立失败域；统一最小权限、并发取消、超时、失败产物和发布 SHA-256。Fortran 外部 oracle 回退到 gfortran 实际支持的严格 `f2018`；安全 workflow 显式探测 GitHub Advanced Security 能力，区分订阅不可用与代码失败；修复 MSVC `/WX` 发现的生成 C++ bool/int 比较和常量步长循环警告。
 - `.gitignore` 补齐 CMake/Ninja、跨平台编译产物、coverage/profile/sanitizer/fuzz、Python/Node.js、IDE 和 OS 本地状态，同时保留可入库的环境示例。
 - 内部测试增至 143 项、differential corpus 增至 48 个（Python 20、Fortran 18、Matlab 10），CTest 增至 58 项；工具完整环境共执行 134 条源语言/Node.js/生成 C++ 程序路径。
 

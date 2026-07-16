@@ -16,8 +16,34 @@ permissions:
   contents: read
 
 jobs:
+  capabilities:
+    name: Security capability contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      advanced-security: ${{ steps.probe.outputs.advanced-security }}
+    steps:
+      - name: Detect repository security capabilities
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          read -r visibility advanced_security <<< "$(
+            gh api "repos/${GITHUB_REPOSITORY}" \
+              --jq '[.visibility, (.security_and_analysis.advanced_security.status // "disabled")] | @tsv'
+          )"
+          if [[ "${visibility}" == "public" || "${advanced_security}" == "enabled" ]]; then
+            echo "advanced-security=true" >> "${GITHUB_OUTPUT}"
+            echo "GitHub code scanning and dependency review are available."
+          else
+            echo "advanced-security=false" >> "${GITHUB_OUTPUT}"
+            echo "::notice::GitHub Advanced Security is unavailable; CodeQL upload and dependency review are skipped."
+          fi
+
   codeql:
     name: CodeQL C/C++
+    needs: capabilities
+    if: needs.capabilities.outputs.advanced-security == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -39,7 +65,10 @@ jobs:
 
   dependency-review:
     name: Dependency review
-    if: github.event_name == 'pull_request'
+    needs: capabilities
+    if: >-
+      github.event_name == 'pull_request' &&
+      needs.capabilities.outputs.advanced-security == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
