@@ -40,6 +40,7 @@ mpf_add_differential_case(fortran-arrays fortran examples/fortran/arrays.f90 "3 
 mpf_add_differential_case(python-matrices python examples/python/matrices.py "2 3 7")
 mpf_add_differential_case(matlab-matrices matlab examples/matlab/matrices.m "15")
 mpf_add_differential_case(fortran-matrices fortran examples/fortran/matrices.f90 "4 15 7")
+mpf_add_differential_case(fortran-tensors fortran examples/fortran/tensors.f90 "8 67 42 40 2")
 
 mpf_add_differential_case(python-sections python examples/python/sections.py "3 9 3 9")
 mpf_add_differential_case(python-tensors python examples/python/tensors.py "2 2 7 9")

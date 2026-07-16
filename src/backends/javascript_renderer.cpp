@@ -143,12 +143,44 @@ class Renderer final {
            "throw new RangeError(\"MPF index out of bounds\");\n"
            "  return normalized;\n"
            "}\n"
+           "function __mpf_shape(values) {\n"
+           "  const shape = [];\n"
+           "  let current = values;\n"
+           "  while (Array.isArray(current)) {\n"
+           "    shape.push(current.length);\n"
+           "    current = current.length === 0 ? null : current[0];\n"
+           "  }\n"
+           "  return shape;\n"
+           "}\n"
+           "function __mpf_column_major_coordinates(linear, shape) {\n"
+           "  const coordinates = [];\n"
+           "  for (const extent of shape) { coordinates.push(linear % extent); linear = "
+           "Math.floor(linear / extent); }\n"
+           "  return coordinates;\n"
+           "}\n"
+           "function __mpf_at(values, coordinates) {\n"
+           "  let result = values;\n"
+           "  for (const coordinate of coordinates) result = result[coordinate];\n"
+           "  return result;\n"
+           "}\n"
+           "function __mpf_set_at(values, coordinates, value) {\n"
+           "  let target = values;\n"
+           "  for (let dimension = 0; dimension + 1 < coordinates.length; ++dimension) "
+           "target = target[coordinates[dimension]];\n"
+           "  target[coordinates[coordinates.length - 1]] = value;\n"
+           "}\n"
+           "function __mpf_flatten_column_major(values) {\n"
+           "  const shape = __mpf_shape(values);\n"
+           "  const size = shape.reduce((product, extent) => product * extent, 1);\n"
+           "  return Array.from({ length: size }, (_, linear) => "
+           "__mpf_at(values, __mpf_column_major_coordinates(linear, shape)));\n"
+           "}\n"
            "function __mpf_get(values, indices, base, allowNegative, columnMajor) {\n"
            "  if (columnMajor && indices.length === 1 && Array.isArray(values[0])) {\n"
-           "    const rows = values.length;\n"
-           "    const columns = values[0].length;\n"
-           "    const linear = __mpf_index({ length: rows * columns }, indices[0], base, false);\n"
-           "    return values[linear % rows][Math.floor(linear / rows)];\n"
+           "    const shape = __mpf_shape(values);\n"
+           "    const size = shape.reduce((product, extent) => product * extent, 1);\n"
+           "    const linear = __mpf_index({ length: size }, indices[0], base, false);\n"
+           "    return __mpf_at(values, __mpf_column_major_coordinates(linear, shape));\n"
            "  }\n"
            "  let result = values;\n"
            "  for (const index of indices) "
@@ -197,9 +229,7 @@ class Renderer final {
            "}\n"
            "function __mpf_section(values, selectors, base, allowNegative, columnMajor) {\n"
            "  if (columnMajor && selectors.length === 1 && Array.isArray(values[0])) {\n"
-           "    const flattened = [];\n"
-           "    for (let column = 0; column < values[0].length; ++column) "
-           "for (let row = 0; row < values.length; ++row) flattened.push(values[row][column]);\n"
+           "    const flattened = __mpf_flatten_column_major(values);\n"
            "    return __mpf_slice_indices(flattened.length, selectors[0], base, allowNegative)"
            ".map((index) => flattened[index]);\n"
            "  }\n"
@@ -216,10 +246,10 @@ class Renderer final {
            "}\n"
            "function __mpf_set(values, indices, value, base, allowNegative, columnMajor) {\n"
            "  if (columnMajor && indices.length === 1 && Array.isArray(values[0])) {\n"
-           "    const rows = values.length;\n"
-           "    const linear = __mpf_index({ length: rows * values[0].length }, indices[0], base, "
-           "false);\n"
-           "    values[linear % rows][Math.floor(linear / rows)] = value;\n"
+           "    const shape = __mpf_shape(values);\n"
+           "    const size = shape.reduce((product, extent) => product * extent, 1);\n"
+           "    const linear = __mpf_index({ length: size }, indices[0], base, false);\n"
+           "    __mpf_set_at(values, __mpf_column_major_coordinates(linear, shape), value);\n"
            "    return;\n"
            "  }\n"
            "  let target = values;\n"
@@ -258,20 +288,16 @@ class Renderer final {
            "  }\n"
            "  if (columnMajor && selectors.length === 1 && Array.isArray(values[0])) {\n"
            "    const selector = selectors[0];\n"
-           "    const indices = __mpf_slice_indices(values.length * values[0].length, selector, "
-           "base, allowNegative);\n"
-           "    let replacements = replacement;\n"
-           "    if (Array.isArray(replacement) && Array.isArray(replacement[0])) {\n"
-           "      replacements = [];\n"
-           "      for (let column = 0; column < replacement[0].length; ++column) "
-           "for (let row = 0; row < replacement.length; ++row) "
-           "replacements.push(replacement[row][column]);\n"
-           "    }\n"
+           "    const shape = __mpf_shape(values);\n"
+           "    const size = shape.reduce((product, extent) => product * extent, 1);\n"
+           "    const indices = __mpf_slice_indices(size, selector, base, allowNegative);\n"
+           "    const replacements = Array.isArray(replacement) ? "
+           "__mpf_flatten_column_major(replacement) : replacement;\n"
            "    if (Array.isArray(replacements) && replacements.length !== indices.length) "
            "throw new RangeError(\"MPF linear section replacement size mismatch\");\n"
            "    indices.forEach((linear, position) => {\n"
-           "      values[linear % values.length][Math.floor(linear / values.length)] = "
-           "Array.isArray(replacements) ? replacements[position] : replacements;\n"
+           "      __mpf_set_at(values, __mpf_column_major_coordinates(linear, shape), "
+           "Array.isArray(replacements) ? replacements[position] : replacements);\n"
            "    });\n"
            "    return;\n"
            "  }\n"
@@ -311,16 +337,25 @@ class Renderer final {
            "(Array.isArray(value) ? __mpf_numel(value) : 1), 0);\n"
            "}\n"
            "function __mpf_length(values) {\n"
-           "  return Array.isArray(values[0]) ? Math.max(values.length, values[0].length) : "
-           "values.length;\n"
+           "  return Math.max(...__mpf_shape(values));\n"
            "}\n"
            "function __mpf_reshape(values, shape) {\n"
-           "  if (shape.length === 1) return values.slice();\n"
-           "  const result = Array.from({ length: shape[0] }, () => new Array(shape[1]));\n"
-           "  for (let column = 0; column < shape[1]; ++column) "
-           "for (let row = 0; row < shape[0]; ++row) "
-           "result[row][column] = values[row + column * shape[0]];\n"
-           "  return result;\n"
+           "  if (shape.length === 0 || shape.some((extent) => !Number.isSafeInteger(extent) || "
+           "extent <= 0)) throw new RangeError(\"MPF RESHAPE shape is invalid\");\n"
+           "  const flattened = __mpf_flatten_column_major(values);\n"
+           "  const size = shape.reduce((product, extent) => product * extent, 1);\n"
+           "  if (flattened.length !== size) throw new RangeError(\"MPF RESHAPE size mismatch\");\n"
+           "  const build = (dimension, coordinates) => {\n"
+           "    if (dimension === shape.length) {\n"
+           "      let linear = 0; let stride = 1;\n"
+           "      for (let index = 0; index < shape.length; ++index) { linear += "
+           "coordinates[index] * stride; stride *= shape[index]; }\n"
+           "      return flattened[linear];\n"
+           "    }\n"
+           "    return Array.from({ length: shape[dimension] }, (_, coordinate) => "
+           "build(dimension + 1, [...coordinates, coordinate]));\n"
+           "  };\n"
+           "  return build(0, []);\n"
            "}\n";
   }
 
@@ -523,7 +558,7 @@ class Renderer final {
             }
             if (callee.binding == BindingKind::builtin &&
                 callee.intrinsic == IntrinsicId::reshape &&
-                (expression.children.size() == 3 || expression.children.size() == 4)) {
+                expression.children.size() >= 3) {
               output_ << "__mpf_reshape(";
               emit_expression(expression.children[1]);
               output_ << ", ";
@@ -531,9 +566,11 @@ class Renderer final {
                 emit_expression(expression.children[2]);
               } else {
                 output_ << '[';
-                emit_expression(expression.children[2]);
-                output_ << ", ";
-                emit_expression(expression.children[3]);
+                for (std::size_t dimension = 2; dimension < expression.children.size();
+                     ++dimension) {
+                  if (dimension != 2) output_ << ", ";
+                  emit_expression(expression.children[dimension]);
+                }
                 output_ << ']';
               }
               output_ << ')';

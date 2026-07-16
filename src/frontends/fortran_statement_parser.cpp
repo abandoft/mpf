@@ -671,17 +671,16 @@ class Parser final {
     } else if (lhs_end >= first + 4 && line.tokens[first + 1].kind == Kind::left_parenthesis &&
                matching_token(line, first + 1) == lhs_end - 1) {
       statement.shape = parse_shape(line, first + 1, lhs_end - 1);
-      if (statement.shape.empty() || statement.shape.size() > 2) {
+      if (statement.shape.empty()) {
         frontend::unsupported(diagnostics_, line.source.number,
-                              "Fortran array extent is invalid or too large");
+                              "Fortran array extent list is invalid");
         return;
       }
       statement.declared_type = ValueType::list;
       statement.element_type = declared_type;
     } else {
-      frontend::unsupported(
-          diagnostics_, line.source.number,
-          "only one- and two-dimensional constant-shape Fortran arrays are supported");
+      frontend::unsupported(diagnostics_, line.source.number,
+                            "Fortran array declarator is malformed");
       return;
     }
     if (!equals.empty()) {

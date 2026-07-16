@@ -197,8 +197,7 @@ TEST_CASE("rank-two fixed storage and RESHAPE sizes are validated") {
   REQUIRE(mismatch.diagnostics.front().code == "MPF2024");
 }
 
-TEST_CASE(
-    "Matlab reshape accepts flat sources and unsafe multidimensional reductions fail closed") {
+TEST_CASE("Matlab reshape accepts flat and multidimensional sources") {
   const auto reshape = transpile_array("matrix = reshape([1 3 2 4], 2, 2);\ndisp(matrix(1, 2))\n",
                                        mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
   const auto python_sum =
@@ -210,9 +209,30 @@ TEST_CASE(
   REQUIRE(reshape.success());
   REQUIRE(reshape.code.find("mpf_runtime::reshape_column_major") != std::string::npos);
   REQUIRE(!python_sum.success());
-  REQUIRE(!nested_reshape.success());
+  REQUIRE(nested_reshape.success());
+  REQUIRE(nested_reshape.code.find("__mpf_reshape(matrix, [4, 1])") != std::string::npos);
   REQUIRE(python_sum.diagnostics.front().code == "MPF2028");
-  REQUIRE(nested_reshape.diagnostics.front().code == "MPF2028");
+}
+
+TEST_CASE("general N-dimensional reshape indexing and sections lower to both backends") {
+  const std::string source =
+      "program tensors\n"
+      "integer :: cube(2,2,2) = reshape([1,2,3,4,5,6,7,8], [2,2,2])\n"
+      "cube(:,1,2) = [40,2]\n"
+      "print *, size(cube), sum(cube), cube(1,1,2)\n"
+      "end program tensors\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::fortran, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::fortran, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_reshape([1, 2, 3, 4, 5, 6, 7, 8], [2, 2, 2])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_set_section(cube") != std::string::npos);
+  REQUIRE(cpp.code.find("reshape_column_major_nd") != std::string::npos);
+  REQUIRE(cpp.code.find("assign_section_nd(cube") != std::string::npos);
+  REQUIRE(cpp.code.find("std::vector<std::vector<std::vector<std::int64_t>>>") !=
+          std::string::npos);
 }
 
 TEST_CASE("Python slices preserve exclusive stops, defaults and negative steps") {

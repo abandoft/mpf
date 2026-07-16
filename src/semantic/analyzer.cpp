@@ -2158,10 +2158,6 @@ class Analyzer final {
       validate_static_index(index.location.line, index, extent, expression.index_base,
                             expression.allow_negative_index);
     }
-    if (has_slice && index_count > 2) {
-      diagnose(expression.location.line, "MPF2029",
-               "array sections with more than two direct selectors are not yet supported");
-    }
     expression.element_type = container.element_type;
     if (container.shape.empty()) {
       if (has_slice) {
@@ -2337,10 +2333,11 @@ class Analyzer final {
 
   ValueType analyze_reshape(Expression& expression) {
     const bool matlab_dimensions =
-        program_.language == SourceLanguage::matlab && expression.children.size() == 4;
-    if ((!matlab_dimensions && expression.children.size() != 3) || expression.children.size() < 3) {
+        program_.language == SourceLanguage::matlab && expression.children.size() > 3;
+    if ((!matlab_dimensions && expression.children.size() != 3) ||
+        expression.children.size() < 3) {
       diagnose(expression.location.line, "MPF2026",
-               "RESHAPE requires a source and one shape vector or two dimensions");
+               "RESHAPE requires a source and a non-empty shape vector/dimension list");
       return expression.inferred_type = ValueType::unknown;
     }
     auto& source = expression.children[1];
@@ -2350,15 +2347,12 @@ class Analyzer final {
                "RESHAPE source and shape-vector arguments must be arrays/lists");
       return expression.inferred_type = ValueType::unknown;
     }
-    if (source.shape.size() > 1) {
-      diagnose(expression.location.line, "MPF2028",
-               "the current RESHAPE subset requires a rank-one source array/list");
-      return expression.inferred_type = ValueType::unknown;
-    }
     std::vector<std::size_t> dimensions;
     std::vector<const Expression*> dimension_expressions;
     if (matlab_dimensions) {
-      dimension_expressions = {&expression.children[2], &expression.children[3]};
+      for (std::size_t index = 2; index < expression.children.size(); ++index) {
+        dimension_expressions.push_back(&expression.children[index]);
+      }
     } else {
       for (const auto& dimension : expression.children[2].children) {
         dimension_expressions.push_back(&dimension);
@@ -2375,9 +2369,9 @@ class Analyzer final {
       }
       dimensions.push_back(static_cast<std::size_t>(*value));
     }
-    if (dimensions.empty() || dimensions.size() > 2) {
+    if (dimensions.empty()) {
       diagnose(expression.location.line, "MPF2027",
-               "only one- and two-dimensional RESHAPE is supported");
+               "RESHAPE requires at least one result dimension");
       return expression.inferred_type = ValueType::unknown;
     }
     std::size_t source_size = 1;

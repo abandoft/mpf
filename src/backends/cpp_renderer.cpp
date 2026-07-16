@@ -123,6 +123,7 @@ class Renderer final {
               << to_string(program.source_language) << " as portable C++17.\n";
     }
     output_ << "#include <algorithm>\n"
+               "#include <array>\n"
                "#include <cmath>\n"
                "#include <cstddef>\n"
                "#include <cstdint>\n"
@@ -341,6 +342,71 @@ class Renderer final {
            "allow_negative, inclusive)) result.push_back(values.at(position));\n"
            "  return result;\n"
            "}\n"
+           "template <typename T> struct is_vector : std::false_type {};\n"
+           "template <typename T> struct is_vector<std::vector<T>> : std::true_type {};\n"
+           "struct scalar_selector { std::int64_t value; };\n"
+           "struct slice_selector {\n"
+           "  std::optional<std::int64_t> start;\n"
+           "  std::optional<std::int64_t> stop;\n"
+           "  std::optional<std::int64_t> step;\n"
+           "  std::size_t base; bool allow_negative; bool inclusive;\n"
+           "};\n"
+           "template <typename T> struct is_slice_selector : std::false_type {};\n"
+           "template <> struct is_slice_selector<slice_selector> : std::true_type {};\n"
+           "template <std::size_t Dimension = 0, typename Values, typename Selectors> auto "
+           "section_nd(const Values& values, const Selectors& selectors, std::size_t base, "
+           "bool allow_negative) {\n"
+           "  if constexpr (Dimension == std::tuple_size<Selectors>::value) {\n"
+           "    return values;\n"
+           "  } else {\n"
+           "    const auto& selector = std::get<Dimension>(selectors);\n"
+           "    if constexpr (is_slice_selector<std::decay_t<decltype(selector)>>::value) {\n"
+           "      using child_type = typename Values::value_type;\n"
+           "      using result_type = decltype(section_nd<Dimension + 1>("
+           "std::declval<const child_type&>(), selectors, base, allow_negative));\n"
+           "      std::vector<result_type> result;\n"
+           "      const auto indices = slice_indices(values.size(), selector.start, "
+           "selector.stop, selector.step, selector.base, selector.allow_negative, "
+           "selector.inclusive);\n"
+           "      result.reserve(indices.size());\n"
+           "      for (const auto position : indices) result.push_back(section_nd<Dimension + "
+           "1>(values.at(position), selectors, base, allow_negative));\n"
+           "      return result;\n"
+           "    } else {\n"
+           "      return section_nd<Dimension + 1>(index(values, selector.value, base, "
+           "allow_negative), selectors, base, allow_negative);\n"
+           "    }\n"
+           "  }\n"
+           "}\n"
+           "template <std::size_t Dimension = 0, typename Values, typename Selectors, "
+           "typename Replacement> void assign_section_nd(Values& values, const Selectors& "
+           "selectors, std::size_t base, bool allow_negative, const Replacement& replacement) {\n"
+           "  if constexpr (Dimension == std::tuple_size<Selectors>::value) {\n"
+           "    if constexpr (std::is_arithmetic<Values>::value && "
+           "std::is_arithmetic<Replacement>::value) values = static_cast<Values>(replacement);\n"
+           "    else values = replacement;\n"
+           "  } else {\n"
+           "    const auto& selector = std::get<Dimension>(selectors);\n"
+           "    if constexpr (is_slice_selector<std::decay_t<decltype(selector)>>::value) {\n"
+           "      const auto indices = slice_indices(values.size(), selector.start, "
+           "selector.stop, selector.step, selector.base, selector.allow_negative, "
+           "selector.inclusive);\n"
+           "      if constexpr (is_vector<Replacement>::value) {\n"
+           "        if (indices.size() != replacement.size()) throw std::invalid_argument("
+           "\"MPF N-D section replacement size mismatch\");\n"
+           "        for (std::size_t position = 0; position < indices.size(); ++position) "
+           "assign_section_nd<Dimension + 1>(values.at(indices[position]), selectors, base, "
+           "allow_negative, replacement[position]);\n"
+           "      } else {\n"
+           "        for (const auto position : indices) assign_section_nd<Dimension + "
+           "1>(values.at(position), selectors, base, allow_negative, replacement);\n"
+           "      }\n"
+           "    } else {\n"
+           "      assign_section_nd<Dimension + 1>(index(values, selector.value, base, "
+           "allow_negative), selectors, base, allow_negative, replacement);\n"
+           "    }\n"
+           "  }\n"
+           "}\n"
            "inline std::pair<std::size_t, std::size_t> python_slice_window("
            "std::size_t size, std::optional<std::int64_t> start_value, "
            "std::optional<std::int64_t> stop_value) {\n"
@@ -535,23 +601,80 @@ class Renderer final {
            "template <typename T> std::size_t numel(const std::vector<T>& values) {\n"
            "  return numel_value(values);\n"
            "}\n"
-           "template <typename T> struct is_vector : std::false_type {};\n"
-           "template <typename T> struct is_vector<std::vector<T>> : std::true_type {};\n"
+           "template <typename T> void append_shape(const T&, std::vector<std::size_t>&) {}\n"
+           "template <typename T> void append_shape(const std::vector<T>& values, "
+           "std::vector<std::size_t>& shape) {\n"
+           "  shape.push_back(values.size());\n"
+           "  if (!values.empty()) append_shape(values.front(), shape);\n"
+           "}\n"
            "template <typename T> std::size_t length(const std::vector<T>& values) {\n"
-           "  if constexpr (is_vector<T>::value) {\n"
-           "    return values.empty() ? 0 : std::max(values.size(), values.front().size());\n"
+           "  std::vector<std::size_t> shape;\n"
+           "  append_shape(values, shape);\n"
+           "  return shape.empty() ? 0 : *std::max_element(shape.begin(), shape.end());\n"
+           "}\n"
+           "template <typename T, std::size_t Rank> struct nested_vector {\n"
+           "  using type = std::vector<typename nested_vector<T, Rank - 1>::type>;\n"
+           "};\n"
+           "template <typename T> struct nested_vector<T, 0> { using type = T; };\n"
+           "template <typename T, std::size_t Rank> using nested_vector_t = "
+           "typename nested_vector<T, Rank>::type;\n"
+           "template <std::size_t Dimension, std::size_t Rank, typename Scalar> auto "
+           "make_nested(const std::array<std::size_t, Rank>& shape) {\n"
+           "  if constexpr (Dimension == Rank) {\n"
+           "    return Scalar{};\n"
            "  } else {\n"
-           "    return values.size();\n"
+           "    auto child = make_nested<Dimension + 1, Rank, Scalar>(shape);\n"
+           "    return std::vector<decltype(child)>(shape[Dimension], child);\n"
            "  }\n"
            "}\n"
-           "template <typename T> std::vector<std::vector<T>> reshape_column_major("
-           "const std::vector<T>& values, std::size_t rows, std::size_t columns) {\n"
-           "  if (rows * columns != values.size()) "
+           "template <typename Values> scalar_type_t<Values>& nd_at(Values& values, "
+           "const std::vector<std::size_t>& coordinates, std::size_t dimension = 0) {\n"
+           "  if constexpr (is_vector<Values>::value) {\n"
+           "    return nd_at(values.at(coordinates.at(dimension)), coordinates, dimension + 1);\n"
+           "  } else {\n"
+           "    return values;\n"
+           "  }\n"
+           "}\n"
+           "template <typename Values> const scalar_type_t<Values>& nd_at(const Values& values, "
+           "const std::vector<std::size_t>& coordinates, std::size_t dimension = 0) {\n"
+           "  if constexpr (is_vector<Values>::value) {\n"
+           "    return nd_at(values.at(coordinates.at(dimension)), coordinates, dimension + 1);\n"
+           "  } else {\n"
+           "    return values;\n"
+           "  }\n"
+           "}\n"
+           "template <std::size_t Rank> std::size_t shape_size("
+           "const std::array<std::size_t, Rank>& shape) {\n"
+           "  std::size_t result = 1;\n"
+           "  for (const auto extent : shape) {\n"
+           "    if (extent == 0 || result > std::numeric_limits<std::size_t>::max() / extent) "
+           "throw std::length_error(\"MPF array shape exceeds size limits\");\n"
+           "    result *= extent;\n"
+           "  }\n"
+           "  return result;\n"
+           "}\n"
+           "template <std::size_t Rank> std::vector<std::size_t> "
+           "column_major_coordinates(std::size_t linear, "
+           "const std::array<std::size_t, Rank>& shape) {\n"
+           "  std::vector<std::size_t> result; result.reserve(Rank);\n"
+           "  for (const auto extent : shape) { result.push_back(linear % extent); linear /= "
+           "extent; }\n"
+           "  return result;\n"
+           "}\n"
+           "template <typename Values, std::size_t SourceRank, std::size_t TargetRank> auto "
+           "reshape_column_major_nd(const Values& values, "
+           "const std::array<std::size_t, SourceRank>& source_shape, "
+           "const std::array<std::size_t, TargetRank>& target_shape) {\n"
+           "  static_assert(SourceRank > 0 && TargetRank > 0, \"MPF RESHAPE rank must be "
+           "positive\");\n"
+           "  const auto source_size = shape_size(source_shape);\n"
+           "  if (source_size != shape_size(target_shape)) "
            "throw std::invalid_argument(\"MPF RESHAPE size mismatch\");\n"
-           "  std::vector<std::vector<T>> result(rows, std::vector<T>(columns));\n"
-           "  for (std::size_t column = 0; column < columns; ++column)\n"
-           "    for (std::size_t row = 0; row < rows; ++row)\n"
-           "      result[row][column] = values[row + column * rows];\n"
+           "  auto result = make_nested<0, TargetRank, scalar_type_t<Values>>(target_shape);\n"
+           "  for (std::size_t linear = 0; linear < source_size; ++linear) {\n"
+           "    nd_at(result, column_major_coordinates(linear, target_shape)) = "
+           "nd_at(values, column_major_coordinates(linear, source_shape));\n"
+           "  }\n"
            "  return result;\n"
            "}\n";
     if (include_python_runtime) {
@@ -675,6 +798,35 @@ class Renderer final {
             << ", " << (slice.slice_stop_inclusive ? "true" : "false");
   }
 
+  void emit_shape_array(const std::vector<std::size_t>& shape) {
+    output_ << "std::array<std::size_t, " << shape.size() << ">{";
+    for (std::size_t index = 0; index < shape.size(); ++index) {
+      if (index != 0) output_ << ", ";
+      output_ << shape[index];
+    }
+    output_ << '}';
+  }
+
+  void emit_selector_tuple(const Expression& expression) {
+    output_ << "std::make_tuple(";
+    for (std::size_t index = 1; index < expression.children.size(); ++index) {
+      if (index != 1) output_ << ", ";
+      const auto& selector = expression.children[index];
+      if (selector.kind == ExpressionKind::slice) {
+        output_ << "mpf_runtime::slice_selector{";
+        emit_slice_bounds(selector);
+        output_ << ", " << expression.index_base << ", "
+                << (expression.allow_negative_index ? "true" : "false") << ", "
+                << (selector.slice_stop_inclusive ? "true" : "false") << '}';
+      } else {
+        output_ << "mpf_runtime::scalar_selector{static_cast<std::int64_t>(";
+        emit_expression(selector);
+        output_ << ")}";
+      }
+    }
+    output_ << ')';
+  }
+
   void emit_runtime_index(const Expression& container, const Expression& index_expression,
                           const Expression& index_metadata) {
     output_ << "mpf_runtime::index(";
@@ -706,6 +858,17 @@ class Renderer final {
 
   void emit_section_assignment(const Expression& target, const Expression& replacement) {
     const auto selector_count = target.children.size() - 1;
+    if (selector_count > 2) {
+      output_ << "mpf_runtime::assign_section_nd(";
+      emit_expression(target.children[0]);
+      output_ << ", ";
+      emit_selector_tuple(target);
+      output_ << ", " << target.index_base << ", "
+              << (target.allow_negative_index ? "true" : "false") << ", ";
+      emit_section_replacement(target, replacement);
+      output_ << ')';
+      return;
+    }
     if (selector_count == 1) {
       const auto& slice = target.children[1];
       if (target.column_major && target.children[0].shape.size() > 1) {
@@ -960,14 +1123,14 @@ class Renderer final {
             }
             if (callee.binding == BindingKind::builtin &&
                 callee.intrinsic == IntrinsicId::reshape &&
-                (expression.children.size() == 3 || expression.children.size() == 4)) {
-              if (expression.shape.size() == 1) {
-                emit_expression(expression.children[1]);
-              } else {
-                output_ << "mpf_runtime::reshape_column_major(";
-                emit_expression(expression.children[1]);
-                output_ << ", " << expression.shape[0] << ", " << expression.shape[1] << ')';
-              }
+                expression.children.size() >= 3) {
+              output_ << "mpf_runtime::reshape_column_major_nd(";
+              emit_expression(expression.children[1]);
+              output_ << ", ";
+              emit_shape_array(expression.children[1].shape);
+              output_ << ", ";
+              emit_shape_array(expression.shape);
+              output_ << ')';
               break;
             }
             output_ << (callee.binding == BindingKind::builtin ? mapped_identifier(callee)
@@ -1030,7 +1193,12 @@ class Renderer final {
               output_ << ')';
             }
           } else {
-            output_ << "0";
+            output_ << "mpf_runtime::section_nd(";
+            emit_expression(expression.children[0]);
+            output_ << ", ";
+            emit_selector_tuple(expression);
+            output_ << ", " << expression.index_base << ", "
+                    << (expression.allow_negative_index ? "true" : "false") << ')';
           }
         } else if (expression.column_major && expression.children.size() == 2 &&
                    expression.children[0].shape.size() > 1) {
