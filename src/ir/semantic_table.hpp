@@ -27,6 +27,7 @@ struct ExpressionFacts {
   std::size_t requested_outputs{1};
   bool multi_output_call{false};
   std::vector<ParameterIntent> argument_intents;
+  std::vector<std::string> argument_names;
   std::vector<bool> argument_optional_forward;
   bool procedure_has_result{false};
   std::size_t index_base{0};
@@ -58,6 +59,7 @@ struct StatementFacts {
   std::vector<std::vector<std::size_t>> return_shapes;
   bool return_sequence_is_list{false};
   std::vector<ValueMetadata> return_sequence_elements;
+  AssignmentPattern target_pattern;
   std::vector<ValueType> target_types;
   std::vector<ValueType> target_element_types;
   std::vector<std::vector<std::size_t>> target_shapes;

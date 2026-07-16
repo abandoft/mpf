@@ -14,18 +14,17 @@ bool valid_offset(const std::uint32_t offset, const std::vector<Facts>& facts) n
 
 void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation location,
                const std::string_view stage, std::string message) {
-  diagnostics.push_back({DiagnosticSeverity::error, "MPF0005",
-                         "invalid semantic table at '" + std::string(stage) + "': " +
-                             std::move(message),
-                         location});
+  diagnostics.push_back(
+      {DiagnosticSeverity::error, "MPF0005",
+       "invalid semantic table at '" + std::string(stage) + "': " + std::move(message), location});
 }
 
 void add_expression(Program& program, Expression& expression, SemanticTable& result) {
   if (!expression.valid()) return;
   const auto offset = result.expressions.size();
   if (offset > std::numeric_limits<std::uint32_t>::max()) return;
-  result.nodes[expression.id.value()] =
-      {SemanticNodeKind::expression, static_cast<std::uint32_t>(offset)};
+  result.nodes[expression.id.value()] = {SemanticNodeKind::expression,
+                                         static_cast<std::uint32_t>(offset)};
   ExpressionFacts facts;
   facts.origin = expression.id;
   facts.inferred_type = std::exchange(expression.inferred_type, ValueType::unknown);
@@ -41,6 +40,7 @@ void add_expression(Program& program, Expression& expression, SemanticTable& res
   facts.requested_outputs = std::exchange(expression.requested_outputs, 1U);
   facts.multi_output_call = std::exchange(expression.multi_output_call, false);
   facts.argument_intents = std::move(expression.argument_intents);
+  facts.argument_names = std::move(expression.argument_names);
   facts.argument_optional_forward = std::move(expression.argument_optional_forward);
   facts.procedure_has_result = std::exchange(expression.procedure_has_result, false);
   facts.index_base = std::exchange(expression.index_base, 0U);
@@ -54,15 +54,14 @@ void add_expression(Program& program, Expression& expression, SemanticTable& res
 void add_statement(Program& program, Statement& statement, SemanticTable& result) {
   const auto offset = result.statements.size();
   if (offset > std::numeric_limits<std::uint32_t>::max()) return;
-  result.nodes[statement.id.value()] =
-      {SemanticNodeKind::statement, static_cast<std::uint32_t>(offset)};
+  result.nodes[statement.id.value()] = {SemanticNodeKind::statement,
+                                        static_cast<std::uint32_t>(offset)};
   StatementFacts facts;
   facts.origin = statement.id;
   facts.declared_type = std::exchange(statement.declared_type, ValueType::unknown);
   facts.element_type = std::exchange(statement.element_type, ValueType::unknown);
   facts.previous_type = std::exchange(statement.previous_type, ValueType::unknown);
-  facts.previous_element_type =
-      std::exchange(statement.previous_element_type, ValueType::unknown);
+  facts.previous_element_type = std::exchange(statement.previous_element_type, ValueType::unknown);
   facts.parameter_intent = std::exchange(statement.parameter_intent, ParameterIntent::none);
   facts.optional_parameter = std::exchange(statement.optional_parameter, false);
   facts.dummy_parameter = std::exchange(statement.dummy_parameter, false);
@@ -80,6 +79,7 @@ void add_statement(Program& program, Statement& statement, SemanticTable& result
   facts.return_shapes = std::move(statement.return_shapes);
   facts.return_sequence_is_list = std::exchange(statement.return_sequence_is_list, false);
   facts.return_sequence_elements = std::move(statement.return_sequence_elements);
+  facts.target_pattern = std::exchange(statement.target_pattern, AssignmentPattern{});
   facts.target_types = std::move(statement.target_types);
   facts.target_element_types = std::move(statement.target_element_types);
   facts.target_shapes = std::move(statement.target_shapes);
@@ -119,6 +119,11 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
     add_error(diagnostics, expression.location, stage,
               "tuple type, element-type, and shape arities disagree");
   }
+  if (expression.kind == ExpressionKind::call && !facts->argument_names.empty() &&
+      facts->argument_names.size() + 1U != expression.children.size()) {
+    add_error(diagnostics, expression.location, stage,
+              "normalized call argument-name arity disagrees with HIR");
+  }
   for (const auto& child : expression.children) {
     verify_expression(child, table, seen, stage, diagnostics);
   }
@@ -149,14 +154,17 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
                 "function parameter semantic arity disagrees with HIR");
     }
     const auto returns = statement.return_names.size();
-    if (returns != 0 &&
-        (!compatible_arity(facts->return_types.size(), returns) ||
-         !compatible_arity(facts->return_element_types.size(), returns) ||
-         !compatible_arity(facts->return_shapes.size(), returns))) {
+    if (returns != 0 && (!compatible_arity(facts->return_types.size(), returns) ||
+                         !compatible_arity(facts->return_element_types.size(), returns) ||
+                         !compatible_arity(facts->return_shapes.size(), returns))) {
       add_error(diagnostics, {statement.line, 1}, stage,
                 "function result semantic arity disagrees with HIR");
     }
     const auto targets = statement.target_names.size();
+    if (statement.has_target_pattern && !facts->target_pattern.valid()) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "analyzed assignment pattern is missing from the semantic table");
+    }
     if (!compatible_arity(facts->target_types.size(), targets) ||
         !compatible_arity(facts->target_element_types.size(), targets) ||
         !compatible_arity(facts->target_shapes.size(), targets) ||

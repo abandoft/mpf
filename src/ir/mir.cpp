@@ -201,7 +201,7 @@ class Builder final {
       result.return_sequence_elements = semantic_facts->return_sequence_elements;
     }
     result.target_names = std::move(source.target_names);
-    result.target_pattern = std::move(source.target_pattern);
+    if (semantic_facts != nullptr) result.target_pattern = semantic_facts->target_pattern;
     result.has_target_pattern = source.has_target_pattern;
     if (semantic_facts != nullptr) {
       result.target_types = semantic_facts->target_types;
@@ -451,6 +451,7 @@ class Builder final {
       result.requested_outputs = semantic_facts->requested_outputs;
       result.multi_output_call = semantic_facts->multi_output_call;
       result.argument_intents = semantic_facts->argument_intents;
+      result.argument_names = semantic_facts->argument_names;
       result.argument_optional_forward = semantic_facts->argument_optional_forward;
       result.procedure_has_result = semantic_facts->procedure_has_result;
       result.index_base = semantic_facts->index_base;
@@ -458,7 +459,6 @@ class Builder final {
       result.column_major = semantic_facts->column_major;
       result.slice_stop_inclusive = semantic_facts->slice_stop_inclusive;
     }
-    result.argument_names = std::move(source.argument_names);
     if (!result.valid()) return result;
 
     result.type_id = intern_type(result.inferred_type, result.element_type);

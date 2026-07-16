@@ -112,8 +112,8 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
   REQUIRE(first_semantics.find("semantic-v1") != std::string::npos);
 
-  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
-                                               std::move(analysis.semantics));
+  auto mir =
+      mpf::detail::mir::lower_from_hir(std::move(lowered.program), std::move(analysis.semantics));
   REQUIRE(mir.diagnostics.empty());
   const auto first_mir = mpf::detail::dump_mir(mir.program);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program));
@@ -130,29 +130,35 @@ TEST_CASE("Analyzer owns complete revision-checked dense semantic side tables") 
   REQUIRE(analysis.semantics.hir_node_count == nodes);
   REQUIRE(analysis.semantics.nodes.size() == nodes + 1U);
   REQUIRE(analysis.semantics.hir_revision == lowered.program.revision);
-  REQUIRE(analysis.semantics.nodes.front().kind ==
-          mpf::detail::hir::SemanticNodeKind::absent);
+  REQUIRE(analysis.semantics.nodes.front().kind == mpf::detail::hir::SemanticNodeKind::absent);
   for (std::size_t id = 1; id <= nodes; ++id) {
-    REQUIRE(analysis.semantics.nodes[id].kind !=
-            mpf::detail::hir::SemanticNodeKind::absent);
+    REQUIRE(analysis.semantics.nodes[id].kind != mpf::detail::hir::SemanticNodeKind::absent);
   }
   const auto assignment_id = lowered.program.statements.front().id;
   const auto* assignment = analysis.semantics.statement(assignment_id);
   REQUIRE(assignment != nullptr);
   REQUIRE(assignment->declared_type == mpf::detail::ValueType::list);
   REQUIRE((assignment->shape == std::vector<std::size_t>{2, 2}));
-  REQUIRE(lowered.program.statements.front().declared_type ==
-          mpf::detail::ValueType::unknown);
+  REQUIRE(lowered.program.statements.front().declared_type == mpf::detail::ValueType::unknown);
   REQUIRE(lowered.program.statements.front().shape.empty());
   REQUIRE(mpf::detail::hir::verify_semantics(lowered.program, analysis.semantics, "test").empty());
 
   auto stale = analysis.semantics;
   ++lowered.program.revision;
   REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, stale, "stale").empty());
-  auto failed =
-      mpf::detail::mir::lower_from_hir(std::move(lowered.program), std::move(stale));
+  auto failed = mpf::detail::mir::lower_from_hir(std::move(lowered.program), std::move(stale));
   REQUIRE(!failed.diagnostics.empty());
   REQUIRE(failed.program.instructions.size() == 1U);
+
+  auto unpacked = lower_python("left, right = (20, 22)\nprint(left + right)\n");
+  auto unpacked_analysis = mpf::detail::analyze_program(unpacked.program);
+  REQUIRE(unpacked_analysis.empty());
+  const auto unpack_id = unpacked.program.statements.front().id;
+  const auto* unpack_facts = unpacked_analysis.semantics.statement(unpack_id);
+  REQUIRE(unpack_facts != nullptr);
+  REQUIRE(unpack_facts->target_pattern.valid());
+  REQUIRE(unpack_facts->target_pattern.children.size() == 2U);
+  REQUIRE(!unpacked.program.statements.front().target_pattern.valid());
 }
 
 TEST_CASE("HIR lowers to typed CFG MIR with shape storage and effects") {
@@ -169,8 +175,8 @@ TEST_CASE("HIR lowers to typed CFG MIR with shape storage and effects") {
       "print(counter)\n");
   auto analysis = mpf::detail::analyze_program(lowered.program);
   REQUIRE(analysis.empty());
-  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
-                                               std::move(analysis.semantics));
+  auto mir =
+      mpf::detail::mir::lower_from_hir(std::move(lowered.program), std::move(analysis.semantics));
   REQUIRE(mir.diagnostics.empty());
   REQUIRE(mir.program.functions.size() > 1);
   REQUIRE(mir.program.blocks.size() > 2);
@@ -238,8 +244,8 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   auto lowered = lower_python("print(abs(-2))\n");
   auto analysis = mpf::detail::analyze_program(lowered.program);
   REQUIRE(analysis.empty());
-  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
-                                               std::move(analysis.semantics));
+  auto mir =
+      mpf::detail::mir::lower_from_hir(std::move(lowered.program), std::move(analysis.semantics));
   REQUIRE(mir.diagnostics.empty());
   mpf::TranspileOptions options;
   auto javascript = mpf::detail::javascript::lower(mir.program, options);
@@ -277,8 +283,8 @@ TEST_CASE("frontend and backend extension conformance harnesses are reusable") {
   REQUIRE(hir.diagnostics.empty());
   auto analysis = mpf::detail::analyze_program(hir.program);
   REQUIRE(analysis.empty());
-  auto mir = mpf::detail::mir::lower_from_hir(std::move(hir.program),
-                                               std::move(analysis.semantics));
+  auto mir =
+      mpf::detail::mir::lower_from_hir(std::move(hir.program), std::move(analysis.semantics));
   REQUIRE(mir.diagnostics.empty());
   const auto* javascript = mpf::detail::find_backend(mpf::TargetLanguage::javascript);
   const auto* cpp = mpf::detail::find_backend(mpf::TargetLanguage::cpp);
@@ -304,8 +310,8 @@ TEST_CASE("MIR verifier rejects ownership control-flow and dominance corruption"
       "print(choose(1))\n");
   auto analysis = mpf::detail::analyze_program(lowered.program);
   REQUIRE(analysis.empty());
-  auto lowered_mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
-                                                       std::move(analysis.semantics));
+  auto lowered_mir =
+      mpf::detail::mir::lower_from_hir(std::move(lowered.program), std::move(analysis.semantics));
   REQUIRE(lowered_mir.diagnostics.empty());
 
   auto missing_definition = lowered_mir.program;
@@ -341,10 +347,9 @@ TEST_CASE("MIR verifier rejects ownership control-flow and dominance corruption"
       "print(value)\n");
   auto phi_analysis = mpf::detail::analyze_program(lowered_with_phi.program);
   REQUIRE(phi_analysis.empty());
-  auto bad_edge_arguments =
-      mpf::detail::mir::lower_from_hir(std::move(lowered_with_phi.program),
-                                       std::move(phi_analysis.semantics))
-          .program;
+  auto bad_edge_arguments = mpf::detail::mir::lower_from_hir(std::move(lowered_with_phi.program),
+                                                             std::move(phi_analysis.semantics))
+                                .program;
   const auto argument_edge =
       std::find_if(bad_edge_arguments.blocks.begin() + 1, bad_edge_arguments.blocks.end(),
                    [](const mpf::detail::mir::BasicBlock& candidate) {
