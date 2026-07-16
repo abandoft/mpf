@@ -1,17 +1,11 @@
-## Unreleased
+## 0.3.4
 
-当前无待发布变更。
-
-## 0.3.4 - 2026-07-16
-
-- 版本线按十进制进位规则从 `0.0.1` 重新编号：patch 只使用 `0`—`9`，`0.2.9` 后为 `0.3.0`；原 `0.1.0`—`0.33.0` 对应 `0.0.1`—`0.3.3`，本版本为 `0.3.4`。CMake 成为唯一版本源并生成公共版本头、CLI 与 package version。
 - Analyzer 当前全部节点输出迁入按 `HirNodeId` O(1) 索引的紧凑 `SemanticTable`；表绑定 HIR revision，verifier 检查完整 ID 覆盖、origin 和关联 arity。分析结束后类型、shape、binding、call argument association、递归 assignment-pattern 路径及 flow 元数据从 HIR move-extract，MIR 对缺失/陈旧表失败关闭且不再读取 HIR 语义投影。
 - 一般静态 rank 对象语义扩展到任意维常量声明、嵌套 shape、RESHAPE、直接 index/section 读取与写入。JavaScript 使用通用 column-major 坐标递归，`cpp` 使用 C++17 模板递归构造/选择/写回嵌套 vector；新增三维 Fortran tensor 由 gfortran、Node.js 和生成 C++ 实际执行的差分门禁。
 - Frontend descriptor 升级到 API v5：manifest 声明 minimum/maximum language version、能力 bitset 与完整 resource-limit contract；生产驱动和 conformance 通过工厂为每次编译创建独立 parser session。公共 `LanguageVersion`、CLI `--language-version` 和 `MPF1201` 失败关闭已接入；首批 feature gate 覆盖 Python 3.8 positional-only parameter 与 Fortran 2003 bracket array constructor，并接受 Python `pass`、Fortran `CONTINUE` no-op 产生式。
 - 删除职责泛化的 `.github/workflows/ci.yml`，GitHub Actions 改为 validation、跨平台/差分、质量、Sanitizer、覆盖率、性能、安全和发布独立失败域；统一最小权限、并发取消、超时、失败产物和发布 SHA-256，并将 GitHub Actions 的 Dependabot 更新合并为每周一个批次。官方 setup、artifact 与发布 Action 全部升级到 Node.js 24 运行时版本，消除 Node.js 20 退役告警。Fortran 外部 oracle 回退到 gfortran 实际支持的严格 `f2018`；安全 workflow 显式探测 GitHub Advanced Security 能力，区分订阅不可用与代码失败；修复 MSVC `/WX` 发现的生成 C++ bool/int 比较、常量步长条件和无条件 `break` 后递增不可达警告。
 - `.gitignore` 补齐 CMake/Ninja、跨平台编译产物、coverage/profile/sanitizer/fuzz、Python/Node.js、IDE 和 OS 本地状态，同时保留可入库的环境示例。
 - 内部测试增至 145 项、differential corpus 增至 48 个（Python 20、Fortran 18、Matlab 10），CTest 增至 59 项；工具完整环境共执行 134 条源语言/Node.js/生成 C++ 程序路径。
-
 - 生产驱动切换为“语言 AST artifact → HIR → MIR → JavaScript LIR/`cpp` LIR → Emitter”；新增强类型 AST/HIR/MIR/LIR identity、逐层 verifier、opaque backend artifact，删除共享 `Program` 直通 emitter 的路径。
 - 新增 thread-confined `CompilationSession` 基础、HIR/MIR/LIR 强类型 pass manager、revision-aware `AnalysisManager`、preserved-analysis 失效、逐 pass verifier、耗时 instrumentation，以及确定性的 HIR/MIR textual dump。
 - MIR 新增稠密 type/shape/storage/instruction/function/basic-block 表和结构化 effect；当前 if/loop/loop-else/`break`/`continue`/`SELECT CASE` 生成真实 edge、block argument 与 edge actual，shape 保存 canonical stride，storage 保存 view/base/lifetime/intent 和保守 alias relation；统一 `alias_between` 为 pass 提供 fail-safe 查询。verifier 覆盖 ownership、edge arity、定义顺序、dominance 及 type/shape/storage/alias metadata。
