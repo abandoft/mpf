@@ -221,10 +221,12 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v1") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v2") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v1") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
   REQUIRE(first_mir.find("terminator op") != std::string::npos);
+  REQUIRE(first_mir.find("expression %mexpr") != std::string::npos);
+  REQUIRE(first_mir.find("operation %mstmt") != std::string::npos);
 }
 
 TEST_CASE("MIR alias and effect analysis is independent revision-bound and cacheable") {
@@ -511,6 +513,9 @@ TEST_CASE("HIR lowers to typed CFG MIR with shape storage and effects") {
   REQUIRE(mir.program.functions.size() > 1);
   REQUIRE(mir.program.blocks.size() > 2);
   REQUIRE(mir.program.instructions.size() > 1);
+  REQUIRE(mir.program.expressions.size() > 1);
+  REQUIRE(mir.program.statements.size() > 1);
+  REQUIRE(!mir.program.roots.empty());
   REQUIRE(mir.program.types.size() > 1);
   REQUIRE(mir.program.shapes.size() > 1);
   REQUIRE(mir.program.storages.size() > 1);
@@ -565,6 +570,49 @@ TEST_CASE("HIR lowers to typed CFG MIR with shape storage and effects") {
                       }));
   REQUIRE(mpf::detail::mir::verify(mir.program, "test").empty());
   REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, alias_effects, "test").empty());
+}
+
+TEST_CASE("MIR owns dense flat value and operation arenas tied to instructions") {
+  auto lowered = lower_python(
+      "value = 1\n"
+      "if value > 0:\n"
+      "    print(value)\n"
+      "else:\n"
+      "    print(0)\n");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  auto lowered_mir = mpf::detail::mir::lower_from_hir(
+      std::move(lowered.program), std::move(analysis.semantics), analysis.names);
+  REQUIRE(lowered_mir.diagnostics.empty());
+  const auto& program = lowered_mir.program;
+  REQUIRE(program.expressions.front().id == mpf::detail::MirExpressionId{});
+  REQUIRE(program.statements.front().id == mpf::detail::MirStatementId{});
+  for (std::size_t index = 1; index < program.expressions.size(); ++index) {
+    const auto& expression = program.expressions[index];
+    REQUIRE(expression.id.value() == index);
+    REQUIRE(expression.instruction.valid());
+    REQUIRE(expression.instruction.value() < program.instructions.size());
+    REQUIRE(program.instructions[expression.instruction.value()].result == expression.value_id);
+  }
+  for (std::size_t index = 1; index < program.statements.size(); ++index) {
+    const auto& statement = program.statements[index];
+    REQUIRE(statement.id.value() == index);
+    REQUIRE(statement.instruction.valid());
+    REQUIRE(statement.instruction.value() < program.instructions.size());
+  }
+
+  auto bad_expression_edge = program;
+  const auto parent = std::find_if(
+      bad_expression_edge.expressions.begin() + 1, bad_expression_edge.expressions.end(),
+      [](const mpf::detail::mir::Expression& expression) { return !expression.children.empty(); });
+  REQUIRE(parent != bad_expression_edge.expressions.end());
+  parent->children.front() = mpf::detail::MirExpressionId{999999};
+  REQUIRE(!mpf::detail::mir::verify(bad_expression_edge, "bad-expression-arena").empty());
+
+  auto bad_operation_owner = program;
+  REQUIRE(!bad_operation_owner.roots.empty());
+  bad_operation_owner.roots.push_back(bad_operation_owner.roots.front());
+  REQUIRE(!mpf::detail::mir::verify(bad_operation_owner, "bad-operation-arena").empty());
 }
 
 TEST_CASE("MIR interns tuple function and reference signatures across call sites") {

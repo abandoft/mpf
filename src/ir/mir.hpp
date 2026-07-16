@@ -202,13 +202,15 @@ struct CallSite {
 };
 
 struct Expression {
+  MirExpressionId id{};
+  InstructionId instruction{};
   HirNodeId origin{};
   SourceLocation location{};
   ExpressionKind kind{ExpressionKind::invalid};
   std::string value;
   ComparisonOperator comparison{ComparisonOperator::none};
   std::vector<ComparisonOperator> comparisons;
-  std::vector<Expression> children;
+  std::vector<MirExpressionId> children;
   ValueType inferred_type{ValueType::unknown};
   BindingKind binding{BindingKind::unresolved};
   IntrinsicId intrinsic{IntrinsicId::none};
@@ -239,25 +241,27 @@ struct Expression {
 };
 
 struct CaseSelector {
-  Expression lower;
+  MirExpressionId lower{};
   bool has_lower{false};
-  Expression upper;
+  MirExpressionId upper{};
   bool has_upper{false};
   bool range{false};
 };
 
 struct Statement {
+  MirStatementId id{};
+  InstructionId instruction{};
   HirNodeId origin{};
   StatementKind kind{StatementKind::expression};
   std::size_t line{1};
   std::string name;
   SymbolId symbol_id{};
-  Expression expression;
+  MirExpressionId expression{};
   bool has_expression{false};
   bool procedure_call{false};
-  Expression secondary_expression;
+  MirExpressionId secondary_expression{};
   bool has_secondary_expression{false};
-  Expression tertiary_expression;
+  MirExpressionId tertiary_expression{};
   bool has_tertiary_expression{false};
   bool inclusive_stop{false};
   bool retain_last_loop_value{true};
@@ -271,12 +275,12 @@ struct Statement {
   std::vector<std::size_t> shape;
   std::size_t index_base{0};
   bool allow_negative_index{false};
-  Expression target_expression;
+  MirExpressionId target_expression{};
   bool has_target_expression{false};
   std::vector<std::string> parameters;
   std::vector<SymbolId> parameter_symbols;
   std::vector<ParameterKind> parameter_kinds;
-  std::vector<Expression> parameter_defaults;
+  std::vector<MirExpressionId> parameter_defaults;
   std::vector<ParameterIntent> parameter_intents;
   std::vector<bool> parameter_optional;
   std::vector<ValueType> parameter_types;
@@ -299,14 +303,16 @@ struct Statement {
   std::vector<ValueType> target_previous_element_types;
   std::vector<CaseSelector> case_selectors;
   bool default_case{false};
-  std::vector<Statement> body;
-  std::vector<Statement> alternative;
+  std::vector<MirStatementId> body;
+  std::vector<MirStatementId> alternative;
 };
 
 struct Program {
   SourceLanguage source_language{SourceLanguage::automatic};
   semantic::Profile semantics{};
+  std::vector<Expression> expressions;
   std::vector<Statement> statements;
+  std::vector<MirStatementId> roots;
   std::vector<TypeData> types;
   std::vector<ShapeData> shapes;
   std::vector<StorageData> storages;
@@ -317,6 +323,11 @@ struct Program {
   std::size_t hir_node_count{0};
   std::uint64_t revision{0};
 };
+
+[[nodiscard]] const Expression* expression(const Program& program, MirExpressionId id) noexcept;
+[[nodiscard]] Expression* expression(Program& program, MirExpressionId id) noexcept;
+[[nodiscard]] const Statement* statement(const Program& program, MirStatementId id) noexcept;
+[[nodiscard]] Statement* statement(Program& program, MirStatementId id) noexcept;
 
 struct StorageAliasFacts {
   StorageId origin{};

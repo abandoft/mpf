@@ -10,10 +10,14 @@
 namespace mpf::detail {
 
 template <typename LirExpression, typename ResolveBinding>
-LirExpression lower_lir_expression(const mir::Expression& source, IrIdAllocator<LirNodeId>& ids,
+LirExpression lower_lir_expression(const mir::Program& program, const MirExpressionId source_id,
+                                   IrIdAllocator<LirNodeId>& ids,
                                    const ResolveBinding& resolve_binding,
                                    const std::vector<const mir::CallSite*>& call_sites) {
   LirExpression result;
+  const auto* source_node = mir::expression(program, source_id);
+  if (source_node == nullptr) return result;
+  const auto& source = *source_node;
   if (source.valid()) result.id = ids.next();
   result.origin = source.origin;
   result.location = source.location;
@@ -24,7 +28,7 @@ LirExpression lower_lir_expression(const mir::Expression& source, IrIdAllocator<
   result.children.reserve(source.children.size());
   for (const auto& child : source.children) {
     result.children.push_back(
-        lower_lir_expression<LirExpression>(child, ids, resolve_binding, call_sites));
+        lower_lir_expression<LirExpression>(program, child, ids, resolve_binding, call_sites));
   }
   result.inferred_type = source.inferred_type;
   result.binding = source.binding;
@@ -62,14 +66,14 @@ LirExpression lower_lir_expression(const mir::Expression& source, IrIdAllocator<
 
 template <typename LirSelector, typename LirExpression, typename ResolveBinding>
 LirSelector lower_lir_selector(const mir::CaseSelector& source, IrIdAllocator<LirNodeId>& ids,
-                               const ResolveBinding& resolve_binding,
+                               const mir::Program& program, const ResolveBinding& resolve_binding,
                                const std::vector<const mir::CallSite*>& call_sites) {
   LirSelector result;
   result.lower =
-      lower_lir_expression<LirExpression>(source.lower, ids, resolve_binding, call_sites);
+      lower_lir_expression<LirExpression>(program, source.lower, ids, resolve_binding, call_sites);
   result.has_lower = source.has_lower;
   result.upper =
-      lower_lir_expression<LirExpression>(source.upper, ids, resolve_binding, call_sites);
+      lower_lir_expression<LirExpression>(program, source.upper, ids, resolve_binding, call_sites);
   result.has_upper = source.has_upper;
   result.range = source.range;
   return result;
@@ -77,24 +81,28 @@ LirSelector lower_lir_selector(const mir::CaseSelector& source, IrIdAllocator<Li
 
 template <typename LirStatement, typename LirExpression, typename LirSelector,
           typename ResolveBinding>
-LirStatement lower_lir_statement(const mir::Statement& source, IrIdAllocator<LirNodeId>& ids,
+LirStatement lower_lir_statement(const mir::Program& program, const MirStatementId source_id,
+                                 IrIdAllocator<LirNodeId>& ids,
                                  const ResolveBinding& resolve_binding,
                                  const std::vector<const mir::CallSite*>& call_sites) {
   LirStatement result;
+  const auto* source_node = mir::statement(program, source_id);
+  if (source_node == nullptr) return result;
+  const auto& source = *source_node;
   result.id = ids.next();
   result.origin = source.origin;
   result.kind = source.kind;
   result.line = source.line;
   result.name = source.name;
-  result.expression =
-      lower_lir_expression<LirExpression>(source.expression, ids, resolve_binding, call_sites);
+  result.expression = lower_lir_expression<LirExpression>(program, source.expression, ids,
+                                                          resolve_binding, call_sites);
   result.has_expression = source.has_expression;
   result.procedure_call = source.procedure_call;
   result.secondary_expression = lower_lir_expression<LirExpression>(
-      source.secondary_expression, ids, resolve_binding, call_sites);
+      program, source.secondary_expression, ids, resolve_binding, call_sites);
   result.has_secondary_expression = source.has_secondary_expression;
-  result.tertiary_expression = lower_lir_expression<LirExpression>(source.tertiary_expression, ids,
-                                                                   resolve_binding, call_sites);
+  result.tertiary_expression = lower_lir_expression<LirExpression>(
+      program, source.tertiary_expression, ids, resolve_binding, call_sites);
   result.has_tertiary_expression = source.has_tertiary_expression;
   result.inclusive_stop = source.inclusive_stop;
   result.retain_last_loop_value = source.retain_last_loop_value;
@@ -108,15 +116,15 @@ LirStatement lower_lir_statement(const mir::Statement& source, IrIdAllocator<Lir
   result.shape = source.shape;
   result.index_base = source.index_base;
   result.allow_negative_index = source.allow_negative_index;
-  result.target_expression = lower_lir_expression<LirExpression>(source.target_expression, ids,
-                                                                 resolve_binding, call_sites);
+  result.target_expression = lower_lir_expression<LirExpression>(program, source.target_expression,
+                                                                 ids, resolve_binding, call_sites);
   result.has_target_expression = source.has_target_expression;
   result.parameters = source.parameters;
   result.parameter_kinds = source.parameter_kinds;
   result.parameter_defaults.reserve(source.parameter_defaults.size());
-  for (const auto& expression : source.parameter_defaults) {
+  for (const auto expression : source.parameter_defaults) {
     result.parameter_defaults.push_back(
-        lower_lir_expression<LirExpression>(expression, ids, resolve_binding, call_sites));
+        lower_lir_expression<LirExpression>(program, expression, ids, resolve_binding, call_sites));
   }
   result.parameter_intents = source.parameter_intents;
   result.parameter_optional = source.parameter_optional;
@@ -140,19 +148,19 @@ LirStatement lower_lir_statement(const mir::Statement& source, IrIdAllocator<Lir
   result.target_previous_element_types = source.target_previous_element_types;
   result.case_selectors.reserve(source.case_selectors.size());
   for (const auto& selector : source.case_selectors) {
-    result.case_selectors.push_back(
-        lower_lir_selector<LirSelector, LirExpression>(selector, ids, resolve_binding, call_sites));
+    result.case_selectors.push_back(lower_lir_selector<LirSelector, LirExpression>(
+        selector, ids, program, resolve_binding, call_sites));
   }
   result.default_case = source.default_case;
   result.body.reserve(source.body.size());
-  for (const auto& statement : source.body) {
+  for (const auto statement : source.body) {
     result.body.push_back(lower_lir_statement<LirStatement, LirExpression, LirSelector>(
-        statement, ids, resolve_binding, call_sites));
+        program, statement, ids, resolve_binding, call_sites));
   }
   result.alternative.reserve(source.alternative.size());
-  for (const auto& statement : source.alternative) {
+  for (const auto statement : source.alternative) {
     result.alternative.push_back(lower_lir_statement<LirStatement, LirExpression, LirSelector>(
-        statement, ids, resolve_binding, call_sites));
+        program, statement, ids, resolve_binding, call_sites));
   }
   return result;
 }
@@ -170,10 +178,10 @@ std::unique_ptr<LirProgram> lower_structured_lir(const mir::Program& source,
     }
   }
   IrIdAllocator<LirNodeId> ids;
-  result->statements.reserve(source.statements.size());
-  for (const auto& statement : source.statements) {
+  result->statements.reserve(source.roots.size());
+  for (const auto statement : source.roots) {
     result->statements.push_back(lower_lir_statement<LirStatement, LirExpression, LirSelector>(
-        statement, ids, resolve_binding, call_sites));
+        source, statement, ids, resolve_binding, call_sites));
   }
   result->node_count = ids.count();
   return result;

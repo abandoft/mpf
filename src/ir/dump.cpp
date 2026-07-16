@@ -172,8 +172,39 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v1 language=" << enum_value(program.source_language)
-         << " hir-nodes=" << program.hir_node_count << " revision=" << program.revision << '\n';
+  output << "mir-v2 language=" << enum_value(program.source_language)
+         << " hir-nodes=" << program.hir_node_count
+         << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
+         << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
+         << " revision=" << program.revision << '\n';
+  output << "roots=";
+  dump_ids(output, program.roots, "%mstmt");
+  output << '\n';
+  for (std::size_t index = 1; index < program.expressions.size(); ++index) {
+    const auto& expression = program.expressions[index];
+    output << "expression %mexpr" << expression.id.value() << " instruction=!i"
+           << expression.instruction.value() << " kind=" << enum_value(expression.kind)
+           << " value=" << std::quoted(expression.value) << " children=";
+    dump_ids(output, expression.children, "%mexpr");
+    output << " result=%v" << expression.value_id.value() << " type=!t"
+           << expression.type_id.value() << " shape=!s" << expression.shape_id.value()
+           << " storage=!m" << expression.storage_id.value() << " origin=%h"
+           << expression.origin.value() << '\n';
+  }
+  for (std::size_t index = 1; index < program.statements.size(); ++index) {
+    const auto& statement = program.statements[index];
+    output << "operation %mstmt" << statement.id.value() << " instruction=!i"
+           << statement.instruction.value() << " kind=" << enum_value(statement.kind)
+           << " name=" << std::quoted(statement.name) << " expression=%mexpr"
+           << statement.expression.value() << " secondary=%mexpr"
+           << statement.secondary_expression.value() << " tertiary=%mexpr"
+           << statement.tertiary_expression.value() << " target=%mexpr"
+           << statement.target_expression.value() << " body=";
+    dump_ids(output, statement.body, "%mstmt");
+    output << " alternative=";
+    dump_ids(output, statement.alternative, "%mstmt");
+    output << " origin=%h" << statement.origin.value() << '\n';
+  }
   for (std::size_t index = 1; index < program.types.size(); ++index) {
     const auto& type = program.types[index];
     output << "type !t" << index << " kind=" << enum_value(type.kind)

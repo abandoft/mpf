@@ -165,6 +165,11 @@ endforeach()
 
 file(READ "${SOURCE_DIR}/src/ir/mir.hpp" mir_contract)
 foreach(required IN ITEMS
+    "MirExpressionId"
+    "MirStatementId"
+    "std::vector<MirExpressionId> children"
+    "std::vector<MirStatementId> body"
+    "std::vector<MirStatementId> roots"
     "successor_arguments"
     "BlockArgument"
     "AliasEffectTable"
@@ -175,6 +180,16 @@ foreach(required IN ITEMS
     message(FATAL_ERROR "MIR contract is missing commercial CFG/alias field: ${required}")
   endif()
 endforeach()
+if(mir_contract MATCHES "std::vector<Expression>[ \t]+children" OR
+   mir_contract MATCHES "std::vector<Statement>[ \t]+(body|alternative)")
+  message(FATAL_ERROR "MIR restored a recursive HIR-compatible expression/statement projection")
+endif()
+file(READ "${SOURCE_DIR}/src/backends/target_lir_builder.hpp" target_lir_builder_contract)
+if(NOT target_lir_builder_contract MATCHES "mir::expression\\(program" OR
+   NOT target_lir_builder_contract MATCHES "mir::statement\\(program" OR
+   target_lir_builder_contract MATCHES "source\.statements")
+  message(FATAL_ERROR "target LIR builder does not consume the flat MIR value/operation arena")
+endif()
 if(mir_contract MATCHES "struct LoweringResult[^{]*\\{[^}]*AliasEffectTable" OR
    mir_contract MATCHES "struct Instruction[^{]*\\{[^}]*Effect[ \t]+effects")
   message(FATAL_ERROR "alias/effect analysis is coupled back into MIR lowering or instructions")

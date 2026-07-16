@@ -85,10 +85,12 @@ Opcode statement_opcode(const StatementKind kind) noexcept {
   return Opcode::invalid;
 }
 
-bool contains_slice(const Expression& expression) {
-  if (expression.kind == ExpressionKind::slice) return true;
-  return std::any_of(expression.children.begin(), expression.children.end(),
-                     [](const Expression& child) { return contains_slice(child); });
+bool contains_slice(const Program& program, const MirExpressionId expression_id) {
+  const auto* node = expression(program, expression_id);
+  if (node == nullptr) return false;
+  if (node->kind == ExpressionKind::slice) return true;
+  return std::any_of(node->children.begin(), node->children.end(),
+                     [&](const MirExpressionId child) { return contains_slice(program, child); });
 }
 
 bool transfer_matches_intent(const ArgumentTransfer transfer,
@@ -166,9 +168,13 @@ class Builder final {
     }
   }
 
-  Statement lower_statement(hir::Statement&& source) {
+  MirStatementId lower_statement(hir::Statement&& source) {
     ensure_open_block();
     Statement result;
+    result.id = statement_ids_.next();
+    if (program_.statements.size() <= result.id.value()) {
+      program_.statements.resize(static_cast<std::size_t>(result.id.value()) + 1U);
+    }
     const auto* semantic_facts = semantics_.statement(source.id);
     result.origin = source.id;
     result.kind = source.kind;
@@ -293,7 +299,9 @@ class Builder final {
       const auto then_block = make_function_block();
       const auto else_block = make_function_block();
       const auto merge_block = make_function_block();
-      set_conditional(result.expression.value_id, then_block, else_block, source.id);
+      const auto* condition = expression(program_, result.expression);
+      set_conditional(condition == nullptr ? ValueId{} : condition->value_id, then_block,
+                      else_block, source.id);
       current_block_ = then_block;
       lower_statement_list(std::move(source.body), result.body);
       if (current_block().terminator.kind == TerminatorKind::none) {
@@ -341,7 +349,9 @@ class Builder final {
           has_default = true;
           set_branch(clause_block, clause.id);
         } else {
-          const auto predicate = emit_case_predicate(clause, result.expression.value_id);
+          const auto* selector = expression(program_, result.expression);
+          const auto predicate =
+              emit_case_predicate(clause, selector == nullptr ? ValueId{} : selector->value_id);
           set_conditional(predicate, clause_block, next_decision, clause.id);
           if (next_decision == merge_block) {
             incoming.push_back({current_block_, entry_versions});
@@ -370,7 +380,9 @@ class Builder final {
         storage_values_ = merge_storage_versions(merge_block, incoming, entry_versions);
       }
     } else if (loop) {
-      set_conditional(result.expression.value_id, loop_body, loop_else, source.id);
+      const auto* condition = expression(program_, result.expression);
+      set_conditional(condition == nullptr ? ValueId{} : condition->value_id, loop_body, loop_else,
+                      source.id);
       loops_.push_back({loop_condition, loop_exit, {}, {}});
       current_block_ = loop_body;
       lower_statement_list(std::move(source.body), result.body);
@@ -417,8 +429,9 @@ class Builder final {
       auto& terminator = current_block().terminator;
       terminator.kind = TerminatorKind::return_value;
       terminator.origin = result.origin;
-      if (result.expression.value_id.valid()) {
-        terminator.operands.push_back(result.expression.value_id);
+      const auto* returned = expression(program_, result.expression);
+      if (returned != nullptr && returned->value_id.valid()) {
+        terminator.operands.push_back(returned->value_id);
       }
     }
     if (result.kind == StatementKind::break_statement && !loops_.empty()) {
@@ -428,7 +441,9 @@ class Builder final {
       loops_.back().continue_edges.push_back({current_block_, storage_values_});
       set_branch(loops_.back().continue_target, result.origin);
     }
-    return result;
+    const auto id = result.id;
+    program_.statements[id.value()] = std::move(result);
+    return id;
   }
 
   [[nodiscard]] TypeId intern_type(const ValueType type, const ValueType element_type) {
@@ -513,7 +528,10 @@ class Builder final {
       }
     } else {
       elements.reserve(expression.children.size());
-      for (const auto& child : expression.children) elements.push_back(child.type_id);
+      for (const auto child : expression.children) {
+        const auto* node = mir::expression(program_, child);
+        elements.push_back(node == nullptr ? TypeId{} : node->type_id);
+      }
     }
     return intern_tuple_type(elements);
   }
@@ -567,8 +585,13 @@ class Builder final {
     std::vector<ControlEdge> break_edges;
   };
 
-  Expression lower_expression(hir::Expression&& source) {
+  MirExpressionId lower_expression(hir::Expression&& source) {
     Expression result;
+    if (!source.valid()) return {};
+    result.id = expression_ids_.next();
+    if (program_.expressions.size() <= result.id.value()) {
+      program_.expressions.resize(static_cast<std::size_t>(result.id.value()) + 1U);
+    }
     const auto* semantic_facts = semantics_.expression(source.id);
     result.origin = source.id;
     result.location = source.location;
@@ -580,9 +603,10 @@ class Builder final {
     std::vector<ValueId> operands;
     operands.reserve(source.children.size());
     for (auto& child : source.children) {
-      auto lowered = lower_expression(std::move(child));
-      if (lowered.value_id.valid()) operands.push_back(lowered.value_id);
-      result.children.push_back(std::move(lowered));
+      const auto lowered = lower_expression(std::move(child));
+      const auto* node = mir::expression(program_, lowered);
+      if (node != nullptr && node->value_id.valid()) operands.push_back(node->value_id);
+      result.children.push_back(lowered);
     }
     if (semantic_facts != nullptr) {
       result.inferred_type = semantic_facts->inferred_type;
@@ -606,8 +630,6 @@ class Builder final {
       result.column_major = semantic_facts->column_major;
       result.slice_stop_inclusive = semantic_facts->slice_stop_inclusive;
     }
-    if (!result.valid()) return result;
-
     if (result.kind == ExpressionKind::identifier) {
       const auto* use = names_.reference(result.origin);
       result.symbol_id = use == nullptr ? SymbolId{} : use->symbol;
@@ -619,18 +641,26 @@ class Builder final {
       result.storage_id = storage_for(result.symbol_id, result.value, result.origin, result.type_id,
                                       result.shape_id);
     } else if ((result.kind == ExpressionKind::index || result.kind == ExpressionKind::slice) &&
-               !result.children.empty() && result.children.front().storage_id.valid()) {
-      result.storage_id = make_view_storage(result.children.front().storage_id, result.type_id,
-                                            result.shape_id, result.origin, contains_slice(result));
+               !result.children.empty()) {
+      const auto* base = mir::expression(program_, result.children.front());
+      if (base != nullptr && base->storage_id.valid()) {
+        const auto section = std::any_of(
+            result.children.begin(), result.children.end(),
+            [&](const MirExpressionId child) { return contains_slice(program_, child); });
+        result.storage_id = make_view_storage(base->storage_id, result.type_id, result.shape_id,
+                                              result.origin, section);
+      }
     }
     result.value_id = value_ids_.next();
     Instruction instruction;
     instruction.id = instruction_ids_.next();
+    result.instruction = instruction.id;
     instruction.opcode = expression_opcode(result.kind);
     instruction.origin = result.origin;
     if (result.kind == ExpressionKind::call && !result.children.empty() &&
-        result.children.front().binding == BindingKind::builtin) {
-      instruction.intrinsic = result.children.front().intrinsic;
+        mir::expression(program_, result.children.front()) != nullptr &&
+        mir::expression(program_, result.children.front())->binding == BindingKind::builtin) {
+      instruction.intrinsic = mir::expression(program_, result.children.front())->intrinsic;
     }
     instruction.location = result.location;
     instruction.result = result.value_id;
@@ -639,12 +669,13 @@ class Builder final {
     instruction.storage = result.storage_id;
     instruction.operands = std::move(operands);
     if (result.kind == ExpressionKind::call && !result.children.empty() &&
-        result.children.front().binding == BindingKind::function) {
+        mir::expression(program_, result.children.front()) != nullptr &&
+        mir::expression(program_, result.children.front())->binding == BindingKind::function) {
       UnresolvedCall call;
       call.instruction = instruction.id;
       call.origin = result.origin;
       call.caller = current_function_;
-      call.callee_symbol = result.children.front().symbol_id;
+      call.callee_symbol = mir::expression(program_, result.children.front())->symbol_id;
       call.result_type = result.type_id;
       call.requested_results =
           program_.source_language == SourceLanguage::matlab ? result.requested_outputs : 1U;
@@ -656,13 +687,17 @@ class Builder final {
                                 : ParameterIntent::none;
         const auto optional_forward = intent_index < result.argument_optional_forward.size() &&
                                       result.argument_optional_forward[intent_index];
-        call.arguments.push_back(
-            make_call_argument(result.children[index], intent, optional_forward));
+        const auto* argument = mir::expression(program_, result.children[index]);
+        if (argument != nullptr) {
+          call.arguments.push_back(make_call_argument(*argument, intent, optional_forward));
+        }
       }
       unresolved_calls_.push_back(std::move(call));
     }
     append_instruction(std::move(instruction));
-    return result;
+    const auto id = result.id;
+    program_.expressions[id.value()] = std::move(result);
+    return id;
   }
 
   CaseSelector lower_selector(hir::CaseSelector&& source) {
@@ -686,13 +721,17 @@ class Builder final {
     for (const auto& source_selector : clause.case_selectors) {
       if (source_selector.has_lower) {
         auto copy = source_selector.lower;
-        auto lowered = lower_expression(std::move(copy));
-        if (lowered.value_id.valid()) instruction.operands.push_back(lowered.value_id);
+        const auto lowered = lower_expression(std::move(copy));
+        const auto* node = mir::expression(program_, lowered);
+        if (node != nullptr && node->value_id.valid())
+          instruction.operands.push_back(node->value_id);
       }
       if (source_selector.has_upper) {
         auto copy = source_selector.upper;
-        auto lowered = lower_expression(std::move(copy));
-        if (lowered.value_id.valid()) instruction.operands.push_back(lowered.value_id);
+        const auto lowered = lower_expression(std::move(copy));
+        const auto* node = mir::expression(program_, lowered);
+        if (node != nullptr && node->value_id.valid())
+          instruction.operands.push_back(node->value_id);
       }
     }
     instruction.id = instruction_ids_.next();
@@ -702,31 +741,29 @@ class Builder final {
     return result;
   }
 
-  void lower_statement_list(std::vector<hir::Statement>&& source, std::vector<Statement>& result) {
+  void lower_statement_list(std::vector<hir::Statement>&& source,
+                            std::vector<MirStatementId>& result) {
     result.reserve(source.size());
     for (auto& statement : source) {
       result.push_back(lower_statement(std::move(statement)));
     }
   }
 
-  void emit_statement_instruction(const Statement& statement) {
+  void emit_statement_instruction(Statement& statement) {
     Instruction instruction;
     instruction.id = instruction_ids_.next();
+    statement.instruction = instruction.id;
     instruction.opcode = statement_opcode(statement.kind);
     instruction.origin = statement.origin;
     instruction.location = {statement.line, 1};
-    if (statement.expression.value_id.valid()) {
-      instruction.operands.push_back(statement.expression.value_id);
-    }
-    if (statement.secondary_expression.value_id.valid()) {
-      instruction.operands.push_back(statement.secondary_expression.value_id);
-    }
-    if (statement.tertiary_expression.value_id.valid()) {
-      instruction.operands.push_back(statement.tertiary_expression.value_id);
-    }
-    if (statement.target_expression.value_id.valid()) {
-      instruction.operands.push_back(statement.target_expression.value_id);
-    }
+    const auto append_operand = [&](const MirExpressionId expression_id) {
+      const auto* node = mir::expression(program_, expression_id);
+      if (node != nullptr && node->value_id.valid()) instruction.operands.push_back(node->value_id);
+    };
+    append_operand(statement.expression);
+    append_operand(statement.secondary_expression);
+    append_operand(statement.tertiary_expression);
+    append_operand(statement.target_expression);
     if ((statement.kind == StatementKind::declaration ||
          statement.kind == StatementKind::assignment ||
          statement.kind == StatementKind::range_loop) &&
@@ -735,17 +772,18 @@ class Builder final {
           storage_for(statement.symbol_id, statement.name, statement.origin,
                       intern_type(statement.declared_type, statement.element_type),
                       intern_shape(statement.shape, false));
-    } else if (statement.kind == StatementKind::indexed_assignment &&
-               statement.target_expression.storage_id.valid()) {
-      instruction.storage = statement.target_expression.storage_id;
+    } else if (statement.kind == StatementKind::indexed_assignment) {
+      const auto* target = mir::expression(program_, statement.target_expression);
+      if (target != nullptr) instruction.storage = target->storage_id;
     }
+    const auto* value = mir::expression(program_, statement.expression);
     if ((statement.kind == StatementKind::declaration ||
          statement.kind == StatementKind::assignment ||
          statement.kind == StatementKind::indexed_assignment) &&
-        instruction.storage.valid() && statement.expression.value_id.valid()) {
+        instruction.storage.valid() && value != nullptr && value->value_id.valid()) {
       instruction.result = value_ids_.next();
-      instruction.type = statement.expression.type_id;
-      instruction.shape = statement.expression.shape_id;
+      instruction.type = value->type_id;
+      instruction.shape = value->shape_id;
       storage_values_[instruction.storage] = instruction.result;
     }
     append_instruction(std::move(instruction));
@@ -1029,6 +1067,8 @@ class Builder final {
   const hir::SemanticTable& semantics_;
   const NameTable& names_;
   IrIdAllocator<MirFunctionId> function_ids_;
+  IrIdAllocator<MirExpressionId> expression_ids_;
+  IrIdAllocator<MirStatementId> statement_ids_;
   IrIdAllocator<BlockId> block_ids_;
   IrIdAllocator<InstructionId> instruction_ids_;
   IrIdAllocator<ValueId> value_ids_;
@@ -1098,12 +1138,39 @@ bool compatible_type(const Program& program, const TypeId actual, const TypeId e
 
 void verify_expression(const Expression& expression, const Program& program,
                        std::vector<Diagnostic>& diagnostics, const std::string_view stage) {
+  if (!expression.id.valid() || expression.id.value() >= program.expressions.size() ||
+      &program.expressions[expression.id.value()] != &expression) {
+    add_error(diagnostics, expression.location, stage,
+              "expression arena is not dense or has an invalid identity");
+    return;
+  }
   if (!expression.valid()) return;
   if (!expression.origin.valid() || !expression.value_id.valid() ||
       !valid_index(expression.type_id, program.types) ||
       !valid_index(expression.shape_id, program.shapes)) {
     add_error(diagnostics, expression.location, stage,
               "typed expression has an invalid origin, value, type, or shape ID");
+  }
+  if (!valid_index(expression.instruction, program.instructions)) {
+    add_error(diagnostics, expression.location, stage,
+              "expression has no resident instruction definition");
+  } else {
+    const auto& instruction = program.instructions[expression.instruction.value()];
+    std::vector<ValueId> expected_operands;
+    for (const auto child : expression.children) {
+      const auto* child_node = mir::expression(program, child);
+      if (child_node != nullptr && child_node->value_id.valid()) {
+        expected_operands.push_back(child_node->value_id);
+      }
+    }
+    if (instruction.origin != expression.origin || instruction.result != expression.value_id ||
+        instruction.type != expression.type_id || instruction.shape != expression.shape_id ||
+        instruction.storage != expression.storage_id ||
+        instruction.opcode != expression_opcode(expression.kind) ||
+        instruction.operands != expected_operands) {
+      add_error(diagnostics, expression.location, stage,
+                "expression arena disagrees with its MIR instruction definition");
+    }
   }
   if (expression.storage_id.valid() && !valid_index(expression.storage_id, program.storages)) {
     add_error(diagnostics, expression.location, stage,
@@ -1122,30 +1189,90 @@ void verify_expression(const Expression& expression, const Program& program,
     add_error(diagnostics, expression.location, stage,
               "comparison chain operand/operator count is inconsistent");
   }
-  for (const auto& child : expression.children) {
-    verify_expression(child, program, diagnostics, stage);
+  for (const auto child : expression.children) {
+    if (child.valid() && !valid_index(child, program.expressions)) {
+      add_error(diagnostics, expression.location, stage,
+                "expression references an invalid MIR expression child");
+    }
   }
 }
 
-void verify_statements(const std::vector<Statement>& statements, const Program& program,
-                       std::vector<Diagnostic>& diagnostics, const std::string_view stage) {
-  for (const auto& statement : statements) {
+void verify_statements(const Program& program, std::vector<Diagnostic>& diagnostics,
+                       const std::string_view stage) {
+  for (std::size_t index = 1; index < program.statements.size(); ++index) {
+    const auto& statement = program.statements[index];
+    if (!statement.id.valid() || statement.id.value() != index) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "statement arena is not dense or has an invalid identity");
+      continue;
+    }
     if (!statement.origin.valid()) {
       add_error(diagnostics, {statement.line, 1}, stage, "statement has no HIR origin");
     }
-    verify_expression(statement.expression, program, diagnostics, stage);
-    verify_expression(statement.secondary_expression, program, diagnostics, stage);
-    verify_expression(statement.tertiary_expression, program, diagnostics, stage);
-    verify_expression(statement.target_expression, program, diagnostics, stage);
-    for (const auto& expression : statement.parameter_defaults) {
-      verify_expression(expression, program, diagnostics, stage);
+    if (!valid_index(statement.instruction, program.instructions)) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "statement has no resident operation instruction");
+    } else {
+      const auto& instruction = program.instructions[statement.instruction.value()];
+      if (instruction.origin != statement.origin ||
+          instruction.opcode != statement_opcode(statement.kind)) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "statement arena disagrees with its MIR operation instruction");
+      }
+    }
+    const auto verify_expression_id = [&](const MirExpressionId expression_id) {
+      if (expression_id.valid() && !valid_index(expression_id, program.expressions)) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "statement references an invalid MIR expression");
+      }
+    };
+    verify_expression_id(statement.expression);
+    verify_expression_id(statement.secondary_expression);
+    verify_expression_id(statement.tertiary_expression);
+    verify_expression_id(statement.target_expression);
+    for (const auto expression_id : statement.parameter_defaults) {
+      verify_expression_id(expression_id);
     }
     for (const auto& selector : statement.case_selectors) {
-      verify_expression(selector.lower, program, diagnostics, stage);
-      verify_expression(selector.upper, program, diagnostics, stage);
+      verify_expression_id(selector.lower);
+      verify_expression_id(selector.upper);
     }
-    verify_statements(statement.body, program, diagnostics, stage);
-    verify_statements(statement.alternative, program, diagnostics, stage);
+    for (const auto child : statement.body) {
+      if (!valid_index(child, program.statements)) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "statement body references an invalid MIR statement");
+      }
+    }
+    for (const auto child : statement.alternative) {
+      if (!valid_index(child, program.statements)) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "statement alternative references an invalid MIR statement");
+      }
+    }
+  }
+
+  std::vector<bool> reachable(program.statements.size(), false);
+  std::vector<MirStatementId> worklist(program.roots.begin(), program.roots.end());
+  while (!worklist.empty()) {
+    const auto id = worklist.back();
+    worklist.pop_back();
+    if (!valid_index(id, program.statements)) {
+      add_error(diagnostics, {1, 1}, stage, "program root references an invalid MIR statement");
+      continue;
+    }
+    if (reachable[id.value()]) {
+      add_error(diagnostics, {program.statements[id.value()].line, 1}, stage,
+                "MIR statement arena contains duplicate ownership or a cycle");
+      continue;
+    }
+    reachable[id.value()] = true;
+    const auto& node = program.statements[id.value()];
+    worklist.insert(worklist.end(), node.body.begin(), node.body.end());
+    worklist.insert(worklist.end(), node.alternative.begin(), node.alternative.end());
+  }
+  if (static_cast<std::size_t>(std::count(reachable.begin(), reachable.end(), true)) + 1U !=
+      program.statements.size()) {
+    add_error(diagnostics, {1, 1}, stage, "MIR statement arena contains unreachable operations");
   }
 }
 
@@ -1677,12 +1804,38 @@ void verify_function_types_and_calls(const Program& program, std::vector<Diagnos
 
 }  // namespace
 
+const Expression* expression(const Program& program, const MirExpressionId id) noexcept {
+  return id.valid() && static_cast<std::size_t>(id.value()) < program.expressions.size()
+             ? &program.expressions[id.value()]
+             : nullptr;
+}
+
+Expression* expression(Program& program, const MirExpressionId id) noexcept {
+  return id.valid() && static_cast<std::size_t>(id.value()) < program.expressions.size()
+             ? &program.expressions[id.value()]
+             : nullptr;
+}
+
+const Statement* statement(const Program& program, const MirStatementId id) noexcept {
+  return id.valid() && static_cast<std::size_t>(id.value()) < program.statements.size()
+             ? &program.statements[id.value()]
+             : nullptr;
+}
+
+Statement* statement(Program& program, const MirStatementId id) noexcept {
+  return id.valid() && static_cast<std::size_t>(id.value()) < program.statements.size()
+             ? &program.statements[id.value()]
+             : nullptr;
+}
+
 LoweringResult lower_from_hir(hir::Program&& source, hir::SemanticTable&& semantics,
                               const NameTable& names) {
   LoweringResult result;
   result.program.source_language = source.language;
   result.program.semantics = source.semantics;
   result.program.hir_node_count = source.node_count;
+  result.program.expressions.push_back({});
+  result.program.statements.push_back({});
   result.program.types.push_back({});
   result.program.shapes.push_back({});
   result.program.storages.push_back({});
@@ -1699,10 +1852,10 @@ LoweringResult lower_from_hir(hir::Program&& source, hir::SemanticTable&& semant
 
   Builder builder(result.program, semantics, names);
   builder.begin_function("<module>", {});
-  result.program.statements.reserve(source.statements.size());
+  result.program.roots.reserve(source.statements.size());
   for (auto& statement : source.statements) {
     if (statement.kind == StatementKind::function) continue;
-    result.program.statements.push_back(builder.lower_statement(std::move(statement)));
+    result.program.roots.push_back(builder.lower_statement(std::move(statement)));
   }
   builder.finish_function();
 
@@ -1713,7 +1866,7 @@ LoweringResult lower_from_hir(hir::Program&& source, hir::SemanticTable&& semant
     const auto* function_use = names.use(function_origin, NameRole::declaration);
     builder.begin_function(function_name, function_origin,
                            function_use == nullptr ? SymbolId{} : function_use->symbol);
-    result.program.statements.push_back(builder.lower_statement(std::move(statement)));
+    result.program.roots.push_back(builder.lower_statement(std::move(statement)));
     builder.finish_function();
   }
   builder.link_calls();
@@ -1846,7 +1999,10 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
   }
   verify_cfg(program, diagnostics, stage);
   verify_function_types_and_calls(program, diagnostics, stage);
-  verify_statements(program.statements, program, diagnostics, stage);
+  for (std::size_t index = 1; index < program.expressions.size(); ++index) {
+    verify_expression(program.expressions[index], program, diagnostics, stage);
+  }
+  verify_statements(program, diagnostics, stage);
   return diagnostics;
 }
 

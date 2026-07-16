@@ -48,9 +48,12 @@ bool array_intrinsic(const IntrinsicId intrinsic) noexcept {
 
 using CallLookup = std::vector<const mir::CallSite*>;
 
-void analyze_expression(const mir::Expression& expression, semantic::Program& result,
-                        std::vector<Diagnostic>& diagnostics, const CallLookup& calls) {
-  if (!expression.valid()) return;
+void analyze_expression(const mir::Program& program, const MirExpressionId expression_id,
+                        semantic::Program& result, std::vector<Diagnostic>& diagnostics,
+                        const CallLookup& calls) {
+  const auto* expression_node = mir::expression(program, expression_id);
+  if (expression_node == nullptr) return;
+  const auto& expression = *expression_node;
   if (expression.binding == BindingKind::builtin && expression.intrinsic != IntrinsicId::none) {
     const auto* binding = cpp_code_binding(expression.intrinsic);
     if (binding == nullptr || binding->kind == CodeBindingKind::unavailable) {
@@ -75,11 +78,13 @@ void analyze_expression(const mir::Expression& expression, semantic::Program& re
     result.runtime.require(lir::RuntimeFeature::dynamic_values);
   }
   if (expression.kind == ExpressionKind::call && !expression.children.empty()) {
-    const auto& callee = expression.children.front();
-    if (callee.binding == BindingKind::builtin && array_intrinsic(callee.intrinsic)) {
+    const auto* callee = mir::expression(program, expression.children.front());
+    if (callee != nullptr && callee->binding == BindingKind::builtin &&
+        array_intrinsic(callee->intrinsic)) {
       result.runtime.require(lir::RuntimeFeature::arrays);
     }
-    if (callee.binding == BindingKind::builtin && callee.intrinsic == IntrinsicId::python_float) {
+    if (callee != nullptr && callee->binding == BindingKind::builtin &&
+        callee->intrinsic == IntrinsicId::python_float) {
       result.runtime.require(lir::RuntimeFeature::dynamic_values);
     }
     const auto* call = expression.origin.valid() && expression.origin.value() < calls.size()
@@ -98,43 +103,48 @@ void analyze_expression(const mir::Expression& expression, semantic::Program& re
       result.runtime.require(lir::RuntimeFeature::optional_arguments);
     }
   }
-  for (const auto& child : expression.children) {
-    analyze_expression(child, result, diagnostics, calls);
+  for (const auto child : expression.children) {
+    analyze_expression(program, child, result, diagnostics, calls);
   }
 }
 
-void analyze_statements(const std::vector<mir::Statement>& statements, semantic::Program& result,
-                        std::vector<Diagnostic>& diagnostics, const CallLookup& calls) {
-  for (const auto& statement : statements) {
+void analyze_statements(const mir::Program& program, const std::vector<MirStatementId>& statements,
+                        semantic::Program& result, std::vector<Diagnostic>& diagnostics,
+                        const CallLookup& calls) {
+  for (const auto statement_id : statements) {
+    const auto* statement_node = mir::statement(program, statement_id);
+    if (statement_node == nullptr) continue;
+    const auto& statement = *statement_node;
     if ((statement.kind == StatementKind::if_statement ||
          statement.kind == StatementKind::while_loop) &&
         result.source_semantics.truthiness == mpf::detail::semantic::Truthiness::dynamic) {
       result.runtime.require(lir::RuntimeFeature::dynamic_values);
     }
-    analyze_expression(statement.expression, result, diagnostics, calls);
-    analyze_expression(statement.secondary_expression, result, diagnostics, calls);
-    analyze_expression(statement.tertiary_expression, result, diagnostics, calls);
-    analyze_expression(statement.target_expression, result, diagnostics, calls);
-    for (const auto& expression : statement.parameter_defaults) {
-      analyze_expression(expression, result, diagnostics, calls);
+    analyze_expression(program, statement.expression, result, diagnostics, calls);
+    analyze_expression(program, statement.secondary_expression, result, diagnostics, calls);
+    analyze_expression(program, statement.tertiary_expression, result, diagnostics, calls);
+    analyze_expression(program, statement.target_expression, result, diagnostics, calls);
+    for (const auto expression : statement.parameter_defaults) {
+      analyze_expression(program, expression, result, diagnostics, calls);
     }
     for (const auto& selector : statement.case_selectors) {
-      analyze_expression(selector.lower, result, diagnostics, calls);
-      analyze_expression(selector.upper, result, diagnostics, calls);
+      analyze_expression(program, selector.lower, result, diagnostics, calls);
+      analyze_expression(program, selector.upper, result, diagnostics, calls);
     }
     if (statement.kind == StatementKind::indexed_assignment) {
       result.runtime.require(lir::RuntimeFeature::arrays);
     }
-    if (statement.kind == StatementKind::select_case &&
-        statement.expression.inferred_type == ValueType::string) {
+    const auto* selector = mir::expression(program, statement.expression);
+    if (statement.kind == StatementKind::select_case && selector != nullptr &&
+        selector->inferred_type == ValueType::string) {
       result.runtime.require(lir::RuntimeFeature::character_case);
     }
     if (std::any_of(statement.parameter_optional.begin(), statement.parameter_optional.end(),
                     [](const bool optional) { return optional; })) {
       result.runtime.require(lir::RuntimeFeature::optional_arguments);
     }
-    analyze_statements(statement.body, result, diagnostics, calls);
-    analyze_statements(statement.alternative, result, diagnostics, calls);
+    analyze_statements(program, statement.body, result, diagnostics, calls);
+    analyze_statements(program, statement.alternative, result, diagnostics, calls);
   }
 }
 
@@ -313,7 +323,7 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
     if (call.origin.valid() && call.origin.value() < calls.size())
       calls[call.origin.value()] = &call;
   }
-  analyze_statements(program.statements, semantic_program, result.diagnostics, calls);
+  analyze_statements(program, program.roots, semantic_program, result.diagnostics, calls);
   auto semantic_diagnostics = verify_semantic(semantic_program);
   result.diagnostics.insert(result.diagnostics.end(),
                             std::make_move_iterator(semantic_diagnostics.begin()),
