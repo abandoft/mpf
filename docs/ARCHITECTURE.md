@@ -1,12 +1,12 @@
 # MPF 架构
 
-本文描述 0.3.6 发布版的实际架构。CMake 同时固定 C17/C++17 标准基线，但当前生产实现和公共 API 使用 C++17；`cpp` 是 C++ 输出目标的代码身份，C++17 是当前生成标准。最终职责、性能模型和后续迁移验收条件见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
+本文描述 0.3.7 发布版的实际架构。CMake 同时固定 C17/C++17 标准基线，但当前生产实现和公共 API 使用 C++17；`cpp` 是 C++ 输出目标的代码身份，C++17 是当前生成标准。最终职责、性能模型和后续迁移验收条件见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
 
 ## 当前状态边界
 
 生产驱动已经切换为五层路径，旧的共享 `Program`→emitter 直通入口不存在：
 
-- 三个 frontend descriptor 产生编译期互不兼容的语言 AST artifact；节点以稠密 `AstNodeId` 存入 session PMR arena，并显式运行 AST verifier。AST→HIR visitor 原子产出窄结构 HIR 与按 `HirNodeId` 稠密、绑定 revision 的 `SemanticTable` seed；
+- 三个 statement parser 通过 `FrontendAstBuilder<LanguageTag>` 直接产生编译期互不兼容的语言 AST artifact；递归表达式解析后立即驻留，statement body/root 只保存稠密 `AstNodeId`，错误恢复也只发布可达节点。顶层 arena 容器使用 parser session PMR resource，不存在跨语言递归 syntax tree 或 parse 后整树复制；随后显式运行 AST verifier，AST→HIR visitor 原子产出窄结构 HIR 与按 `HirNodeId` 稠密、绑定 revision 的 `SemanticTable` seed；
 - Analyzer 和 HIR pass 只处理 HIR 与显式 side-table 输入；独立的只读 name/flow pass 分别生成 revision-bound 稠密 `NameTable` 与 `FlowTable`，负责 lexical scope/symbol/builtin、reachability/termination 和不可达诊断；Analyzer 在运行任何 pass 前验证 frontend seed，以 `ScopeId`/`SymbolId` 稠密状态消费两表并原位完善 `SemanticTable`。HIR 节点不保存 type、shape、binding、call association 或 assignment-pattern 镜像；HIR→MIR 只从 semantic side table 读取这些 facts，并从 name table 固化 storage/function 的 `SymbolId` identity；
 - MIR lowering 为当前 if/loop/loop-else/`break`/`continue`/`SELECT CASE` 建立真实 CFG、block argument 和 edge actual，并显式记录 shape stride 与 storage view/lifetime/intent/optional；全局 storage 以 NameTable 派生的 `SymbolId` 跨函数共享身份。每个 user-call argument 是单一 region contract，保存 type、storage/root、intent、transfer、view、lifetime 和 writability，transfer 区分 value/borrow/copy/optional-forward/omitted；
 - alias relation 和 instruction/function/call effect 不内嵌 MIR，而由 revision-bound、可缓存的 `AliasEffectTable` 计算。MIR verifier 检查表密度、所有权、CFG/dominance、type/shape/storage、函数签名和 call argument transfer/lifetime；alias/effect verifier 独立检查 storage root、稀疏 alias、read/write set、跨函数 fixed point、call-site 参数实例化和 writable overlap；
@@ -14,7 +14,7 @@
 - renderer 不再根据 section AST 猜测 copy/writeback、扫描 call argument 选择 wrapper、读取源 parameter intent、递归扫描声明或动态分配临时名，也不再读取 `StatementKind`、`ExpressionKind`、`ValueType`、assignment pattern、源 index/shape、节点 location/line/origin、builtin binding、call transfer 或动态参数集合，且不接收 `TranspileOptions`、runtime requirements、函数图；两个目标 runtime source catalog 与 representation planner/verifier 均为独立编译单元。尚未结构化的一般 RAII/copy-move/runtime-call node 仍在对应 target renderer 序列化；核心只持有 opaque target artifact，两个 emitter 只调用 `serialize_chunks`。
 - facade 从最终 LIR origin 构建 source map v3，并公开 dependency manifest 和包含阶段耗时/节点/峰值 arena 的编译报告。
 
-0.3.6 已完成语言 AST artifact、窄 HIR + semantic seed、当前支持语义的 CFG/alias、纯 emitter、source map、资源防护、fuzz、版本化性能发布门禁、静态一般 rank 的 reshape/direct-section 主链路、parser-session contract 和双目标 semantic LIR dump/golden。MIR 拥有驻留的 tuple/function/reference 类型、函数签名、单对象 call argument region/transfer 与跨函数 verifier；Analyzer 原位完善 frontend semantic seed，并消费独立、可按 revision 缓存的 name/scope、flow 和 MIR alias/effect side table。参数关联若改变结构，会提升 revision、同步紧凑重映射 HIR ID/facts、重建 name/flow 表并重新执行资源门禁。alias/effect pass 对 storage view root、instruction read/write、函数参数读写/escape、call graph 和 writable actual overlap 做保守 fixed point/实例化，并由两个后端显式消费；目标 ABI/临时值/scope/declaration/topology、expression/statement、writable call ownership/writeback/evaluation、强类型比较策略与 source segment 已进入双目标 LIR v10。Python comparison 使用贯穿 AST/HIR/MIR/LIR 的 `ComparisonOperator`；JavaScript 以私有 `Symbol` 区分 list/tuple 并保持引用 identity，`cpp` 以递归值 runtime 与显式 comparison temporary 保持 equality/membership 和左到右求值，对 sequence identity 失败关闭。MIR 仍为当前 target lowering 保留结构化语义投影，完整独立 target AST、一般 RAII/copy-move/runtime ABI node、结构化 import/export/chunk 仍未完成。完整官方 grammar、动态 rank/广播、精确 N 维 storage region overlap 与稳定插件 ABI 尚未完成。所有边界逐项记录在 [TODO](../TODO.md)。
+0.3.7 已完成语言专属 arena AST 的 parser 直接所有权：Python、Matlab 与 Fortran parser 不再经过共享 `Program`/`Statement` scratch、parser facade 或 `make_*_ast` 转换器，并以架构门禁、三语言恢复可达性和 allocator ownership 测试固定该边界。此前交付的窄 HIR + semantic seed、当前支持语义的 CFG/alias、纯 emitter、source map、资源防护、fuzz、版本化性能发布门禁、静态一般 rank 的 reshape/direct-section 主链路和双目标 semantic LIR dump/golden 保持有效。MIR 拥有驻留的 tuple/function/reference 类型、函数签名、单对象 call argument region/transfer 与跨函数 verifier；Analyzer 原位完善 frontend semantic seed，并消费独立、可按 revision 缓存的 name/scope、flow 和 MIR alias/effect side table。alias/effect pass 对 storage view root、instruction read/write、函数参数读写/escape、call graph 和 writable actual overlap 做保守 fixed point/实例化，并由两个后端显式消费；目标 ABI/临时值/scope/declaration/topology、expression/statement、writable call ownership/writeback/evaluation、强类型比较策略与 source segment 已进入双目标 LIR v10。MIR 仍为当前 target lowering 保留结构化语义投影，完整独立 target AST、一般 RAII/copy-move/runtime ABI node、结构化 import/export/chunk、完整官方 grammar、动态 rank/广播、精确 N 维 storage region overlap 与稳定插件 ABI 尚未完成。所有边界逐项记录在 [TODO](../TODO.md)。
 
 ## 设计原则
 
@@ -112,10 +112,10 @@ mpf facade
 - `core`：公共入口、诊断以及编译会话生命周期。
 - `source`：SourceManager 拥有多份源码、稳定文件表、UTF-8 位置、行表和跨度。
 - `lexer`/`lexers`：公共表达式 token/scanner、语言独立词法规则、共享 `BasicStatementToken` 载体，以及带 byte span/源位置的三语言 statement lexer。
-- `compiler`：statement parser 的短生命周期 scratch、递归 assignment pattern/value metadata、Pratt parser、函数依赖图、稳定 intrinsic ID 和代码绑定验证；共享 scratch 不进入 frontend artifact 或 AST→HIR 之后的生产层。
+- `compiler`：递归 assignment pattern/value metadata、Pratt 表达式 parser、轻量 statement identity、通用 HIR 函数依赖图、稳定 intrinsic ID 和代码绑定验证；不定义跨语言 syntax `Program`/`Statement`。
 - `ir`：强类型 ID、semantic profile、HIR、MIR、pass/analysis manager、verifier 与确定性 dump。
 - `semantic`：目标无关的作用域、名称绑定、builtin 遮蔽、确定赋值、循环上下文、不可达代码、表达式分支类型、标量/元素类型、矩形 shape、动态 extent、slice 长度、section conformability、逐维静态越界和 rank。
-- `frontends`：统一 descriptor/registry，以及每种语言独立 logical-source normalizer 与递归下降 statement parser；parser 只消费 statement token/span，并把表达式跨度交给 Pratt parser。当前迁移覆盖已支持子集，完整官方 grammar 仍按各语言里程碑扩展。
+- `frontends`：统一 descriptor/registry、只共享 arena 生命周期机制的 `FrontendAstBuilder`，以及每种语言独立 logical-source normalizer 与递归下降 statement parser；parser 消费 statement token/span，把表达式跨度交给 Pratt parser 并立即驻留到本语言 arena。当前迁移覆盖已支持子集，完整官方 grammar 仍按各语言里程碑扩展。
 - `backends`：descriptor v5、revision-checked alias/effect 输入、TargetProfile/legalization、目标 intrinsic binding、独立 capability/semantic plan/LIR/pass/verifier、resource/layout/representation planner、target renderer、目标 runtime source catalog 与纯 serialized-chunk emitter，以及仅供后端使用的保留字/冲突安全名称和 CSR temporary plan。Python loop-else 使用每层独立完成标志；数组访问的 nested/matrix/section 形式由目标 `ExpressionPlan` 固化，并消费 shape/bounds/base/negative-index/column-major 元数据。生成 C++ 放入 `TranslationUnitPlan` 固化的 `mpf_generated` namespace，runtime 放入独立 `mpf_runtime` namespace。
 - `cli`：文件和参数 I/O，不包含编译语义。
 

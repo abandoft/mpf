@@ -1,4 +1,13 @@
-## Unreleased
+## 0.3.7
+
+- Python statement parser 不再构造共享递归 syntax tree，直接以语言专属 `python::ast::Statement` draft 和 `AstNodeId` 边生成 PMR arena AST；参数默认值、assignment target、控制流 body 与恢复后的根节点都只物化一次。
+- Matlab statement parser 同步切换为直接 arena 构建，函数、多输出、`if/elseif/else`、循环、indexed assignment 与恢复路径在 parser 阶段即形成 `matlab::ast` 节点，不再经过跨语言 `Statement` 容器。
+- Fortran free/fixed-form 后续 parser 直接生成 `fortran::ast`，procedure、声明、`SELECT CASE` selector、DO/IF 和 writable target 均以语言节点及强类型 ID 连接，保留版本门控与错误恢复。
+- 新增共享机制而非共享语法的 `FrontendAstBuilder<LanguageTag>`：递归表达式解析后立即驻留、统一分配稠密 ID/record、预留 statement/expression/root inventory，并把所有顶层 arena 容器绑定到 parser session memory resource。
+- 三个 parser API 返回编译期互不兼容的 `python::ast::ParseResult`、`matlab::ast::ParseResult` 与 `fortran::ast::ParseResult`；frontend session 直接发布对应 variant artifact，删除 parse→共享 program→copy-to-arena 的第二次整树遍历。
+- 删除旧 `compiler::Program`/`Statement`/`ParseResult`、`make_*_ast` 转换器和未被生产驱动使用的 parser facade；公共跨层 statement 身份收敛到独立轻量 `statement_kind.hpp`，避免宽 syntax 结构重新成为扩展接口。
+- 删除只服务旧 syntax tree 的递归 function-graph 实现与 code-binding overload，测试分别通过真实 HIR generic graph 和 MIR binding contract 验证；`mpf-core` CMake 编译面同步移除废弃源文件。
+- 架构门禁现在要求三个 parser 直接使用 arena builder、以 `AstNodeId` 返回 block，并拒绝恢复旧 scratch/facade 文件；新增三语言错误恢复、AST 可达性、session allocator ownership 和强类型 ParseResult 测试，内部测试增至 159 项；生产代码行覆盖率实测 89.74%（17788/19822）。
 
 ## 0.3.6
 
