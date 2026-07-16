@@ -4,7 +4,7 @@
 
 TypeScript 6 已纳入产品目标，但当前尚未注册 TypeScript frontend descriptor，也没有可声明支持的 TypeScript 语法子集；其接入计划见路线图 M5。
 
-本表只描述语言行为覆盖，不以内部架构工作代替语言兼容声明。生产路径已经经过语言专属 PMR arena AST→HIR→带 CFG/storage/alias 的 MIR→目标 semantic/rendered LIR→纯 emitter，并有 source map、fuzz/resource 和性能门禁；TypeScript 等新前端仍必须遵守独立 AST→HIR contract。尚未覆盖的官方 grammar、对象模型、一般 N 维 storage/alias 与跨函数语义见 [商业级编译器管线方案](COMPILER_PIPELINE.md) 和 [TODO](../TODO.md)。
+本表只描述语言行为覆盖，不以内部架构工作代替语言兼容声明。生产路径已经经过语言专属 PMR arena AST→HIR→revision-checked Analyzer side table→带 CFG/storage/alias 的 MIR→目标 semantic/rendered LIR→纯 emitter，并有 source map、fuzz/resource 和性能门禁；TypeScript 等新前端仍必须遵守独立 AST→HIR contract。静态一般 rank 的声明、RESHAPE 和直接 section 已完成，但尚未覆盖的官方 grammar、动态 rank/广播、精确 N 维 storage overlap/alias 与跨函数语义仍见 [商业级编译器管线方案](COMPILER_PIPELINE.md) 和 [TODO](../TODO.md)。
 
 表中的“支持”表示当前子集已经进入语义/后端测试；可执行能力还应进入差分 corpus。只在某个目标可表示的结构必须由另一个目标的 capability validator 明确拒绝，不能静默改变语义。
 
@@ -20,12 +20,12 @@ TypeScript 6 已纳入产品目标，但当前尚未注册 TypeScript frontend d
 | 条件/选择 | `if`/`elif`/`else`；右结合、惰性条件表达式 | `if`/`elseif`/`else`/`end` | 块 `IF`/`ELSE IF`/`ELSE`/`END IF`；integer/character/logical `SELECT CASE`，含单值、范围与 default |
 | 函数 | 基础 `def`、参数、`return`；不可变标量默认值、keyword actual、`/` positional-only、裸 `*` keyword-only；前向调用；静态可表示返回的直接/互递归 | 基础文件级 local `function`；前向调用；单/多输出及跨函数转发；`[a,b]=f(...)` 单次调用；标量上下文选择首输出 | 基础 internal/external `FUNCTION`/`SUBROUTINE`、类型前缀、`RESULT`、`CALL`、`RETURN`、`RECURSIVE` 与 `INTENT(IN/OUT/INOUT)`；默认 intent；标量、整数组、数组元素及一/二维 section actual 写回；基础 keyword association；标量及一/二维数组 `OPTIONAL` 的 IN/OUT/INOUT、`PRESENT`、缺省调用与 optional 透传；前向/递归调用 |
 | 常用数学 intrinsic | 映射到目标数学库 | 映射到目标数学库 | 映射到目标数学库 |
-| 容器字面量 | 任意深度矩形嵌套 list | 逗号/空格列、分号分行矩阵；一维源 `reshape` | `[...]`、旧式 `(/.../)`；一维源 `RESHAPE` 至二维 |
+| 容器字面量 | 任意深度矩形嵌套 list | 逗号/空格列、分号分行矩阵；`reshape` 接受任意已知 rank 源和非空维度列表 | `[...]`、旧式 `(/.../)`；任意已知 rank 源/目标 `RESHAPE` |
 | 标量索引读取/写入 | 0-based，支持负下标与任意深度链式索引 | 1-based 行列索引；二维线性索引为列主序 | 1-based；引用 rank 必须匹配声明 rank |
-| section/slice 读取 | `start:stop:step`，缺省 bound、负 step、exclusive stop/clamp | `:`, `start:stop`, `start:step:stop`；行/列/block/线性选取 | `lower:upper:stride`；一/二维 section、缺省 bound、负 stride |
-| section/slice 写入 | 一维 list 普通切片可变长度替换；extended slice 等长替换 | 行、列、block 和列主序线性 colon 赋值；支持标量扩展 | 一/二维 array section 赋值；支持标量扩展 |
+| section/slice 读取 | `start:stop:step`，缺省 bound、负 step、exclusive stop/clamp；直接多 selector 支持任意静态 rank | `:`, `start:stop`, `start:step:stop`；行/列/block/线性选取及任意静态 rank 直接 selector | `lower:upper:stride`；任意静态 rank 直接 section、缺省 bound、负 stride |
+| section/slice 写入 | 一维 list 普通切片可变长度替换；extended slice 等长替换；固定 shape 多 selector 写入 | 行、列、block、列主序线性 colon 及任意静态 rank 直接 section 赋值；支持标量扩展 | 任意静态 rank 直接 array section 赋值；支持标量扩展 |
 | 长度与求和 | `len`、一维/行 `sum` | `length`/`numel`；`sum` 当前限一维 | `SIZE`、`SUM` 全元素归约 |
-| shape | 任意深度矩形字面量、静态/动态 slice extent | 矩阵及 colon 结果二维内静态/动态 extent | 一/二维声明、`RESHAPE` 与 section shape |
+| shape | 任意深度矩形字面量、任意 rank 静态/动态 slice extent | 矩阵、任意 rank `RESHAPE` 及直接 section 的静态/动态 extent | 任意 rank 常量/assumed-shape 声明、`RESHAPE` 与直接 section shape |
 | while | 基础支持 | 基础支持 | `DO WHILE` 基础支持 |
 | 计数循环 | `for ... in range(...)` | `for i=start:step:stop` | counted `DO` |
 | 循环变量结束语义 | 保留最后一次迭代值 | 保留最后一次迭代值 | 保留终止增量后的值 |
@@ -52,7 +52,9 @@ Python assignment parser 将裸/圆括号/方括号 target 解析为独立递归
 
 Python comparison chain 当前覆盖 `<`、`<=`、`>`、`>=`、`==`、`!=`，中间操作数只求值一次，后续操作数按前序比较结果短路。条件表达式按 Python 语法右结合，只执行被选中的分支。`is`/`is not`、`in`/`not in` 尚未进入当前表达式子集；JavaScript 表示也尚未完整区分 list 与 tuple 的对象种类，因此跨 sequence kind equality/identity 不作支持承诺。
 
-Python/Matlab/Fortran 都先把物理源码归一化为带首行位置的 logical statements，随后进入各自 statement lexer 和递归下降 parser；表达式跨度仍交给共享 Pratt parser。Fortran procedure 关键字保持上下文化，declaration attribute 支持 `INTENT(IN/OUT/INOUT)` 与 `OPTIONAL`；已知 interface 的 keyword actual 在 Analyzer 中规范化为 formal 顺序，缺省 optional 以中立 omitted-argument 节点表示。当前一/二维范围内，optional 标量/数组支持全部三种 intent，存在的可写 element/section actual 延续引用或 copy-in/copy-out。assumed-rank、同一根 storage 的多写回参数、generic interface、module procedure 与嵌套 procedure 尚未支持。
+Python/Matlab/Fortran 都先把物理源码归一化为带首行位置的 logical statements，随后进入各自 statement lexer 和递归下降 parser；表达式跨度仍交给共享 Pratt parser。Fortran procedure 关键字保持上下文化，declaration attribute 支持 `INTENT(IN/OUT/INOUT)` 与 `OPTIONAL`；已知 interface 的 keyword actual 在 Analyzer 中规范化为 formal 顺序，缺省 optional 以中立 omitted-argument 节点表示。当前静态/assumed-shape rank 范围内，optional 标量/数组支持全部三种 intent，存在的可写 element/section actual 延续引用或 copy-in/copy-out。assumed-rank、同一根 storage 的多写回参数、generic interface、module procedure 与嵌套 procedure 尚未支持。
+
+公共 `TranspileOptions::language_version` 和 CLI `--language-version` 选择 frontend manifest 声明范围内的标准；`{0,0}`/`latest` 选择该 frontend 上限。Python 使用 `major.minor`，Fortran 使用标准年份，Matlab 既接受 `R2024b` 也接受 `2024.2`。超出范围或在旧标准中使用较新 feature 以 `MPF1201` 失败关闭；当前细粒度 gate 已覆盖 Python 3.8 positional-only parameter 和 Fortran 2003 bracket array constructor。版本 contract 已完成不等于官方 grammar 已完整覆盖。
 
 Fortran `SELECT CASE` selector 只求值一次。CASE bound 当前接受 integer、character、logical literal 以及带一元正负号的数值 literal；integer/character 支持单值、`lower:upper`、`:upper`、`lower:`，logical 只支持单值。Analyzer 在生成前拒绝动态 bound、类型不匹配、反向或重叠范围和重复 default，并把全部 CASE 分支纳入确定赋值合流。character 比较按 Fortran 规则在右侧补空格；named construct、named `EXIT`、derived-type selector、`SELECT TYPE` 与 `SELECT RANK` 尚未支持。
 
@@ -76,6 +78,6 @@ Fortran `SELECT CASE` selector 只求值一次。CASE bound 当前接受 integer
 | 自动验证 | Node.js syntax + execution | 平台 C++17 编译器 compile + execution |
 | 名称安全 | JS 保留字确定性改写 | C++ 保留字改写并隔离在 namespace |
 
-C++17 后端使用函数模板保持基础参数类型，并根据语义分析结果生成标量和递归 `std::vector` 声明；Python source call 在 Analyzer 后已成为完整位置实参序列。JavaScript 同时保留可读的 immutable scalar default 签名，并使用同一规范化调用。普通 Fortran IN 参数生成 `const T&`，OUT/INOUT 生成 `T&`；optional formal 生成具体标量或递归 vector 类型的 `mpf_runtime::optional_argument<T>`，同时保存 absent、外部引用或临时 owned value。JavaScript 以 `undefined` 表示缺省 optional，存在的 writable actual 使用 `{value}` box，并在 optional-to-optional 调用中直接透传 box/undefined。section actual 继续由 JavaScript selector-aware set runtime 或 C++17 lambda 临时 section 与 typed `assign_*` copy-out 回写。Analyzer 以 `MPF2038`—`MPF2041` 拒绝不可定义、alias、shape/type 或 association 不匹配。跨语言一般 N 维数组、广播、矩阵乘法以及源语言特有对象模型尚未支持。
+C++17 后端使用函数模板保持基础参数类型，并根据语义分析结果生成标量和任意 rank 递归 `std::vector` 声明；Python source call 在 Analyzer 后已成为完整位置实参序列。JavaScript 同时保留可读的 immutable scalar default 签名，并使用同一规范化调用。普通 Fortran IN 参数生成 `const T&`，OUT/INOUT 生成 `T&`；optional formal 生成具体标量或递归 vector 类型的 `mpf_runtime::optional_argument<T>`，同时保存 absent、外部引用或临时 owned value。JavaScript 以 `undefined` 表示缺省 optional，存在的 writable actual 使用 `{value}` box，并在 optional-to-optional 调用中直接透传 box/undefined。section actual 由 JavaScript selector-aware N 维 runtime 或 C++17 模板递归/typed copy-out 回写。Analyzer 以 `MPF2038`—`MPF2041` 拒绝不可定义、alias、shape/type 或 association 不匹配。广播、动态 rank、精确 N 维 overlap/多写回 alias、矩阵乘法以及源语言特有对象模型尚未支持。
 
 当前 declarative corpus 在同一 differential case 中直接比较 CPython 3.14 或 `gfortran -std=f2023`、Node.js、生成 C++17 与 oracle。Matlab case 当前直接比较 Node.js、生成 C++17 与 oracle；源程序执行门禁将在 CI 提供可授权的 Matlab runner 或明确选定 Octave 兼容策略后加入。

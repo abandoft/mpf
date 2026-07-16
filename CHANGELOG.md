@@ -4,17 +4,22 @@
 
 ## Unreleased
 
+- Analyzer 当前全部节点输出迁入按 `HirNodeId` O(1) 索引的紧凑 `SemanticTable`；表绑定 HIR revision，verifier 检查完整 ID 覆盖、origin 和关联 arity。分析结束后类型、shape、binding、call argument association、递归 assignment-pattern 路径及 flow 元数据从 HIR move-extract，MIR 对缺失/陈旧表失败关闭且不再读取 HIR 语义投影。
+- 一般静态 rank 对象语义扩展到任意维常量声明、嵌套 shape、RESHAPE、直接 index/section 读取与写入。JavaScript 使用通用 column-major 坐标递归，`cpp` 使用 C++17 模板递归构造/选择/写回嵌套 vector；新增三维 Fortran tensor 由 gfortran、Node.js 和生成 C++ 实际执行的差分门禁。
+- Frontend descriptor 升级到 API v4，manifest 声明可验证的 minimum/maximum language version；公共 `LanguageVersion`、CLI `--language-version` 和 `MPF1201` 失败关闭已接入。首批 feature gate 覆盖 Python 3.8 positional-only parameter 与 Fortran 2003 bracket array constructor，并接受 Python `pass`、Fortran `CONTINUE` no-op 产生式。
+- 内部测试增至 143 项、differential corpus 增至 48 个（Python 20、Fortran 18、Matlab 10），CTest 增至 58 项；工具完整环境共执行 134 条源语言/Node.js/生成 C++ 程序路径。
+
 - 生产驱动切换为“语言 AST artifact → HIR → MIR → JavaScript LIR/`cpp` LIR → Emitter”；新增强类型 AST/HIR/MIR/LIR identity、逐层 verifier、opaque backend artifact，删除共享 `Program` 直通 emitter 的路径。
 - 新增 thread-confined `CompilationSession` 基础、HIR/MIR/LIR 强类型 pass manager、revision-aware `AnalysisManager`、preserved-analysis 失效、逐 pass verifier、耗时 instrumentation，以及确定性的 HIR/MIR textual dump。
 - MIR 新增稠密 type/shape/storage/instruction/function/basic-block 表和结构化 effect；当前 if/loop/loop-else/`break`/`continue`/`SELECT CASE` 生成真实 edge、block argument 与 edge actual，shape 保存 canonical stride，storage 保存 view/base/lifetime/intent 和保守 alias relation；统一 `alias_between` 为 pass 提供 fail-safe 查询。verifier 覆盖 ownership、edge arity、定义顺序、dominance 及 type/shape/storage/alias metadata。
-- frontend descriptor 升级到 API v3，增加语言版本/AST schema/determinism/reentrancy manifest、语言 AST verifier 和 AST→HIR lowering；三个内置前端拥有编译期互不兼容的 PMR arena AST、稠密 `AstNodeId`、确定性 dump 和专用 AST→HIR visitor，生产 artifact 不再封装共享 syntax tree。
+- frontend descriptor（现为 API v4）增加语言版本范围/AST schema/determinism/reentrancy manifest、语言 AST verifier 和 AST→HIR lowering；三个内置前端拥有编译期互不兼容的 PMR arena AST、稠密 `AstNodeId`、确定性 dump 和专用 AST→HIR visitor，生产 artifact 不再封装共享 syntax tree。
 - backend descriptor 升级到 API v3，增加目标标准/artifact schema manifest、TargetProfile 与 legalization factory。两个后端逐 MIR instruction 执行稠密 legalization，构建不借用 MIR 生命周期的私有 semantic plan、独立 LIR/pass/verifier，并在 target renderer 中完成 representation/type/shape/ABI、runtime/binding、函数依赖和名称计划；最终 emitter 只执行 `serialize_chunks`。
 - 新增可复用 frontend/backend extension conformance harness；重复执行 parse/lowering/verifier/emission 并逐字节验证确定性。新增编译器分层静态门禁，禁止 frontend/公共 IR/双目标后端出现反向依赖。
 - 新增公开 `ResourceLimits`，对 source bytes、token、parser depth、arena、AST/HIR/MIR/LIR 节点、生成输出和 source map 逐阶段限制，以 `MPF0010` 失败关闭；新增机器可读 `CompilationReport`，记录阶段耗时、节点数和峰值 arena。
 - 新增从最终 LIR chunk origin 构建的确定性 source map v3、CLI `--source-map`、公共 dependency manifest；代码、map 与依赖形成稳定 output bundle。
 - 新增三语言/双目标 corpus mutation fuzz smoke 和可选 Clang libFuzzer target，提供 crash replay/minimize 工作流；新增小文件、吞吐、深 CFG、大 shape、函数图、八路并发、峰值 arena 与产物大小 JSON 性能发布门禁，并由 CI 归档报告。
-- 内部测试增至 140 项，CTest 增至 57 项；既有 47 个差分 case、三种后端隔离构建、格式/静态分析和 sanitizer 继续保留；生产代码行覆盖率实测 88.14%（12897/14632），高于 85% 门槛。
-- 同步架构、扩展、测试、诊断、支持矩阵和 TODO：本轮商业级收尾已完成，完整官方 grammar、Analyzer side table、HIR/MIR 宽投影收敛、一般 N 维对象语义和稳定插件 ABI仍明确保持后续任务。
+- 本轮最终生产代码行覆盖率实测 88.34%（13468/15245），高于 85% 硬门槛。
+- 同步架构、扩展、测试、诊断、支持矩阵和 TODO：完整官方 grammar、Analyzer 内部直接 side-table 写入、HIR/MIR 宽投影收敛、动态 N 维对象/精确 alias 语义和稳定插件 ABI 仍明确保持后续任务。
 
 ## 0.33.0
 

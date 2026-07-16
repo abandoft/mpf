@@ -2,7 +2,7 @@
 
 本文是 MPF 前端、公共中间表示、分析/优化基础设施和后端的权威架构规范，也是重构验收依据。若其他文档与本文的层级职责冲突，以本文和 [TODO](../TODO.md) 的逐项状态为准。
 
-> 状态说明：当前 0.34 开发分支已把生产路径切换为语言专属 PMR arena AST→HIR→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump、extension conformance、细粒度 `ResourceLimits`、source map v3、编译报告、fuzz 与性能发布门禁。当前支持的控制结构已 lowering 为带 block argument/edge actual 的 CFG，storage view/lifetime/intent 与 alias relation 进入 MIR。剩余迁移集中在 Analyzer side table、HIR/MIR 宽语义投影、完整官方 grammar、一般 N 维/跨函数语义和插件 ABI；不能把这批架构收尾等同于完整语言兼容。
+> 状态说明：当前 0.34 开发分支已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump、extension conformance、细粒度 `ResourceLimits`、source map v3、编译报告、fuzz 与性能发布门禁。Analyzer 当前全部输出在边界 move-extract 到按 `HirNodeId` 稠密索引且带 revision 的唯一所有者；MIR 不再读取 HIR 语义字段。静态一般 rank 的声明、RESHAPE 和直接 section 已由双后端及三维差分覆盖。剩余迁移集中在 Analyzer 内部直接 side-table accessor、HIR/MIR 宽兼容字段、完整官方 grammar、动态 rank/广播、精确 N 维 alias/跨函数语义和插件 ABI；不能把这批架构收尾等同于完整语言兼容。
 
 ## 目标与永久约束
 

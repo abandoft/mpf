@@ -13,11 +13,11 @@
 | 实现与构建 | CMake 3.20+；配置固定 C17/C++17；当前生产源码和公共 API 使用 C++17，尚无稳定 C API |
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；`cpp` 当前生成严格 C++17 translation unit |
 | 前后端边界 | 生产驱动固定经过语言 AST artifact→HIR→MIR→目标私有 semantic plan/LIR→emitter；两个目标不读取彼此产物 |
-| 扩展架构 | descriptor API v3；AST verifier、版本/schema/determinism manifest、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
-| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime/alias；目标 lowering 产出带 origin chunk 的最终 LIR，emitter 仅序列化 |
+| 扩展架构 | frontend descriptor API v4、backend descriptor API v3；AST verifier、标准版本范围/schema/determinism manifest、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
+| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；Analyzer 结果在边界抽取为 revision-checked 稠密 `SemanticTable`，MIR 只消费 side table；MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime/alias；目标 lowering 产出带 origin chunk 的最终 LIR，emitter 仅序列化 |
 | Python 最新能力 | relational/equality 比较链、右结合条件表达式、短路/惰性/单次求值；基础参数关联和递归固定序列解包 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流 |
-| 工程门禁 | 140 项内部测试；47 个差分 case、131 条工具完整环境执行路径；57 项 CTest；fuzz smoke、可选 libFuzzer、性能发布阈值、阶段报告；生产代码覆盖率 88.14%（12897/14632） |
+| 工程门禁 | 143 项内部测试；48 个差分 case、134 条工具完整环境执行路径；58 项 CTest；fuzz smoke、可选 libFuzzer、性能发布阈值、阶段报告；本轮生产代码覆盖率 88.34%（13468/15245） |
 | 发布状态 | 0.x；没有长期 API/ABI 或完整语言兼容承诺 |
 
 ## 本轮商业级收尾验收（完成）
@@ -29,7 +29,7 @@
 - [x] 三语言/双目标 fuzz smoke、Clang/libFuzzer、资源耗尽、确定性重放、崩溃复现与最小化工作流落地
 - [x] 延迟、吞吐、深 CFG、大 shape、函数图、八路并发、峰值 arena 和产物大小纳入版本化 JSON 发布门禁与 CI 报告
 
-这里的“完成”只指上述架构与工程闭环；各语言官方 grammar、完整对象模型、一般 N 维语义和稳定插件 ABI 仍由后续条目跟踪。
+这里的“完成”只指上述架构与工程闭环；各语言官方 grammar、完整对象模型、动态 rank/广播、精确 N 维 overlap/alias 和稳定插件 ABI 仍由后续条目跟踪。
 
 ## 下一交付目标
 
@@ -79,7 +79,8 @@
 - [ ] HIR→MIR 显式固定 evaluation order、短路、循环/选择 CFG、多结果、load/store 和 runtime-independent semantic operation
 - [x] MIR verifier 检查稠密表、函数/块/指令唯一所有权、函数内 edge、terminator arity、值唯一定义及 definition-dominates-use
 - [x] verifier 补齐 block argument/edge actual arity、定义顺序与 dominance、type/shape/storage metadata、view/lifetime/intent、alias relation 相容性；更完整的跨函数 call/return 与 memory-effect 证明随类型系统继续扩展
-- [ ] 将名称/类型/shape/flow/alias/effect 分析迁入明确 pass/side table，Analyzer 不再原地混合语法和语义
+- [x] 将 Analyzer 当前全部节点输出（含 call association 与递归 assignment-pattern 路径）抽取到按 `HirNodeId` 稠密索引、带 HIR revision 的 `SemanticTable`；抽取后 HIR 语义字段为空，MIR 拒绝缺失/陈旧表且不再读取 HIR 语义投影
+- [ ] 将 Analyzer 内部兼容计算从“单遍临时注解后 move-extract”改为直接 side-table accessor，并将 name/scope、flow、alias/effect 拆成独立可缓存 analysis pass；随后删除 HIR 中的兼容语义字段
 - [ ] 首批默认优化只包括经证明安全的 CFG cleanup、constant folding、dead-pure elimination、copy propagation 和 shape canonicalization
 
 #### P4：JavaScript LIR 与纯 emitter
@@ -109,7 +110,7 @@
 
 #### P6：descriptor、扩展 SDK 与门禁
 
-- [x] Frontend descriptor API v3 提供 language AST verifier、AST→HIR factory、language version/AST schema 与 determinism/reentrancy manifest
+- [x] Frontend descriptor API v4 提供 language AST verifier、AST→HIR factory、可验证 minimum/maximum language version、AST schema 与 determinism/reentrancy manifest；公共 API/CLI 支持 `LanguageVersion`/`--language-version`
 - [ ] 增加显式 parser session factory、feature bitset 与 resource-limit contract
 - [x] Backend descriptor API v3 提供 TargetProfile、legalization、capability、semantic IR/LIR factory、target verifier/printer 与 artifact schema manifest
 - [ ] 增加完整 configuration schema 与未来外部 runtime 的 license/supply-chain manifest；code/source-map/dependency output bundle contract 已落地
@@ -163,7 +164,7 @@
 - [x] Pratt 表达式 AST、优先级/结合性、基础错误恢复和双后端 AST pretty-print
 - [x] 名称绑定、基础作用域、builtin 遮蔽与 JavaScript/C++ 保留字安全改名
 - [x] 标量/容器类型、确定赋值、基础终止流、循环上下文、不可达警告
-- [x] 一维/二维及 Python 矩形 N 维字面量的 element type、shape、slice extent、rank 和静态 bounds 分析
+- [x] 矩形 N 维字面量/声明的 element type、shape、slice extent、rank 和静态 bounds 分析；任意 rank `RESHAPE`、直接 selector 读取/写入和双后端递归 runtime
 - [x] 顶层函数依赖图、前向元数据传播、局部遮蔽排除和递归分量识别
 - [x] 版本/源语言生成 banner 与 `--no-banner`
 - [x] diagnostics JSON schema v1 和 CLI 契约
@@ -175,11 +176,12 @@
 
 仍需建设：
 
-- [ ] 依据三种官方 grammar 完成 statement/parser 覆盖和语言版本门控
+- [ ] 依据三种官方 grammar 完成 statement/parser 覆盖；版本范围 contract、公共 API/CLI gate、Python 3.8 positional-only 与 Fortran 2003 bracket-constructor gate 已落地，其余产生式/feature gate 继续逐项完成
 - [x] 建立独立 HIR/MIR、强类型 ID、verifier、pass/analysis manager、确定性 dump 和生产 lowering 主链路
-- [ ] 语言专属 arena AST、当前控制结构 MIR CFG/alias 与 parser token/depth/arena 边界已完成；仍需把全部 Analyzer 结果迁入 side table，并继续扩展 parser recovery
+- [ ] 语言专属 arena AST、当前控制结构 MIR CFG/alias、parser token/depth/arena 边界和 Analyzer 输出 side table 已完成；仍需删除 Analyzer 内部临时 HIR 注解并继续扩展 parser recovery
 - [ ] 完整嵌套作用域、常量折叠、完整 CFG、参数敏感跨函数数据流
-- [ ] 跨语言一般 N 维 shape、alias/storage 与 section overlap 分析
+- [x] 跨语言一般 N 维静态 shape、声明、RESHAPE、直接 index/section 读取写入，以及 JavaScript/C++ 递归运行时；三维 Fortran/gfortran/Node.js/生成 C++ 差分已入门禁
+- [ ] 动态 rank、广播、跨 view/storage 的精确 N 维 section overlap 与多 writable actual alias 证明
 - [x] source map v3、输入文件身份、生成文件身份和 LIR-origin 位置映射；banner 独立控制
 - [x] 全管线 fuzz harness、拒绝/成功 corpus、确定性 mutation、libFuzzer 崩溃复现与最小化工作流
 
@@ -245,8 +247,8 @@
 - [x] fixed/free form 自动或显式选择、continuation、注释和分号 logical statements
 - [x] 当前 program、声明、IF、DO、I/O、赋值及基础 procedure 子集 parser
 - [x] counted DO、DO WHILE、正负 step、ELSE IF、EXIT/CYCLE
-- [x] 一/二维常量 extent 数组、现代/旧式构造器、RESHAPE、SIZE 和 SUM
-- [x] 一/二维 section 读取/写入、默认 bound、负 stride、shape 验证和标量扩展
+- [x] 任意 rank 常量 extent 数组、现代/旧式构造器、RESHAPE、SIZE 和 SUM
+- [x] 任意 rank 直接 section 读取/写入、默认 bound、负 stride、shape 验证和标量扩展
 - [x] internal/external procedure、RETURN、RECURSIVE、RESULT 和前向/递归调用
 - [x] INTENT/default intent、标量/数组/元素/section actual 引用与 copy-in/copy-out
 - [x] keyword association、OPTIONAL/PRESENT、缺省调用和 optional 状态透传
@@ -258,14 +260,14 @@
 - [ ] 预处理、`INCLUDE`、tab-form 和更完整历史 source-form
 - [ ] 完整 declaration、kind/len、allocatable/pointer、derived type 和 generic interface
 - [ ] module/submodule、module procedure、嵌套 procedure 和完整 interface association
-- [ ] assumed-rank、assumed-size、一般 N 维数组和更精确的 storage/alias 规则
+- [ ] assumed-rank、assumed-size、动态 extent 组合和更精确的 N 维 storage/alias/overlap 规则
 - [ ] DO CONCURRENT、SELECT TYPE/RANK、WHERE、FORALL 与更完整 I/O
 - [ ] COMMON/EQUIVALENCE/SAVE 等历史 storage 语义
 - [ ] ISO_C_BINDING、外部库、BLAS/LAPACK 调用和链接适配策略
 
 ## M5：TypeScript 6 前端
 
-当前状态：目标已纳入产品范围，尚未宣称任何 TypeScript 语法子集可用。descriptor v3、语言专属 arena AST、AST verifier 与 AST→HIR contract 已形成接入骨架；TypeScript 前端必须新增自己的节点类型、verifier 与 visitor，不得复用现有 parser scratch 或其他语言 artifact。
+当前状态：目标已纳入产品范围，尚未宣称任何 TypeScript 语法子集可用。frontend descriptor v4、语言专属 arena AST、AST verifier 与 AST→HIR contract 已形成接入骨架；TypeScript 前端必须新增自己的节点类型、verifier 与 visitor，不得复用现有 parser scratch 或其他语言 artifact。
 
 - [ ] 增加 `typescript` 源语言身份、`.ts`/`.tsx` 探测与独立 descriptor；不得把 TypeScript 作为 Python/JavaScript parser 的模式分支
 - [ ] 以 TypeScript 6 grammar 建立 lexer/parser、版本门控和稳定诊断
