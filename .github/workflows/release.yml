@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: mpf-linux-x64
+          - os: macos-latest
+            artifact: mpf-macos
+          - os: windows-latest
+            artifact: mpf-windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Configure
+        run: cmake -S . -B build/release -DCMAKE_BUILD_TYPE=Release -DMPF_BUILD_TESTS=ON -DMPF_REQUIRE_DIFFERENTIAL_RUNTIME=ON
+      - name: Build
+        run: cmake --build build/release --config Release --parallel
+      - name: Test
+        run: ctest --test-dir build/release -C Release --output-on-failure
+      - name: Install
+        run: cmake --install build/release --config Release --prefix build/package/${{ matrix.artifact }}
+      - name: Archive
+        run: cmake -E tar czf build/package/${{ matrix.artifact }}.tar.gz --format=gnutar build/package/${{ matrix.artifact }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: build/package/${{ matrix.artifact }}.tar.gz
+
+  publish:
+    if: github.event_name == 'push'
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: build/artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: build/artifacts/*.tar.gz
