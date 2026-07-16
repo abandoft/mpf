@@ -1,6 +1,6 @@
 # 扩展前端、后端与代码绑定
 
-0.3.9 使用对称的 descriptor/registry 架构接入内置源语言和输出目标。当前核心驱动执行“选择 descriptor → 创建 parser session → parser 直接构造语言 arena AST → AST verifier → AST→窄 HIR + semantic seed → HIR/seed verifier → Analyzer → flat MIR value/operation arena + revision-bound attributes + lazy/memory CFG → MIR pass → capability/legalization → 私有 semantic plan/LIR → LIR verifier/dump → printer”，不按具体语言或目标硬编码分派。当前 contract 面向同一源码树中的编译期组件；descriptor 带 API version，但尚不承诺跨动态库的稳定插件 ABI。
+0.4.0 使用对称的 descriptor/registry 架构接入四种内置源语言和两个输出目标。当前核心驱动执行“选择 descriptor → 创建 parser session → parser 直接构造语言 arena AST → AST verifier → AST→窄 HIR + semantic seed → HIR/seed verifier → Analyzer → flat MIR value/operation arena + revision-bound attributes + lazy/memory CFG → MIR pass → capability/legalization → 私有 semantic plan/LIR → LIR verifier/dump → printer”，不按具体语言或目标硬编码分派。TypeScript 证明了同一扩展边界可承载独立 token stream/arena 和 explicit export policy，而无需修改 emitter 分派。当前 contract 面向同一源码树中的编译期组件；descriptor 带 API version，但尚不承诺跨动态库的稳定插件 ABI。
 
 本页记录当前可执行的 frontend API v5/backend API v5 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、direct arena builder、窄 HIR + frontend semantic seed、Analyzer 直写 side table、独立 name/scope/flow/alias-effect、MIR resident instruction + ID arena、call argument borrow/copy/optional-forward contract、当前控制结构 CFG、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；flat MIR 剩余源语义 payload 与精确 N 维 selector region overlap 不是新扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
 

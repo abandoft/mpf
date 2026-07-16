@@ -1,8 +1,8 @@
 # MPF 持续建设路线图
 
-本路线图同时记录 **0.3.9 已发布基线** 与下一轮 **0.4.0 交付目标** 的真实状态。历史交付细节见
+本路线图同时记录 **0.4.0 已发布基线** 与后续交付目标的真实状态。历史交付细节见
 [CHANGELOG.md](CHANGELOG.md)，当前可依赖的语言子集见
-[docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 前端当前尚未实现。
+[docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 已有独立、可执行的首个子集，但完整 grammar 仍未完成。
 
 前后端商业级重构的权威设计见 [docs/COMPILER_PIPELINE.md](docs/COMPILER_PIPELINE.md)。路线图中的“多层 IR”只能指语言 AST、HIR、MIR、JavaScript LIR/`cpp` LIR 五层均拥有独立强类型数据模型、verifier 和实际生产调用路径；不能用共享结构体 alias、stage flag 或未被 pipeline 消费的空壳类型标记完成。
 
@@ -12,21 +12,21 @@
 |---|---|
 | 实现与构建 | CMake 3.20+；配置固定 C17/C++17；当前生产源码和公共 API 使用 C++17，尚无稳定 C API |
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；`cpp` 当前生成严格 C++17 translation unit |
-| 前后端边界 | 三语言 parser session 直接构造并发布各自 arena AST artifact，不经过共享递归 syntax tree 或整树复制；生产驱动随后固定经过 HIR→MIR→目标私有 semantic plan/LIR→emitter，两个目标不读取彼此产物 |
+| 前后端边界 | 四语言 parser session 直接构造并发布各自 arena AST artifact，不经过共享递归 syntax tree 或整树复制；生产驱动随后固定经过 HIR→MIR→目标私有 semantic plan/LIR→emitter，两个目标不读取彼此产物 |
 | 扩展架构 | frontend descriptor API v5、backend descriptor API v5；parser session/feature/resource contract、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
-| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有；MIR 使用 `MirExpressionId`/`MirStatementId` 稠密 arena 与 revision-bound `OperationAttributeTable`，结构节点不再镜像宽语义 payload；conditional/短路/comparison chain 已产生 lazy CFG、typed edge merge 和 `truthiness`/`compare`，变量与 writable call 使用显式 load/allocate/store/copy/writeback；tuple/function/reference type/shape 签名、stride/view/lifetime 和单对象 call argument region/transfer 可验证；alias/effect 由独立 `AliasEffectTable` 持有；双目标 LIR v10 显式保存 ABI、scope/declaration、临时值、顶层拓扑、expression/statement、强类型比较、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
+| IR 架构 | 四种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有；MIR 使用 `MirExpressionId`/`MirStatementId` 稠密 arena 与 revision-bound `OperationAttributeTable`，结构节点不再镜像宽语义 payload；conditional/短路/comparison chain 已产生 lazy CFG、typed edge merge 和 `truthiness`/`compare`，变量与 writable call 使用显式 load/allocate/store/copy/writeback；tuple/function/reference type/shape 签名、stride/view/lifetime 和单对象 call argument region/transfer 可验证；alias/effect 由独立 `AliasEffectTable` 持有；双目标 LIR v11 显式保存 ABI、scope/declaration、source export、临时值、顶层拓扑、expression/statement、强类型比较、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
 | Python 最新能力 | relational/equality/identity/membership 比较链、右结合条件表达式、短路/惰性/单次求值；list/tuple 种类相等规则、singleton/reference identity、string/list/tuple membership；基础参数关联和递归固定序列解包 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流 |
-| 工程门禁 | 161 项内部测试；49 个差分 case、137 条工具完整环境执行路径；60 项 CTest；fuzz smoke、可选 libFuzzer、版本化性能发布阈值、阶段报告；生产代码行覆盖率实测 89.68%（18785/20946），硬门槛 85% |
+| 工程门禁 | 167 项内部测试；51 个差分 case、143 条工具完整环境执行路径；62 项 CTest；四语言 fuzz smoke、可选 libFuzzer、六场景版本化性能阈值、阶段报告；生产代码行覆盖率实测 89.20%（19587/21959），硬门槛 85% |
 | 发布状态 | 0.x；没有长期 API/ABI 或完整语言兼容承诺 |
 
 ## 本轮商业级收尾验收（完成）
 
-- [x] 三语言生产 artifact 使用编译期互不兼容的 PMR arena AST、稠密 ID、verifier、确定性 dump 和 AST→HIR visitor
+- [x] 四语言生产 artifact 使用编译期互不兼容的 PMR arena AST、稠密 ID、verifier、确定性 dump 和 AST→HIR visitor
 - [x] 当前支持的分支、循环、loop-else、`break`/`continue` 与 `SELECT CASE` 使用 MIR basic block、terminator、block argument/edge actual；shape stride、storage view/lifetime/intent 可验证，独立 alias/effect table 提供保守 `alias_between` 查询
 - [x] JavaScript/`cpp` representation、ABI、type/shape、名称、runtime 与 binding 决策在目标 lowering/renderer 完成；emitter 只序列化最终 chunk
 - [x] 公共 output bundle 提供代码、source map v3、确定性 dependency manifest 与逐阶段 `CompilationReport`；CLI 支持 `--source-map`
-- [x] 三语言/双目标 fuzz smoke、Clang/libFuzzer、资源耗尽、确定性重放、崩溃复现与最小化工作流落地
+- [x] 四语言/双目标 fuzz smoke、Clang/libFuzzer、资源耗尽、确定性重放、崩溃复现与最小化工作流落地
 - [x] 延迟、吞吐、深 CFG、大 shape、函数图、八路并发、峰值 arena 和产物大小纳入版本化 JSON 发布门禁与 CI 报告
 
 这里的“完成”只指上述架构与工程闭环；各语言官方 grammar、完整对象模型、动态 rank/广播、精确 N 维 overlap/alias 和稳定插件 ABI 仍由后续条目跟踪。
@@ -35,7 +35,7 @@
 
 ### 0.3.5：商业级前后端与五层编译器管线继续收敛（已发布）
 
-0.3.5 以 16 条独立更新完成封版，交付窄 HIR + semantic seed、独立 name/flow/alias-effect side table、跨函数 MIR call contract 和双目标 LIR v9。下列已勾选项是该版本及此前版本的实际能力；未勾选项继续作为 0.4.0 及后续版本的架构 backlog。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
+0.3.5 以 16 条独立更新完成封版，交付窄 HIR + semantic seed、独立 name/flow/alias-effect side table、跨函数 MIR call contract 和双目标 LIR v9。下列已勾选项是该版本及此前版本的实际能力；未勾选项继续作为 0.4.1 及后续版本的架构 backlog。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
 
 #### P0：基线、指标与依赖规则
 
@@ -58,10 +58,10 @@
 
 - [x] 建立 `python::ast`、`matlab::ast`、`fortran::ast` 独立 artifact root、稠密 `AstNodeId` inventory、source origin 和 descriptor verifier
 - [x] 三种生产 artifact 使用编译期互不兼容的 `python::ast`/`matlab::ast`/`fortran::ast` 节点、PMR arena、稠密 ID 与 AST→HIR visitor；artifact 不再封装共享 syntax tree
-- [x] descriptor parser 只向生产管线发布本语言 AST；三个 statement parser 直接构造语言专属 arena，comparison chain、多输出签名、source form/declaration attribute 等表面信息随本语言节点保留
+- [x] descriptor parser 只向生产管线发布本语言 AST；四个 statement parser 直接构造语言专属 arena，comparison chain、多输出签名、source form/declaration attribute、TypeScript export 等表面信息随本语言节点保留
 - [x] 建立窄 HIR 结构 contract，承接函数、参数/结果名称、调用、多目标标记、range、selection 与 slice/section；type/shape/binding/intrinsic/call association/assignment pattern 只进入同批 semantic seed
 - [x] 以共享语义 profile 表达 truthiness、logical result、division、equality、layout 和 top-level storage；capability validator 不再按 `SourceLanguage` 分支
-- [x] 三个 frontend descriptor 分别提供 AST verifier 与 AST→HIR + semantic seed lowering；统一 HIR/semantic verifier 在 Analyzer 前和生产路径逐 pass 执行
+- [x] 四个 frontend descriptor 分别提供 AST verifier 与 AST→HIR + semantic seed lowering；统一 HIR/semantic verifier 在 Analyzer 前和生产路径逐 pass 执行
 - [x] 增加 Python/Matlab 跨语言等价语义的 normalized HIR golden
 - [x] 删除 HIR statement/expression 的宽语义镜像、共享 syntax→HIR 旁路和脱离 side table 的 HIR-only reindex；架构门禁阻止字段与旁路恢复
 - [x] 共享 IR 不含带语言名的行为字段；新语言不得通过新增 `python_*`/`matlab_*`/`fortran_*` flag 接入
@@ -195,10 +195,16 @@
 - [x] 将变量读取、未初始化声明、assignment/indexed assignment 和 writable call 的 load/allocate/store/copy/writeback 固化为 runtime-independent opcode contract
 - [x] 双后端、binding/capability、alias/effect、MIR v3 dump、稠密 verifier、架构门禁及正负测试全部迁移到新合约
 
-### 0.4.0：官方 grammar 纵切面与对象语义继续扩展
+### 0.4.0：TypeScript 首个独立纵切面（已发布）
 
-- [ ] 按 Matlab/Python/Fortran 官方 grammar 选择下一批可独立验收的纵切面；每累计 8—20 条独立更新形成下一版本
-- [ ] 建立 TypeScript 6 独立 descriptor、语言专属 arena AST、lexer/parser 与 AST→HIR semantic seed 首个端到端纵切面
+- [x] 建立 TypeScript 6 独立 descriptor、语言专属 arena AST、全源 statement lexer/parser 与 AST→HIR semantic seed 首个端到端纵切面
+- [x] 接通 typed `let`/`const`、标量/typed array、函数/default/value return、`if`/`else`、`while`、严格比较、`console.log`、显式函数 export 与双目标执行
+- [x] 用 semantic profile/side-table→MIR function→JavaScript LIR ABI 贯通显式 export policy；TypeScript 私有函数不再被 ESM 默认导出
+- [x] 增加 TypeScript descriptor/arena/conformance、拒绝语义、Node.js/生成 C++/oracle 差分和 typed-array 执行门禁
+
+### 0.4.1 及后续：官方 grammar 与对象语义继续扩展
+
+- [ ] 按 Matlab/Python/Fortran/TypeScript 官方 grammar 选择下一批可独立验收的纵切面；每累计 8—20 条独立更新形成下一版本
 - [ ] 继续完成动态 rank/extent、广播、精确 N 维 selector region overlap 和目标 typed-array/ownership 策略
 
 ## M0：工程与端到端基础（完成）
@@ -206,7 +212,7 @@
 - [x] C17/C++17 标准配置、CMake 3.20+ 和严格根目录 `build/` 构建边界
 - [x] 分层源码目录、公共 C++ API 与 `mpfc` CLI
 - [x] 统一诊断结构、错误码、源码位置、文本/JSON 输出和退出码契约
-- [x] Matlab/Python/Fortran 标量子集到 JavaScript/C++ 的端到端纵切面
+- [x] Matlab/Python/Fortran 标量子集与 TypeScript 首个 typed 子集到 JavaScript/C++ 的端到端纵切面
 - [x] JavaScript ESM/strict script 与 C++17 translation unit 输出
 - [x] stdin/stdout、自动语言检测和 Fortran source-form 选择
 - [x] Linux/macOS/Windows，GCC/Clang/AppleClang/MSVC CI
@@ -217,8 +223,8 @@
 已交付：
 
 - [x] 多文件 SourceManager、源码所有权、UTF-8 列、CRLF、跨度、行映射和诊断片段
-- [x] 三语言 logical-source normalization、表达式 lexer 和 statement token/span stream
-- [x] 三语言当前子集的递归下降 statement parser；已支持语法不再使用 regex/prefix 行解析
+- [x] Matlab/Python/Fortran logical-source normalization，以及四语言表达式 lexer 和 statement token/span stream
+- [x] 四语言当前子集的递归下降 statement parser；已支持语法不再使用 regex/prefix 行解析
 - [x] Pratt 表达式 AST、优先级/结合性、基础错误恢复和双后端 AST pretty-print
 - [x] 名称绑定、基础作用域、builtin 遮蔽与 JavaScript/C++ 保留字安全改名
 - [x] 标量/容器类型、确定赋值、基础终止流、循环上下文、不可达警告
@@ -234,11 +240,11 @@
 
 仍需建设：
 
-- [ ] 依据三种官方 grammar 完成 statement/parser 覆盖；版本范围 contract、公共 API/CLI gate、Python 3.8 positional-only 与 Fortran 2003 bracket-constructor gate 已落地，其余产生式/feature gate 继续逐项完成
+- [ ] 依据四种官方 grammar 完成 statement/parser 覆盖；版本范围 contract、公共 API/CLI gate、Python 3.8 positional-only 与 Fortran 2003 bracket-constructor gate 已落地，其余产生式/feature gate 继续逐项完成
 - [x] 建立独立 HIR/MIR、强类型 ID、verifier、pass/analysis manager、确定性 dump 和生产 lowering 主链路
-- [x] 语言专属 arena AST 由三个 statement parser 直接构造；窄 HIR + semantic seed、当前控制结构 MIR CFG、parser token/depth/arena 边界、Analyzer 直写 semantic side table，以及独立 name/flow/alias-effect pass 已进入生产路径
+- [x] 语言专属 arena AST 由四个 statement parser 直接构造；窄 HIR + semantic seed、当前控制结构 MIR CFG、parser token/depth/arena 边界、Analyzer 直写 semantic side table，以及独立 name/flow/alias-effect pass 已进入生产路径
 - [x] 删除 MIR 递归宽兼容树，改为与 instruction 对应的 expression/operation 稠密 arena
-- [ ] 删除 flat MIR 剩余源语义 payload 镜像，并随官方 grammar 扩展更细粒度 parser recovery
+- [x] 删除 flat MIR 剩余源语义 payload 镜像；更细粒度 parser recovery 随官方 grammar 继续扩展
 - [ ] 完整嵌套作用域、常量折叠、完整 CFG、参数敏感跨函数数据流
 - [x] 跨语言一般 N 维静态 shape、声明、RESHAPE、直接 index/section 读取写入，以及 JavaScript/C++ 递归运行时；三维 Fortran/gfortran/Node.js/生成 C++ 差分已入门禁
 - [ ] 动态 rank、广播、跨 view/storage 的精确 N 维 section overlap 与多 writable actual alias 证明
@@ -327,15 +333,20 @@
 
 ## M5：TypeScript 6 前端
 
-当前状态：目标已纳入产品范围，尚未宣称任何 TypeScript 语法子集可用。frontend descriptor v5、语言专属 arena AST、AST verifier、direct arena builder 机制与 AST→HIR contract 已形成接入骨架；TypeScript 前端必须新增自己的节点类型、verifier 与 visitor，不得复用其他语言 artifact。
+当前状态：0.4.0 已交付首个可执行纵切面。TypeScript 使用独立 descriptor、statement token stream、编译期专属 `typescript::ast` PMR arena、verifier 与 AST→HIR visitor，不复用 Python/JavaScript parser 或其他语言 artifact；manifest 声明 1.0—6.0，但这不表示完整 TypeScript 6 grammar 已完成。
 
-- [ ] 增加 `typescript` 源语言身份、`.ts`/`.tsx` 探测与独立 descriptor；不得把 TypeScript 作为 Python/JavaScript parser 的模式分支
-- [ ] 以 TypeScript 6 grammar 建立 lexer/parser、版本门控和稳定诊断
-- [ ] 明确 type erasure、enum、namespace、decorator、JSX/TSX 和 module lowering 边界
+- [x] 增加 `typescript`/`ts` 源语言身份、`.ts`/`.mts`/`.cts` 探测与独立 descriptor；不把 TypeScript 作为其他 parser 的模式分支
+- [x] 建立 TypeScript 全源 statement lexer、当前子集递归下降 parser、strict equality 表达式 token 和 `MPF19xx` 词法诊断
+- [x] 接通 type annotation 擦除后的 number/boolean/string/array facts、默认参数、值返回、函数/分支/循环与 typed array 双目标 lowering
+- [x] 将 explicit-only export policy 作为 semantic profile 和 side-table 事实贯通 MIR/JavaScript LIR；当前仅支持 `export function`
+- [x] 对 loose equality、`var`、arrow/template、无默认值 optional parameter、block-local declaration、非可移植比较和非布尔控制条件失败关闭
+- [ ] 继续完成 TypeScript 6 官方 grammar、版本 feature gate 和产生式级 recovery/诊断；当前 parser 只是已验证子集
+- [ ] 明确并实现 enum、namespace、decorator、JSX/TSX、interface/type、generic、class/object、async 和完整 module lowering 边界
 - [ ] 将标准库与宿主 API 映射为 source intrinsic/外部 binding，不在 emitter 中匹配源 spelling
-- [ ] JavaScript 输出保持 TypeScript 运行时语义；`cpp` 对动态对象模型建立明确 capability validator
-- [ ] 增加 tsc/Node.js/生成 C++/oracle 差分和 TypeScript-only 自动检测/拒绝 corpus
-- [ ] 更新 CLI、支持矩阵、安装包、示例和兼容性报告
+- [ ] JavaScript 输出扩展完整 ECMAScript truthiness/object/reference 语义；`cpp` 对动态对象模型建立明确 capability validator 与 ownership strategy
+- [x] 增加 Node.js 24 source TypeScript type-stripping、生成 JavaScript、生成 C++、声明式 oracle 四路差分、typed-array case 和 TypeScript-only 自动检测/拒绝 corpus
+- [ ] 接入与 manifest 版本匹配的 `tsc` 完整 type-check oracle；当前 source oracle 验证可擦除语法的运行语义，不替代完整 TypeScript checker
+- [x] 更新公共 API/CLI、支持矩阵、架构/扩展/诊断文档和示例
 
 ## M6：JavaScript / C++ 后端与 runtime
 

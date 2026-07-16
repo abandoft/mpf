@@ -1,3 +1,16 @@
+## 0.4.0
+
+- 新增公共 `SourceLanguage::typescript`、`typescript`/`ts` 名称、`.ts`/`.mts`/`.cts` 扩展探测和 1.0—6.0 manifest；frontend registry、CLI 帮助、自动检测、availability/name API 与安装后 catalog 统一从 descriptor 获取第四种源语言，不把 TypeScript 塞入 Python 或 JavaScript 模式。
+- 新增独立 TypeScript full-source statement lexer，直接处理 brace、semicolon/newline、单/双引号 escape、`//`/`/* */` comment、strict equality 与绝对 byte span/source location；未闭合 comment/string 和控制字符使用新的 `MPF19xx` 诊断空间，template literal 等未建模 token 失败关闭。
+- 新增编译期独立的 `typescript::ast::LanguageTag`、PMR arena `Program`/`Expression`/`Statement`、稠密 `AstNodeId` inventory、确定性 dump、AST verifier 和 AST→HIR + revision-bound semantic seed lowering；四种 frontend artifact 互不兼容，TypeScript 同样经过统一 HIR/MIR/双目标 LIR 五层生产路径。
+- TypeScript parser 首个纵切面覆盖单 declarator typed/untyped `let`/`const`、标量与 homogeneous typed array、普通/indexed assignment、`console.log`、function/annotation erasure/default/value return、braced `if`/`else if`/`else`、`while`、`break`/`continue` 和表达式调用；parser 在构造时直接驻留本语言 arena，不建立共享递归 syntax tree。
+- TypeScript semantic profile 固化 real quotient、parameter default 与 explicit-only export policy；Analyzer 的 real division、default parameter 分析/调用补齐、参数 annotation seed 和 operand logical 判断改为 profile 驱动，HIR→MIR 对所有 value-returning frontend 使用统一函数结果 contract，不再把这些能力写死为 Python 特例。
+- MIR verifier 明确接受 integer/real 数值实参与实数逻辑签名的合法相容关系，同时继续拒绝非数值类型、shape、reference 和 function signature 分歧；typed `number` 参数、默认值和调用因此能在严格 verifier 下直接生成 JavaScript 与可编译 C++17，而不是绕过类型检查。
+- 显式函数 export 从 TypeScript AST statement fact 进入 HIR `SemanticTable`、MIR `Function` 和 JavaScript LIR ABI/resource verifier；双目标 artifact schema 升至 LIR v11，ESM 只导出 `export function`，普通 TypeScript 顶层函数保持 module-private，其他既有 frontend 继续使用原有 top-level export policy，纯 emitter 不读取源语言身份。
+- 当前可移植 TypeScript 子集对 loose `==`/`!=`、`var` hoisting、arrow/template、optional-without-default、block-local declaration、未声明赋值、const rebinding、非布尔逻辑/控制条件和对象/array reference comparison 给出稳定拒绝诊断，避免 JavaScript 与 C++17 静默产生不同运行语义。
+- typed array 纵切面保持零基读取/写入、const container 元素 mutation、element/shape 分析和 JavaScript Array/C++ `std::vector<double>` 两种私有目标表示；TypeScript 不自动继承 Python/Matlab/Fortran 的全局 intrinsic spelling，标准库与宿主 API 留待显式 source binding。
+- 新增 TypeScript descriptor/arena/conformance、lexer/source-location、版本/扩展检测、strict comparison、default/control/export、拒绝语义与 typed-array 单元/集成门禁，以及 `basic.ts`/`arrays.ts` 的 Node.js 24 source、生成 JavaScript、生成 C++17 和声明式 oracle 四路差分；编译器分层门禁同步要求第四个 frontend 直接构造语言 arena。当前为 167 项内部测试、51 个差分 case 和 62 项 CTest，Debug/Release、ASan/UBSan、format/clang-tidy、六场景性能门禁全部通过，生产代码行覆盖率实测 89.20%（19587/21959）。
+
 ## 0.3.9
 
 - MIR 新增与 `Program::revision` 绑定的稠密 `OperationAttributeTable`，expression/statement arena 节点只保留结构边、resident instruction 和强类型 ID；spelling、强类型 comparison/binding/intrinsic、调用结果策略、索引规则及语句 operation 属性由独立行按 `MirExpressionId`/`MirStatementId` O(1) 查询。

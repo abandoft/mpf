@@ -7,20 +7,20 @@ MPF 的验证体系分为七层：
 3. javascript-only、cpp-only、core-only 隔离测试验证编译、链接、安装和外部消费边界；
 4. Debug、Release、ASan/UBSan 以及 GitHub 多平台矩阵验证构建模式与工具链；
 5. clang-format、零告警 clang-tidy、85% 生产代码行覆盖率，以及仓库能力可用时的 CodeQL 和依赖审查构成工程质量门禁。
-6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖三种前端、两个目标、资源耗尽和确定性重放；
+6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖四种前端、两个目标、资源耗尽和确定性重放；
 7. 小文件延迟、吞吐、深 CFG、大 shape、跨函数图、峰值 arena、产物大小和并发 session 进入发布性能门禁。
 
-0.3.9 已覆盖生产 stage/include architecture test、AST/HIR/MIR/双目标 LIR verifier negative、normalized HIR 与双目标 semantic LIR golden、人类可读目标 LIR dump、analysis revision/preservation、source map v3、编译报告、前后端 conformance、安装后 consumer、细粒度 resource exhaustion、fuzz smoke/libFuzzer 和绑定项目版本的性能回归门禁。flat-MIR contract 要求 expression/operation child 与 roots 只保存强类型 ID，revision-bound `OperationAttributeTable` 与 inventory 一一对应，target LIR builder 只按 ID/type/shape/storage 查询；negative test 覆盖 stale/缺损 attribute、非法强类型事实、expression/instruction metadata、非法 child、重复 root、cycle/unreachable ownership、lazy merge/truthiness/compare 以及 allocate/store/copy/writeback arity。MIR dump v3 公开 resident instruction、attribute、SSA/type/shape/storage、lazy CFG 和 transfer inventory。内部测试现为 161 项，生产代码行覆盖率实测 89.68%（18785/20946）；更广官方 grammar、TypeScript 前端、动态 rank/广播和精确 N 维 selector region overlap 继续按 [TODO](../TODO.md) 推进。
+0.4.0 在既有 stage/include、AST/HIR/MIR/双目标 LIR verifier、golden、analysis revision、source map、resource、fuzz 和性能门禁上新增 TypeScript descriptor/arena/conformance、full-source token、typed scalar/array、default/value return、control flow、strict comparison、explicit/private export 和稳定拒绝语义测试。flat-MIR contract 仍要求 expression/operation child 与 roots 只保存强类型 ID，revision-bound `OperationAttributeTable` 与 inventory 一一对应，target LIR builder 只按 ID/type/shape/storage 查询；TypeScript export 额外由 semantic fact→MIR function→JavaScript LIR ABI 验证。更广四语言官方 grammar、动态 rank/广播和精确 N 维 selector region overlap 继续按 [TODO](../TODO.md) 推进。
 
 ## 当前开发分支与发布基线
 
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 160 项，零失败 |
-| CTest | 60 项，包含 49 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
-| Differential corpus | Python 21、Fortran 18、Matlab 10，共 49 个 case |
-| 工具完整环境执行路径 | 137 条程序路径，另有每 case 一条 oracle |
-| 生产代码行覆盖率 | 89.65%（17987/20063），门槛 85% |
+| C++ 单元与集成测试 | 167 项，零失败 |
+| CTest | 62 项，包含 51 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
+| Differential corpus | Python 21、Fortran 18、Matlab 10、TypeScript 2，共 51 个 case |
+| 工具完整环境执行路径 | 143 条程序路径，另有每 case 一条 oracle |
+| 生产代码行覆盖率 | 89.20%（19587/21959），门槛 85% |
 
 ## Differential corpus
 
@@ -28,9 +28,10 @@ MPF 的验证体系分为七层：
 
 - 21 个 Python case：CPython 3.14、Node.js、生成 C++17 与 oracle 四路比较；
 - 18 个 Fortran case：gfortran 严格 `-std=f2018` reference mode、Node.js、生成 C++17 与 oracle 四路比较；`MPF_FORTRAN_REFERENCE_STANDARD` 可在工具链支持后切换到 `f2023`；
-- 10 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较。
+- 10 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较；
+- 2 个 TypeScript case：Node.js 24 直接执行可擦除类型的 source、生成 JavaScript、生成 C++17 与声明式 oracle 四路比较；完整 type-check 仍待接入与 manifest 匹配的 `tsc`。
 
-在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 49 个 case 共执行 137 条程序输出路径：49 条 Node.js、49 条生成 C++17，以及 21 条 CPython 和 18 条 gfortran 源语言路径；此外每个 case 都有一条声明式 oracle 基线。runner 不仅分别检查 oracle，还直接比较可用执行路径。Python comparisons case 四路覆盖 equality/identity/membership、list/tuple 种类差异、递归布尔/数值相等和混合 comparison chain；expression-semantics case 继续覆盖中间操作数单次求值与短路、条件表达式惰性/右结合。Fortran tensor、SELECT CASE、structured-unpacking、argument association 和 optional writeback cases 继续覆盖原契约。
+在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 51 个 case 共执行 143 条程序输出路径：51 条生成 JavaScript/Node.js、51 条生成 C++17、21 条 CPython、18 条 gfortran 和 2 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。runner 不仅分别检查 oracle，还直接比较可用执行路径。Python comparisons case 四路覆盖 equality/identity/membership、list/tuple 种类差异、递归布尔/数值相等和混合 comparison chain；TypeScript basic/arrays case 四路覆盖 default/control/export、strict equality、typed array 和零基 mutation。Fortran tensor、SELECT CASE、structured-unpacking、argument association 和 optional writeback cases 继续覆盖原契约。
 
 每个 case 在 `build/<preset>/differential/<case>/` 保存：
 
