@@ -1,6 +1,6 @@
 # MPF 持续建设路线图
 
-本路线图同时记录 **0.33.0 已发布基线** 与当前 **0.34 开发分支** 的真实状态。历史交付细节见
+本路线图同时记录 **0.3.4 已发布基线** 与下一轮 **0.3.5 架构收敛目标** 的真实状态。历史交付细节见
 [CHANGELOG.md](CHANGELOG.md)，当前可依赖的语言子集见
 [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 前端当前尚未实现。
 
@@ -13,11 +13,11 @@
 | 实现与构建 | CMake 3.20+；配置固定 C17/C++17；当前生产源码和公共 API 使用 C++17，尚无稳定 C API |
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；`cpp` 当前生成严格 C++17 translation unit |
 | 前后端边界 | 生产驱动固定经过语言 AST artifact→HIR→MIR→目标私有 semantic plan/LIR→emitter；两个目标不读取彼此产物 |
-| 扩展架构 | frontend descriptor API v4、backend descriptor API v3；AST verifier、标准版本范围/schema/determinism manifest、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
+| 扩展架构 | frontend descriptor API v5、backend descriptor API v4；parser session/feature/resource contract、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
 | IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；Analyzer 结果在边界抽取为 revision-checked 稠密 `SemanticTable`，MIR 只消费 side table；MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime/alias；目标 lowering 产出带 origin chunk 的最终 LIR，emitter 仅序列化 |
 | Python 最新能力 | relational/equality 比较链、右结合条件表达式、短路/惰性/单次求值；基础参数关联和递归固定序列解包 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流 |
-| 工程门禁 | 143 项内部测试；48 个差分 case、134 条工具完整环境执行路径；58 项 CTest；fuzz smoke、可选 libFuzzer、性能发布阈值、阶段报告；本轮生产代码覆盖率 88.34%（13517/15301） |
+| 工程门禁 | 145 项内部测试；48 个差分 case、134 条工具完整环境执行路径；59 项 CTest；fuzz smoke、可选 libFuzzer、版本化性能发布阈值、阶段报告；0.3.4 生产代码覆盖率 88.26%（13779/15611） |
 | 发布状态 | 0.x；没有长期 API/ABI 或完整语言兼容承诺 |
 
 ## 本轮商业级收尾验收（完成）
@@ -33,13 +33,13 @@
 
 ## 下一交付目标
 
-### 0.34：商业级前后端与五层编译器管线（进行中）
+### 0.3.5：商业级前后端与五层编译器管线继续收敛（进行中）
 
-本里程碑优先于继续扩大语言覆盖。目标是让现有三前端和两个后端全部经过真实的 `语言 AST → HIR → MIR → 目标 LIR → Emitter` 生产路径，并删除共享 `Program` 直通 emitter 的旧路径。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
+0.3.4 已让三个前端和两个后端全部经过真实的 `语言 AST → HIR → MIR → 目标 LIR → Emitter` 生产路径，并删除共享 `Program` 直通 emitter 的旧路径。0.3.5 只跟踪仍未完成的数据模型收窄、直接 side-table 分析与 representation/ABI 前移，不把它们误写成 0.3.4 已交付能力。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
 
 #### P0：基线、指标与依赖规则
 
-- [ ] 固化当前全部生成代码、诊断、差分输出、编译时间、峰值内存和产物大小基线
+- [x] 以生成代码/诊断/差分 corpus、HIR/LIR golden 和绑定 `0.3.4` 的性能 JSON 固化生成输出、编译时间、峰值内存和产物大小基线
 - [x] 增加生产 stage/include architecture test 与 javascript-only、cpp-only、core-only 链接/安装隔离，禁止 frontend→MIR/backend、公共 IR→backend 和 javascript↔`cpp` 反向依赖
 - [x] 为重构设定 resource limit、确定性和性能回退阈值；CI 产出机器可读阶段指标与性能报告
 - [x] 迁移以 feature-equivalent adapter 保持既有语言行为，现有单元、集成与差分 corpus 继续作为兼容门禁
@@ -62,8 +62,9 @@
 - [x] 建立独立 HIR contract，承接函数、参数关联、多返回、assignment pattern、range、selection、slice/section 和 intrinsic identity
 - [x] 以共享语义 profile 表达 truthiness、logical result、division、equality、layout 和 top-level storage；capability validator 不再按 `SourceLanguage` 分支
 - [x] 三个 frontend descriptor 分别提供 AST verifier 与 AST→HIR lowering；统一 HIR verifier 在生产路径逐 pass 执行
-- [ ] 增加跨语言等价语义的 normalized HIR golden，并继续收窄当前宽 HIR statement/expression 数据模型
-- [ ] 删除共享 IR 中带语言名的字段；新语言不得通过新增 `python_*`/`matlab_*`/`fortran_*` flag 接入
+- [x] 增加 Python/Matlab 跨语言等价语义的 normalized HIR golden
+- [ ] 继续收窄当前宽 HIR statement/expression 数据模型
+- [x] 共享 IR 不含带语言名的行为字段；新语言不得通过新增 `python_*`/`matlab_*`/`fortran_*` flag 接入
 
 #### P3：独立 MIR 与公共分析
 
@@ -110,21 +111,20 @@
 
 #### P6：descriptor、扩展 SDK 与门禁
 
-- [x] Frontend descriptor API v4 提供 language AST verifier、AST→HIR factory、可验证 minimum/maximum language version、AST schema 与 determinism/reentrancy manifest；公共 API/CLI 支持 `LanguageVersion`/`--language-version`
-- [ ] 增加显式 parser session factory、feature bitset 与 resource-limit contract
-- [x] Backend descriptor API v3 提供 TargetProfile、legalization、capability、semantic IR/LIR factory、target verifier/printer 与 artifact schema manifest
-- [ ] 增加完整 configuration schema 与未来外部 runtime 的 license/supply-chain manifest；code/source-map/dependency output bundle contract 已落地
+- [x] Frontend descriptor API v5 提供 parser session factory、feature bitset、resource-limit contract、language AST verifier、AST→HIR factory、可验证 minimum/maximum language version、AST schema 与 determinism/reentrancy manifest；公共 API/CLI 支持 `LanguageVersion`/`--language-version`
+- [x] Backend descriptor API v4 提供 TargetProfile、legalization、capability、semantic IR/LIR factory、target verifier/dump/printer 与 artifact schema manifest
+- [x] 增加完整 configuration schema 与可承载未来外部 runtime 的 license/supply-chain manifest；code/source-map/dependency output bundle contract 已落地
 - [x] 建立 Backend SDK 基础：opaque artifact lifecycle、强类型 target pass、legalization registry、binding、origin、确定性名称和 conformance 工具
 - [x] descriptor catalog validation 覆盖 API version、线程安全/确定性声明、profile/target 一致性、legalization 完整性和 callback 完整性；内置 catalog 保持静态只读
 - [x] 提供可复用 frontend/backend conformance harness，自动验证 descriptor、verifier、binding、lowering 和逐字节确定性
-- [ ] 增加仓库外最小 frontend/backend 示例及安装后 conformance 模板
-- [ ] 明确内部 C++ descriptor 仍不是动态插件 ABI；稳定 C17 plugin ABI 另立里程碑
+- [x] 增加两个通过安装包 `find_package` 独立配置、构建和运行的 frontend/backend consumer/conformance 模板
+- [x] 明确内部 C++ descriptor 仍不是动态插件 ABI；稳定 C17 plugin ABI 另立里程碑
 
 #### P7：测试、性能与删除兼容路径
 
 - [x] HIR/MIR/双目标 LIR 增加 verifier negative tests；HIR/MIR 增加 deterministic textual dump；后端 conformance 逐字节验证 emitter 确定性
 - [x] source、AST/HIR/MIR/LIR 节点和生成输出具有公开可配置 `ResourceLimits`，逐阶段以 `MPF0010` 失败关闭并有 exhaustion tests
-- [ ] 补齐各层 lowering golden 与面向人的目标 semantic LIR dump；parser token/depth、AST arena、各 IR/产物/source-map exhaustion tests 已完成
+- [x] 增加 normalized HIR 与双目标 lowering golden、面向人的目标 semantic LIR dump；parser token/depth、AST arena、各 IR/产物/source-map exhaustion tests 已完成
 - [x] 增加全管线 fuzz target、拒绝/成功 corpus、确定性 mutation smoke、libFuzzer crash replay 与最小化工作流
 - [x] 全量源 runner/Node.js/生成 `cpp`/oracle 差分在新管线通过，诊断和输出变化均有审核记录
 - [x] 增加小文件延迟、大文件吞吐、峰值 arena、深 CFG、大 shape、跨函数图、批量并发和生成产物 benchmark，并由 CI 执行 JSON 基线门禁
@@ -134,7 +134,7 @@
 
 完成定义：P0—P7 全部完成，且两个 emitter 的公共入口只能接收各自 LIR，才可宣称“商业级多层 IR 与易扩展前后端”已交付。
 
-### 0.35：Python 比较与成员关系语义
+### 0.3.6：Python 比较与成员关系语义
 
 - [ ] 为 `is`/`is not`、`in`/`not in` 建立专用 token、AST/IR 和优先级规则
 - [ ] 明确 `None`/布尔/数值/string/list/tuple 的 equality、identity 与 membership 支持边界
@@ -267,7 +267,7 @@
 
 ## M5：TypeScript 6 前端
 
-当前状态：目标已纳入产品范围，尚未宣称任何 TypeScript 语法子集可用。frontend descriptor v4、语言专属 arena AST、AST verifier 与 AST→HIR contract 已形成接入骨架；TypeScript 前端必须新增自己的节点类型、verifier 与 visitor，不得复用现有 parser scratch 或其他语言 artifact。
+当前状态：目标已纳入产品范围，尚未宣称任何 TypeScript 语法子集可用。frontend descriptor v5、语言专属 arena AST、AST verifier 与 AST→HIR contract 已形成接入骨架；TypeScript 前端必须新增自己的节点类型、verifier 与 visitor，不得复用现有 parser scratch 或其他语言 artifact。
 
 - [ ] 增加 `typescript` 源语言身份、`.ts`/`.tsx` 探测与独立 descriptor；不得把 TypeScript 作为 Python/JavaScript parser 的模式分支
 - [ ] 以 TypeScript 6 grammar 建立 lexer/parser、版本门控和稳定诊断

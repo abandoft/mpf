@@ -4,15 +4,15 @@ MPF 是一个通过 CMake 构建的跨平台源码转译器，目标是把 Matla
 
 ## 当前状态
 
-最新发布版为 **0.33.0**；当前工作树正在开发 0.34 的多层编译器架构。`FrontendDescriptor` API v4 管理身份、探测、标准版本范围/schema manifest、parser、语言 AST verifier 和 AST→HIR lowering；`BackendDescriptor` API v3 管理 TargetProfile、稠密 MIR legalization、capability、私有 semantic/LIR lowering、artifact verifier 和 printer。源语言 builtin 先解析为稳定 intrinsic ID，再由每个目标的稠密绑定表完成映射或专用 lowering。
+最新发布版为 **0.3.4**；后续架构收敛与语言覆盖按 [TODO](TODO.md) 继续推进。`FrontendDescriptor` API v5 管理身份、探测、标准版本范围、能力/resource manifest、parser session、语言 AST verifier 和 AST→HIR lowering；`BackendDescriptor` API v4 管理 configuration/runtime supply-chain manifest、TargetProfile、稠密 MIR legalization、capability、私有 semantic/LIR lowering、artifact verifier、semantic dump 和 printer。源语言 builtin 先解析为稳定 intrinsic ID，再由每个目标的稠密绑定表完成映射或专用 lowering。
 
 生产驱动已经实际执行“语言专属 arena AST → HIR → Analyzer `SemanticTable` → MIR → JavaScript LIR/`cpp` LIR → Emitter”。三种 AST 是编译期互不兼容的 PMR arena artifact；Analyzer 的全部外部结果按 HIR ID 稠密存储并检查 revision；MIR 显式保存 type/shape/stride/storage/lifetime/alias、block argument、edge actual、循环和选择 CFG，并验证 ownership、arity、dominance 与 metadata 相容性。两个目标各自完成 capability、legalization、representation/ABI lowering、确定性 rendering 和 LIR verifier，最终 emitter 只序列化带 source origin 的 chunk。公共结果同时提供 source map v3、dependency manifest 和逐阶段编译报告。
 
-0.34 的本轮架构收尾已经覆盖 arena AST、Analyzer 全量输出 side table、当前语言子集的 MIR CFG/alias、静态一般 rank 的 RESHAPE/direct-section、纯 emitter、source map、fuzz/resource 与性能发布门禁；仍未把完整官方语言 grammar、Analyzer 内部直接 side-table 计算、动态 rank/广播/精确 N 维 overlap 或稳定插件 ABI 误报为完成。精确边界见 [TODO](TODO.md)。
+0.3.4 的本轮架构收尾已经覆盖 arena AST、Analyzer 全量输出 side table、当前语言子集的 MIR CFG/alias、静态一般 rank 的 RESHAPE/direct-section、纯 emitter、source map、fuzz/resource 与性能发布门禁；仍未把完整官方语言 grammar、Analyzer 内部直接 side-table 计算、动态 rank/广播/精确 N 维 overlap 或稳定插件 ABI 误报为完成。精确边界见 [TODO](TODO.md)。版本递增规则见 [版本策略](docs/VERSIONING.md)。
 
 - `cpp` 是唯一 C++ 目标身份，当前输出标准为 C++17；代码中不使用 `cpp17` 一类标识符。
 - 两个后端彼此独立，生成 C++ 不需要先生成 JavaScript。
-- 当前工作树为 143 项内部测试、48 个差分 case 和 58 项 CTest；另有持续 fuzz smoke、可选 Clang/libFuzzer 与编译性能 JSON 发布门禁；本轮实测生产代码行覆盖率为 88.34%（13517/15301），高于 85% 硬门槛。
+- 0.3.4 为 145 项内部测试、48 个差分 case 和 59 项 CTest；另有持续 fuzz smoke、可选 Clang/libFuzzer 与绑定版本号的编译性能 JSON 发布门禁；最终实测生产代码行覆盖率为 88.26%（13779/15611），高于 85% 硬门槛。
 - 项目仍是经过验证的语言子集，不能宣称完整兼容 Matlab 2024、Python 3.14 或 Fortran 2023。
 - TypeScript 6 已进入产品路线图，但当前尚无可声明支持的 TypeScript 前端子集。
 
@@ -85,7 +85,7 @@ cmake --install build/release --prefix build/stage
 ```
 
 ```cmake
-find_package(mpf 0.33 CONFIG REQUIRED COMPONENTS core cpp)
+find_package(mpf 0.3.4 CONFIG REQUIRED COMPONENTS core cpp)
 target_link_libraries(my_application PRIVATE mpf::mpf)
 ```
 

@@ -1,6 +1,6 @@
 # MPF 架构
 
-本文描述当前 0.34 开发分支的实际架构；0.33.0 是最新发布基线。CMake 同时固定 C17/C++17 标准基线，但当前生产实现和公共 API 使用 C++17；`cpp` 是 C++ 输出目标的代码身份，C++17 是当前生成标准。最终职责、性能模型和迁移验收条件见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
+本文描述 0.3.4 发布版的实际架构。CMake 同时固定 C17/C++17 标准基线，但当前生产实现和公共 API 使用 C++17；`cpp` 是 C++ 输出目标的代码身份，C++17 是当前生成标准。最终职责、性能模型和后续迁移验收条件见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
 
 ## 当前状态边界
 
@@ -14,7 +14,7 @@
 - representation/type/shape/ABI/name/runtime 决策在目标 lowering/renderer 完成，形成带 source origin 的 serialized chunks；核心只持有 opaque target artifact，两个 emitter 只调用 `serialize_chunks`。
 - facade 从最终 LIR origin 构建 source map v3，并公开 dependency manifest 和包含阶段耗时/节点/峰值 arena 的编译报告。
 
-本轮商业级收尾已完成语言 AST artifact、当前支持语义的 CFG/alias、纯 emitter、source map、资源防护、fuzz、性能发布门禁、Analyzer 输出 side table 和静态一般 rank 的 reshape/direct-section 主链路。0.34 仍有更大范围的迁移任务：statement parser 内还有不会越过 frontend descriptor 的短生命周期共享 scratch；Analyzer 计算引擎仍用宽 HIR 字段做单遍临时注解，再一次性 move-extract（边界之后 HIR 不再拥有语义结果）；MIR 为兼容当前 target lowering保留结构化语义投影；完整官方 grammar、动态 rank/广播、精确 N 维 storage overlap、跨函数 call/return 类型系统和稳定插件 ABI 也尚未完成。所有边界逐项记录在 [TODO 0.34/P0—P7](../TODO.md)。
+0.3.4 已完成语言 AST artifact、当前支持语义的 CFG/alias、纯 emitter、source map、资源防护、fuzz、版本化性能发布门禁、Analyzer 输出 side table、静态一般 rank 的 reshape/direct-section 主链路、parser-session contract 和双目标 semantic LIR dump/golden。后续仍有更大范围的迁移任务：statement parser 内还有不会越过 frontend descriptor 的短生命周期共享 scratch；Analyzer 计算引擎仍用宽 HIR 字段做单遍临时注解，再一次性 move-extract（边界之后 HIR 不再拥有语义结果）；MIR 为兼容当前 target lowering 保留结构化语义投影；完整官方 grammar、动态 rank/广播、精确 N 维 storage overlap、跨函数 call/return 类型系统和稳定插件 ABI 也尚未完成。所有边界逐项记录在 [TODO 0.3.5/P0—P7](../TODO.md)。
 
 ## 设计原则
 
@@ -82,11 +82,11 @@ language AST
 
 五层已有不同强类型表示和 verifier。生产 AST 不包含共享 syntax tree，最终 emitter 不包含 lowering；Analyzer 边界后的语义事实只有 `SemanticTable` 一个 owner，MIR 以 revision verifier 拒绝 stale/missing facts。当前保留的宽 HIR 计算 scratch 与 MIR 结构化语义投影是后续压缩数据模型的兼容层，不构成跨后端生成依赖。详细 contract 和禁止依赖见 [COMPILER_PIPELINE.md](COMPILER_PIPELINE.md)。
 
-0.8 将目标无关编译和目标能力验证彻底分层；0.9—0.23 逐步建立 section、SourceManager、差分、tokenized parser、多输出、函数图、Fortran procedure、引用与 section copy-in/copy-out；0.24/0.25 建立 Fortran argument association 与完整当前 optional intent；0.26 将通用 call keyword/default 元数据复用于 Python positional-only/keyword-only association；0.27 将同一多目标赋值 IR 扩展到 Python 固定序列解包；0.28 将 C++ 目标身份统一为 `cpp`；0.29 抽取递归 `AssignmentPattern` 与 `ValueMetadata`；0.30 建立格式、静态分析、覆盖率和安全扫描门禁；0.31 新增结构化 SELECT/CASE IR、任意分支合流和双后端单次求值 lowering；0.32 新增显式 Python comparison-chain/conditional AST、类型关联验证和双后端惰性单次求值 lowering；0.33 建立对称的前后端 descriptor/registry、稳定 intrinsic ID 与目标代码绑定表。Analyzer 对不同源语言分别确认 association、unpacking、selection 与表达式语义，后端不解析源语言参数或控制结构语法。通用 Analyzer 不接收 `TargetLanguage`，任一目标均不依赖另一目标的生成物。
+0.0.8 将目标无关编译和目标能力验证彻底分层；0.0.9—0.2.3 逐步建立 section、SourceManager、差分、tokenized parser、多输出、函数图、Fortran procedure、引用与 section copy-in/copy-out；0.2.4/0.2.5 建立 Fortran argument association 与完整当前 optional intent；0.2.6 将通用 call keyword/default 元数据复用于 Python positional-only/keyword-only association；0.2.7 将同一多目标赋值 IR 扩展到 Python 固定序列解包；0.2.8 将 C++ 目标身份统一为 `cpp`；0.2.9 抽取递归 `AssignmentPattern` 与 `ValueMetadata`；0.3.0 建立格式、静态分析、覆盖率和安全扫描门禁；0.3.1 新增结构化 SELECT/CASE IR、任意分支合流和双后端单次求值 lowering；0.3.2 新增显式 Python comparison-chain/conditional AST、类型关联验证和双后端惰性单次求值 lowering；0.3.3 建立对称的前后端 descriptor/registry、稳定 intrinsic ID 与目标代码绑定表。Analyzer 对不同源语言分别确认 association、unpacking、selection 与表达式语义，后端不解析源语言参数或控制结构语法。通用 Analyzer 不接收 `TargetLanguage`，任一目标均不依赖另一目标的生成物。
 
-0.32 的 Python comparison-chain 节点直接保存操作数序列和操作符序列，conditional 节点保存 condition/true/false 三个子节点。Analyzer 分析这些节点的 type/element/shape/tuple metadata，但不选择目标 lowering；JavaScript IIFE 与 C++ lambda 分别由自己的 target renderer materialize，最终 emitter 不再处理这些语义。
+0.3.2 的 Python comparison-chain 节点直接保存操作数序列和操作符序列，conditional 节点保存 condition/true/false 三个子节点。Analyzer 分析这些节点的 type/element/shape/tuple metadata，但不选择目标 lowering；JavaScript IIFE 与 C++ lambda 分别由自己的 target renderer materialize，最终 emitter 不再处理这些语义。
 
-0.34 开发分支把 frontend descriptor 升级到 API v4、backend descriptor 升级到 API v3。前端 manifest 声明 minimum/maximum language version、AST schema、确定性和 reentrancy，并提供 AST verifier/lowering；后端 manifest 声明目标标准、artifact schema、TargetProfile 和 legalization factory。catalog 保持静态只读、无全局构造器自注册，conformance harness 会重复 lowering/emit 并比较确定性。当前 contract 用于编译期内置组件，不是稳定动态插件 ABI；接入步骤见 [扩展指南](EXTENDING.md)。
+0.3.4 把 frontend descriptor 升级到 API v5、backend descriptor 升级到 API v4。前端 manifest 声明 minimum/maximum language version、feature bitset、resource contract、AST schema、确定性和 reentrancy，并通过工厂创建独立 parser session；后端 manifest 声明目标标准、artifact/configuration schema、runtime license/supply-chain、TargetProfile 和 legalization factory。catalog 保持静态只读、无全局构造器自注册，conformance harness 会重复 lowering/dump/emit 并比较确定性。当前 contract 用于编译期内置组件，不是稳定动态插件 ABI；接入步骤见 [扩展指南](EXTENDING.md)。
 
 ## 构建与链接边界
 

@@ -10,17 +10,17 @@ MPF 的验证体系分为七层：
 6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖三种前端、两个目标、资源耗尽和确定性重放；
 7. 小文件延迟、吞吐、深 CFG、大 shape、跨函数图、峰值 arena、产物大小和并发 session 进入发布性能门禁。
 
-当前开发分支已覆盖生产 stage/include architecture test、AST/HIR/MIR/双目标 LIR verifier negative、HIR/MIR dump 确定性、analysis revision/preservation、source map v3、编译报告、前后端 conformance、细粒度 resource exhaustion、fuzz smoke/libFuzzer 和性能回归门禁。各层完整 golden、面向人的目标 semantic LIR dump 及更广官方 grammar 仍按 [TODO 0.34](../TODO.md) 独立推进。
+0.3.4 已覆盖生产 stage/include architecture test、AST/HIR/MIR/双目标 LIR verifier negative、normalized HIR 与双目标 semantic LIR golden、人类可读目标 LIR dump、analysis revision/preservation、source map v3、编译报告、前后端 conformance、安装后 consumer、细粒度 resource exhaustion、fuzz smoke/libFuzzer 和绑定项目版本的性能回归门禁。更广官方 grammar 与宽 IR 收敛继续按 [TODO 0.3.5](../TODO.md) 推进。
 
 ## 当前开发分支与发布基线
 
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 143 项，零失败 |
-| CTest | 58 项，包含 48 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译和 3 项后端隔离测试 |
+| C++ 单元与集成测试 | 145 项，零失败 |
+| CTest | 59 项，包含 48 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
 | Differential corpus | Python 20、Fortran 18、Matlab 10，共 48 个 case |
 | 工具完整环境执行路径 | 134 条程序路径，另有每 case 一条 oracle |
-| 生产代码行覆盖率 | 88.34%（13517/15301），门槛 85% |
+| 生产代码行覆盖率 | 88.26%（13779/15611），门槛 85% |
 
 ## Differential corpus
 
@@ -81,7 +81,7 @@ cmake --preset coverage
 cmake --build --preset coverage
 ```
 
-coverage preset 使用 Clang source-based coverage，将多进程 `.profraw` 合并后排除 `build/`、`tests/`、不贡献 profile 的子构建 isolation case 和已由独立 workflow 拥有的性能阈值，只统计生产源码；报告位于 `build/coverage/coverage/`。当前门槛为 85%，本次架构收尾后实测 88.34%（13517/15301）。独立 `Security` workflow 先探测仓库的 GitHub Advanced Security 能力；公共仓库或已授权 GHAS 的私有仓库对 C/C++ 运行 CodeQL `security-extended`，并在 pull request 上拒绝引入 moderate 及以上已知漏洞的依赖变更。未授权私有仓库明确记录 capability notice，并继续依赖始终执行的 clang-tidy/Clang analyzer、Sanitizer 和零告警构建门禁。
+coverage preset 使用 Clang source-based coverage，将多进程 `.profraw` 合并后排除 `build/`、`tests/`、不贡献 profile 的子构建 isolation case 和已由独立 workflow 拥有的性能阈值，只统计生产源码；报告位于 `build/coverage/coverage/`。当前门槛为 85%，0.3.4 封版实测 88.26%（13779/15611）。独立 `Security` workflow 先探测仓库的 GitHub Advanced Security 能力；公共仓库或已授权 GHAS 的私有仓库对 C/C++ 运行 CodeQL `security-extended`，并在 pull request 上拒绝引入 moderate 及以上已知漏洞的依赖变更。未授权私有仓库明确记录 capability notice，并继续依赖始终执行的 clang-tidy/Clang analyzer、Sanitizer 和零告警构建门禁。
 
 完整的 workflow 边界、required check 名称、超时和产物策略见 [GitHub Actions 职责矩阵](../.github/workflows/README.md)。
 

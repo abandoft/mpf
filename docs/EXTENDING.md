@@ -1,8 +1,8 @@
 # 扩展前端、后端与代码绑定
 
-当前 0.34 开发分支使用对称的 descriptor/registry 架构接入内置源语言和输出目标。核心驱动执行“选择 descriptor → parse 语言 AST → AST verifier → AST→HIR → HIR pass → MIR → MIR pass → capability/legalization → 私有 semantic plan/LIR → LIR verifier → printer”，不按具体语言或目标硬编码分派。当前 contract 面向同一源码树中的编译期组件；descriptor 带 API version，但尚不承诺跨动态库的稳定插件 ABI。
+0.3.4 使用对称的 descriptor/registry 架构接入内置源语言和输出目标。核心驱动执行“选择 descriptor → 创建 parser session → parse 语言 AST → AST verifier → AST→HIR → HIR pass → MIR → MIR pass → capability/legalization → 私有 semantic plan/LIR → LIR verifier/dump → printer”，不按具体语言或目标硬编码分派。当前 contract 面向同一源码树中的编译期组件；descriptor 带 API version，但尚不承诺跨动态库的稳定插件 ABI。
 
-本页记录当前可执行的 frontend API v4/backend API v3 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、Analyzer semantic side table、当前控制结构 MIR CFG/alias、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；statement parser 的共享 scratch、Analyzer 内部临时 HIR 注解与 HIR/MIR 宽兼容投影不是新扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
+本页记录当前可执行的 frontend API v5/backend API v4 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、Analyzer semantic side table、当前控制结构 MIR CFG/alias、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；statement parser 的共享 scratch、Analyzer 内部临时 HIR 注解与 HIR/MIR 宽兼容投影不是新扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
 
 ## 设计约束
 
@@ -23,9 +23,9 @@ language identity
 canonical name + aliases
 filename extensions
 allocation-free content probe
-language version + AST schema + determinism/reentrancy manifest
+language version + feature bitset + resource contract + AST schema manifest
 source-specific intrinsic binding table
-parse callback
+parser-session factory
 language AST verifier
 AST-to-HIR lowering callback
 ```
@@ -34,7 +34,7 @@ AST-to-HIR lowering callback
 
 1. 在公共 `SourceLanguage` 中加入稳定身份；名称使用语言名，不携带实现标准版本号。
 2. 在独立目录/源文件中实现 logical-source normalization、statement lexer/parser 和语言专属 PMR arena AST；节点类型必须与其他语言编译期不兼容，不能把共享 syntax `Program` 放进 artifact。
-3. 提供 descriptor factory；扩展名和探测规则归前端所有，解析选项通过 `FrontendParseOptions` 传入，并声明版本范围与 AST schema。
+3. 提供 descriptor factory 和独立 parser-session factory；扩展名和探测规则归前端所有，解析选项、arena、资源上限和请求 feature 通过 `FrontendParseOptions` 传入，并声明版本范围、能力与 AST schema。
 4. 在 `frontend_registry.cpp` 的静态 catalog 增加一项，并将组件源码加入 `mpf-core`。
 5. 由 descriptor 显式选择一组有序 spelling → `IntrinsicId` 表；只有源语言确实提供相同全局拼写时才选择共享数学表，TypeScript 一类语言可以完全不选。语义相同的函数复用已有 ID，语义不同的函数必须新增 ID。
 6. 提供 AST verifier 和 AST→HIR lowering；运行 `run_frontend_conformance` 验证 descriptor、重复 parse/lowering 确定性和 HIR contract。
@@ -83,7 +83,7 @@ create frontend session
   → destroy frontend session/AST arena when no longer needed
 ```
 
-当前内置前端由 `CompilationSession` 提供 SourceManager/arena 基础，尚未暴露独立 parser-session factory；这是 TODO P6 的剩余项。
+当前内置前端由 `CompilationSession` 提供 SourceManager/arena/资源上限，每次 parse 经 descriptor factory 创建独立 parser session；feature 请求不是已声明能力的子集时失败关闭。
 
 新前端只能依赖 source、syntax-common 和 HIR contract。它负责版本范围、feature manifest、AST verifier 和 AST→HIR conformance；不能 include MIR pass、目标 LIR 或 backend 头文件。
 
@@ -102,7 +102,7 @@ read-only MIR
   → output bundle adds source map/dependency manifest
 ```
 
-当前 descriptor 已覆盖到 code emitter，公共 `TranspileResult` 提供 code、source map v3、确定性 dependency manifest 与阶段报告。configuration schema 和未来外部 runtime 的许可证/供应链 manifest 仍是 TODO P6 的剩余项。
+当前 descriptor 已覆盖 configuration schema、runtime component/license/origin/integrity 供应链清单、semantic LIR dump 和 code emitter；公共 `TranspileResult` 提供 code、source map v3、确定性 dependency manifest 与阶段报告。项目自身尚未选择 SPDX 许可证，因此内联 runtime 如实使用 `LicenseRef-MPF-Project`，不能由接入方擅自改写为 MIT/Apache。
 
 新后端只依赖 MIR/pass contract 和允许的 backend-common 设施。每个后端拥有自己的 LIR 类型，不能把通用目标结构体加若干 target flag 当作 LIR，也不能调用其他后端的 capability、binding、lowering 或 emitter。
 
@@ -120,7 +120,7 @@ descriptor API 升级时必须保留 catalog validation 和禁用组件 metadata
 
 ## Extension conformance harness
 
-仓库已提供 `run_frontend_conformance` 与 `run_backend_conformance`：前者验证 descriptor、AST verifier 和重复 HIR dump，后者验证 MIR、binding、capability、lowering、artifact verifier 和重复输出。resource limit、source map、fuzz/performance 与安装隔离由全局 harness 补充；各层完整 golden 和仓库外 conformance 示例尚需继续建设。
+仓库已提供 `run_frontend_conformance` 与 `run_backend_conformance`：前者验证 descriptor、parser session、AST verifier 和重复 HIR dump，后者验证 MIR、binding、capability、lowering、artifact verifier、semantic dump 和重复输出。resource limit、source map、fuzz/performance 与安装隔离由全局 harness 补充；`examples/installed/frontend` 和 `examples/installed/backend` 会在 staging install 后作为真正独立的 CMake consumer 配置、构建和运行。
 
 前端 conformance 至少验证：
 
