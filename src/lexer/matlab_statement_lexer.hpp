@@ -1,0 +1,54 @@
+#pragma once
+
+#include <vector>
+
+#include "../source/source_text.hpp"
+#include "statement_token.hpp"
+
+namespace mpf::detail {
+
+enum class MatlabStatementTokenKind {
+  end,
+  identifier,
+  number,
+  string_literal,
+  keyword_function,
+  keyword_if,
+  keyword_elseif,
+  keyword_else,
+  keyword_end,
+  keyword_while,
+  keyword_for,
+  keyword_break,
+  keyword_continue,
+  unsupported_keyword,
+  left_parenthesis,
+  right_parenthesis,
+  left_bracket,
+  right_bracket,
+  left_brace,
+  right_brace,
+  comma,
+  colon,
+  semicolon,
+  equal,
+  transpose,
+  other
+};
+
+using MatlabStatementToken = BasicStatementToken<MatlabStatementTokenKind>;
+
+struct MatlabStatementLine {
+  SourceLine source;
+  std::vector<MatlabStatementToken> tokens;
+};
+
+struct MatlabStatementLexResult {
+  std::vector<MatlabStatementLine> lines;
+  std::vector<Diagnostic> diagnostics;
+};
+
+[[nodiscard]] MatlabStatementLexResult lex_matlab_statements(std::vector<SourceLine> lines);
+[[nodiscard]] const char* to_string(MatlabStatementTokenKind kind) noexcept;
+
+}  // namespace mpf::detail
