@@ -46,8 +46,24 @@ foreach(lowering IN ITEMS
     "target lowering reinterprets source call intent instead of MIR transfer facts")
   file(READ "${SOURCE_DIR}/${lowering}" lowering_contents)
   if(NOT lowering_contents MATCHES "materialize_chunks\\(render_" OR
-     NOT lowering_contents MATCHES "SemanticProgram")
+     NOT lowering_contents MATCHES "SemanticProgram" OR
+     NOT lowering_contents MATCHES "plan_lir_resources")
     message(FATAL_ERROR "target lowering does not materialize an independent serialized LIR: ${lowering}")
+  endif()
+endforeach()
+
+foreach(planning IN ITEMS
+    src/backends/javascript_lir_planning.cpp
+    src/backends/cpp_lir_planning.cpp)
+  if(NOT EXISTS "${SOURCE_DIR}/${planning}")
+    message(FATAL_ERROR "target LIR planning layer is missing: ${planning}")
+  endif()
+  file(READ "${SOURCE_DIR}/${planning}" planning_contents)
+  if(NOT planning_contents MATCHES "plan_lir_resources" OR
+     NOT planning_contents MATCHES "verify_lir_resources" OR
+     NOT planning_contents MATCHES "program_scope" OR
+     NOT planning_contents MATCHES "function_scope")
+    message(FATAL_ERROR "target LIR planning layer does not own scope resources: ${planning}")
   endif()
 endforeach()
 
@@ -76,6 +92,9 @@ foreach(target_lir IN ITEMS src/backends/javascript_lir.hpp src/backends/cpp_lir
   if(NOT target_lir_contract MATCHES "argument_transfers" OR
      NOT target_lir_contract MATCHES "FunctionAbi" OR
      NOT target_lir_contract MATCHES "TemporaryPlan" OR
+     NOT target_lir_contract MATCHES "ScopePlan" OR
+     NOT target_lir_contract MATCHES "program_scope" OR
+     NOT target_lir_contract MATCHES "function_scope" OR
      NOT target_lir_contract MATCHES "offsets" OR
      target_lir_contract MATCHES "argument_intents")
     message(FATAL_ERROR "target LIR does not own a lowered argument transfer plan: ${target_lir}")
@@ -87,12 +106,22 @@ foreach(renderer IN ITEMS src/backends/javascript_renderer.cpp src/backends/cpp_
   if(NOT renderer_contract MATCHES "argument_transfer_(writes|copies|forwards_optional)")
     message(FATAL_ERROR "target renderer ignores the lowered argument transfer plan: ${renderer}")
   endif()
-  if(renderer_contract MATCHES "mangler_->temporary|parameter_intents|parameter_optional|options_\\.module_kind" OR
+  if(renderer_contract MATCHES "mangler_->temporary|parameter_intents|parameter_optional|options_\\.module_kind|collect_(assignments|declarations)" OR
      NOT renderer_contract MATCHES "temporaries_->find" OR
-     NOT renderer_contract MATCHES "function_abi")
-    message(FATAL_ERROR "target renderer still plans temporaries or source-level function ABI: ${renderer}")
+     NOT renderer_contract MATCHES "function_abi" OR
+     NOT renderer_contract MATCHES "program_scope" OR
+     NOT renderer_contract MATCHES "function_scope")
+    message(FATAL_ERROR "target renderer still plans temporaries, declarations, or source-level ABI: ${renderer}")
   endif()
 endforeach()
+
+file(READ "${SOURCE_DIR}/src/backends/cpp_lir.hpp" cpp_lir_contract)
+if(NOT cpp_lir_contract MATCHES "DeclarationTypeKind" OR
+   NOT cpp_lir_contract MATCHES "type_probe" OR
+   NOT cpp_lir_contract MATCHES "fixed_shape" OR
+   NOT cpp_lir_contract MATCHES "fixed_nested_types")
+  message(FATAL_ERROR "cpp LIR does not own declaration type and initialization plans")
+endif()
 
 mpf_assert_file_excludes("src/backends/identifier_mangler.hpp" "temporary\\("
   "renderer-facing identifier mangler still allocates temporaries")

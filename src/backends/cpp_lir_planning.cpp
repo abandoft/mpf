@@ -1,0 +1,576 @@
+#include "cpp_lir_planning.hpp"
+
+#include <algorithm>
+#include <set>
+#include <string>
+#include <utility>
+
+#include "identifier_mangler.hpp"
+
+namespace mpf::detail::cpp {
+namespace {
+
+void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation location,
+               std::string message) {
+  diagnostics.push_back({DiagnosticSeverity::error, "MPF0008", std::move(message), location});
+}
+
+const char* cpp_type(const ValueType type) noexcept {
+  switch (type) {
+    case ValueType::integer: return "std::int64_t";
+    case ValueType::real: return "double";
+    case ValueType::boolean: return "bool";
+    case ValueType::string: return "std::string";
+    case ValueType::null_value: return "std::nullptr_t";
+    case ValueType::unknown:
+    case ValueType::list:
+    case ValueType::tuple:
+    case ValueType::function: return "double";
+  }
+  return "double";
+}
+
+std::string cpp_container_type(const ValueType element_type, const std::size_t dimensions) {
+  std::string result;
+  for (std::size_t dimension = 0; dimension < dimensions; ++dimension) {
+    result += "std::vector<";
+  }
+  result += cpp_type(element_type);
+  result.append(dimensions, '>');
+  return result;
+}
+
+std::string cpp_parameter_type(const lir::Statement& statement, const std::size_t index) {
+  const auto type = index < statement.parameter_types.size() ? statement.parameter_types[index]
+                                                             : ValueType::unknown;
+  if (type != ValueType::list) return cpp_type(type);
+  const auto element = index < statement.parameter_element_types.size()
+                           ? statement.parameter_element_types[index]
+                           : ValueType::unknown;
+  const auto rank =
+      index < statement.parameter_shapes.size() ? statement.parameter_shapes[index].size() : 0U;
+  return cpp_container_type(element, rank);
+}
+
+bool primitive_type(const ValueType type) noexcept {
+  return type == ValueType::integer || type == ValueType::real || type == ValueType::boolean ||
+         type == ValueType::string || type == ValueType::null_value;
+}
+
+bool explicit_return_type(const lir::Statement& statement, std::string& type) {
+  if (statement.return_names.empty() && !statement.has_value_return) {
+    type = "void";
+    return true;
+  }
+  const bool tuple_return =
+      statement.return_names.size() > 1 ||
+      (statement.declared_type == ValueType::tuple && !statement.return_types.empty());
+  if (tuple_return) {
+    if ((!statement.return_names.empty() &&
+         statement.return_types.size() != statement.return_names.size()) ||
+        !std::all_of(statement.return_types.begin(), statement.return_types.end(),
+                     [](const ValueType value) { return primitive_type(value); })) {
+      return false;
+    }
+    type = "std::tuple<";
+    for (std::size_t index = 0; index < statement.return_types.size(); ++index) {
+      if (index != 0) type += ", ";
+      type += cpp_type(statement.return_types[index]);
+    }
+    type += '>';
+    return true;
+  }
+  if (!primitive_type(statement.declared_type)) return false;
+  type = cpp_type(statement.declared_type);
+  return true;
+}
+
+lir::DeclarationPlan make_declaration(std::string name, const lir::Expression* initializer,
+                                      const ValueType explicit_type, const ValueType element_type,
+                                      const std::vector<std::size_t>& shape,
+                                      const std::size_t tuple_index = dynamic_extent,
+                                      const AssignmentPattern* pattern_leaf = nullptr) {
+  lir::DeclarationPlan result;
+  result.name = std::move(name);
+  result.tuple_index = tuple_index;
+  if (pattern_leaf != nullptr && pattern_leaf->kind == AssignmentPatternKind::name) {
+    result.probe_path = pattern_leaf->access_path;
+  }
+  if (initializer != nullptr) {
+    result.type_probe = initializer->id;
+    result.probe_sequence_list = initializer->inferred_type == ValueType::list;
+  }
+  if (explicit_type == ValueType::list) {
+    const bool starred =
+        pattern_leaf != nullptr && pattern_leaf->kind == AssignmentPatternKind::starred_name;
+    const bool concrete = !shape.empty() && (element_type != ValueType::unknown || starred);
+    if (initializer != nullptr && !concrete) {
+      result.type_kind = lir::DeclarationTypeKind::decay_expression;
+    } else {
+      result.concrete_type = cpp_container_type(element_type, shape.size());
+    }
+    if (initializer == nullptr && !shape.empty()) {
+      result.fixed_shape = shape;
+      for (std::size_t dimension = 1; dimension < shape.size(); ++dimension) {
+        result.fixed_nested_types.push_back(
+            cpp_container_type(element_type, shape.size() - dimension));
+      }
+    }
+  } else if (primitive_type(explicit_type)) {
+    result.concrete_type = cpp_type(explicit_type);
+  } else if (initializer != nullptr) {
+    result.type_kind = lir::DeclarationTypeKind::decay_expression;
+  } else {
+    result.concrete_type = "double";
+  }
+  return result;
+}
+
+void collect_declarations(const std::vector<lir::Statement>& statements,
+                          const std::set<std::string>& excluded, std::set<std::string>& found,
+                          std::vector<lir::DeclarationPlan>& declarations) {
+  for (const auto& statement : statements) {
+    if (statement.kind == StatementKind::declaration && excluded.count(statement.name) == 0U &&
+        found.insert(statement.name).second) {
+      declarations.push_back(make_declaration(
+          statement.name, statement.has_expression ? &statement.expression : nullptr,
+          statement.declared_type, statement.element_type, statement.shape));
+    } else if (statement.kind == StatementKind::assignment &&
+               excluded.count(statement.name) == 0U && found.insert(statement.name).second) {
+      declarations.push_back(make_declaration(statement.name, &statement.expression,
+                                              statement.declared_type, statement.element_type,
+                                              statement.shape));
+    } else if (statement.kind == StatementKind::multi_assignment) {
+      if (statement.has_target_pattern) {
+        std::vector<const AssignmentPattern*> leaves;
+        collect_assignment_leaves(statement.target_pattern, leaves);
+        for (const auto* leaf : leaves) {
+          if (excluded.count(leaf->name) != 0U || !found.insert(leaf->name).second) continue;
+          declarations.push_back(make_declaration(leaf->name, &statement.expression, leaf->type,
+                                                  leaf->element_type, leaf->shape, dynamic_extent,
+                                                  leaf));
+        }
+      } else {
+        for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
+          const auto& name = statement.target_names[index];
+          if (excluded.count(name) != 0U || !found.insert(name).second) continue;
+          const auto type = index < statement.target_types.size() ? statement.target_types[index]
+                                                                  : ValueType::unknown;
+          const auto element_type = index < statement.target_element_types.size()
+                                        ? statement.target_element_types[index]
+                                        : ValueType::unknown;
+          const auto shape = index < statement.target_shapes.size() ? statement.target_shapes[index]
+                                                                    : std::vector<std::size_t>{};
+          declarations.push_back(
+              make_declaration(name, &statement.expression, type, element_type, shape, index));
+        }
+      }
+    } else if (statement.kind == StatementKind::if_statement ||
+               statement.kind == StatementKind::while_loop) {
+      collect_declarations(statement.body, excluded, found, declarations);
+      collect_declarations(statement.alternative, excluded, found, declarations);
+    } else if (statement.kind == StatementKind::select_case ||
+               statement.kind == StatementKind::case_clause) {
+      collect_declarations(statement.body, excluded, found, declarations);
+    } else if (statement.kind == StatementKind::range_loop) {
+      if (excluded.count(statement.name) == 0U && found.insert(statement.name).second) {
+        declarations.push_back(make_declaration(statement.name, &statement.expression,
+                                                statement.declared_type, statement.element_type,
+                                                statement.shape));
+      }
+      auto loop_excluded = excluded;
+      loop_excluded.insert(statement.name);
+      collect_declarations(statement.body, loop_excluded, found, declarations);
+      collect_declarations(statement.alternative, excluded, found, declarations);
+    }
+  }
+}
+
+lir::ScopePlan expected_scope(const std::vector<lir::Statement>& statements,
+                              const std::vector<std::string>& parameters = {}) {
+  lir::ScopePlan result;
+  result.valid = true;
+  const std::set<std::string> excluded(parameters.begin(), parameters.end());
+  std::set<std::string> found;
+  collect_declarations(statements, excluded, found, result.declarations);
+  return result;
+}
+
+bool same_declaration(const lir::DeclarationPlan& left,
+                      const lir::DeclarationPlan& right) noexcept {
+  const auto same_path = [](const std::vector<AssignmentAccess>& first,
+                            const std::vector<AssignmentAccess>& second) {
+    if (first.size() != second.size()) return false;
+    for (std::size_t index = 0; index < first.size(); ++index) {
+      if (first[index].index != second[index].index || first[index].list != second[index].list) {
+        return false;
+      }
+    }
+    return true;
+  };
+  return left.name == right.name && left.type_kind == right.type_kind &&
+         left.concrete_type == right.concrete_type && left.type_probe == right.type_probe &&
+         same_path(left.probe_path, right.probe_path) && left.tuple_index == right.tuple_index &&
+         left.probe_sequence_list == right.probe_sequence_list &&
+         left.fixed_shape == right.fixed_shape &&
+         left.fixed_nested_types == right.fixed_nested_types;
+}
+
+bool same_scope(const lir::ScopePlan& left, const lir::ScopePlan& right) noexcept {
+  if (left.valid != right.valid || left.declarations.size() != right.declarations.size()) {
+    return false;
+  }
+  for (std::size_t index = 0; index < left.declarations.size(); ++index) {
+    if (!same_declaration(left.declarations[index], right.declarations[index])) return false;
+  }
+  return true;
+}
+
+const char* temporary_stem(const lir::TemporaryRole role) noexcept {
+  switch (role) {
+    case lir::TemporaryRole::comparison_operand: return "comparison";
+    case lir::TemporaryRole::section_argument: return "section_reference";
+    case lir::TemporaryRole::call_result: return "call_result";
+    case lir::TemporaryRole::select_value: return "select";
+    case lir::TemporaryRole::assignment_value: return "outputs";
+    case lir::TemporaryRole::loop_completed: return "loop_completed";
+    case lir::TemporaryRole::range_start: return "start";
+    case lir::TemporaryRole::range_stop: return "stop";
+    case lir::TemporaryRole::range_step: return "step";
+    case lir::TemporaryRole::range_first: return "range_first";
+    case lir::TemporaryRole::range_cursor: return "cursor";
+  }
+  return "temporary";
+}
+
+void add_temporary(lir::SemanticProgram& program, std::set<std::string>& used, const LirNodeId node,
+                   const lir::TemporaryRole role, const std::size_t ordinal = 0) {
+  while (program.temporaries.offsets.size() <= node.value()) {
+    program.temporaries.offsets.push_back(
+        static_cast<std::uint32_t>(program.temporaries.slots.size()));
+  }
+  program.temporaries.slots.push_back(
+      {role, static_cast<std::uint32_t>(ordinal),
+       reserve_internal_identifier(used, temporary_stem(role), node.value(), ordinal)});
+}
+
+void plan_expression_temporaries(lir::SemanticProgram& program, const lir::Expression& expression,
+                                 std::set<std::string>& used) {
+  if (!expression.valid()) return;
+  if (expression.kind == ExpressionKind::comparison_chain) {
+    for (std::size_t index = 0; index < expression.children.size(); ++index) {
+      add_temporary(program, used, expression.id, lir::TemporaryRole::comparison_operand, index);
+    }
+  }
+  if (expression.kind == ExpressionKind::call) {
+    bool copied = false;
+    for (std::size_t index = 0; index < expression.argument_transfers.size(); ++index) {
+      if (!argument_transfer_copies(expression.argument_transfers[index])) continue;
+      copied = true;
+      add_temporary(program, used, expression.id, lir::TemporaryRole::section_argument, index);
+    }
+    if (copied && expression.procedure_has_result) {
+      add_temporary(program, used, expression.id, lir::TemporaryRole::call_result);
+    }
+  }
+  for (const auto& child : expression.children) {
+    plan_expression_temporaries(program, child, used);
+  }
+}
+
+void plan_statement_temporaries(lir::SemanticProgram& program,
+                                const std::vector<lir::Statement>& statements,
+                                std::set<std::string>& used) {
+  for (const auto& statement : statements) {
+    if (statement.kind == StatementKind::select_case) {
+      add_temporary(program, used, statement.id, lir::TemporaryRole::select_value);
+    } else if (statement.kind == StatementKind::multi_assignment) {
+      add_temporary(program, used, statement.id, lir::TemporaryRole::assignment_value);
+    } else if (statement.kind == StatementKind::while_loop && !statement.alternative.empty()) {
+      add_temporary(program, used, statement.id, lir::TemporaryRole::loop_completed);
+    } else if (statement.kind == StatementKind::range_loop) {
+      add_temporary(program, used, statement.id, lir::TemporaryRole::range_start);
+      add_temporary(program, used, statement.id, lir::TemporaryRole::range_stop);
+      add_temporary(program, used, statement.id, lir::TemporaryRole::range_step);
+      add_temporary(program, used, statement.id, lir::TemporaryRole::range_first);
+      if (statement.retain_last_loop_value) {
+        add_temporary(program, used, statement.id, lir::TemporaryRole::range_cursor);
+      }
+      if (!statement.alternative.empty()) {
+        add_temporary(program, used, statement.id, lir::TemporaryRole::loop_completed);
+      }
+    }
+    plan_expression_temporaries(program, statement.expression, used);
+    plan_expression_temporaries(program, statement.secondary_expression, used);
+    plan_expression_temporaries(program, statement.tertiary_expression, used);
+    plan_expression_temporaries(program, statement.target_expression, used);
+    for (const auto& expression : statement.parameter_defaults) {
+      plan_expression_temporaries(program, expression, used);
+    }
+    for (const auto& selector : statement.case_selectors) {
+      plan_expression_temporaries(program, selector.lower, used);
+      plan_expression_temporaries(program, selector.upper, used);
+    }
+    plan_statement_temporaries(program, statement.body, used);
+    plan_statement_temporaries(program, statement.alternative, used);
+  }
+}
+
+void plan_function_abis(lir::SemanticProgram& program) {
+  for (const auto index : program.function_graph.definition_order) {
+    auto& statement = program.statements[index];
+    auto& abi = statement.function_abi;
+    abi.valid = true;
+    abi.recursive = program.function_graph.recursive[index];
+    std::string explicit_type;
+    const auto explicit_return = explicit_return_type(statement, explicit_type);
+    abi.forward_declarable = abi.recursive && explicit_return;
+    abi.return_type = abi.forward_declarable ? std::move(explicit_type) : "auto";
+    abi.parameters.reserve(statement.parameters.size());
+    for (std::size_t parameter = 0; parameter < statement.parameters.size(); ++parameter) {
+      lir::ParameterAbi parameter_abi;
+      parameter_abi.concrete_type = cpp_parameter_type(statement, parameter);
+      const auto optional = parameter < statement.parameter_optional.size() &&
+                            statement.parameter_optional[parameter];
+      const auto intent = parameter < statement.parameter_intents.size()
+                              ? statement.parameter_intents[parameter]
+                              : ParameterIntent::none;
+      if (optional) {
+        parameter_abi.passing = lir::ParameterPassing::optional_reference;
+      } else {
+        parameter_abi.template_parameter = "T" + std::to_string(parameter);
+        if (intent == ParameterIntent::in) {
+          parameter_abi.passing = lir::ParameterPassing::const_reference;
+        } else if (intent == ParameterIntent::out || intent == ParameterIntent::inout) {
+          parameter_abi.passing = lir::ParameterPassing::mutable_reference;
+        } else {
+          parameter_abi.passing = lir::ParameterPassing::value;
+        }
+      }
+      abi.parameters.push_back(std::move(parameter_abi));
+    }
+  }
+}
+
+void plan_function_scopes(std::vector<lir::Statement>& statements) {
+  for (auto& statement : statements) {
+    if (statement.kind == StatementKind::function) {
+      statement.function_scope = expected_scope(statement.body, statement.parameters);
+    }
+    plan_function_scopes(statement.body);
+    plan_function_scopes(statement.alternative);
+  }
+}
+
+void require_temporary(const lir::SemanticProgram& program, const LirNodeId node,
+                       const lir::TemporaryRole role, const std::size_t ordinal,
+                       std::vector<std::size_t>& expected, std::set<std::string>& names,
+                       std::vector<Diagnostic>& diagnostics, const SourceLocation location) {
+  if (!node.valid() || node.value() >= expected.size()) {
+    add_error(diagnostics, location, "cpp LIR temporary plan references an invalid node");
+    return;
+  }
+  ++expected[node.value()];
+  const auto* name = program.temporaries.find(node, role, ordinal);
+  if (name == nullptr || name->empty()) {
+    add_error(diagnostics, location, "cpp LIR temporary plan is incomplete");
+  } else if (program.identifiers.used.count(*name) != 0U || !names.insert(*name).second) {
+    add_error(diagnostics, location, "cpp LIR temporary name is not globally unique");
+  }
+}
+
+void verify_expression_resources(const lir::SemanticProgram& program,
+                                 const lir::Expression& expression,
+                                 std::vector<std::size_t>& expected, std::set<std::string>& names,
+                                 std::vector<Diagnostic>& diagnostics) {
+  if (!expression.valid()) return;
+  if (expression.kind == ExpressionKind::comparison_chain) {
+    for (std::size_t index = 0; index < expression.children.size(); ++index) {
+      require_temporary(program, expression.id, lir::TemporaryRole::comparison_operand, index,
+                        expected, names, diagnostics, expression.location);
+    }
+  }
+  if (expression.kind == ExpressionKind::call) {
+    bool copied = false;
+    for (std::size_t index = 0; index < expression.argument_transfers.size(); ++index) {
+      if (!argument_transfer_copies(expression.argument_transfers[index])) continue;
+      copied = true;
+      require_temporary(program, expression.id, lir::TemporaryRole::section_argument, index,
+                        expected, names, diagnostics, expression.location);
+    }
+    if (copied && expression.procedure_has_result) {
+      require_temporary(program, expression.id, lir::TemporaryRole::call_result, 0, expected, names,
+                        diagnostics, expression.location);
+    }
+  }
+  for (const auto& child : expression.children) {
+    verify_expression_resources(program, child, expected, names, diagnostics);
+  }
+}
+
+void verify_function_abi(const lir::SemanticProgram& program, const lir::Statement& statement,
+                         const std::size_t index, std::vector<Diagnostic>& diagnostics) {
+  const auto& abi = statement.function_abi;
+  if (!abi.valid || abi.parameters.size() != statement.parameters.size() ||
+      index >= program.function_graph.recursive.size() ||
+      abi.recursive != program.function_graph.recursive[index]) {
+    add_error(diagnostics, {statement.line, 1}, "cpp LIR function ABI inventory is inconsistent");
+    return;
+  }
+  std::string explicit_type;
+  const auto can_declare = abi.recursive && explicit_return_type(statement, explicit_type);
+  if (abi.forward_declarable != can_declare ||
+      abi.return_type != (can_declare ? explicit_type : "auto")) {
+    add_error(diagnostics, {statement.line, 1}, "cpp LIR recursive return ABI is inconsistent");
+  }
+  for (std::size_t parameter = 0; parameter < abi.parameters.size(); ++parameter) {
+    const auto& actual = abi.parameters[parameter];
+    const auto optional =
+        parameter < statement.parameter_optional.size() && statement.parameter_optional[parameter];
+    const auto intent = parameter < statement.parameter_intents.size()
+                            ? statement.parameter_intents[parameter]
+                            : ParameterIntent::none;
+    auto expected = lir::ParameterPassing::value;
+    if (optional) {
+      expected = lir::ParameterPassing::optional_reference;
+    } else if (intent == ParameterIntent::in) {
+      expected = lir::ParameterPassing::const_reference;
+    } else if (intent == ParameterIntent::out || intent == ParameterIntent::inout) {
+      expected = lir::ParameterPassing::mutable_reference;
+    }
+    if (actual.passing != expected ||
+        actual.concrete_type != cpp_parameter_type(statement, parameter) ||
+        (optional && !actual.template_parameter.empty()) ||
+        (!optional && actual.template_parameter != "T" + std::to_string(parameter))) {
+      add_error(diagnostics, {statement.line, 1}, "cpp LIR parameter passing ABI is inconsistent");
+    }
+  }
+}
+
+void verify_scope(const lir::ScopePlan& scope, const lir::ScopePlan& expected,
+                  const std::size_t node_count, const SourceLocation location,
+                  std::vector<Diagnostic>& diagnostics) {
+  if (!same_scope(scope, expected)) {
+    add_error(diagnostics, location, "cpp LIR scope declaration plan is inconsistent");
+    return;
+  }
+  for (const auto& declaration : scope.declarations) {
+    if (declaration.type_kind == lir::DeclarationTypeKind::decay_expression &&
+        (!declaration.type_probe.valid() || declaration.type_probe.value() > node_count ||
+         !declaration.concrete_type.empty())) {
+      add_error(diagnostics, location, "cpp LIR declaration type probe is invalid");
+    }
+    if (declaration.type_kind == lir::DeclarationTypeKind::concrete &&
+        declaration.concrete_type.empty()) {
+      add_error(diagnostics, location, "cpp LIR concrete declaration type is empty");
+    }
+  }
+}
+
+void verify_statement_resources(const lir::SemanticProgram& program,
+                                const std::vector<lir::Statement>& statements,
+                                std::vector<std::size_t>& expected, std::set<std::string>& names,
+                                std::vector<Diagnostic>& diagnostics) {
+  for (const auto& statement : statements) {
+    if (statement.kind == StatementKind::function) {
+      if (!statement.function_abi.valid) {
+        add_error(diagnostics, {statement.line, 1}, "cpp LIR function is missing its ABI plan");
+      }
+      verify_scope(statement.function_scope, expected_scope(statement.body, statement.parameters),
+                   program.node_count, {statement.line, 1}, diagnostics);
+    } else if (statement.function_abi.valid || !statement.function_abi.parameters.empty() ||
+               statement.function_scope.valid || !statement.function_scope.declarations.empty()) {
+      add_error(diagnostics, {statement.line, 1},
+                "non-function cpp LIR node owns function ABI or scope plan");
+    }
+    if (statement.kind == StatementKind::select_case) {
+      require_temporary(program, statement.id, lir::TemporaryRole::select_value, 0, expected, names,
+                        diagnostics, {statement.line, 1});
+    } else if (statement.kind == StatementKind::multi_assignment) {
+      require_temporary(program, statement.id, lir::TemporaryRole::assignment_value, 0, expected,
+                        names, diagnostics, {statement.line, 1});
+    } else if (statement.kind == StatementKind::while_loop && !statement.alternative.empty()) {
+      require_temporary(program, statement.id, lir::TemporaryRole::loop_completed, 0, expected,
+                        names, diagnostics, {statement.line, 1});
+    } else if (statement.kind == StatementKind::range_loop) {
+      require_temporary(program, statement.id, lir::TemporaryRole::range_start, 0, expected, names,
+                        diagnostics, {statement.line, 1});
+      require_temporary(program, statement.id, lir::TemporaryRole::range_stop, 0, expected, names,
+                        diagnostics, {statement.line, 1});
+      require_temporary(program, statement.id, lir::TemporaryRole::range_step, 0, expected, names,
+                        diagnostics, {statement.line, 1});
+      require_temporary(program, statement.id, lir::TemporaryRole::range_first, 0, expected, names,
+                        diagnostics, {statement.line, 1});
+      if (statement.retain_last_loop_value) {
+        require_temporary(program, statement.id, lir::TemporaryRole::range_cursor, 0, expected,
+                          names, diagnostics, {statement.line, 1});
+      }
+      if (!statement.alternative.empty()) {
+        require_temporary(program, statement.id, lir::TemporaryRole::loop_completed, 0, expected,
+                          names, diagnostics, {statement.line, 1});
+      }
+    }
+    verify_expression_resources(program, statement.expression, expected, names, diagnostics);
+    verify_expression_resources(program, statement.secondary_expression, expected, names,
+                                diagnostics);
+    verify_expression_resources(program, statement.tertiary_expression, expected, names,
+                                diagnostics);
+    verify_expression_resources(program, statement.target_expression, expected, names, diagnostics);
+    for (const auto& expression : statement.parameter_defaults) {
+      verify_expression_resources(program, expression, expected, names, diagnostics);
+    }
+    for (const auto& selector : statement.case_selectors) {
+      verify_expression_resources(program, selector.lower, expected, names, diagnostics);
+      verify_expression_resources(program, selector.upper, expected, names, diagnostics);
+    }
+    verify_statement_resources(program, statement.body, expected, names, diagnostics);
+    verify_statement_resources(program, statement.alternative, expected, names, diagnostics);
+  }
+}
+
+}  // namespace
+
+void plan_lir_resources(lir::SemanticProgram& program) {
+  program.temporaries.offsets = {0};
+  program.temporaries.slots.clear();
+  program.program_scope = expected_scope(program.statements);
+  auto used = program.identifiers.used;
+  plan_function_abis(program);
+  plan_function_scopes(program.statements);
+  plan_statement_temporaries(program, program.statements, used);
+  while (program.temporaries.offsets.size() <= program.node_count + 1U) {
+    program.temporaries.offsets.push_back(
+        static_cast<std::uint32_t>(program.temporaries.slots.size()));
+  }
+}
+
+void verify_lir_resources(const lir::SemanticProgram& program,
+                          std::vector<Diagnostic>& diagnostics) {
+  verify_scope(program.program_scope, expected_scope(program.statements), program.node_count,
+               {1, 1}, diagnostics);
+  if (program.temporaries.offsets.size() != program.node_count + 2U ||
+      program.temporaries.offsets.back() != program.temporaries.slots.size()) {
+    add_error(diagnostics, {1, 1}, "cpp LIR temporary plan has invalid dense inventory");
+    return;
+  }
+  for (const auto index : program.function_graph.definition_order) {
+    if (index >= program.statements.size() ||
+        program.statements[index].kind != StatementKind::function) {
+      add_error(diagnostics, {1, 1}, "cpp LIR function graph contains an invalid definition");
+      continue;
+    }
+    verify_function_abi(program, program.statements[index], index, diagnostics);
+  }
+  std::vector<std::size_t> expected(program.node_count + 1U);
+  std::set<std::string> names;
+  verify_statement_resources(program, program.statements, expected, names, diagnostics);
+  for (std::size_t node = 0; node <= program.node_count; ++node) {
+    if (program.temporaries.offsets[node] > program.temporaries.offsets[node + 1U] ||
+        program.temporaries.offsets[node + 1U] - program.temporaries.offsets[node] !=
+            expected[node]) {
+      add_error(diagnostics, {1, 1}, "cpp LIR temporary plan contains unexpected slots");
+    }
+  }
+}
+
+}  // namespace mpf::detail::cpp

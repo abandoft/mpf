@@ -754,9 +754,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v4") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v5") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v4") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v5") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -804,7 +804,7 @@ TEST_CASE("target LIR verifiers reject missing identities and cross-target artif
   REQUIRE(!mpf::detail::cpp::verify_artifact(javascript).empty());
 }
 
-TEST_CASE("target LIR verifiers require dense temporary and function ABI plans") {
+TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   mpf::detail::javascript::lir::SemanticProgram javascript;
   javascript.node_count = 1;
   javascript.temporaries.offsets.resize(3, 0);
@@ -823,7 +823,12 @@ TEST_CASE("target LIR verifiers require dense temporary and function ABI plans")
       {mpf::detail::javascript::lir::TemporaryRole::range_start, 0, "temporary_start"},
       {mpf::detail::javascript::lir::TemporaryRole::range_stop, 0, "temporary_stop"},
       {mpf::detail::javascript::lir::TemporaryRole::range_step, 0, "temporary_step"}};
+  javascript.program_scope.valid = true;
+  javascript.program_scope.declarations = {"index"};
   REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript).empty());
+  javascript.program_scope.declarations.clear();
+  REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
+  javascript.program_scope.declarations = {"index"};
   javascript.temporaries.slots.front().name = javascript.identifiers.names.at("index");
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
 
@@ -839,7 +844,9 @@ TEST_CASE("target LIR verifiers require dense temporary and function ABI plans")
   javascript_abi.parameter_intents = {mpf::detail::ParameterIntent::out};
   javascript_abi.function_abi.valid = true;
   javascript_abi.function_abi.parameters = {mpf::detail::javascript::lir::ParameterPassing::value};
+  javascript_abi.function_scope.valid = true;
   javascript_function.statements.push_back(std::move(javascript_abi));
+  javascript_function.program_scope.valid = true;
   javascript_function.identifiers = mpf::detail::allocate_identifiers(
       mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_names(javascript_function));
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript_function).empty());
@@ -862,11 +869,54 @@ TEST_CASE("target LIR verifiers require dense temporary and function ABI plans")
   cpp.identifiers = mpf::detail::allocate_identifiers(mpf::TargetLanguage::cpp,
                                                       mpf::detail::collect_identifier_names(cpp));
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  cpp.program_scope.valid = true;
   cpp.statements.front().function_abi.valid = true;
   cpp.statements.front().function_abi.return_type = "auto";
+  cpp.statements.front().function_scope.valid = true;
   REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  mpf::detail::cpp::lir::DeclarationPlan unexpected;
+  unexpected.name = "unexpected";
+  cpp.program_scope.declarations.push_back(std::move(unexpected));
+  REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  cpp.program_scope.declarations.clear();
   cpp.statements.front().function_abi.return_type = "void";
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+}
+
+TEST_CASE("target LIR scope plans own declarations types and probes") {
+  auto lowered = lower_python(
+      "value = 40\n"
+      "items = [1, 2]\n"
+      "pair = (3, 4)\n"
+      "def increment(input):\n"
+      "    local = input + 1\n"
+      "    result = local\n"
+      "    return result\n"
+      "print(increment(value))\n");
+  auto analysis = mpf::detail::analyze_program(lowered.program);
+  REQUIRE(analysis.empty());
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  const auto javascript_dump = javascript.artifact->debug_dump();
+  REQUIRE(javascript_dump.find("program-scope [\"items\",\"pair\",\"value\"]") !=
+          std::string::npos);
+  REQUIRE(javascript_dump.find("scope [\"local\",\"result\"]") != std::string::npos);
+  const auto cpp_dump = cpp.artifact->debug_dump();
+  REQUIRE(cpp_dump.find("program-scope\n  declaration \"value\"") != std::string::npos);
+  REQUIRE(cpp_dump.find("declaration \"items\" type-kind 0 type "
+                        "\"std::vector<std::int64_t>\"") != std::string::npos);
+  REQUIRE(cpp_dump.find("declaration \"pair\" type-kind 1 type \"\" probe %l") !=
+          std::string::npos);
+  REQUIRE(cpp_dump.find("function-scope %l") != std::string::npos);
+  REQUIRE(cpp_dump.find("declaration \"local\" type-kind 0 type \"std::int64_t\"") !=
+          std::string::npos);
 }
 
 TEST_CASE("MIR verifier rejects ownership control-flow and dominance corruption") {

@@ -87,6 +87,11 @@ struct TemporaryPlan {
   }
 };
 
+struct ScopePlan {
+  bool valid{false};
+  std::vector<std::string> declarations;
+};
+
 struct Expression {
   LirNodeId id{};
   HirNodeId origin{};
@@ -180,6 +185,7 @@ struct Statement {
   std::vector<CaseSelector> case_selectors;
   bool default_case{false};
   FunctionAbi function_abi;
+  ScopePlan function_scope;
   std::vector<Statement> body;
   std::vector<Statement> alternative;
 };
@@ -190,6 +196,7 @@ struct SemanticProgram {
   RuntimeRequirements runtime;
   IdentifierPlan identifiers;
   TemporaryPlan temporaries;
+  ScopePlan program_scope;
   std::vector<std::string_view> dependencies;
   std::vector<Statement> statements;
   std::size_t node_count{0};

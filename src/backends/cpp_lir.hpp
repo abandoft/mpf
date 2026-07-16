@@ -101,6 +101,25 @@ struct TemporaryPlan {
   }
 };
 
+enum class DeclarationTypeKind : std::uint8_t { concrete, decay_expression };
+
+struct DeclarationPlan {
+  std::string name;
+  DeclarationTypeKind type_kind{DeclarationTypeKind::concrete};
+  std::string concrete_type;
+  LirNodeId type_probe{};
+  std::vector<AssignmentAccess> probe_path;
+  std::size_t tuple_index{dynamic_extent};
+  bool probe_sequence_list{false};
+  std::vector<std::size_t> fixed_shape;
+  std::vector<std::string> fixed_nested_types;
+};
+
+struct ScopePlan {
+  bool valid{false};
+  std::vector<DeclarationPlan> declarations;
+};
+
 struct Expression {
   LirNodeId id{};
   HirNodeId origin{};
@@ -194,6 +213,7 @@ struct Statement {
   std::vector<CaseSelector> case_selectors;
   bool default_case{false};
   FunctionAbi function_abi;
+  ScopePlan function_scope;
   std::vector<Statement> body;
   std::vector<Statement> alternative;
 };
@@ -204,6 +224,7 @@ struct SemanticProgram {
   RuntimeRequirements runtime;
   IdentifierPlan identifiers;
   TemporaryPlan temporaries;
+  ScopePlan program_scope;
   std::vector<std::string_view> dependencies;
   std::vector<Statement> statements;
   FunctionDependencyGraph function_graph;

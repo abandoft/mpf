@@ -62,7 +62,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v4 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v5 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

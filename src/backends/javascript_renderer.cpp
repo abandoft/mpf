@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -23,34 +22,6 @@ bool expression_has_direct_slice(const Expression& expression) {
   return expression.kind == ExpressionKind::index && expression.children.size() > 1 &&
          std::any_of(expression.children.begin() + 1, expression.children.end(),
                      [](const Expression& child) { return child.kind == ExpressionKind::slice; });
-}
-
-void collect_assignments(const std::vector<Statement>& statements, std::set<std::string>& names,
-                         const std::set<std::string>& excluded = {}) {
-  for (const auto& statement : statements) {
-    if ((statement.kind == StatementKind::assignment ||
-         statement.kind == StatementKind::declaration) &&
-        excluded.count(statement.name) == 0U) {
-      names.insert(statement.name);
-    } else if (statement.kind == StatementKind::multi_assignment) {
-      for (const auto& name : statement.target_names) {
-        if (excluded.count(name) == 0U) names.insert(name);
-      }
-    } else if (statement.kind == StatementKind::if_statement ||
-               statement.kind == StatementKind::while_loop) {
-      collect_assignments(statement.body, names, excluded);
-      collect_assignments(statement.alternative, names, excluded);
-    } else if (statement.kind == StatementKind::select_case ||
-               statement.kind == StatementKind::case_clause) {
-      collect_assignments(statement.body, names, excluded);
-    } else if (statement.kind == StatementKind::range_loop) {
-      if (excluded.count(statement.name) == 0U) names.insert(statement.name);
-      auto loop_excluded = excluded;
-      loop_excluded.insert(statement.name);
-      collect_assignments(statement.body, names, loop_excluded);
-      collect_assignments(statement.alternative, names, excluded);
-    }
-  }
 }
 
 class Renderer final {
@@ -75,7 +46,7 @@ class Renderer final {
       emit_fortran_character_runtime();
     }
     if (program.runtime.contains(javascript::lir::RuntimeFeature::arrays)) emit_array_runtime();
-    emit_scope_declarations(program.statements, {});
+    emit_scope_declarations(program.program_scope);
     emit_statements(program.statements);
     return {output_.str(), std::move(markers_)};
   }
@@ -789,18 +760,12 @@ class Renderer final {
     }
   }
 
-  void emit_scope_declarations(const std::vector<Statement>& statements,
-                               const std::vector<std::string>& parameters) {
-    std::set<std::string> names;
-    collect_assignments(statements, names);
-    for (const auto& parameter : parameters) {
-      names.erase(parameter);
-    }
-    if (!names.empty()) {
+  void emit_scope_declarations(const javascript::lir::ScopePlan& plan) {
+    if (!plan.declarations.empty()) {
       indentation();
       output_ << "let ";
       bool first = true;
-      for (const auto& name : names) {
+      for (const auto& name : plan.declarations) {
         if (!first) {
           output_ << ", ";
         }
@@ -1194,7 +1159,7 @@ class Renderer final {
         }
         output_ << ") {\n";
         ++indent_;
-        emit_scope_declarations(statement.body, statement.parameters);
+        emit_scope_declarations(statement.function_scope);
         emit_statements(statement.body);
         if (!statement.return_names.empty()) {
           indentation();

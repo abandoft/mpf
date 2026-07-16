@@ -1,0 +1,324 @@
+#include "javascript_lir_planning.hpp"
+
+#include <set>
+#include <string>
+#include <utility>
+
+#include "identifier_mangler.hpp"
+
+namespace mpf::detail::javascript {
+namespace {
+
+void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation location,
+               std::string message) {
+  diagnostics.push_back({DiagnosticSeverity::error, "MPF0007", std::move(message), location});
+}
+
+const char* temporary_stem(const lir::TemporaryRole role) noexcept {
+  switch (role) {
+    case lir::TemporaryRole::comparison_operand: return "comparison";
+    case lir::TemporaryRole::reference_argument: return "reference";
+    case lir::TemporaryRole::call_result: return "call_result";
+    case lir::TemporaryRole::select_value: return "select";
+    case lir::TemporaryRole::assignment_value: return "unpack";
+    case lir::TemporaryRole::loop_completed: return "loop_completed";
+    case lir::TemporaryRole::range_start: return "start";
+    case lir::TemporaryRole::range_stop: return "stop";
+    case lir::TemporaryRole::range_step: return "step";
+    case lir::TemporaryRole::range_cursor: return "cursor";
+  }
+  return "temporary";
+}
+
+void add_temporary(lir::SemanticProgram& program, std::set<std::string>& used, const LirNodeId node,
+                   const lir::TemporaryRole role, const std::size_t ordinal = 0) {
+  while (program.temporaries.offsets.size() <= node.value()) {
+    program.temporaries.offsets.push_back(
+        static_cast<std::uint32_t>(program.temporaries.slots.size()));
+  }
+  program.temporaries.slots.push_back(
+      {role, static_cast<std::uint32_t>(ordinal),
+       reserve_internal_identifier(used, temporary_stem(role), node.value(), ordinal)});
+}
+
+void plan_expression_temporaries(lir::SemanticProgram& program, const lir::Expression& expression,
+                                 std::set<std::string>& used) {
+  if (!expression.valid()) return;
+  if (expression.kind == ExpressionKind::comparison_chain) {
+    for (std::size_t index = 0; index < expression.children.size(); ++index) {
+      add_temporary(program, used, expression.id, lir::TemporaryRole::comparison_operand, index);
+    }
+  }
+  if (expression.kind == ExpressionKind::call) {
+    bool reference_call = false;
+    for (std::size_t index = 0; index < expression.argument_transfers.size(); ++index) {
+      const auto transfer = expression.argument_transfers[index];
+      if (!argument_transfer_writes(transfer) || argument_transfer_forwards_optional(transfer)) {
+        continue;
+      }
+      reference_call = true;
+      add_temporary(program, used, expression.id, lir::TemporaryRole::reference_argument, index);
+    }
+    if (reference_call)
+      add_temporary(program, used, expression.id, lir::TemporaryRole::call_result);
+  }
+  for (const auto& child : expression.children) {
+    plan_expression_temporaries(program, child, used);
+  }
+}
+
+void collect_scope_names(const std::vector<lir::Statement>& statements,
+                         const std::set<std::string>& excluded, std::set<std::string>& names) {
+  for (const auto& statement : statements) {
+    if ((statement.kind == StatementKind::assignment ||
+         statement.kind == StatementKind::declaration) &&
+        excluded.count(statement.name) == 0U) {
+      names.insert(statement.name);
+    } else if (statement.kind == StatementKind::multi_assignment) {
+      for (const auto& name : statement.target_names) {
+        if (excluded.count(name) == 0U) names.insert(name);
+      }
+    } else if (statement.kind == StatementKind::if_statement ||
+               statement.kind == StatementKind::while_loop) {
+      collect_scope_names(statement.body, excluded, names);
+      collect_scope_names(statement.alternative, excluded, names);
+    } else if (statement.kind == StatementKind::select_case ||
+               statement.kind == StatementKind::case_clause) {
+      collect_scope_names(statement.body, excluded, names);
+    } else if (statement.kind == StatementKind::range_loop) {
+      if (excluded.count(statement.name) == 0U) names.insert(statement.name);
+      auto loop_excluded = excluded;
+      loop_excluded.insert(statement.name);
+      collect_scope_names(statement.body, loop_excluded, names);
+      collect_scope_names(statement.alternative, excluded, names);
+    }
+  }
+}
+
+std::vector<std::string> expected_scope(const std::vector<lir::Statement>& statements,
+                                        const std::vector<std::string>& parameters = {}) {
+  const std::set<std::string> excluded(parameters.begin(), parameters.end());
+  std::set<std::string> names;
+  collect_scope_names(statements, excluded, names);
+  return {names.begin(), names.end()};
+}
+
+void plan_statement_resources(lir::SemanticProgram& program,
+                              std::vector<lir::Statement>& statements, std::set<std::string>& used,
+                              const bool top_level) {
+  for (auto& statement : statements) {
+    if (statement.kind == StatementKind::function) {
+      statement.function_abi.valid = true;
+      statement.function_abi.exported =
+          top_level && program.emission.module == lir::EmissionPlan::ModuleFormat::esm;
+      statement.function_abi.parameters.reserve(statement.parameters.size());
+      for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
+        const auto intent = index < statement.parameter_intents.size()
+                                ? statement.parameter_intents[index]
+                                : ParameterIntent::none;
+        statement.function_abi.parameters.push_back(intent == ParameterIntent::out ||
+                                                            intent == ParameterIntent::inout
+                                                        ? lir::ParameterPassing::reference_box
+                                                        : lir::ParameterPassing::value);
+      }
+      statement.function_scope.valid = true;
+      statement.function_scope.declarations = expected_scope(statement.body, statement.parameters);
+    }
+    if (statement.kind == StatementKind::select_case) {
+      add_temporary(program, used, statement.id, lir::TemporaryRole::select_value);
+    } else if (statement.kind == StatementKind::multi_assignment && statement.has_target_pattern) {
+      add_temporary(program, used, statement.id, lir::TemporaryRole::assignment_value);
+    } else if (statement.kind == StatementKind::while_loop && !statement.alternative.empty()) {
+      add_temporary(program, used, statement.id, lir::TemporaryRole::loop_completed);
+    } else if (statement.kind == StatementKind::range_loop) {
+      add_temporary(program, used, statement.id, lir::TemporaryRole::range_start);
+      add_temporary(program, used, statement.id, lir::TemporaryRole::range_stop);
+      add_temporary(program, used, statement.id, lir::TemporaryRole::range_step);
+      if (statement.retain_last_loop_value) {
+        add_temporary(program, used, statement.id, lir::TemporaryRole::range_cursor);
+      }
+      if (!statement.alternative.empty()) {
+        add_temporary(program, used, statement.id, lir::TemporaryRole::loop_completed);
+      }
+    }
+    plan_expression_temporaries(program, statement.expression, used);
+    plan_expression_temporaries(program, statement.secondary_expression, used);
+    plan_expression_temporaries(program, statement.tertiary_expression, used);
+    plan_expression_temporaries(program, statement.target_expression, used);
+    for (const auto& expression : statement.parameter_defaults) {
+      plan_expression_temporaries(program, expression, used);
+    }
+    for (const auto& selector : statement.case_selectors) {
+      plan_expression_temporaries(program, selector.lower, used);
+      plan_expression_temporaries(program, selector.upper, used);
+    }
+    plan_statement_resources(program, statement.body, used, false);
+    plan_statement_resources(program, statement.alternative, used, false);
+  }
+}
+
+void require_temporary(const lir::SemanticProgram& program, const LirNodeId node,
+                       const lir::TemporaryRole role, const std::size_t ordinal,
+                       std::vector<std::size_t>& expected, std::set<std::string>& names,
+                       std::vector<Diagnostic>& diagnostics, const SourceLocation location) {
+  if (!node.valid() || node.value() >= expected.size()) {
+    add_error(diagnostics, location, "JavaScript LIR temporary plan references an invalid node");
+    return;
+  }
+  ++expected[node.value()];
+  const auto* name = program.temporaries.find(node, role, ordinal);
+  if (name == nullptr || name->empty()) {
+    add_error(diagnostics, location, "JavaScript LIR temporary plan is incomplete");
+  } else if (program.identifiers.used.count(*name) != 0U || !names.insert(*name).second) {
+    add_error(diagnostics, location, "JavaScript LIR temporary name is not globally unique");
+  }
+}
+
+void verify_expression_resources(const lir::SemanticProgram& program,
+                                 const lir::Expression& expression,
+                                 std::vector<std::size_t>& expected, std::set<std::string>& names,
+                                 std::vector<Diagnostic>& diagnostics) {
+  if (!expression.valid()) return;
+  if (expression.kind == ExpressionKind::comparison_chain) {
+    for (std::size_t index = 0; index < expression.children.size(); ++index) {
+      require_temporary(program, expression.id, lir::TemporaryRole::comparison_operand, index,
+                        expected, names, diagnostics, expression.location);
+    }
+  }
+  if (expression.kind == ExpressionKind::call) {
+    bool reference_call = false;
+    for (std::size_t index = 0; index < expression.argument_transfers.size(); ++index) {
+      const auto transfer = expression.argument_transfers[index];
+      if (!argument_transfer_writes(transfer) || argument_transfer_forwards_optional(transfer)) {
+        continue;
+      }
+      reference_call = true;
+      require_temporary(program, expression.id, lir::TemporaryRole::reference_argument, index,
+                        expected, names, diagnostics, expression.location);
+    }
+    if (reference_call) {
+      require_temporary(program, expression.id, lir::TemporaryRole::call_result, 0, expected, names,
+                        diagnostics, expression.location);
+    }
+  }
+  for (const auto& child : expression.children) {
+    verify_expression_resources(program, child, expected, names, diagnostics);
+  }
+}
+
+void verify_statement_resources(const lir::SemanticProgram& program,
+                                const std::vector<lir::Statement>& statements,
+                                std::vector<std::size_t>& expected, std::set<std::string>& names,
+                                std::vector<Diagnostic>& diagnostics, const bool top_level) {
+  for (const auto& statement : statements) {
+    const auto function = statement.kind == StatementKind::function;
+    if (function != statement.function_abi.valid || function != statement.function_scope.valid ||
+        (function && statement.function_abi.parameters.size() != statement.parameters.size()) ||
+        (!function &&
+         (!statement.function_abi.parameters.empty() || statement.function_abi.exported ||
+          !statement.function_scope.declarations.empty())) ||
+        (function &&
+         statement.function_abi.exported !=
+             (top_level && program.emission.module == lir::EmissionPlan::ModuleFormat::esm)) ||
+        (function && statement.function_scope.declarations !=
+                         expected_scope(statement.body, statement.parameters))) {
+      add_error(diagnostics, {statement.line, 1},
+                "JavaScript LIR function ABI or scope plan is incomplete or inconsistent");
+    }
+    if (function && statement.function_abi.parameters.size() == statement.parameters.size()) {
+      for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
+        const auto intent = index < statement.parameter_intents.size()
+                                ? statement.parameter_intents[index]
+                                : ParameterIntent::none;
+        const auto expected_passing =
+            intent == ParameterIntent::out || intent == ParameterIntent::inout
+                ? lir::ParameterPassing::reference_box
+                : lir::ParameterPassing::value;
+        if (statement.function_abi.parameters[index] != expected_passing) {
+          add_error(diagnostics, {statement.line, 1},
+                    "JavaScript LIR parameter passing ABI is inconsistent");
+        }
+      }
+    }
+    if (statement.kind == StatementKind::select_case) {
+      require_temporary(program, statement.id, lir::TemporaryRole::select_value, 0, expected, names,
+                        diagnostics, {statement.line, 1});
+    } else if (statement.kind == StatementKind::multi_assignment && statement.has_target_pattern) {
+      require_temporary(program, statement.id, lir::TemporaryRole::assignment_value, 0, expected,
+                        names, diagnostics, {statement.line, 1});
+    } else if (statement.kind == StatementKind::while_loop && !statement.alternative.empty()) {
+      require_temporary(program, statement.id, lir::TemporaryRole::loop_completed, 0, expected,
+                        names, diagnostics, {statement.line, 1});
+    } else if (statement.kind == StatementKind::range_loop) {
+      require_temporary(program, statement.id, lir::TemporaryRole::range_start, 0, expected, names,
+                        diagnostics, {statement.line, 1});
+      require_temporary(program, statement.id, lir::TemporaryRole::range_stop, 0, expected, names,
+                        diagnostics, {statement.line, 1});
+      require_temporary(program, statement.id, lir::TemporaryRole::range_step, 0, expected, names,
+                        diagnostics, {statement.line, 1});
+      if (statement.retain_last_loop_value) {
+        require_temporary(program, statement.id, lir::TemporaryRole::range_cursor, 0, expected,
+                          names, diagnostics, {statement.line, 1});
+      }
+      if (!statement.alternative.empty()) {
+        require_temporary(program, statement.id, lir::TemporaryRole::loop_completed, 0, expected,
+                          names, diagnostics, {statement.line, 1});
+      }
+    }
+    verify_expression_resources(program, statement.expression, expected, names, diagnostics);
+    verify_expression_resources(program, statement.secondary_expression, expected, names,
+                                diagnostics);
+    verify_expression_resources(program, statement.tertiary_expression, expected, names,
+                                diagnostics);
+    verify_expression_resources(program, statement.target_expression, expected, names, diagnostics);
+    for (const auto& expression : statement.parameter_defaults) {
+      verify_expression_resources(program, expression, expected, names, diagnostics);
+    }
+    for (const auto& selector : statement.case_selectors) {
+      verify_expression_resources(program, selector.lower, expected, names, diagnostics);
+      verify_expression_resources(program, selector.upper, expected, names, diagnostics);
+    }
+    verify_statement_resources(program, statement.body, expected, names, diagnostics, false);
+    verify_statement_resources(program, statement.alternative, expected, names, diagnostics, false);
+  }
+}
+
+}  // namespace
+
+void plan_lir_resources(lir::SemanticProgram& program) {
+  program.temporaries.offsets = {0};
+  program.temporaries.slots.clear();
+  program.program_scope.valid = true;
+  program.program_scope.declarations = expected_scope(program.statements);
+  auto used = program.identifiers.used;
+  plan_statement_resources(program, program.statements, used, true);
+  while (program.temporaries.offsets.size() <= program.node_count + 1U) {
+    program.temporaries.offsets.push_back(
+        static_cast<std::uint32_t>(program.temporaries.slots.size()));
+  }
+}
+
+void verify_lir_resources(const lir::SemanticProgram& program,
+                          std::vector<Diagnostic>& diagnostics) {
+  if (!program.program_scope.valid ||
+      program.program_scope.declarations != expected_scope(program.statements)) {
+    add_error(diagnostics, {1, 1}, "JavaScript LIR program scope plan is inconsistent");
+  }
+  if (program.temporaries.offsets.size() != program.node_count + 2U ||
+      program.temporaries.offsets.back() != program.temporaries.slots.size()) {
+    add_error(diagnostics, {1, 1}, "JavaScript LIR temporary plan has invalid dense inventory");
+    return;
+  }
+  std::vector<std::size_t> expected(program.node_count + 1U);
+  std::set<std::string> names;
+  verify_statement_resources(program, program.statements, expected, names, diagnostics, true);
+  for (std::size_t node = 0; node <= program.node_count; ++node) {
+    if (program.temporaries.offsets[node] > program.temporaries.offsets[node + 1U] ||
+        program.temporaries.offsets[node + 1U] - program.temporaries.offsets[node] !=
+            expected[node]) {
+      add_error(diagnostics, {1, 1}, "JavaScript LIR temporary plan contains unexpected slots");
+    }
+  }
+}
+
+}  // namespace mpf::detail::javascript

@@ -20,7 +20,7 @@ const BackendDescriptor& cpp_backend() noexcept {
       "cpp",
       {aliases, std::size(aliases)},
       {"C++17",
-       "mpf.cpp.lir.v4",
+       "mpf.cpp.lir.v5",
        {1, configuration, std::size(configuration)},
        {"mpf.runtime-supply-chain.v1", runtime_components, std::size(runtime_components)},
        true,

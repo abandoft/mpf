@@ -20,85 +20,6 @@ using Expression = cpp::lir::Expression;
 using Statement = cpp::lir::Statement;
 using Program = cpp::lir::SemanticProgram;
 
-struct Declaration {
-  Declaration(std::string declaration_name, const Expression* declaration_initializer,
-              const ValueType declaration_type, const ValueType declaration_element_type,
-              std::vector<std::size_t> declaration_shape,
-              const std::size_t declaration_tuple_index = dynamic_extent,
-              const AssignmentPattern* declaration_pattern_leaf = nullptr)
-      : name(std::move(declaration_name)),
-        initializer(declaration_initializer),
-        explicit_type(declaration_type),
-        element_type(declaration_element_type),
-        shape(std::move(declaration_shape)),
-        tuple_index(declaration_tuple_index),
-        pattern_leaf(declaration_pattern_leaf) {}
-
-  std::string name;
-  const Expression* initializer{nullptr};
-  ValueType explicit_type{ValueType::unknown};
-  ValueType element_type{ValueType::unknown};
-  std::vector<std::size_t> shape;
-  std::size_t tuple_index{dynamic_extent};
-  const AssignmentPattern* pattern_leaf{nullptr};
-};
-
-void collect_declarations(const std::vector<Statement>& statements,
-                          const std::set<std::string>& excluded, std::set<std::string>& found,
-                          std::vector<Declaration>& declarations) {
-  for (const auto& statement : statements) {
-    if (statement.kind == StatementKind::declaration && excluded.count(statement.name) == 0U &&
-        found.insert(statement.name).second) {
-      declarations.push_back({statement.name,
-                              statement.has_expression ? &statement.expression : nullptr,
-                              statement.declared_type, statement.element_type, statement.shape});
-    } else if (statement.kind == StatementKind::assignment &&
-               excluded.count(statement.name) == 0U && found.insert(statement.name).second) {
-      declarations.push_back({statement.name, &statement.expression, statement.declared_type,
-                              statement.element_type, statement.shape});
-    } else if (statement.kind == StatementKind::multi_assignment) {
-      if (statement.has_target_pattern) {
-        std::vector<const AssignmentPattern*> leaves;
-        collect_assignment_leaves(statement.target_pattern, leaves);
-        for (const auto* leaf : leaves) {
-          if (excluded.count(leaf->name) != 0U || !found.insert(leaf->name).second) continue;
-          declarations.emplace_back(leaf->name, &statement.expression, leaf->type,
-                                    leaf->element_type, leaf->shape, dynamic_extent, leaf);
-        }
-      } else {
-        for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
-          const auto& name = statement.target_names[index];
-          if (excluded.count(name) != 0U || !found.insert(name).second) continue;
-          const auto type = index < statement.target_types.size() ? statement.target_types[index]
-                                                                  : ValueType::unknown;
-          const auto element_type = index < statement.target_element_types.size()
-                                        ? statement.target_element_types[index]
-                                        : ValueType::unknown;
-          const auto shape = index < statement.target_shapes.size() ? statement.target_shapes[index]
-                                                                    : std::vector<std::size_t>{};
-          declarations.emplace_back(name, &statement.expression, type, element_type, shape, index);
-        }
-      }
-    } else if (statement.kind == StatementKind::if_statement ||
-               statement.kind == StatementKind::while_loop) {
-      collect_declarations(statement.body, excluded, found, declarations);
-      collect_declarations(statement.alternative, excluded, found, declarations);
-    } else if (statement.kind == StatementKind::select_case ||
-               statement.kind == StatementKind::case_clause) {
-      collect_declarations(statement.body, excluded, found, declarations);
-    } else if (statement.kind == StatementKind::range_loop) {
-      if (excluded.count(statement.name) == 0U && found.insert(statement.name).second) {
-        declarations.push_back({statement.name, &statement.expression, statement.declared_type,
-                                statement.element_type, statement.shape});
-      }
-      auto loop_excluded = excluded;
-      loop_excluded.insert(statement.name);
-      collect_declarations(statement.body, loop_excluded, found, declarations);
-      collect_declarations(statement.alternative, excluded, found, declarations);
-    }
-  }
-}
-
 bool has_executable_statements(const Program& program) {
   for (const auto& statement : program.statements) {
     if (statement.kind != StatementKind::function) return true;
@@ -119,6 +40,8 @@ class Renderer final {
   RenderedOutput render(const Program& program) {
     emission_ = program.emission;
     temporaries_ = &program.temporaries;
+    expressions_.assign(program.node_count + 1U, nullptr);
+    index_statements(program.statements);
     mangler_ = std::make_unique<IdentifierMangler>(program.identifiers);
     if (options_.emit_source_banner) {
       output_ << "// Generated by MPF " << MPF_VERSION_STRING << " from "
@@ -145,7 +68,7 @@ class Renderer final {
     indent_ = 1;
     const auto& function_graph = program.function_graph;
     if (program.emission.module_top_level) {
-      emit_scope_declarations(program.statements, {}, "[[maybe_unused]] static ");
+      emit_scope_declarations(program.program_scope, "[[maybe_unused]] static ");
       if (has_executable_statements(program)) output_ << '\n';
     }
     bool emitted_declaration = false;
@@ -164,7 +87,7 @@ class Renderer final {
       output_ << "int run() {\n";
       indent_ = 2;
       if (program.emission.entry_function_top_level) {
-        emit_scope_declarations(program.statements, {});
+        emit_scope_declarations(program.program_scope);
       }
       for (const auto& statement : program.statements) {
         if (statement.kind != StatementKind::function) emit_statement(statement);
@@ -184,6 +107,34 @@ class Renderer final {
   }
 
  private:
+  void index_expression(const Expression& expression) {
+    if (!expression.valid()) return;
+    expressions_[expression.id.value()] = &expression;
+    for (const auto& child : expression.children) index_expression(child);
+  }
+
+  void index_statements(const std::vector<Statement>& statements) {
+    for (const auto& statement : statements) {
+      index_expression(statement.expression);
+      index_expression(statement.secondary_expression);
+      index_expression(statement.tertiary_expression);
+      index_expression(statement.target_expression);
+      for (const auto& expression : statement.parameter_defaults) index_expression(expression);
+      for (const auto& selector : statement.case_selectors) {
+        index_expression(selector.lower);
+        index_expression(selector.upper);
+      }
+      index_statements(statement.body);
+      index_statements(statement.alternative);
+    }
+  }
+
+  const Expression& expression(const LirNodeId id) const {
+    const auto* result = expressions_[id.value()];
+    if (result == nullptr) throw std::logic_error("verified cpp LIR type probe is missing");
+    return *result;
+  }
+
   void emit_runtime(const bool include_python_runtime) {
     output_
         << "namespace mpf_runtime {\n"
@@ -1301,48 +1252,25 @@ class Renderer final {
     if (parentheses) output_ << ')';
   }
 
-  void emit_scope_declarations(const std::vector<Statement>& statements,
-                               const std::vector<std::string>& parameters,
-                               const std::string& prefix = {}) {
-    const std::set<std::string> excluded(parameters.begin(), parameters.end());
-    std::set<std::string> found;
-    std::vector<Declaration> declarations;
-    collect_declarations(statements, excluded, found, declarations);
-    for (const auto& declaration : declarations) {
+  void emit_scope_declarations(const cpp::lir::ScopePlan& plan, const std::string& prefix = {}) {
+    for (const auto& declaration : plan.declarations) {
       indentation();
       output_ << prefix;
-      if (declaration.explicit_type == ValueType::list) {
-        const bool starred = declaration.pattern_leaf != nullptr &&
-                             declaration.pattern_leaf->kind == AssignmentPatternKind::starred_name;
-        const bool concrete_container = !declaration.shape.empty() &&
-                                        (declaration.element_type != ValueType::unknown || starred);
-        if (declaration.initializer != nullptr && !concrete_container) {
-          output_ << "std::decay_t<decltype(";
-          emit_declaration_type_expression(declaration);
-          output_ << ")>";
-        } else {
-          output_ << cpp_container_type(declaration.element_type, declaration.shape.size());
-        }
-      } else if (primitive_type(declaration.explicit_type)) {
-        output_ << cpp_type(declaration.explicit_type);
-      } else if (declaration.initializer != nullptr) {
+      if (declaration.type_kind == cpp::lir::DeclarationTypeKind::decay_expression) {
         output_ << "std::decay_t<decltype(";
         emit_declaration_type_expression(declaration);
         output_ << ")>";
       } else {
-        output_ << "double";
+        output_ << declaration.concrete_type;
       }
       output_ << ' ' << mangler_->name(declaration.name);
-      if (declaration.explicit_type == ValueType::list && declaration.initializer == nullptr &&
-          !declaration.shape.empty()) {
-        output_ << '(' << declaration.shape[0];
-        for (std::size_t dimension = 1; dimension < declaration.shape.size(); ++dimension) {
-          output_ << ", "
-                  << cpp_container_type(declaration.element_type,
-                                        declaration.shape.size() - dimension)
-                  << '(' << declaration.shape[dimension];
+      if (!declaration.fixed_shape.empty()) {
+        output_ << '(' << declaration.fixed_shape[0];
+        for (std::size_t dimension = 1; dimension < declaration.fixed_shape.size(); ++dimension) {
+          output_ << ", " << declaration.fixed_nested_types[dimension - 1U] << '('
+                  << declaration.fixed_shape[dimension];
         }
-        for (std::size_t dimension = 1; dimension < declaration.shape.size(); ++dimension) {
+        for (std::size_t dimension = 1; dimension < declaration.fixed_shape.size(); ++dimension) {
           output_ << ')';
         }
         output_ << ");\n";
@@ -1377,26 +1305,25 @@ class Renderer final {
     emit_pattern_access(path, emit_base, path.size());
   }
 
-  void emit_declaration_type_expression(const Declaration& declaration) {
-    if (declaration.pattern_leaf != nullptr &&
-        declaration.pattern_leaf->kind == AssignmentPatternKind::name) {
-      emit_pattern_access(declaration.pattern_leaf->access_path,
-                          [&] { emit_expression(*declaration.initializer); });
+  void emit_declaration_type_expression(const cpp::lir::DeclarationPlan& declaration) {
+    const auto& probe = expression(declaration.type_probe);
+    if (!declaration.probe_path.empty()) {
+      emit_pattern_access(declaration.probe_path, [&] { emit_expression(probe); });
       return;
     }
     if (declaration.tuple_index != dynamic_extent) {
-      if (declaration.initializer->inferred_type == ValueType::list) {
+      if (declaration.probe_sequence_list) {
         output_ << '(';
-        emit_expression(*declaration.initializer);
+        emit_expression(probe);
         output_ << ").at(" << declaration.tuple_index << ')';
       } else {
         output_ << "std::get<" << declaration.tuple_index << ">(";
-        emit_expression(*declaration.initializer);
+        emit_expression(probe);
         output_ << ')';
       }
       return;
     }
-    emit_expression(*declaration.initializer);
+    emit_expression(probe);
   }
 
   static const char* cpp_type(const ValueType type) noexcept {
@@ -1425,11 +1352,6 @@ class Renderer final {
     result += element;
     result.append(dimensions, '>');
     return result;
-  }
-
-  static bool primitive_type(const ValueType type) noexcept {
-    return type == ValueType::integer || type == ValueType::real || type == ValueType::boolean ||
-           type == ValueType::string || type == ValueType::null_value;
   }
 
   void emit_function_signature(const Statement& statement) {
@@ -1490,7 +1412,7 @@ class Renderer final {
       }
     }
     indent_ = function_indent + 1;
-    emit_scope_declarations(statement.body, statement.parameters);
+    emit_scope_declarations(statement.function_scope);
     for (const auto& child : statement.body) emit_statement(child);
     if (!statement.return_names.empty()) {
       indentation();
@@ -1879,6 +1801,7 @@ class Renderer final {
   std::size_t indent_{0};
   cpp::lir::EmissionPlan emission_{};
   const cpp::lir::TemporaryPlan* temporaries_{nullptr};
+  std::vector<const Expression*> expressions_;
   std::unique_ptr<IdentifierMangler> mangler_;
   std::vector<std::string> loop_completion_flags_;
   std::set<std::string> active_optional_parameters_;
