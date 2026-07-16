@@ -6,8 +6,8 @@
 
 生产驱动已经切换为五层路径，旧的共享 `Program`→emitter 直通入口不存在：
 
-- 三个 frontend descriptor 产生编译期互不兼容的语言 AST artifact；节点以稠密 `AstNodeId` 存入 session PMR arena，并显式运行 AST verifier 与 AST→HIR visitor；
-- Analyzer 和 HIR pass 只处理 HIR；独立的只读 name/flow pass 分别生成 revision-bound 稠密 `NameTable` 与 `FlowTable`，负责 lexical scope/symbol/builtin、reachability/termination 和不可达诊断；Analyzer 以 `ScopeId`/`SymbolId` 稠密状态消费两表，并直接写入 `SemanticTable`，不再执行字符串名称查找、注解或 move-extract HIR 语义字段；HIR→MIR 从 semantic side table 读取类型、shape、binding、call association 与 assignment-pattern facts，并从 name table 固化 storage/function 的 `SymbolId` identity；
+- 三个 frontend descriptor 产生编译期互不兼容的语言 AST artifact；节点以稠密 `AstNodeId` 存入 session PMR arena，并显式运行 AST verifier。AST→HIR visitor 原子产出窄结构 HIR 与按 `HirNodeId` 稠密、绑定 revision 的 `SemanticTable` seed；
+- Analyzer 和 HIR pass 只处理 HIR 与显式 side-table 输入；独立的只读 name/flow pass 分别生成 revision-bound 稠密 `NameTable` 与 `FlowTable`，负责 lexical scope/symbol/builtin、reachability/termination 和不可达诊断；Analyzer 在运行任何 pass 前验证 frontend seed，以 `ScopeId`/`SymbolId` 稠密状态消费两表并原位完善 `SemanticTable`。HIR 节点不保存 type、shape、binding、call association 或 assignment-pattern 镜像；HIR→MIR 只从 semantic side table 读取这些 facts，并从 name table 固化 storage/function 的 `SymbolId` identity；
 - MIR lowering 为当前 if/loop/loop-else/`break`/`continue`/`SELECT CASE` 建立真实 CFG、block argument 和 edge actual，并显式记录 shape stride 与 storage view/lifetime/intent/optional；全局 storage 以 NameTable 派生的 `SymbolId` 跨函数共享身份。每个 user-call argument 是单一 region contract，保存 type、storage/root、intent、transfer、view、lifetime 和 writability，transfer 区分 value/borrow/copy/optional-forward/omitted；
 - alias relation 和 instruction/function/call effect 不内嵌 MIR，而由 revision-bound、可缓存的 `AliasEffectTable` 计算。MIR verifier 检查表密度、所有权、CFG/dominance、type/shape/storage、函数签名和 call argument transfer/lifetime；alias/effect verifier 独立检查 storage root、稀疏 alias、read/write set、跨函数 fixed point、call-site 参数实例化和 writable overlap；
 - JavaScript 与 `cpp` 通过 backend descriptor API v5 显式接收并验证 MIR 与 alias/effect facts，再分别执行 TargetProfile、逐 opcode legalization、capability、私有 semantic plan、独立 LIR/pass/verifier；两个目标 LIR v9 保存 lowering 后的 ABI、scope/declaration、CSR 临时资源、module/translation-unit 拓扑与目标 expression/statement representation。单一 `CallArgumentPlan` 同时固化传递 ownership 与 writeback，`EvaluationForm`/call value/outcome 固化 comparison/lazy/writable-call 的 IIFE/lambda/thunk 和结果保存；按 `LirNodeId` 稠密的 `SourceSegmentPlan` 固化每个目标节点的 source/origin；
@@ -56,7 +56,7 @@ statement syntax layer
 FrontendDescriptor.verify → FrontendDescriptor.lower
       │
       ▼
-HIR verifier/pass → independent NameTable/FlowTable → direct SemanticTable analysis
+HIR + frontend SemanticTable seed verifier → independent NameTable/FlowTable → direct SemanticTable analysis
 source intrinsic spelling ─► stable IntrinsicId
       │
       ▼
@@ -80,7 +80,7 @@ language AST
   → emitter：确定性序列化
 ```
 
-五层已有不同强类型表示和 verifier。生产 AST 不包含共享 syntax tree，最终 emitter 不包含 lowering；name、flow 和 Analyzer 语义事实分别只有 `NameTable`、`FlowTable`、`SemanticTable` 一个 owner，三者都以 HIR revision 拒绝 stale/missing facts。当前 HIR 保留的宽字段只作为初始化兼容输入，Analyzer 不写回且 MIR 不读取；MIR 结构化语义投影仍是后续压缩数据模型的兼容层，不构成跨后端生成依赖。详细 contract 和禁止依赖见 [COMPILER_PIPELINE.md](COMPILER_PIPELINE.md)。
+五层已有不同强类型表示和 verifier。生产 AST 不包含共享 syntax tree，最终 emitter 不包含 lowering；name、flow 和 Analyzer 语义事实分别只有 `NameTable`、`FlowTable`、`SemanticTable` 一个 owner，三者都以 HIR revision 拒绝 stale/missing facts。HIR 已删除宽语义字段及共享 syntax lowering 旁路，结构规范化只能通过同时重排 HIR 与 semantic table 的接口完成；MIR 结构化语义投影仍是后续压缩数据模型的兼容层，不构成跨后端生成依赖。详细 contract 和禁止依赖见 [COMPILER_PIPELINE.md](COMPILER_PIPELINE.md)。
 
 0.0.8 将目标无关编译和目标能力验证彻底分层；0.0.9—0.2.3 逐步建立 section、SourceManager、差分、tokenized parser、多输出、函数图、Fortran procedure、引用与 section copy-in/copy-out；0.2.4/0.2.5 建立 Fortran argument association 与完整当前 optional intent；0.2.6 将通用 call keyword/default 元数据复用于 Python positional-only/keyword-only association；0.2.7 将同一多目标赋值 IR 扩展到 Python 固定序列解包；0.2.8 将 C++ 目标身份统一为 `cpp`；0.2.9 抽取递归 `AssignmentPattern` 与 `ValueMetadata`；0.3.0 建立格式、静态分析、覆盖率和安全扫描门禁；0.3.1 新增结构化 SELECT/CASE IR、任意分支合流和双后端单次求值 lowering；0.3.2 新增显式 Python comparison-chain/conditional AST、类型关联验证和双后端惰性单次求值 lowering；0.3.3 建立对称的前后端 descriptor/registry、稳定 intrinsic ID 与目标代码绑定表。Analyzer 对不同源语言分别确认 association、unpacking、selection 与表达式语义，后端不解析源语言参数或控制结构语法。通用 Analyzer 不接收 `TargetLanguage`，任一目标均不依赖另一目标的生成物。
 

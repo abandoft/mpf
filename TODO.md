@@ -14,10 +14,10 @@
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；`cpp` 当前生成严格 C++17 translation unit |
 | 前后端边界 | 生产驱动固定经过语言 AST artifact→HIR→MIR→目标私有 semantic plan/LIR→emitter；两个目标不读取彼此产物 |
 | 扩展架构 | frontend descriptor API v5、backend descriptor API v5；parser session/feature/resource contract、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
-| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；名称/作用域、控制流和 Analyzer 输出分别由 revision-checked 稠密 `NameTable`、`FlowTable`、`SemanticTable` 持有，Analyzer 以 `SymbolId` 稠密状态消费前两者；HIR→MIR 消费 semantic/name facts，MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime、驻留的 tuple/function/reference 签名，以及包含 region/intent/transfer 的单对象 call argument 表；alias/effect 由独立 `AliasEffectTable` 持有并提供 call argument/overlap facts；双目标 LIR v9 显式保存 ABI、scope/declaration、临时值、顶层拓扑、expression/statement、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
+| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有，Analyzer 校验并原位完善 semantic seed，以 `SymbolId` 稠密状态消费前两表；HIR→MIR 消费 semantic/name facts，MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime、驻留的 tuple/function/reference 签名，以及包含 region/intent/transfer 的单对象 call argument 表；alias/effect 由独立 `AliasEffectTable` 持有并提供 call argument/overlap facts；双目标 LIR v9 显式保存 ABI、scope/declaration、临时值、顶层拓扑、expression/statement、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
 | Python 最新能力 | relational/equality 比较链、右结合条件表达式、短路/惰性/单次求值；基础参数关联和递归固定序列解包 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流 |
-| 工程门禁 | 158 项内部测试；48 个差分 case、134 条工具完整环境执行路径；59 项 CTest；fuzz smoke、可选 libFuzzer、版本化性能发布阈值、阶段报告；生产代码行覆盖率实测 89.00%（17619/19796），硬门槛 85% |
+| 工程门禁 | 158 项内部测试；48 个差分 case、134 条工具完整环境执行路径；59 项 CTest；fuzz smoke、可选 libFuzzer、版本化性能发布阈值、阶段报告；生产代码行覆盖率实测 89.58%（17561/19604），硬门槛 85% |
 | 发布状态 | 0.x；没有长期 API/ABI 或完整语言兼容承诺 |
 
 ## 本轮商业级收尾验收（完成）
@@ -59,11 +59,11 @@
 - [x] 建立 `python::ast`、`matlab::ast`、`fortran::ast` 独立 artifact root、稠密 `AstNodeId` inventory、source origin 和 descriptor verifier
 - [x] 三种生产 artifact 使用编译期互不兼容的 `python::ast`/`matlab::ast`/`fortran::ast` 节点、PMR arena、稠密 ID 与 AST→HIR visitor；artifact 不再封装共享 syntax tree
 - [x] descriptor parser 只向生产管线发布本语言 AST；comparison chain、多输出签名、source form/declaration attribute 等已支持表面信息随 AST 节点保留（底层 statement parser 的短生命周期共享 scratch 仍待 P7 删除）
-- [x] 建立独立 HIR contract，承接函数、参数关联、多返回、assignment pattern、range、selection、slice/section 和 intrinsic identity
+- [x] 建立窄 HIR 结构 contract，承接函数、参数/结果名称、调用、多目标标记、range、selection 与 slice/section；type/shape/binding/intrinsic/call association/assignment pattern 只进入同批 semantic seed
 - [x] 以共享语义 profile 表达 truthiness、logical result、division、equality、layout 和 top-level storage；capability validator 不再按 `SourceLanguage` 分支
-- [x] 三个 frontend descriptor 分别提供 AST verifier 与 AST→HIR lowering；统一 HIR verifier 在生产路径逐 pass 执行
+- [x] 三个 frontend descriptor 分别提供 AST verifier 与 AST→HIR + semantic seed lowering；统一 HIR/semantic verifier 在 Analyzer 前和生产路径逐 pass 执行
 - [x] 增加 Python/Matlab 跨语言等价语义的 normalized HIR golden
-- [ ] 继续收窄当前宽 HIR statement/expression 数据模型
+- [x] 删除 HIR statement/expression 的宽语义镜像、共享 syntax→HIR 旁路和脱离 side table 的 HIR-only reindex；架构门禁阻止字段与旁路恢复
 - [x] 共享 IR 不含带语言名的行为字段；新语言不得通过新增 `python_*`/`matlab_*`/`fortran_*` flag 接入
 
 #### P3：独立 MIR 与公共分析
@@ -80,13 +80,13 @@
 - [ ] HIR→MIR 显式固定 evaluation order、短路、循环/选择 CFG、多结果、load/store 和 runtime-independent semantic operation
 - [x] MIR verifier 检查稠密表、函数/块/指令唯一所有权、函数内 edge、terminator arity、值唯一定义及 definition-dominates-use
 - [x] MIR verifier 补齐 block argument/edge actual arity、定义顺序与 dominance、type/shape/storage metadata、view/lifetime/intent、函数签名、call/return、多结果与 writable reference 相容性；独立 alias/effect verifier 检查稠密 inventory、storage root、稀疏 alias、instruction read/write/effect、函数 fixed point 与 call-site 实例化
-- [x] Analyzer 在进入分析时预分配按 `HirNodeId` 稠密索引、绑定 HIR revision 的 `SemanticTable`，全部输出经直接 accessor 写表；分析过程不再注解或 move-extract HIR 语义字段，HIR→MIR 对缺失/陈旧 semantic/name side table 失败关闭且不读取 HIR 宽语义字段
+- [x] AST→HIR visitor 同步构建按 `HirNodeId` 稠密索引、绑定 HIR revision 的 `SemanticTable` seed；Analyzer 在任何 pass 前校验并接管该表，全部输出经直接 accessor 写表，不注解或复制 HIR 语义；HIR→MIR 对缺失/陈旧 semantic/name side table 失败关闭
 - [x] 参数关联引起的默认值克隆、optional omission 或实参重排会提升 HIR revision，并在结构规范化后将 HIR ID 与已分析 facts 一起紧凑重映射；规范化后再次执行 HIR/semantic verifier 和 HIR 节点资源上限
 - [x] 将 reachability、statement termination、branch/body termination 和上下文深度拆到独立、只读 HIR、revision-bound 的稠密 `FlowTable`；不可达诊断由该 pass 独立产生并有 stale/dense negative test
 - [x] 将 lexical scope tree、声明/参数/结果/循环变量、遮蔽、引用和 builtin 解析拆到独立、只读 HIR、revision-bound 的稠密 `NameTable`；Analyzer 删除 `unordered_map<string, Symbol>`，以 `ScopeId`/`SymbolId` 稠密状态消费 name/flow facts，结构规范化后重建两表
 - [x] 按职责将 Analyzer 拆为控制/函数分析、表达式/调用/索引分析、内部 contract 三个编译单元，避免继续扩张单体源码
 - [x] 将 alias/effect 从 MIR 结构与 lowering builder 拆成 revision-bound、可由 `AnalysisManager` 缓存的 `AliasEffectTable`；以 NameTable 派生的 `SymbolId` storage identity、call-site actual 和函数参数摘要计算跨调用图 fixed point，未知外部调用保守读写 unknown，双后端 descriptor API v5 显式接收并验证该表
-- [ ] 删除 HIR 中仅用于初始化兼容输入的宽语义字段；在删除前这些字段不得由 Analyzer 写回，也不得被 MIR 消费
+- [x] 删除 HIR 中用于初始化兼容输入的 type/shape/binding/call/assignment 等宽语义字段；前端 conformance 同时验证 HIR/semantic seed 完整性与确定性
 - [ ] 首批默认优化只包括经证明安全的 CFG cleanup、constant folding、dead-pure elimination、copy propagation 和 shape canonicalization
 
 #### P4：JavaScript LIR 与纯 emitter
@@ -147,7 +147,7 @@
 - [x] 增加小文件延迟、大文件吞吐、峰值 arena、深 CFG、大 shape、跨函数图、批量并发和生成产物 benchmark，并由 CI 执行 JSON 基线门禁
 - [x] ASan/UBSan、clang-tidy、format、85% 覆盖率、CodeQL、Linux/macOS/Windows 与 GCC/Clang/AppleClang/MSVC 门禁全部接入；GitHub Actions 按快速反馈、兼容/差分、质量、Sanitizer、覆盖率、性能、安全和发布独立失败域
 - [x] 删除共享 `Program` 直通 emitter 的生产路径；两个 emitter 只能接收对应 opaque LIR artifact
-- [ ] 删除 statement parser 的共享 scratch、HIR/MIR 宽结构兼容投影；emitter 内 lowering 已删除，文档、目录和 CMake export 已同步
+- [ ] 删除 statement parser 的共享 scratch 与 MIR 宽结构兼容投影；HIR 宽语义投影、emitter 内 lowering 已删除，文档、目录和 CMake export 已同步
 
 完成定义：P0—P7 全部完成，且两个 emitter 的公共入口只能接收各自 LIR，才可宣称“商业级多层 IR 与易扩展前后端”已交付。
 
@@ -195,7 +195,7 @@
 
 - [ ] 依据三种官方 grammar 完成 statement/parser 覆盖；版本范围 contract、公共 API/CLI gate、Python 3.8 positional-only 与 Fortran 2003 bracket-constructor gate 已落地，其余产生式/feature gate 继续逐项完成
 - [x] 建立独立 HIR/MIR、强类型 ID、verifier、pass/analysis manager、确定性 dump 和生产 lowering 主链路
-- [ ] 语言专属 arena AST、当前控制结构 MIR CFG、parser token/depth/arena 边界、Analyzer 直写 semantic side table，以及独立 name/flow/alias-effect pass 已完成；仍需删除宽 HIR/MIR 兼容字段并继续扩展 parser recovery
+- [ ] 语言专属 arena AST、窄 HIR + semantic seed、当前控制结构 MIR CFG、parser token/depth/arena 边界、Analyzer 直写 semantic side table，以及独立 name/flow/alias-effect pass 已完成；仍需删除 MIR 宽兼容字段并继续扩展 parser recovery
 - [ ] 完整嵌套作用域、常量折叠、完整 CFG、参数敏感跨函数数据流
 - [x] 跨语言一般 N 维静态 shape、声明、RESHAPE、直接 index/section 读取写入，以及 JavaScript/C++ 递归运行时；三维 Fortran/gfortran/Node.js/生成 C++ 差分已入门禁
 - [ ] 动态 rank、广播、跨 view/storage 的精确 N 维 section overlap 与多 writable actual alias 证明

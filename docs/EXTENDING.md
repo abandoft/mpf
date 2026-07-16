@@ -1,15 +1,15 @@
 # 扩展前端、后端与代码绑定
 
-0.3.4 使用对称的 descriptor/registry 架构接入内置源语言和输出目标。核心驱动执行“选择 descriptor → 创建 parser session → parse 语言 AST → AST verifier → AST→HIR → HIR pass → MIR → MIR pass → capability/legalization → 私有 semantic plan/LIR → LIR verifier/dump → printer”，不按具体语言或目标硬编码分派。当前 contract 面向同一源码树中的编译期组件；descriptor 带 API version，但尚不承诺跨动态库的稳定插件 ABI。
+0.3.4 使用对称的 descriptor/registry 架构接入内置源语言和输出目标。当前核心驱动执行“选择 descriptor → 创建 parser session → parse 语言 AST → AST verifier → AST→窄 HIR + semantic seed → HIR/seed verifier → Analyzer → MIR → MIR pass → capability/legalization → 私有 semantic plan/LIR → LIR verifier/dump → printer”，不按具体语言或目标硬编码分派。当前 contract 面向同一源码树中的编译期组件；descriptor 带 API version，但尚不承诺跨动态库的稳定插件 ABI。
 
-本页记录当前可执行的 frontend API v5/backend API v5 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、Analyzer 直写 semantic side table、独立 name/scope、flow 与 MIR alias/effect side table、call argument borrow/copy/optional-forward contract、当前控制结构 MIR CFG、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；statement parser 的共享 scratch、HIR/MIR 宽兼容投影与精确 N 维 selector region overlap 不是新扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
+本页记录当前可执行的 frontend API v5/backend API v5 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、窄 HIR + frontend semantic seed、Analyzer 直写 side table、独立 name/scope、flow 与 MIR alias/effect side table、call argument borrow/copy/optional-forward contract、当前控制结构 MIR CFG、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；statement parser 的共享 scratch、MIR 宽兼容投影与精确 N 维 selector region overlap 不是新扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
 
 ## 设计约束
 
 - descriptor 数据使用静态存储期和 `std::string_view`，注册表不取得所有权，也不在热路径分配。
 - 注册顺序不能改变检测结果；扩展名必须唯一，内容探测最高分唯一，否则自动检测失败关闭。
 - 不使用全局构造器自注册，避免链接器裁剪、初始化顺序和多动态库状态问题。
-- 前端只能生成自己的语言 AST artifact 和诊断，不能调用 MIR/backend/emitter 或拼接目标代码；接入核心只能通过 AST verifier 与 AST→HIR lowering。
+- 前端只能生成自己的语言 AST artifact、窄 HIR、semantic seed 和诊断，不能调用 Analyzer/MIR/backend/emitter 或拼接目标代码；接入核心只能通过 AST verifier 与 AST→HIR lowering。
 - Analyzer 只解析源语言语义，不选择目标 lowering。
 - 每个后端直接读取同一份已分析 IR，不读取其他后端的输出。
 - 所有未知语法、不可保持的语义和缺失绑定必须在生成前产生稳定诊断。
@@ -27,7 +27,7 @@ language version + feature bitset + resource contract + AST schema manifest
 source-specific intrinsic binding table
 parser-session factory
 language AST verifier
-AST-to-HIR lowering callback
+AST-to-HIR + dense semantic-seed lowering callback
 ```
 
 接入步骤：
@@ -37,11 +37,11 @@ AST-to-HIR lowering callback
 3. 提供 descriptor factory 和独立 parser-session factory；扩展名和探测规则归前端所有，解析选项、arena、资源上限和请求 feature 通过 `FrontendParseOptions` 传入，并声明版本范围、能力与 AST schema。
 4. 在 `frontend_registry.cpp` 的静态 catalog 增加一项，并将组件源码加入 `mpf-core`。
 5. 由 descriptor 显式选择一组有序 spelling → `IntrinsicId` 表；只有源语言确实提供相同全局拼写时才选择共享数学表，TypeScript 一类语言可以完全不选。语义相同的函数复用已有 ID，语义不同的函数必须新增 ID。
-6. 提供 AST verifier 和 AST→HIR lowering；运行 `run_frontend_conformance` 验证 descriptor、重复 parse/lowering 确定性和 HIR contract。
+6. 提供 AST verifier 和 AST→HIR lowering；每个有效 `HirNodeId` 必须同时拥有同 revision 的 semantic slot。运行 `run_frontend_conformance` 验证 descriptor、HIR/seed 完整性以及重复 parse/lowering 的逐字节确定性。
 7. 增加别名/扩展名冲突、探测优先级、parser 成功/拒绝、双后端行为和差分测试。
 8. 更新语言支持矩阵、诊断索引和版本目标；CLI 帮助会从 registry 自动枚举 canonical name。
 
-HIR 是当前前端扩展边界。新语言特性若不能由 HIR 无损表达，应先扩展 HIR/MIR semantic contract 和两个后端的 capability contract，不得借用字符串标记或语言名布尔字段绕过语义层。新表面语法必须留在语言 AST；跨语言规范语义才进入 HIR。
+`hir::LoweringResult` 中的窄 HIR + `SemanticTable` seed 是当前前端扩展边界。新语言特性若不能由这对产物无损表达，应先扩展公共 HIR/semantic/MIR contract 和两个后端的 capability contract，不得借用字符串标记或语言名布尔字段绕过语义层。新表面语法必须留在语言 AST；跨语言结构进入 HIR，规范语义 facts 进入 seed。
 
 ## 接入新的输出目标
 
@@ -79,13 +79,14 @@ frontend descriptor 当前已经提供以下生命周期：
 create frontend session
   → normalize/lex/parse language-owned AST
   → verify AST
-  → lower AST to HIR
+  → lower AST to narrow HIR + revision-bound dense semantic seed
+  → verify HIR and seed as one ownership transfer
   → destroy frontend session/AST arena when no longer needed
 ```
 
 当前内置前端由 `CompilationSession` 提供 SourceManager/arena/资源上限，每次 parse 经 descriptor factory 创建独立 parser session；feature 请求不是已声明能力的子集时失败关闭。
 
-新前端只能依赖 source、syntax-common 和 HIR contract。它负责版本范围、feature manifest、AST verifier 和 AST→HIR conformance；不能 include MIR pass、目标 LIR 或 backend 头文件。
+新前端只能依赖 source、syntax-common、HIR 与 semantic-facts contract。它负责版本范围、feature manifest、AST verifier 和 AST→HIR/seed conformance；不能 include Analyzer/MIR pass、目标 LIR 或 backend 头文件。
 
 backend descriptor 当前已经提供以下生命周期：
 
@@ -120,7 +121,7 @@ descriptor API 升级时必须保留 catalog validation 和禁用组件 metadata
 
 ## Extension conformance harness
 
-仓库已提供 `run_frontend_conformance` 与 `run_backend_conformance`：前者验证 descriptor、parser session、AST verifier 和重复 HIR dump，后者验证 MIR、alias/effect table、binding、capability、lowering、artifact verifier、semantic dump 和重复输出。resource limit、source map、fuzz/performance 与安装隔离由全局 harness 补充；`examples/installed/frontend` 和 `examples/installed/backend` 会在 staging install 后作为真正独立的 CMake consumer 配置、构建和运行。
+仓库已提供 `run_frontend_conformance` 与 `run_backend_conformance`：前者验证 descriptor、parser session、AST verifier、HIR/semantic seed verifier 和两者的重复 dump，后者验证 MIR、alias/effect table、binding、capability、lowering、artifact verifier、semantic dump 和重复输出。resource limit、source map、fuzz/performance 与安装隔离由全局 harness 补充；`examples/installed/frontend` 和 `examples/installed/backend` 会在 staging install 后作为真正独立的 CMake consumer 配置、构建和运行。
 
 前端 conformance 至少验证：
 

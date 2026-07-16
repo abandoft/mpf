@@ -2,7 +2,7 @@
 
 本文是 MPF 前端、公共中间表示、分析/优化基础设施和后端的权威架构规范，也是重构验收依据。若其他文档与本文的层级职责冲突，以本文和 [TODO](../TODO.md) 的逐项状态为准。
 
-> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 已让 Analyzer 预分配并直接写入按 `HirNodeId` 稠密索引、绑定 revision 的唯一 `SemanticTable`，并将 name/flow/alias-effect 拆为 revision-bound 独立 side table。双目标 LIR v9 在函数 ABI、CSR temporary、scope/declaration、module/translation-unit 与 expression/statement plan 基础上，以聚合 `CallArgumentPlan` 固化 ownership/writeback，以目标 `EvaluationForm` 固化 comparison/lazy/writable-call IIFE/lambda/thunk 和结果策略，并以稠密 `SourceSegmentPlan` 把 source/origin 前移；renderer 不再读取节点语义或源码位置。剩余迁移集中在 HIR/MIR 宽兼容字段、完整独立 target AST、一般 RAII/copy-move/runtime ABI node、结构化 import/export/chunk、完整官方 grammar、动态 rank/广播、精确 N 维 overlap 和插件 ABI；不能把这批架构收尾等同于完整语言兼容。
+> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 的 AST→HIR ownership transfer 已原子产出窄结构 HIR 与按 `HirNodeId` 稠密、绑定 revision 的唯一 `SemanticTable` seed；Analyzer 先验证再原位完善该表，HIR 不再镜像 type/shape/binding/call/assignment facts，共享 syntax lowering 和 HIR-only reindex 旁路也已删除。name/flow/alias-effect 同样是 revision-bound 独立 side table。双目标 LIR v9 在函数 ABI、CSR temporary、scope/declaration、module/translation-unit 与 expression/statement plan 基础上，以聚合 `CallArgumentPlan` 固化 ownership/writeback，以目标 `EvaluationForm` 固化 comparison/lazy/writable-call IIFE/lambda/thunk 和结果策略，并以稠密 `SourceSegmentPlan` 把 source/origin 前移；renderer 不再读取节点语义或源码位置。剩余迁移集中在 MIR 宽兼容字段、完整独立 target AST、一般 RAII/copy-move/runtime ABI node、结构化 import/export/chunk、完整官方 grammar、动态 rank/广播、精确 N 维 overlap 和插件 ABI；不能把这批架构收尾等同于完整语言兼容。
 
 ## 目标与永久约束
 
@@ -26,8 +26,8 @@ SourceManager
   └─► future language AST
           │  frontend-owned AstToHir lowering
           ▼
-        HIR
-          │  normalization + semantic analysis
+        HIR + dense SemanticTable seed
+          │  seed verification + normalization + semantic analysis
           ▼
         MIR
           │
@@ -56,7 +56,7 @@ LirNodeId / RuntimeSymbolId
 - 节点放入按阶段分离的 arena/monotonic resource；常用查询通过 ID 索引稠密 `vector` side table。
 - 类型、字符串、shape 和符号名使用 session 级 interning，避免节点重复拥有大对象。
 - 分析结果不反复写回语法节点；dominance、liveness、alias、effect 等结果由带 revision 的 side table 持有。
-- 当前 name/flow pass 只读 HIR 并生成 `NameTable`/`FlowTable`，Analyzer 直接写入 `SemanticTable`；任何规范化 pass 改变 HIR 结构时必须提升 revision，并使已有分析自动失效或在继续消费前重建。
+- AST→HIR lowering 同批建立结构节点及其 `SemanticTable` slot；name/flow pass 只读 HIR 并生成 `NameTable`/`FlowTable`，Analyzer 验证并直接完善 frontend seed。任何规范化 pass 改变 HIR 结构时必须提升 revision，并同时重排 semantic table；禁止仅重排 HIR ID。
 - lowering 消费上层 IR 或借用只读视图；禁止无必要地深拷贝整棵树。
 - 公共 IR 默认只在单个 session 内可变；发布给下一阶段后视为只读。调试构建可用 revision/frozen 标记检测越界修改。
 
@@ -84,23 +84,23 @@ source normalizer
 lexer
 parser
 AST model + AST verifier
-AST → HIR lowering
+AST → HIR + semantic seed lowering
 language-version/capability manifest
 frontend conformance tests
 ```
 
-接入新语言时只允许新增自己的 AST 包和 AST→HIR lowering。若 HIR 无法无损表达语义，应先扩展 HIR contract 和所有 verifier，不得绕过 HIR 直接修改 MIR 或后端。
+接入新语言时只允许新增自己的 AST 包和 AST→HIR + semantic-seed lowering。若窄 HIR 结构或 `SemanticTable` 无法无损表达语义，应先扩展对应 contract 和所有 verifier，不得绕过它们直接修改 MIR 或后端。
 
 ## 第二层：HIR
 
-HIR 是结构化、目标无关的高级语义表示。它消除语法差异，但仍保留便于诊断和高级分析的函数、分支、循环、调用、section、assignment pattern 等结构。
+HIR 是结构化、目标无关的高级表示。它消除语法差异，保留便于诊断和分析的函数、分支、循环、调用、section 等结构；易变或较宽的类型、形状、绑定、调用关联和 assignment-pattern facts 由同 revision 的 `SemanticTable` 独占。
 
 HIR 负责：
 
-- 规范化源语言名称绑定、参数关联、默认参数、多返回值和 assignment target；
+- 规范化函数、参数/结果名称、默认参数节点、调用与多目标赋值的结构；
 - 把不同表面语法转换为显式的统一操作，例如 range loop、slice/section、structured selection；
-- 保存已解析的 `IntrinsicId`，不保存源 builtin 到目标符号的绑定；
-- 以语义枚举描述 truthiness、division、index、layout、comparison、overflow 等规则，不靠 `SourceLanguage` 分支推断行为；
+- 通过同批 semantic seed 保存已解析的 `IntrinsicId`、assignment pattern 和源语义事实，不保存源 builtin 到目标符号的目标绑定；
+- 在 program semantic profile 与 side table 中描述 truthiness、division、index、layout、comparison 等规则，不靠后端按 `SourceLanguage` 猜测；
 - 保存完整 source origin 链，允许一个 HIR 节点映射多个 AST span 或反向映射。
 
 HIR 禁止包含：
@@ -109,7 +109,7 @@ HIR 禁止包含：
 - CFG block、phi、liveness 等 MIR 专属结构；
 - emitter 才能解释的字符串操作符协议。
 
-HIR verifier 至少检查 ID 唯一性、所有权、节点 arity、类型引用有效性、scope/symbol 引用、参数和返回元数据长度、source origin 以及规范化不变量。
+HIR verifier 检查 ID 唯一性、所有权、节点 arity、presence flag 和结构不变量；semantic verifier 独立检查 revision、稠密 ID 覆盖、origin、type/shape/call/parameter/result/assignment facts arity。两者必须在 Analyzer 前同时通过。
 
 ## 第三层：MIR
 
@@ -329,7 +329,7 @@ optional metrics hook
 
 ### 前端 descriptor
 
-目标 Frontend descriptor 负责 identity、alias、extension、probe、版本范围、feature manifest、parser factory 和 AST→HIR lowering factory。descriptor 不拥有 compilation session，也不返回内部静态可变对象。
+目标 Frontend descriptor 负责 identity、alias、extension、probe、版本范围、feature manifest、parser factory 和 AST→HIR + semantic-seed lowering factory。descriptor 不拥有 compilation session，也不返回内部静态可变对象。
 
 ### 后端 descriptor
 
