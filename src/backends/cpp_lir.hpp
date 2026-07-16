@@ -163,6 +163,24 @@ enum class CallForm : std::uint8_t {
 
 enum class CallArgumentForm : std::uint8_t { value, forward_optional, copy_section };
 
+enum class EvaluationForm : std::uint8_t {
+  direct,
+  comparison_reference_lambda_iife,
+  lazy_reference_lambda_thunks,
+  copy_call_reference_lambda_iife
+};
+
+enum class CallValueForm : std::uint8_t { direct, first_tuple_result };
+
+enum class CallOutcomeForm : std::uint8_t { discard, value };
+
+enum class WritebackForm : std::uint8_t { none, section };
+
+struct CallArgumentPlan {
+  CallArgumentForm form{CallArgumentForm::value};
+  WritebackForm writeback{WritebackForm::none};
+};
+
 enum class IndexForm : std::uint8_t {
   none,
   nested,
@@ -188,7 +206,10 @@ struct ExpressionPlan {
   std::string token;
   std::vector<ComparisonPlan> comparisons;
   CallForm call{CallForm::none};
-  std::vector<CallArgumentForm> call_arguments;
+  EvaluationForm evaluation{EvaluationForm::direct};
+  CallValueForm call_value{CallValueForm::direct};
+  CallOutcomeForm call_outcome{CallOutcomeForm::discard};
+  std::vector<CallArgumentPlan> call_arguments;
   IndexForm index{IndexForm::none};
   std::vector<bool> selector_slices;
   VariableAccess variable_access{VariableAccess::direct};
@@ -197,8 +218,6 @@ struct ExpressionPlan {
   bool column_major{false};
   bool inclusive_slice_stop{false};
   bool flatten_base{false};
-  bool first_result{false};
-  bool has_result{false};
   bool string_value{false};
   std::string concrete_type;
   std::vector<bool> widen_children;
@@ -388,6 +407,7 @@ struct SemanticProgram {
   RuntimeRequirements runtime;
   IdentifierPlan identifiers;
   TemporaryPlan temporaries;
+  SourceSegmentPlan source_segments;
   ScopePlan program_scope;
   TranslationUnitPlan translation_unit;
   std::vector<std::string_view> dependencies;

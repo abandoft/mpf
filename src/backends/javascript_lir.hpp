@@ -137,6 +137,22 @@ enum class CallArgumentForm : std::uint8_t {
   reference_box_uninitialized
 };
 
+enum class EvaluationForm : std::uint8_t {
+  direct,
+  comparison_arrow_iife,
+  lazy_arrow_thunks,
+  writable_call_arrow_iife
+};
+
+enum class CallValueForm : std::uint8_t { direct, first_result };
+
+enum class WritebackForm : std::uint8_t { none, direct, element, section };
+
+struct CallArgumentPlan {
+  CallArgumentForm form{CallArgumentForm::value};
+  WritebackForm writeback{WritebackForm::none};
+};
+
 enum class IndexForm : std::uint8_t { none, element, section };
 
 enum class VariableAccess : std::uint8_t { direct, reference_box_value };
@@ -153,7 +169,9 @@ struct ExpressionPlan {
   std::string token;
   std::vector<ComparisonPlan> comparisons;
   CallForm call{CallForm::none};
-  std::vector<CallArgumentForm> call_arguments;
+  EvaluationForm evaluation{EvaluationForm::direct};
+  CallValueForm call_value{CallValueForm::direct};
+  std::vector<CallArgumentPlan> call_arguments;
   IndexForm index{IndexForm::none};
   std::vector<bool> selector_slices;
   VariableAccess variable_access{VariableAccess::direct};
@@ -161,7 +179,6 @@ struct ExpressionPlan {
   bool allow_negative_index{false};
   bool column_major{false};
   bool inclusive_slice_stop{false};
-  bool first_result{false};
   bool string_value{false};
 };
 
@@ -340,6 +357,7 @@ struct SemanticProgram {
   RuntimeRequirements runtime;
   IdentifierPlan identifiers;
   TemporaryPlan temporaries;
+  SourceSegmentPlan source_segments;
   ScopePlan program_scope;
   ModulePlan module;
   std::vector<std::string_view> dependencies;

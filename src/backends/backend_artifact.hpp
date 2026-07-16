@@ -18,6 +18,26 @@ struct RenderMarker {
   HirNodeId origin{};
 };
 
+struct SourceSegment {
+  LirNodeId node{};
+  SourceLocation source{};
+  HirNodeId origin{};
+
+  [[nodiscard]] bool valid() const noexcept { return node.valid(); }
+};
+
+struct SourceSegmentPlan {
+  bool valid{false};
+  std::vector<SourceSegment> nodes;
+
+  [[nodiscard]] const SourceSegment* find(const LirNodeId node) const noexcept {
+    if (!valid || !node.valid() || node.value() >= nodes.size() || !nodes[node.value()].valid()) {
+      return nullptr;
+    }
+    return &nodes[node.value()];
+  }
+};
+
 struct SerializedChunk {
   std::string text;
   SourceLocation source{};

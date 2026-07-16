@@ -1,6 +1,5 @@
 #include "javascript_renderer.hpp"
 
-#include <algorithm>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -18,14 +17,11 @@ using Expression = javascript::lir::Expression;
 using Statement = javascript::lir::Statement;
 using Program = javascript::lir::SemanticProgram;
 
-bool expression_has_direct_slice(const Expression& expression) {
-  return expression.plan.index == javascript::lir::IndexForm::section;
-}
-
 class Renderer final {
  public:
   RenderedOutput render(const Program& program) {
     temporaries_ = &program.temporaries;
+    source_segments_ = &program.source_segments;
     mangler_ = std::make_unique<IdentifierMangler>(program.identifiers);
     output_ << program.module.banner;
     for (const auto& directive : program.module.directives) output_ << directive << '\n';
@@ -65,6 +61,9 @@ class Renderer final {
   }
 
   void emit_comparison_chain(const Expression& expression) {
+    if (expression.plan.evaluation != javascript::lir::EvaluationForm::comparison_arrow_iife) {
+      throw std::logic_error("verified JavaScript comparison evaluation plan is missing");
+    }
     std::vector<std::string> operands;
     operands.reserve(expression.children.size());
     output_ << "(() => { ";
@@ -148,7 +147,7 @@ class Renderer final {
           !(*replacements)[index].empty()) {
         output_ << (*replacements)[index];
       } else if (index - 1U < plan.call_arguments.size() &&
-                 plan.call_arguments[index - 1U] ==
+                 plan.call_arguments[index - 1U].form ==
                      javascript::lir::CallArgumentForm::forward_optional) {
         output_ << mangler_->name(expression.children[index].plan.token);
       } else {
@@ -160,21 +159,16 @@ class Renderer final {
 
   void emit_call_value(const Expression& expression,
                        const std::vector<std::string>* replacements = nullptr) {
-    if (expression.plan.first_result) output_ << '(';
+    if (expression.plan.call_value == javascript::lir::CallValueForm::first_result) output_ << '(';
     emit_direct_call(expression, replacements);
-    if (expression.plan.first_result) output_ << ")[0]";
+    if (expression.plan.call_value == javascript::lir::CallValueForm::first_result)
+      output_ << ")[0]";
   }
 
   void emit_expression(const Expression& expression, const int parent_precedence = 0) {
-    mark(expression.location, expression.origin);
+    mark(expression.id);
     if (expression.plan.form == javascript::lir::ExpressionForm::call) {
-      const bool reference_call = std::any_of(
-          expression.plan.call_arguments.begin(), expression.plan.call_arguments.end(),
-          [](const javascript::lir::CallArgumentForm form) {
-            return form == javascript::lir::CallArgumentForm::reference_box ||
-                   form == javascript::lir::CallArgumentForm::reference_box_uninitialized;
-          });
-      if (reference_call) {
+      if (expression.plan.evaluation == javascript::lir::EvaluationForm::writable_call_arrow_iife) {
         emit_reference_call(expression);
       } else {
         emit_call_value(expression);
@@ -209,6 +203,9 @@ class Renderer final {
         break;
       case javascript::lir::ExpressionForm::binary_lazy_and:
       case javascript::lir::ExpressionForm::binary_lazy_or:
+        if (expression.plan.evaluation != javascript::lir::EvaluationForm::lazy_arrow_thunks) {
+          throw std::logic_error("verified JavaScript lazy evaluation plan is missing");
+        }
         output_ << (expression.plan.form == javascript::lir::ExpressionForm::binary_lazy_and
                         ? "__mpf_py_and"
                         : "__mpf_py_or")
@@ -349,9 +346,10 @@ class Renderer final {
     output_ << "(() => { ";
     for (std::size_t index = 1; index < expression.children.size(); ++index) {
       const auto intent_index = index - 1;
-      const auto form = intent_index < expression.plan.call_arguments.size()
-                            ? expression.plan.call_arguments[intent_index]
-                            : javascript::lir::CallArgumentForm::value;
+      const auto argument = intent_index < expression.plan.call_arguments.size()
+                                ? expression.plan.call_arguments[intent_index]
+                                : javascript::lir::CallArgumentPlan{};
+      const auto form = argument.form;
       if (form != javascript::lir::CallArgumentForm::reference_box &&
           form != javascript::lir::CallArgumentForm::reference_box_uninitialized) {
         continue;
@@ -372,14 +370,16 @@ class Renderer final {
     output_ << "; ";
     for (std::size_t index = 1; index < references.size(); ++index) {
       if (references[index].empty()) continue;
-      emit_reference_writeback(expression.children[index], references[index]);
+      emit_reference_writeback(expression.children[index], references[index],
+                               expression.plan.call_arguments[index - 1U].writeback);
       output_ << "; ";
     }
     output_ << "return " << result << "; })()";
   }
 
-  void emit_reference_writeback(const Expression& target, const std::string& reference) {
-    if (expression_has_direct_slice(target)) {
+  void emit_reference_writeback(const Expression& target, const std::string& reference,
+                                const javascript::lir::WritebackForm writeback) {
+    if (writeback == javascript::lir::WritebackForm::section) {
       output_ << "__mpf_set_section(";
       emit_expression(target.children[0]);
       output_ << ", [";
@@ -398,7 +398,7 @@ class Renderer final {
               << (target.plan.column_major ? "true" : "false") << ", false)";
       return;
     }
-    if (target.plan.form == javascript::lir::ExpressionForm::index) {
+    if (writeback == javascript::lir::WritebackForm::element) {
       output_ << "__mpf_set(";
       emit_expression(target.children[0]);
       output_ << ", [";
@@ -411,8 +411,12 @@ class Renderer final {
               << (target.plan.column_major ? "true" : "false") << ')';
       return;
     }
-    emit_expression(target);
-    output_ << " = " << reference << ".value";
+    if (writeback == javascript::lir::WritebackForm::direct) {
+      emit_expression(target);
+      output_ << " = " << reference << ".value";
+      return;
+    }
+    throw std::logic_error("verified JavaScript writable call has no writeback plan");
   }
 
   void emit_slice_descriptor(const Expression& slice) {
@@ -567,7 +571,7 @@ class Renderer final {
   }
 
   void emit_statement(const Statement& statement) {
-    mark({statement.line, 1}, statement.origin);
+    mark(statement.id);
     switch (statement.plan.form) {
       case javascript::lir::StatementForm::discard: break;
       case javascript::lir::StatementForm::declaration_initializer:
@@ -877,11 +881,15 @@ class Renderer final {
     }
   }
 
-  void mark(const SourceLocation source, const HirNodeId origin) {
-    if (source.line == 0) return;
+  void mark(const LirNodeId node) {
+    const auto* segment = source_segments_->find(node);
+    if (segment == nullptr) {
+      throw std::logic_error("verified JavaScript LIR source segment is missing");
+    }
+    if (segment->source.line == 0) return;
     const auto position = output_.tellp();
     if (position < 0) return;
-    markers_.push_back({static_cast<std::size_t>(position), source, origin});
+    markers_.push_back({static_cast<std::size_t>(position), segment->source, segment->origin});
   }
 
   const std::string& temporary(const LirNodeId node, const javascript::lir::TemporaryRole role,
@@ -894,6 +902,7 @@ class Renderer final {
   std::ostringstream output_;
   std::size_t indent_{0};
   const javascript::lir::TemporaryPlan* temporaries_{nullptr};
+  const SourceSegmentPlan* source_segments_{nullptr};
   std::unique_ptr<IdentifierMangler> mangler_;
   std::vector<std::string> loop_completion_flags_;
   std::vector<RenderMarker> markers_;

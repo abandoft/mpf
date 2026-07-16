@@ -1,6 +1,5 @@
 #include "cpp_renderer.hpp"
 
-#include <algorithm>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -23,6 +22,7 @@ class Renderer final {
  public:
   RenderedOutput render(const Program& program) {
     temporaries_ = &program.temporaries;
+    source_segments_ = &program.source_segments;
     expressions_.assign(program.node_count + 1U, nullptr);
     index_statements(program.statements);
     mangler_ = std::make_unique<IdentifierMangler>(program.identifiers);
@@ -119,6 +119,9 @@ class Renderer final {
   }
 
   void emit_comparison_chain(const Expression& expression) {
+    if (expression.plan.evaluation != cpp::lir::EvaluationForm::comparison_reference_lambda_iife) {
+      throw std::logic_error("verified cpp comparison evaluation plan is missing");
+    }
     std::vector<std::string> operands;
     operands.reserve(expression.children.size());
     output_ << "([&]() { ";
@@ -298,14 +301,6 @@ class Renderer final {
     }
   }
 
-  bool has_writable_section_actual(const Expression& expression) const {
-    return expression.plan.form == cpp::lir::ExpressionForm::call &&
-           std::any_of(expression.plan.call_arguments.begin(), expression.plan.call_arguments.end(),
-                       [](const cpp::lir::CallArgumentForm form) {
-                         return form == cpp::lir::CallArgumentForm::copy_section;
-                       });
-  }
-
   void emit_direct_call(const Expression& expression,
                         const std::vector<std::string>* replacements = nullptr) {
     switch (expression.plan.call) {
@@ -359,7 +354,7 @@ class Renderer final {
           !(*replacements)[index].empty()) {
         output_ << (*replacements)[index];
       } else if (index - 1U < expression.plan.call_arguments.size() &&
-                 expression.plan.call_arguments[index - 1U] ==
+                 expression.plan.call_arguments[index - 1U].form ==
                      cpp::lir::CallArgumentForm::forward_optional) {
         output_ << mangler_->name(expression.children[index].plan.token);
       } else {
@@ -371,9 +366,11 @@ class Renderer final {
 
   void emit_call_value(const Expression& expression,
                        const std::vector<std::string>* replacements = nullptr) {
-    if (expression.plan.first_result) output_ << "std::get<0>(";
+    if (expression.plan.call_value == cpp::lir::CallValueForm::first_tuple_result) {
+      output_ << "std::get<0>(";
+    }
     emit_direct_call(expression, replacements);
-    if (expression.plan.first_result) output_ << ')';
+    if (expression.plan.call_value == cpp::lir::CallValueForm::first_tuple_result) output_ << ')';
   }
 
   void emit_section_reference_call(const Expression& expression) {
@@ -382,7 +379,7 @@ class Renderer final {
     for (std::size_t index = 1; index < expression.children.size(); ++index) {
       const auto intent_index = index - 1;
       if (intent_index >= expression.plan.call_arguments.size() ||
-          expression.plan.call_arguments[intent_index] !=
+          expression.plan.call_arguments[intent_index].form !=
               cpp::lir::CallArgumentForm::copy_section) {
         continue;
       }
@@ -393,7 +390,7 @@ class Renderer final {
       output_ << "; ";
     }
     std::string result;
-    if (expression.plan.has_result) {
+    if (expression.plan.call_outcome == cpp::lir::CallOutcomeForm::value) {
       result = temporary(expression.id, cpp::lir::TemporaryRole::call_result);
       output_ << "auto " << result << " = ";
     }
@@ -401,6 +398,10 @@ class Renderer final {
     output_ << "; ";
     for (std::size_t index = 1; index < temporaries.size(); ++index) {
       if (temporaries[index].empty()) continue;
+      if (expression.plan.call_arguments[index - 1U].writeback !=
+          cpp::lir::WritebackForm::section) {
+        throw std::logic_error("verified cpp copy call has no section writeback plan");
+      }
       Expression replacement = expression.children[index];
       replacement.plan.form = cpp::lir::ExpressionForm::variable;
       replacement.plan.token = temporaries[index];
@@ -414,9 +415,9 @@ class Renderer final {
   }
 
   void emit_expression(const Expression& expression, const int parent = 0) {
-    mark(expression.location, expression.origin);
+    mark(expression.id);
     if (expression.plan.form == cpp::lir::ExpressionForm::call) {
-      if (has_writable_section_actual(expression)) {
+      if (expression.plan.evaluation == cpp::lir::EvaluationForm::copy_call_reference_lambda_iife) {
         emit_section_reference_call(expression);
       } else {
         emit_call_value(expression);
@@ -452,6 +453,9 @@ class Renderer final {
         break;
       case cpp::lir::ExpressionForm::binary_lazy_and:
       case cpp::lir::ExpressionForm::binary_lazy_or:
+        if (expression.plan.evaluation != cpp::lir::EvaluationForm::lazy_reference_lambda_thunks) {
+          throw std::logic_error("verified cpp lazy evaluation plan is missing");
+        }
         output_ << (expression.plan.form == cpp::lir::ExpressionForm::binary_lazy_and
                         ? "mpf_runtime::py_and"
                         : "mpf_runtime::py_or")
@@ -868,7 +872,7 @@ class Renderer final {
   }
 
   void emit_statement(const Statement& statement) {
-    mark({statement.line, 1}, statement.origin);
+    mark(statement.id);
     switch (statement.plan.form) {
       case cpp::lir::StatementForm::discard: break;
       case cpp::lir::StatementForm::declaration_initializer:
@@ -1108,11 +1112,13 @@ class Renderer final {
     }
   }
 
-  void mark(const SourceLocation source, const HirNodeId origin) {
-    if (source.line == 0) return;
+  void mark(const LirNodeId node) {
+    const auto* segment = source_segments_->find(node);
+    if (segment == nullptr) throw std::logic_error("verified cpp LIR source segment is missing");
+    if (segment->source.line == 0) return;
     const auto position = output_.tellp();
     if (position < 0) return;
-    markers_.push_back({static_cast<std::size_t>(position), source, origin});
+    markers_.push_back({static_cast<std::size_t>(position), segment->source, segment->origin});
   }
 
   const std::string& temporary(const LirNodeId node, const cpp::lir::TemporaryRole role,
@@ -1125,6 +1131,7 @@ class Renderer final {
   std::ostringstream output_;
   std::size_t indent_{0};
   const cpp::lir::TemporaryPlan* temporaries_{nullptr};
+  const SourceSegmentPlan* source_segments_{nullptr};
   std::vector<const Expression*> expressions_;
   std::unique_ptr<IdentifierMangler> mangler_;
   std::vector<std::string> loop_completion_flags_;

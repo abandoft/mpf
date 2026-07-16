@@ -758,9 +758,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v8") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v9") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v8") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v9") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -980,9 +980,13 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   const auto& javascript_plan = javascript.statements.front().expression.plan;
   REQUIRE(javascript_plan.form == mpf::detail::javascript::lir::ExpressionForm::call);
   REQUIRE(javascript_plan.call == mpf::detail::javascript::lir::CallForm::direct);
-  REQUIRE(javascript_plan.first_result);
-  REQUIRE(javascript_plan.call_arguments.front() ==
+  REQUIRE(javascript_plan.call_value == mpf::detail::javascript::lir::CallValueForm::first_result);
+  REQUIRE(javascript_plan.evaluation ==
+          mpf::detail::javascript::lir::EvaluationForm::writable_call_arrow_iife);
+  REQUIRE(javascript_plan.call_arguments.front().form ==
           mpf::detail::javascript::lir::CallArgumentForm::reference_box_uninitialized);
+  REQUIRE(javascript_plan.call_arguments.front().writeback ==
+          mpf::detail::javascript::lir::WritebackForm::direct);
   const auto& javascript_index_plan = javascript.statements[1].expression.plan;
   REQUIRE(javascript_index_plan.index == mpf::detail::javascript::lir::IndexForm::section);
   REQUIRE((javascript_index_plan.selector_slices == std::vector<bool>{true, false}));
@@ -1024,6 +1028,24 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   cpp_index_statement.expression.children = {std::move(cpp_container), std::move(cpp_slice),
                                              cpp_selector, std::move(cpp_selector)};
   cpp.statements.push_back(std::move(cpp_index_statement));
+  mpf::detail::cpp::lir::Statement cpp_call_statement;
+  cpp_call_statement.expression.kind = mpf::detail::ExpressionKind::call;
+  cpp_call_statement.expression.procedure_has_result = true;
+  cpp_call_statement.expression.argument_transfers = {mpf::detail::ArgumentTransfer::copy_in_out};
+  mpf::detail::cpp::lir::Expression cpp_callee;
+  cpp_callee.kind = mpf::detail::ExpressionKind::identifier;
+  cpp_callee.value = "update";
+  mpf::detail::cpp::lir::Expression cpp_section;
+  cpp_section.kind = mpf::detail::ExpressionKind::index;
+  mpf::detail::cpp::lir::Expression cpp_section_base;
+  cpp_section_base.kind = mpf::detail::ExpressionKind::identifier;
+  cpp_section_base.value = "items";
+  mpf::detail::cpp::lir::Expression cpp_section_slice;
+  cpp_section_slice.kind = mpf::detail::ExpressionKind::slice;
+  cpp_section_slice.children.resize(3);
+  cpp_section.children = {std::move(cpp_section_base), std::move(cpp_section_slice)};
+  cpp_call_statement.expression.children = {std::move(cpp_callee), std::move(cpp_section)};
+  cpp.statements.push_back(std::move(cpp_call_statement));
   mpf::detail::cpp::plan_lir_representation(cpp);
   const auto& cpp_plan = cpp.statements.front().expression.plan;
   REQUIRE(cpp_plan.form == mpf::detail::cpp::lir::ExpressionForm::list);
@@ -1032,6 +1054,14 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   const auto& cpp_index_plan = cpp.statements[1].expression.plan;
   REQUIRE(cpp_index_plan.index == mpf::detail::cpp::lir::IndexForm::section_nd);
   REQUIRE((cpp_index_plan.selector_slices == std::vector<bool>{true, false, false}));
+  const auto& cpp_call_plan = cpp.statements[2].expression.plan;
+  REQUIRE(cpp_call_plan.evaluation ==
+          mpf::detail::cpp::lir::EvaluationForm::copy_call_reference_lambda_iife);
+  REQUIRE(cpp_call_plan.call_outcome == mpf::detail::cpp::lir::CallOutcomeForm::value);
+  REQUIRE(cpp_call_plan.call_arguments.front().form ==
+          mpf::detail::cpp::lir::CallArgumentForm::copy_section);
+  REQUIRE(cpp_call_plan.call_arguments.front().writeback ==
+          mpf::detail::cpp::lir::WritebackForm::section);
   diagnostics.clear();
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(diagnostics.empty());
@@ -1126,6 +1156,72 @@ TEST_CASE("target LIR statement plans own control assignment and parameter acces
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(diagnostics.empty());
   cpp.statements.front().body.front().plan.condition = mpf::detail::cpp::lir::ConditionForm::direct;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+}
+
+TEST_CASE("target LIR owns dense source segments and closure evaluation plans") {
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.node_count = 4;
+  javascript.emission.operand_logical_result = true;
+  mpf::detail::javascript::lir::Statement javascript_statement;
+  javascript_statement.id = mpf::detail::LirNodeId{1};
+  javascript_statement.origin = mpf::detail::HirNodeId{10};
+  javascript_statement.line = 7;
+  javascript_statement.expression.id = mpf::detail::LirNodeId{2};
+  javascript_statement.expression.origin = mpf::detail::HirNodeId{11};
+  javascript_statement.expression.location = {7, 5};
+  javascript_statement.expression.kind = mpf::detail::ExpressionKind::binary;
+  javascript_statement.expression.value = "&&";
+  mpf::detail::javascript::lir::Expression javascript_left;
+  javascript_left.id = mpf::detail::LirNodeId{3};
+  javascript_left.origin = mpf::detail::HirNodeId{12};
+  javascript_left.location = {7, 5};
+  javascript_left.kind = mpf::detail::ExpressionKind::boolean_literal;
+  javascript_left.value = "true";
+  mpf::detail::javascript::lir::Expression javascript_right;
+  javascript_right.id = mpf::detail::LirNodeId{4};
+  javascript_right.origin = mpf::detail::HirNodeId{13};
+  javascript_right.location = {7, 13};
+  javascript_right.kind = mpf::detail::ExpressionKind::boolean_literal;
+  javascript_right.value = "false";
+  javascript_statement.expression.children = {std::move(javascript_left),
+                                              std::move(javascript_right)};
+  javascript.statements.push_back(std::move(javascript_statement));
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  REQUIRE(javascript.statements.front().expression.plan.evaluation ==
+          mpf::detail::javascript::lir::EvaluationForm::lazy_arrow_thunks);
+  REQUIRE(javascript.source_segments.valid);
+  REQUIRE(javascript.source_segments.nodes.size() == 5);
+  REQUIRE(javascript.source_segments.find(mpf::detail::LirNodeId{1})->source.line == 7);
+  REQUIRE(javascript.source_segments.find(mpf::detail::LirNodeId{4})->source.column == 13);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript.source_segments.nodes[4].source.column = 12;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.node_count = 2;
+  mpf::detail::cpp::lir::Statement cpp_statement;
+  cpp_statement.id = mpf::detail::LirNodeId{1};
+  cpp_statement.origin = mpf::detail::HirNodeId{20};
+  cpp_statement.line = 9;
+  cpp_statement.expression.id = mpf::detail::LirNodeId{2};
+  cpp_statement.expression.origin = mpf::detail::HirNodeId{21};
+  cpp_statement.expression.location = {9, 3};
+  cpp_statement.expression.kind = mpf::detail::ExpressionKind::number_literal;
+  cpp_statement.expression.value = "42";
+  cpp.statements.push_back(std::move(cpp_statement));
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  REQUIRE(cpp.source_segments.valid);
+  REQUIRE(cpp.source_segments.find(mpf::detail::LirNodeId{2})->origin ==
+          mpf::detail::HirNodeId{21});
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp.source_segments.valid = false;
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
 }

@@ -71,6 +71,9 @@ foreach(representation IN ITEMS
      NOT representation_contents MATCHES "expected_expression_plan" OR
      NOT representation_contents MATCHES "expected_statement_plan" OR
      NOT representation_contents MATCHES "CallArgumentForm" OR
+     NOT representation_contents MATCHES "EvaluationForm" OR
+     NOT representation_contents MATCHES "WritebackForm" OR
+     NOT representation_contents MATCHES "build_source_segment_plan" OR
      NOT representation_contents MATCHES "AssignmentLeafPlan" OR
      NOT representation_contents MATCHES "function_context")
     message(FATAL_ERROR "target LIR representation layer does not own expression/statement plans: ${representation}")
@@ -128,6 +131,11 @@ foreach(target_lir IN ITEMS src/backends/javascript_lir.hpp src/backends/cpp_lir
      NOT target_lir_contract MATCHES "StatementForm" OR
      NOT target_lir_contract MATCHES "ConditionForm" OR
      NOT target_lir_contract MATCHES "VariableAccess" OR
+     NOT target_lir_contract MATCHES "EvaluationForm" OR
+     NOT target_lir_contract MATCHES "CallValueForm" OR
+     NOT target_lir_contract MATCHES "CallArgumentPlan" OR
+     NOT target_lir_contract MATCHES "WritebackForm" OR
+     NOT target_lir_contract MATCHES "source_segments" OR
      NOT target_lir_contract MATCHES "AssignmentLeafPlan" OR
      NOT target_lir_contract MATCHES "CallForm" OR
      NOT target_lir_contract MATCHES "CallArgumentForm" OR
@@ -147,10 +155,12 @@ foreach(renderer IN ITEMS src/backends/javascript_renderer.cpp src/backends/cpp_
      NOT renderer_contract MATCHES "plan\\.index" OR
      NOT renderer_contract MATCHES "statement\\.plan\\.form" OR
      NOT renderer_contract MATCHES "statement\\.plan\\.condition" OR
-     NOT renderer_contract MATCHES "statement\\.plan\\.target_access")
+     NOT renderer_contract MATCHES "statement\\.plan\\.target_access" OR
+     NOT renderer_contract MATCHES "plan\\.evaluation" OR
+     NOT renderer_contract MATCHES "source_segments_->find")
     message(FATAL_ERROR "target renderer ignores the lowered expression/statement representation plan: ${renderer}")
   endif()
-  if(renderer_contract MATCHES "mangler_->temporary|parameter_intents|parameter_optional|TranspileOptions|options_|program\\.runtime|program\\.function_graph|program\\.emission|emission_|has_executable_statements|MPF_VERSION|collect_(assignments|declarations)|StatementKind|ExpressionKind::|IntrinsicId::|BindingKind::|ValueType|AssignmentPattern|argument_transfer_|active_(reference|optional)_parameters" OR
+  if(renderer_contract MATCHES "mangler_->temporary|parameter_intents|parameter_optional|TranspileOptions|options_|program\\.runtime|program\\.function_graph|program\\.emission|emission_|has_executable_statements|MPF_VERSION|collect_(assignments|declarations)|StatementKind|ExpressionKind::|IntrinsicId::|BindingKind::|ValueType|AssignmentPattern|argument_transfer_|active_(reference|optional)_parameters|mark\\(expression\\.location|mark\\(\\{statement\\.line" OR
      NOT renderer_contract MATCHES "temporaries_->find" OR
      NOT renderer_contract MATCHES "function_abi" OR
      NOT renderer_contract MATCHES "program_scope" OR
@@ -158,6 +168,16 @@ foreach(renderer IN ITEMS src/backends/javascript_renderer.cpp src/backends/cpp_
     message(FATAL_ERROR "target renderer still plans layout, temporaries, declarations, or source-level ABI: ${renderer}")
   endif()
 endforeach()
+
+if(NOT EXISTS "${SOURCE_DIR}/src/backends/target_lir_source_segments.hpp")
+  message(FATAL_ERROR "target LIR source-segment planning utility is missing")
+endif()
+file(READ "${SOURCE_DIR}/src/backends/target_lir_source_segments.hpp" source_segment_contract)
+if(NOT source_segment_contract MATCHES "build_source_segment_plan" OR
+   NOT source_segment_contract MATCHES "LirNodeId" OR
+   NOT source_segment_contract MATCHES "SourceSegmentPlan")
+  message(FATAL_ERROR "target source-map segments are not a dense LIR plan")
+endif()
 
 file(READ "${SOURCE_DIR}/src/backends/javascript_renderer.cpp" javascript_renderer_contract)
 if(NOT javascript_renderer_contract MATCHES "program\\.module" OR

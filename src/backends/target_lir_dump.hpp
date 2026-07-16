@@ -10,7 +10,8 @@ namespace mpf::detail {
 
 template <typename Plan>
 auto dump_target_representation_details(std::ostream& output, const Plan& plan, int)
-    -> decltype(plan.concrete_type, plan.widen_children, plan.flatten_base, void()) {
+    -> decltype(plan.concrete_type, plan.widen_children, plan.flatten_base, plan.call_outcome,
+                void()) {
   if (!plan.concrete_type.empty()) output << " concrete-type " << std::quoted(plan.concrete_type);
   if (!plan.widen_children.empty()) {
     output << " widen [";
@@ -21,7 +22,7 @@ auto dump_target_representation_details(std::ostream& output, const Plan& plan, 
     output << ']';
   }
   if (plan.flatten_base) output << " flatten-base 1";
-  if (plan.has_result) output << " has-result 1";
+  output << " call-outcome " << static_cast<int>(plan.call_outcome);
   if (!plan.input_shape.empty()) {
     output << " input-shape [";
     for (std::size_t index = 0; index < plan.input_shape.size(); ++index) {
@@ -56,18 +57,21 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
   output << "] value " << std::quoted(expression.value);
   output << " plan " << static_cast<int>(expression.plan.form) << " precedence "
          << expression.plan.precedence << " token " << std::quoted(expression.plan.token)
-         << " call " << static_cast<int>(expression.plan.call) << " index "
-         << static_cast<int>(expression.plan.index) << " first-result "
-         << expression.plan.first_result << " string-value " << expression.plan.string_value
-         << " variable-access " << static_cast<int>(expression.plan.variable_access)
-         << " index-base " << expression.plan.index_base << " negative-index "
-         << expression.plan.allow_negative_index << " column-major " << expression.plan.column_major
-         << " inclusive-slice " << expression.plan.inclusive_slice_stop;
+         << " call " << static_cast<int>(expression.plan.call) << " evaluation "
+         << static_cast<int>(expression.plan.evaluation) << " call-value "
+         << static_cast<int>(expression.plan.call_value) << " index "
+         << static_cast<int>(expression.plan.index) << " string-value "
+         << expression.plan.string_value << " variable-access "
+         << static_cast<int>(expression.plan.variable_access) << " index-base "
+         << expression.plan.index_base << " negative-index " << expression.plan.allow_negative_index
+         << " column-major " << expression.plan.column_major << " inclusive-slice "
+         << expression.plan.inclusive_slice_stop;
   if (!expression.plan.call_arguments.empty()) {
     output << " call-arguments [";
     for (std::size_t index = 0; index < expression.plan.call_arguments.size(); ++index) {
       if (index != 0) output << ',';
-      output << static_cast<int>(expression.plan.call_arguments[index]);
+      output << static_cast<int>(expression.plan.call_arguments[index].form) << ':'
+             << static_cast<int>(expression.plan.call_arguments[index].writeback);
     }
     output << ']';
   }
@@ -140,7 +144,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v8 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v9 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";
@@ -154,6 +158,13 @@ void dump_target_lir_body(std::ostream& output, const Program& program,
       output << "  %l" << node << " role " << static_cast<int>(slot.role) << " ordinal "
              << slot.ordinal << " name " << std::quoted(slot.name) << '\n';
     }
+  }
+  output << "source-segments\n";
+  for (std::size_t node = 1; node < program.source_segments.nodes.size(); ++node) {
+    const auto& segment = program.source_segments.nodes[node];
+    if (!segment.valid()) continue;
+    output << "  %l" << segment.node.value() << " origin %h" << segment.origin.value() << " at "
+           << segment.source.line << ':' << segment.source.column << '\n';
   }
   dump_target_statements(output, program.statements, 0);
 }

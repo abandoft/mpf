@@ -4,6 +4,8 @@
 #include <string>
 #include <utility>
 
+#include "target_lir_source_segments.hpp"
+
 namespace mpf::detail::javascript {
 namespace {
 
@@ -117,8 +119,10 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       result.token = expression.value;
       if (emission.operand_logical_result && expression.value == "&&") {
         result.form = lir::ExpressionForm::binary_lazy_and;
+        result.evaluation = lir::EvaluationForm::lazy_arrow_thunks;
       } else if (emission.operand_logical_result && expression.value == "||") {
         result.form = lir::ExpressionForm::binary_lazy_or;
+        result.evaluation = lir::EvaluationForm::lazy_arrow_thunks;
       } else if (emission.structural_equality && expression.value == "===") {
         result.form = lir::ExpressionForm::binary_structural_equal;
       } else if (emission.structural_equality && expression.value == "!==") {
@@ -131,6 +135,7 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       break;
     case ExpressionKind::comparison_chain:
       result.form = lir::ExpressionForm::comparison_chain;
+      result.evaluation = lir::EvaluationForm::comparison_arrow_iife;
       result.precedence = 3;
       result.comparisons.reserve(expression.operators.size());
       for (const auto& token : expression.operators) {
@@ -145,22 +150,32 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       result.form = lir::ExpressionForm::call;
       result.precedence = 9;
       result.call = call_form(expression);
-      result.first_result = expression.multi_output_call && expression.requested_outputs == 1;
+      result.call_value = expression.multi_output_call && expression.requested_outputs == 1
+                              ? lir::CallValueForm::first_result
+                              : lir::CallValueForm::direct;
       result.call_arguments.reserve(expression.argument_transfers.size());
       for (std::size_t index = 0; index < expression.argument_transfers.size(); ++index) {
         const auto transfer = expression.argument_transfers[index];
-        auto form = lir::CallArgumentForm::value;
+        lir::CallArgumentPlan argument;
         if (argument_transfer_forwards_optional(transfer)) {
-          form = lir::CallArgumentForm::forward_optional;
+          argument.form = lir::CallArgumentForm::forward_optional;
         } else if (argument_transfer_writes(transfer)) {
           const auto scalar_out = (transfer == ArgumentTransfer::mutable_borrow_out ||
                                    transfer == ArgumentTransfer::copy_out) &&
                                   index + 1U < expression.children.size() &&
                                   expression.children[index + 1U].inferred_type != ValueType::list;
-          form = scalar_out ? lir::CallArgumentForm::reference_box_uninitialized
-                            : lir::CallArgumentForm::reference_box;
+          argument.form = scalar_out ? lir::CallArgumentForm::reference_box_uninitialized
+                                     : lir::CallArgumentForm::reference_box;
+          if (index + 1U < expression.children.size()) {
+            const auto& actual = expression.children[index + 1U].plan;
+            argument.writeback =
+                actual.form != lir::ExpressionForm::index ? lir::WritebackForm::direct
+                : actual.index == lir::IndexForm::section ? lir::WritebackForm::section
+                                                          : lir::WritebackForm::element;
+          }
+          result.evaluation = lir::EvaluationForm::writable_call_arrow_iife;
         }
-        result.call_arguments.push_back(form);
+        result.call_arguments.push_back(argument);
       }
       break;
     case ExpressionKind::index:
@@ -200,20 +215,30 @@ bool same_comparison(const lir::ComparisonPlan& left, const lir::ComparisonPlan&
   return left.form == right.form && left.token == right.token;
 }
 
+bool same_call_argument(const lir::CallArgumentPlan& left,
+                        const lir::CallArgumentPlan& right) noexcept {
+  return left.form == right.form && left.writeback == right.writeback;
+}
+
 bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right) noexcept {
   if (left.valid != right.valid || left.form != right.form || left.precedence != right.precedence ||
       left.token != right.token || left.comparisons.size() != right.comparisons.size() ||
-      left.call != right.call || left.call_arguments != right.call_arguments ||
-      left.index != right.index || left.selector_slices != right.selector_slices ||
+      left.call != right.call || left.evaluation != right.evaluation ||
+      left.call_value != right.call_value ||
+      left.call_arguments.size() != right.call_arguments.size() || left.index != right.index ||
+      left.selector_slices != right.selector_slices ||
       left.variable_access != right.variable_access || left.index_base != right.index_base ||
       left.allow_negative_index != right.allow_negative_index ||
       left.column_major != right.column_major ||
       left.inclusive_slice_stop != right.inclusive_slice_stop ||
-      left.first_result != right.first_result || left.string_value != right.string_value) {
+      left.string_value != right.string_value) {
     return false;
   }
   for (std::size_t index = 0; index < left.comparisons.size(); ++index) {
     if (!same_comparison(left.comparisons[index], right.comparisons[index])) return false;
+  }
+  for (std::size_t index = 0; index < left.call_arguments.size(); ++index) {
+    if (!same_call_argument(left.call_arguments[index], right.call_arguments[index])) return false;
   }
   return true;
 }
@@ -221,8 +246,8 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
 void plan_expression(lir::Expression& expression, const lir::EmissionPlan& emission,
                      const AccessContext& context) {
   if (!expression.valid()) return;
-  expression.plan = expected_expression_plan(expression, emission, context);
   for (auto& child : expression.children) plan_expression(child, emission, context);
+  expression.plan = expected_expression_plan(expression, emission, context);
 }
 
 void verify_expression(const lir::Expression& expression, const lir::EmissionPlan& emission,
@@ -317,7 +342,10 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
       break;
     case StatementKind::break_statement: result.form = lir::StatementForm::break_loop; break;
     case StatementKind::continue_statement: result.form = lir::StatementForm::continue_loop; break;
-    case StatementKind::expression: result.form = lir::StatementForm::expression; break;
+    case StatementKind::expression:
+      result.form = statement.expression.valid() ? lir::StatementForm::expression
+                                                 : lir::StatementForm::discard;
+      break;
     case StatementKind::if_statement:
       result.form = lir::StatementForm::conditional;
       result.condition = emission.dynamic_truthiness ? lir::ConditionForm::runtime_truthy
@@ -483,11 +511,16 @@ void verify_statements(const std::vector<lir::Statement>& statements,
 
 void plan_lir_representation(lir::SemanticProgram& program) {
   plan_statements(program.statements, program.emission, {});
+  program.source_segments = build_source_segment_plan(program.statements, program.node_count);
 }
 
 void verify_lir_representation(const lir::SemanticProgram& program,
                                std::vector<Diagnostic>& diagnostics) {
   verify_statements(program.statements, program.emission, {}, diagnostics);
+  const auto expected = build_source_segment_plan(program.statements, program.node_count);
+  if (!same_source_segment_plan(program.source_segments, expected)) {
+    add_error(diagnostics, {1, 1}, "JavaScript LIR source segment plan is inconsistent");
+  }
 }
 
 }  // namespace mpf::detail::javascript
