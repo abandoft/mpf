@@ -25,3 +25,6 @@ performance 报告作为发布证据，保留时间更长。
 授权 GHAS 的私有仓库必须执行 CodeQL 和依赖审查；未授权的私有仓库会留下 notice 并跳过仅由该
 产品提供的上传能力，不把订阅缺失伪装成代码失败。clang-tidy/Clang analyzer、Sanitizer 和编译器
 零告警门禁不依赖 GHAS，始终执行。
+
+Dependabot 将 GitHub Actions 依赖合并为每周一个更新组，避免每个 Action 各建一个 PR 后重复触发
+整套跨平台矩阵。
