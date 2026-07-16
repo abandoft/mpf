@@ -212,8 +212,11 @@ class Parser final {
   }
 
   bool constant(const std::string& name) const {
-    for (auto scope = const_scopes_.rbegin(); scope != const_scopes_.rend(); ++scope) {
-      if (scope->count(name) != 0U) return true;
+    for (std::size_t offset = 0; offset < scopes_.size(); ++offset) {
+      const auto index = scopes_.size() - offset - 1U;
+      if (scopes_[index].count(name) != 0U) {
+        return const_scopes_[index].count(name) != 0U;
+      }
     }
     return false;
   }
@@ -480,6 +483,116 @@ class Parser final {
     return store(std::move(statement));
   }
 
+  AstNodeId parse_for() {
+    const auto keyword = current();
+    ++index_;
+    if (!expect(Kind::left_parenthesis, "TypeScript for statement requires '('")) {
+      recover_statement();
+      return {};
+    }
+    const auto opening = index_ - 1U;
+    const auto closing = matching_token(opening);
+    if (closing >= tokens_.size() - 1U || token(closing).kind != Kind::right_parenthesis) {
+      diagnose(token(opening), "unterminated TypeScript for header");
+      recover_statement();
+      return {};
+    }
+    const auto separators = top_level_tokens(Kind::semicolon, opening + 1U, closing);
+    if (separators.size() != 2U) {
+      diagnose(token(opening),
+               "TypeScript for header requires initializer; condition; update clauses");
+      index_ = closing + 1U;
+      recover_statement();
+      return {};
+    }
+
+    Statement statement;
+    statement.kind = StatementKind::for_loop;
+    statement.line = keyword.location.line;
+    statement.retain_last_loop_value = false;
+    const auto initializer_begin = opening + 1U;
+    const auto initializer_end = separators[0];
+    std::size_t cursor = initializer_begin;
+    if (cursor >= initializer_end ||
+        (token(cursor).kind != Kind::keyword_let && token(cursor).kind != Kind::keyword_const)) {
+      diagnose(token(cursor), "TypeScript for initializer requires a lexical let declaration");
+    }
+    if (cursor < initializer_end && token(cursor).kind == Kind::keyword_const) {
+      diagnose(token(cursor), "TypeScript for induction binding must use let, not const");
+    }
+    if (cursor < initializer_end) ++cursor;
+    if (cursor >= initializer_end || token(cursor).kind != Kind::identifier) {
+      diagnose(token(cursor), "TypeScript for initializer requires an induction identifier");
+    }
+    const auto name = token(cursor);
+    statement.name = name.text;
+    if (cursor < initializer_end) ++cursor;
+    const auto equals = top_level_tokens(Kind::equal, cursor, initializer_end);
+    if (equals.size() != 1U || equals.front() + 1U >= initializer_end) {
+      diagnose(token(cursor), "TypeScript for initializer requires exactly one initial value");
+    }
+    const auto equal = equals.empty() ? initializer_end : equals.front();
+    if (cursor < equal) {
+      if (token(cursor).kind != Kind::colon) {
+        diagnose(token(cursor), "unexpected token in TypeScript for initializer");
+      } else {
+        const auto type = parse_type(cursor + 1U, equal);
+        if (!type.valid || (type.type != ValueType::real && type.type != ValueType::unknown)) {
+          diagnose(token(cursor), "TypeScript for induction binding requires the number type");
+        }
+        statement.declared_type = type.type;
+      }
+    }
+    if (equal < initializer_end) {
+      statement.expression = parse_expression(equal + 1U, initializer_end);
+      statement.has_expression = statement.expression.valid();
+    }
+
+    scopes_.emplace_back();
+    const_scopes_.emplace_back();
+    declare_name(name, false);
+    const auto condition_begin = separators[0] + 1U;
+    const auto condition_end = separators[1];
+    statement.secondary_expression = parse_expression(condition_begin, condition_end);
+    statement.has_secondary_expression = statement.secondary_expression.valid();
+    if (!statement.has_secondary_expression) {
+      diagnose(token(condition_begin), "TypeScript for condition requires a boolean expression");
+    }
+
+    const auto update_begin = separators[1] + 1U;
+    const auto update_end = closing;
+    std::string update;
+    if (update_begin >= update_end || token(update_begin).kind != Kind::identifier ||
+        token(update_begin).text != statement.name) {
+      diagnose(token(update_begin),
+               "TypeScript for update must assign the induction binding: " + statement.name);
+    } else if (update_begin + 2U == update_end && token(update_begin + 1U).kind == Kind::other &&
+               (token(update_begin + 1U).text == "++" || token(update_begin + 1U).text == "--")) {
+      update = statement.name + (token(update_begin + 1U).text == "++" ? " + 1" : " - 1");
+    } else if (update_begin + 2U < update_end && token(update_begin + 1U).kind == Kind::other &&
+               (token(update_begin + 1U).text == "+=" || token(update_begin + 1U).text == "-=")) {
+      update = statement.name + (token(update_begin + 1U).text == "+=" ? " + (" : " - (") +
+               expression_text(update_begin + 2U, update_end) + ')';
+    } else if (update_begin + 2U < update_end && token(update_begin + 1U).kind == Kind::equal) {
+      update = expression_text(update_begin + 2U, update_end);
+    } else {
+      diagnose(token(update_begin),
+               "unsupported TypeScript for update; use ++, --, +=, -=, or direct assignment");
+    }
+    if (!update.empty()) {
+      statement.tertiary_expression = builder_.parse_expression(
+          update, SourceLanguage::typescript, token(update_begin).location.line, diagnostics_);
+      statement.has_tertiary_expression = statement.tertiary_expression.valid();
+    }
+
+    index_ = closing + 1U;
+    while (current().kind == Kind::newline) ++index_;
+    statement.body = parse_braced_body("for");
+    const_scopes_.pop_back();
+    scopes_.pop_back();
+    return store(std::move(statement));
+  }
+
   bool console_log(const std::size_t first, const std::size_t last, std::size_t& opening,
                    std::size_t& closing_index) const noexcept {
     if (last < first + 5U || token(first).kind != Kind::identifier ||
@@ -615,7 +728,7 @@ class Parser final {
       exported = true;
       while (current().kind == Kind::newline) ++index_;
     }
-    if (exported && function_depth_ != 0U) {
+    if (exported && (function_depth_ != 0U || control_depth_ != 0U)) {
       diagnose(current(), "TypeScript export declarations are only valid at module scope");
     }
     if (exported && current().kind != Kind::keyword_function) {
@@ -623,16 +736,16 @@ class Parser final {
                "only TypeScript function exports are supported by the current module lowering");
     }
     switch (current().kind) {
-      case Kind::keyword_function: return parse_function(exported);
-      case Kind::keyword_let:
-      case Kind::keyword_const:
-        if (control_depth_ != 0U) {
-          diagnose(current(),
-                   "block-local TypeScript declarations await lexical block scopes in HIR");
+      case Kind::keyword_function:
+        if (function_depth_ != 0U || control_depth_ != 0U) {
+          diagnose(current(), "nested TypeScript function declarations are not yet supported");
         }
-        return parse_declaration();
+        return parse_function(exported);
+      case Kind::keyword_let:
+      case Kind::keyword_const: return parse_declaration();
       case Kind::keyword_if: return parse_if();
       case Kind::keyword_while: return parse_while();
+      case Kind::keyword_for: return parse_for();
       case Kind::unsupported_keyword:
         diagnose(current(), "unsupported TypeScript statement keyword: " + current().text);
         recover_statement();

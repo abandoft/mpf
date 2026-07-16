@@ -88,6 +88,7 @@ class Analyzer final {
                                          std::size_t ordinal = 0);
   [[nodiscard]] bool belongs_to_current_scope(SymbolId id) const;
   bool analyze_statements(std::vector<Statement>& statements);
+  bool analyze_statements_in_scope(std::vector<Statement>& statements, ScopeId scope);
   [[nodiscard]] ValueMetadata materialize_sequence(ValueMetadata metadata) const;
   void bind_assignment_leaf(Statement& statement, AssignmentPattern& leaf,
                             const ValueMetadata& metadata, std::size_t target_ordinal);
@@ -97,8 +98,7 @@ class Analyzer final {
                                                   std::vector<AssignmentAccess> path,
                                                   std::size_t& target_ordinal);
   bool analyze_statement(Statement& statement);
-  [[nodiscard]] bool analyze_branches(std::vector<Statement>& body,
-                                      std::vector<Statement>& alternative);
+  [[nodiscard]] bool analyze_branches(Statement& statement);
   void merge_select_flows(const ScopeState& before, const std::vector<ScopeState>& flows);
   [[nodiscard]] bool analyze_select_case(Statement& statement);
   void diagnose_fortran_parameter_write(SymbolId symbol, std::size_t line);

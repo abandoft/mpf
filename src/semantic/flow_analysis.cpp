@@ -81,6 +81,7 @@ class FlowAnalyzer final {
         break;
       case StatementKind::while_loop:
       case StatementKind::range_loop:
+      case StatementKind::for_loop:
         ++loop_depth_;
         facts.body_terminates = analyze_statements(statement.body, reachable);
         --loop_depth_;

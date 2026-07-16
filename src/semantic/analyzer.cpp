@@ -345,6 +345,15 @@ bool Analyzer::analyze_statements(std::vector<Statement>& statements) {
   return terminated;
 }
 
+bool Analyzer::analyze_statements_in_scope(std::vector<Statement>& statements,
+                                           const ScopeId scope) {
+  if (!scope.valid()) return analyze_statements(statements);
+  push_scope(scope);
+  const auto terminated = analyze_statements(statements);
+  scopes_.pop_back();
+  return terminated;
+}
+
 ValueMetadata Analyzer::materialize_sequence(ValueMetadata metadata) const {
   if (!metadata.sequence || !metadata.elements.empty() || metadata.type != ValueType::list ||
       metadata.shape.empty() || metadata.shape.front() == dynamic_extent) {
@@ -763,7 +772,7 @@ bool Analyzer::analyze_statement(Statement& statement) {
         diagnose(statement.line, "MPF2002",
                  "TypeScript if condition currently requires a boolean value");
       }
-      return analyze_branches(statement.body, statement.alternative);
+      return analyze_branches(statement);
     case StatementKind::select_case: return analyze_select_case(statement);
     case StatementKind::case_clause:
       diagnose(statement.line, "MPF2043", "CASE clause appears outside SELECT CASE");
@@ -777,14 +786,19 @@ bool Analyzer::analyze_statement(Statement& statement) {
       }
       const auto before = current();
       ++loop_depth_;
-      analyze_statements(statement.body);
+      analyze_statements_in_scope(statement.body, names_.body_scope(statement.id));
       --loop_depth_;
       current() = before;
-      if (!statement.alternative.empty()) analyze_statements(statement.alternative);
+      if (!statement.alternative.empty()) {
+        analyze_statements_in_scope(statement.alternative, names_.alternative_scope(statement.id));
+      }
       current() = before;
       return false;
     }
     case StatementKind::range_loop: {
+      const auto loop_scope = names_.statement_scope(statement.id);
+      const auto outer_index = scopes_.size() - 1U;
+      const auto outer_before = scopes_[outer_index];
       const auto symbol_id = definition(statement, NameRole::loop_variable)->symbol;
       diagnose_fortran_parameter_write(symbol_id, statement.line);
       const auto start = analyze_expression(statement.expression);
@@ -792,6 +806,7 @@ bool Analyzer::analyze_statement(Statement& statement) {
       auto step = ValueType::integer;
       if (statement.has_tertiary_expression)
         step = analyze_expression(statement.tertiary_expression);
+      if (loop_scope.valid()) push_scope(loop_scope);
       auto& variable = definition_state(statement, NameRole::loop_variable);
       variable.type = join_types(join_types(start, stop), step);
       variable.binding = BindingKind::variable;
@@ -823,12 +838,53 @@ bool Analyzer::analyze_statement(Statement& statement) {
       const auto before = current();
       variable.assigned = true;
       ++loop_depth_;
-      analyze_statements(statement.body);
+      analyze_statements_in_scope(statement.body, names_.body_scope(statement.id));
       --loop_depth_;
       const auto after_body = current();
       current() = before;
-      if (!statement.alternative.empty()) analyze_statements(statement.alternative);
-      current() = definitely_nonempty ? after_body : before;
+      if (loop_scope.valid()) {
+        const auto outer_after_body = scopes_[outer_index];
+        scopes_.pop_back();
+        current() = outer_before;
+        if (!statement.alternative.empty()) {
+          analyze_statements_in_scope(statement.alternative,
+                                      names_.alternative_scope(statement.id));
+        }
+        current() = definitely_nonempty ? outer_after_body : outer_before;
+      } else {
+        if (!statement.alternative.empty()) analyze_statements(statement.alternative);
+        current() = definitely_nonempty ? after_body : before;
+      }
+      return false;
+    }
+    case StatementKind::for_loop: {
+      const auto outer_before = current();
+      const auto loop_scope = names_.statement_scope(statement.id);
+      push_scope(loop_scope);
+      const auto initializer_type = analyze_expression(statement.expression);
+      auto& variable = definition_state(statement, NameRole::loop_variable);
+      variable.type = join_types(semantic(semantics_, statement).declared_type, initializer_type);
+      variable.binding = BindingKind::variable;
+      variable.assigned = true;
+      const auto condition_type = analyze_expression(statement.secondary_expression);
+      if (condition_type != ValueType::boolean && condition_type != ValueType::unknown) {
+        diagnose(statement.line, "MPF2002",
+                 "TypeScript for condition currently requires a boolean value");
+      }
+      const auto update_type = analyze_expression(statement.tertiary_expression);
+      if (variable.type != ValueType::unknown && update_type != ValueType::unknown &&
+          join_types(variable.type, update_type) == ValueType::unknown) {
+        diagnose(statement.line, "MPF2020",
+                 "TypeScript for update changes the induction binding type");
+      }
+      semantic(semantics_, statement).declared_type = variable.type;
+      semantic(semantics_, statement).element_type = variable.element_type;
+      semantic(semantics_, statement).shape = variable.shape;
+      ++loop_depth_;
+      analyze_statements_in_scope(statement.body, names_.body_scope(statement.id));
+      --loop_depth_;
+      scopes_.pop_back();
+      current() = outer_before;
       return false;
     }
     case StatementKind::function: analyze_function(statement); return false;
@@ -836,12 +892,15 @@ bool Analyzer::analyze_statement(Statement& statement) {
   return false;
 }
 
-bool Analyzer::analyze_branches(std::vector<Statement>& body, std::vector<Statement>& alternative) {
+bool Analyzer::analyze_branches(Statement& statement) {
   const auto before = current();
-  const auto body_terminates = analyze_statements(body);
+  const auto body_terminates =
+      analyze_statements_in_scope(statement.body, names_.body_scope(statement.id));
   const auto after_body = current();
   current() = before;
-  const auto alternative_terminates = !alternative.empty() && analyze_statements(alternative);
+  const auto alternative_terminates =
+      !statement.alternative.empty() &&
+      analyze_statements_in_scope(statement.alternative, names_.alternative_scope(statement.id));
   const auto after_alternative = current();
   current() = before;
   for (std::size_t index = 0; index < current().symbols.size(); ++index) {
@@ -872,7 +931,7 @@ bool Analyzer::analyze_branches(std::vector<Statement>& body, std::vector<Statem
       symbol.sequence_elements.clear();
     }
   }
-  return !alternative.empty() && body_terminates && alternative_terminates;
+  return !statement.alternative.empty() && body_terminates && alternative_terminates;
 }
 
 void Analyzer::merge_select_flows(const ScopeState& before, const std::vector<ScopeState>& flows) {
@@ -1186,7 +1245,7 @@ void Analyzer::analyze_function(Statement& function) {
       analyze_expression(default_value);
     }
   }
-  push_scope(names_.owned_scope(function.id));
+  push_scope(names_.function_scope(function.id));
   semantic(semantics_, function).parameter_intents.clear();
   if (program_.language == SourceLanguage::fortran) {
     semantic(semantics_, function)
@@ -1404,7 +1463,7 @@ ValueType Analyzer::collect_return_type(const std::vector<Statement>& statements
 void Analyzer::annotate_types(std::vector<Statement>& statements) {
   for (auto& statement : statements) {
     if (statement.kind == StatementKind::assignment ||
-        statement.kind == StatementKind::range_loop) {
+        statement.kind == StatementKind::range_loop || statement.kind == StatementKind::for_loop) {
       const auto role = statement.kind == StatementKind::assignment ? NameRole::assignment
                                                                     : NameRole::loop_variable;
       const auto* use = definition(statement, role);

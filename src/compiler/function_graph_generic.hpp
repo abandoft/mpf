@@ -23,6 +23,7 @@ FunctionDependencyGraph build_function_dependency_graph_generic(
         case StatementKind::declaration:
         case StatementKind::assignment:
         case StatementKind::range_loop:
+        case StatementKind::for_loop:
         case StatementKind::function: names.insert(statement.name); break;
         case StatementKind::multi_assignment:
           names.insert(statement.target_names.begin(), statement.target_names.end());

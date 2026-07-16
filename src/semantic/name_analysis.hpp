@@ -21,6 +21,8 @@ enum class NameRole : std::uint8_t {
 
 enum class NameSymbolKind : std::uint8_t { variable, function, parameter, result, loop_variable };
 
+enum class NameScopeKind : std::uint8_t { global, function, statement, body, alternative };
+
 struct NameUse {
   HirNodeId origin{};
   ScopeId scope{};
@@ -49,7 +51,15 @@ struct NameScope {
   ScopeId id{};
   ScopeId parent{};
   HirNodeId owner{};
+  NameScopeKind kind{NameScopeKind::global};
   std::vector<SymbolId> symbols;
+};
+
+struct NameScopeEdges {
+  ScopeId function{};
+  ScopeId statement{};
+  ScopeId body{};
+  ScopeId alternative{};
 };
 
 // Immutable name/scope inventory. HIR nodes index compact name-use ranges in O(1), while symbols
@@ -62,14 +72,17 @@ struct NameTable {
   std::vector<NameUse> uses;
   std::vector<NameSymbol> symbols;
   std::vector<NameScope> scopes;
-  std::vector<ScopeId> owned_scopes;
+  std::vector<NameScopeEdges> scope_edges;
 
   [[nodiscard]] const NameUse* use(HirNodeId origin, NameRole role,
                                    std::size_t ordinal = 0) const noexcept;
   [[nodiscard]] const NameUse* reference(HirNodeId origin) const noexcept;
   [[nodiscard]] const NameSymbol* symbol(SymbolId id) const noexcept;
   [[nodiscard]] const NameScope* scope(ScopeId id) const noexcept;
-  [[nodiscard]] ScopeId owned_scope(HirNodeId owner) const noexcept;
+  [[nodiscard]] ScopeId function_scope(HirNodeId owner) const noexcept;
+  [[nodiscard]] ScopeId statement_scope(HirNodeId owner) const noexcept;
+  [[nodiscard]] ScopeId body_scope(HirNodeId owner) const noexcept;
+  [[nodiscard]] ScopeId alternative_scope(HirNodeId owner) const noexcept;
 };
 
 struct NameAnalysisResult {

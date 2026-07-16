@@ -73,13 +73,28 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
   if (expression.kind == ExpressionKind::index || expression.kind == ExpressionKind::slice) {
     result.runtime.require(lir::RuntimeFeature::arrays);
   }
-  if (expression.kind == ExpressionKind::conditional ||
-      expression.kind == ExpressionKind::comparison_chain ||
+  const auto dynamic_truthiness =
+      result.source_semantics.truthiness == mpf::detail::semantic::Truthiness::dynamic;
+  const auto operand_logical =
+      result.source_semantics.logical_result == mpf::detail::semantic::LogicalResult::operand;
+  const auto structural_comparison =
+      result.source_semantics.equality == mpf::detail::semantic::Equality::structural;
+  const auto comparison_runtime = [&](const ComparisonOperator operation) {
+    return structural_comparison || comparison_is_identity(operation) ||
+           comparison_is_membership(operation);
+  };
+  const auto chain_runtime =
+      expression.kind == ExpressionKind::comparison_chain &&
+      (structural_comparison || std::any_of(attributes.comparisons.begin(),
+                                            attributes.comparisons.end(), comparison_runtime));
+  if ((expression.kind == ExpressionKind::conditional && dynamic_truthiness) || chain_runtime ||
       expression.kind == ExpressionKind::tuple ||
-      (expression.kind == ExpressionKind::unary && attributes.spelling == "!") ||
+      (expression.kind == ExpressionKind::unary && attributes.spelling == "!" &&
+       dynamic_truthiness) ||
       (expression.kind == ExpressionKind::binary &&
-       (attributes.spelling == "&&" || attributes.spelling == "||" ||
-        attributes.comparison != ComparisonOperator::none))) {
+       (((attributes.spelling == "&&" || attributes.spelling == "||") && operand_logical) ||
+        (attributes.comparison != ComparisonOperator::none &&
+         comparison_runtime(attributes.comparison))))) {
     result.runtime.require(lir::RuntimeFeature::dynamic_values);
   }
   if (expression.kind == ExpressionKind::call && !expression.children.empty()) {
@@ -237,7 +252,7 @@ void verify_statements(const std::vector<lir::Statement>& statements, const std:
 
 std::vector<Diagnostic> verify_lir(const lir::SemanticProgram& program) {
   std::vector<Diagnostic> diagnostics;
-  if (!identifier_plan_complete(program.identifiers, collect_identifier_names(program))) {
+  if (!identifier_plan_complete(program.identifiers, collect_identifier_inventory(program))) {
     add_error(diagnostics, {1, 1}, "JavaScript LIR identifier allocation plan is incomplete");
   }
   std::vector<bool> seen(program.node_count + 1, false);
@@ -347,6 +362,8 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
                                              mpf::detail::semantic::LogicalResult::operand;
   lowered->emission.explicit_exports_only = semantic_program.source_semantics.export_policy ==
                                             mpf::detail::semantic::ExportPolicy::explicit_only;
+  lowered->emission.lexical_block_scopes = semantic_program.source_semantics.scope_model ==
+                                           mpf::detail::semantic::ScopeModel::lexical_blocks;
   lowered->emission.structural_equality =
       semantic_program.source_semantics.equality == mpf::detail::semantic::Equality::structural;
   lowered->emission.resizable_sections = semantic_program.source_semantics.resizable_sections;
@@ -356,7 +373,7 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
                                  ? lir::EmissionPlan::ModuleFormat::esm
                                  : lir::EmissionPlan::ModuleFormat::strict_script;
   lowered->identifiers =
-      allocate_identifiers(TargetLanguage::javascript, collect_identifier_names(*lowered));
+      allocate_identifiers(TargetLanguage::javascript, collect_identifier_inventory(*lowered));
   lowered->dependencies = semantic_program.dependencies;
   plan_lir_resources(*lowered, options);
   plan_lir_representation(*lowered);
@@ -385,6 +402,15 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
 std::string lir::dump(const SemanticProgram& program) {
   std::ostringstream output;
   dump_target_lir_body(output, program, "javascript");
+  const auto dump_scope = [&](const ScopePlan& scope) {
+    output << '[';
+    for (std::size_t index = 0; index < scope.declarations.size(); ++index) {
+      if (index != 0) output << ',';
+      output << "@s" << scope.declarations[index].symbol.value() << ':'
+             << std::quoted(scope.declarations[index].name);
+    }
+    output << ']';
+  };
   output << "function-abis\n";
   const auto dump_abis = [&](const auto& self, const std::vector<Statement>& statements) -> void {
     for (const auto& statement : statements) {
@@ -395,24 +421,28 @@ std::string lir::dump(const SemanticProgram& program) {
           if (index != 0) output << ',';
           output << static_cast<int>(statement.function_abi.parameters[index]);
         }
-        output << "] scope [";
-        for (std::size_t index = 0; index < statement.function_scope.declarations.size(); ++index) {
-          if (index != 0) output << ',';
-          output << std::quoted(statement.function_scope.declarations[index]);
-        }
-        output << "]\n";
+        output << "] scope ";
+        dump_scope(statement.function_scope);
+        output << "\n";
+      }
+      if (statement.statement_scope.valid || statement.body_scope.valid ||
+          statement.alternative_scope.valid) {
+        output << "  lexical %l" << statement.id.value() << " statement=";
+        dump_scope(statement.statement_scope);
+        output << " body=";
+        dump_scope(statement.body_scope);
+        output << " alternative=";
+        dump_scope(statement.alternative_scope);
+        output << '\n';
       }
       self(self, statement.body);
       self(self, statement.alternative);
     }
   };
   dump_abis(dump_abis, program.statements);
-  output << "program-scope [";
-  for (std::size_t index = 0; index < program.program_scope.declarations.size(); ++index) {
-    if (index != 0) output << ',';
-    output << std::quoted(program.program_scope.declarations[index]);
-  }
-  output << "]\n";
+  output << "program-scope ";
+  dump_scope(program.program_scope);
+  output << "\n";
   output << "module banner=" << program.module.emit_banner << " directives [";
   for (std::size_t index = 0; index < program.module.directives.size(); ++index) {
     if (index != 0) output << ',';
@@ -432,6 +462,7 @@ std::string lir::dump(const SemanticProgram& program) {
   output << "emission dynamic-truthiness=" << program.emission.dynamic_truthiness
          << " operand-logical-result=" << program.emission.operand_logical_result
          << " explicit-exports-only=" << program.emission.explicit_exports_only
+         << " lexical-block-scopes=" << program.emission.lexical_block_scopes
          << " structural-equality=" << program.emission.structural_equality
          << " resizable-sections=" << program.emission.resizable_sections
          << " parameter-defaults=" << program.emission.emit_parameter_defaults

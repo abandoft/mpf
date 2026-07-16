@@ -131,7 +131,8 @@ class Builder final {
         case StatementKind::declaration: return NameRole::declaration;
         case StatementKind::assignment:
         case StatementKind::multi_assignment: return NameRole::assignment;
-        case StatementKind::range_loop: return NameRole::loop_variable;
+        case StatementKind::range_loop:
+        case StatementKind::for_loop: return NameRole::loop_variable;
         case StatementKind::indexed_assignment:
         case StatementKind::print:
         case StatementKind::return_statement:
@@ -150,6 +151,7 @@ class Builder final {
       result.symbol_id = use == nullptr ? SymbolId{} : use->symbol;
     }
 
+    const bool for_loop = source.kind == StatementKind::for_loop;
     const bool loop =
         source.kind == StatementKind::while_loop || source.kind == StatementKind::range_loop;
     BlockId loop_condition;
@@ -172,10 +174,12 @@ class Builder final {
     result.expression = lower_expression(std::move(source.expression));
     result.has_expression = source.has_expression;
     result_attributes.procedure_call = source.procedure_call;
-    result.secondary_expression = lower_expression(std::move(source.secondary_expression));
     result.has_secondary_expression = source.has_secondary_expression;
-    result.tertiary_expression = lower_expression(std::move(source.tertiary_expression));
     result.has_tertiary_expression = source.has_tertiary_expression;
+    if (!for_loop) {
+      result.secondary_expression = lower_expression(std::move(source.secondary_expression));
+      result.tertiary_expression = lower_expression(std::move(source.tertiary_expression));
+    }
     result_attributes.inclusive_stop = source.inclusive_stop;
     result_attributes.retain_last_loop_value = source.retain_last_loop_value;
     if (semantic_facts != nullptr) {
@@ -196,6 +200,11 @@ class Builder final {
       result.parameter_defaults.push_back(lower_expression(std::move(expression)));
     }
     result.return_names = std::move(source.return_names);
+    result.return_symbols.reserve(result.return_names.size());
+    for (std::size_t index = 0; index < result.return_names.size(); ++index) {
+      const auto* use = names_.use(source.id, NameRole::result, index);
+      result.return_symbols.push_back(use == nullptr ? SymbolId{} : use->symbol);
+    }
     result.target_names = std::move(source.target_names);
     result.target_symbols.reserve(result.target_names.size());
     for (std::size_t index = 0; index < result.target_names.size(); ++index) {
@@ -237,7 +246,88 @@ class Builder final {
 
     emit_statement_instruction(result, result_attributes, semantic_facts);
 
-    if (source.kind == StatementKind::if_statement) {
+    if (for_loop) {
+      const auto for_preheader = current_block_;
+      const auto for_entry_versions = storage_values_;
+      const auto for_condition = make_function_block();
+      const auto for_body = make_function_block();
+      const auto for_update = make_function_block();
+      const auto for_exit = make_function_block();
+      set_branch(for_condition, source.id);
+
+      current_block_ = for_condition;
+      storage_values_ = for_entry_versions;
+      result.secondary_expression = lower_expression(std::move(source.secondary_expression));
+      const auto* condition = expression(program_, result.secondary_expression);
+      const auto condition_exit = current_block_;
+      const auto condition_versions = storage_values_;
+      set_conditional(condition == nullptr ? ValueId{} : condition->value_id, for_body, for_exit,
+                      source.id);
+
+      loops_.push_back({for_update, for_exit, {}, {}});
+      current_block_ = for_body;
+      storage_values_ = condition_versions;
+      lower_statement_list(std::move(source.body), result.body);
+      auto context = std::move(loops_.back());
+      loops_.pop_back();
+      if (current_block().terminator.kind == TerminatorKind::none) {
+        set_branch(for_update, source.id);
+      }
+      if (std::find(current_block().terminator.successors.begin(),
+                    current_block().terminator.successors.end(),
+                    for_update) != current_block().terminator.successors.end() &&
+          std::none_of(context.continue_edges.begin(), context.continue_edges.end(),
+                       [&](const ControlEdge& edge) { return edge.block == current_block_; })) {
+        context.continue_edges.push_back({current_block_, storage_values_});
+      }
+
+      current_block_ = for_update;
+      if (context.continue_edges.empty()) {
+        storage_values_ = for_entry_versions;
+      } else {
+        storage_values_ =
+            merge_storage_versions(for_update, context.continue_edges, for_entry_versions);
+      }
+      result.tertiary_expression = lower_expression(std::move(source.tertiary_expression));
+      const auto* update = expression(program_, result.tertiary_expression);
+      const auto* initializer =
+          result.instruction.valid() && result.instruction.value() < program_.instructions.size()
+              ? &program_.instructions[result.instruction.value()]
+              : nullptr;
+      if (initializer != nullptr && initializer->storage.valid() && update != nullptr &&
+          update->value_id.valid()) {
+        Instruction store;
+        store.id = instruction_ids_.next();
+        store.opcode = Opcode::store;
+        store.origin = result.origin;
+        store.location = {result.line, 1};
+        store.result = value_ids_.next();
+        store.type = initializer->type;
+        store.shape = initializer->shape;
+        store.storage = initializer->storage;
+        store.operands.push_back(update->value_id);
+        storage_values_[store.storage] = store.result;
+        append_instruction(std::move(store));
+      }
+      const auto update_versions = storage_values_;
+      const auto update_exit = current_block_;
+      if (context.continue_edges.empty()) {
+        current_block().terminator.kind = TerminatorKind::unreachable;
+        current_block().terminator.origin = source.id;
+      } else {
+        set_branch(for_condition, source.id);
+      }
+
+      std::vector<ControlEdge> header_incoming{{for_preheader, for_entry_versions}};
+      if (!context.continue_edges.empty()) {
+        header_incoming.push_back({update_exit, update_versions});
+      }
+      (void)merge_storage_versions(for_condition, header_incoming, for_entry_versions);
+      std::vector<ControlEdge> exit_incoming = std::move(context.break_edges);
+      exit_incoming.push_back({condition_exit, condition_versions});
+      current_block_ = for_exit;
+      storage_values_ = merge_storage_versions(for_exit, exit_incoming, for_entry_versions);
+    } else if (source.kind == StatementKind::if_statement) {
       const auto entry_versions = storage_values_;
       const auto then_block = make_function_block();
       const auto else_block = make_function_block();
@@ -336,7 +426,9 @@ class Builder final {
       }
       if (std::find(current_block().terminator.successors.begin(),
                     current_block().terminator.successors.end(),
-                    loop_condition) != current_block().terminator.successors.end()) {
+                    loop_condition) != current_block().terminator.successors.end() &&
+          std::none_of(context.continue_edges.begin(), context.continue_edges.end(),
+                       [&](const ControlEdge& edge) { return edge.block == current_block_; })) {
         context.continue_edges.push_back({current_block_, storage_values_});
       }
       std::vector<ControlEdge> header_incoming{{loop_preheader, loop_entry_versions}};
@@ -966,7 +1058,9 @@ class Builder final {
     Instruction instruction;
     instruction.id = instruction_ids_.next();
     statement.instruction = instruction.id;
-    instruction.opcode = statement_opcode(statement.kind, statement.has_expression);
+    instruction.opcode = statement.kind == StatementKind::for_loop
+                             ? Opcode::store
+                             : statement_opcode(statement.kind, statement.has_expression);
     instruction.origin = statement.origin;
     instruction.location = {statement.line, 1};
     const auto append_operand = [&](const MirExpressionId expression_id) {
@@ -979,7 +1073,8 @@ class Builder final {
     append_operand(statement.target_expression);
     if ((statement.kind == StatementKind::declaration ||
          statement.kind == StatementKind::assignment ||
-         statement.kind == StatementKind::range_loop) &&
+         statement.kind == StatementKind::range_loop ||
+         statement.kind == StatementKind::for_loop) &&
         !statement.name.empty()) {
       instruction.storage = storage_for(
           statement.symbol_id, statement.name, statement.origin,
@@ -998,7 +1093,8 @@ class Builder final {
     const auto* value = mir::expression(program_, statement.expression);
     if ((statement.kind == StatementKind::declaration ||
          statement.kind == StatementKind::assignment ||
-         statement.kind == StatementKind::indexed_assignment) &&
+         statement.kind == StatementKind::indexed_assignment ||
+         statement.kind == StatementKind::for_loop) &&
         instruction.storage.valid() && value != nullptr && value->value_id.valid()) {
       instruction.result = value_ids_.next();
       storage_values_[instruction.storage] = instruction.result;

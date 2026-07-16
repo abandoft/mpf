@@ -49,7 +49,8 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
          << expression.origin.value() << " kind " << static_cast<int>(expression.kind) << " type "
          << static_cast<int>(expression.inferred_type) << " binding "
          << static_cast<int>(expression.binding) << " intrinsic "
-         << static_cast<int>(expression.intrinsic) << " shape [";
+         << static_cast<int>(expression.intrinsic) << " symbol @s" << expression.symbol_id.value()
+         << " shape [";
   for (std::size_t index = 0; index < expression.shape.size(); ++index) {
     if (index != 0) output << ',';
     output << expression.shape[index];
@@ -113,9 +114,9 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
   for (const auto& statement : statements) {
     output << std::string(depth * 2U, ' ') << "stmt %l" << statement.id.value() << " origin %h"
            << statement.origin.value() << " kind " << static_cast<int>(statement.kind) << " line "
-           << statement.line << " name " << std::quoted(statement.name) << " plan "
-           << static_cast<int>(statement.plan.form) << " condition "
-           << static_cast<int>(statement.plan.condition) << " target-access "
+           << statement.line << " name " << std::quoted(statement.name) << " symbol @s"
+           << statement.symbol_id.value() << " plan " << static_cast<int>(statement.plan.form)
+           << " condition " << static_cast<int>(statement.plan.condition) << " target-access "
            << static_cast<int>(statement.plan.target_access) << " alternative "
            << statement.plan.has_alternative << " range-step " << statement.plan.range_has_step
            << " retain-loop " << statement.plan.retain_loop_value << " inclusive-stop "
@@ -144,7 +145,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v11 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v12 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

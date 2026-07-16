@@ -259,6 +259,7 @@ struct Statement {
   std::vector<ParameterKind> parameter_kinds;
   std::vector<MirExpressionId> parameter_defaults;
   std::vector<std::string> return_names;
+  std::vector<SymbolId> return_symbols;
   std::vector<std::string> target_names;
   std::vector<SymbolId> target_symbols;
   bool has_target_pattern{false};

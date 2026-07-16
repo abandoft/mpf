@@ -163,7 +163,10 @@ class Renderer final {
         output_ << ')';
         return;
       case javascript::lir::CallForm::present:
-        output_ << '(' << mangler_->name(expression.children[1].plan.token) << " !== undefined)";
+        output_ << '('
+                << mangler_->name(expression.children[1].symbol_id,
+                                  expression.children[1].plan.token)
+                << " !== undefined)";
         return;
       case javascript::lir::CallForm::reshape:
         output_ << "__mpf_reshape(";
@@ -194,7 +197,8 @@ class Renderer final {
       } else if (index - 1U < plan.call_arguments.size() &&
                  plan.call_arguments[index - 1U].form ==
                      javascript::lir::CallArgumentForm::forward_optional) {
-        output_ << mangler_->name(expression.children[index].plan.token);
+        output_ << mangler_->name(expression.children[index].symbol_id,
+                                  expression.children[index].plan.token);
       } else {
         emit_expression(expression.children[index]);
       }
@@ -227,7 +231,8 @@ class Renderer final {
       case javascript::lir::ExpressionForm::invalid:
       case javascript::lir::ExpressionForm::omitted: output_ << expression.plan.token; break;
       case javascript::lir::ExpressionForm::variable:
-        emit_variable_name(expression.plan.token, expression.plan.variable_access);
+        emit_variable_name(expression.symbol_id, expression.plan.token,
+                           expression.plan.variable_access);
         break;
       case javascript::lir::ExpressionForm::target_symbol:
       case javascript::lir::ExpressionForm::literal: output_ << expression.plan.token; break;
@@ -356,6 +361,13 @@ class Renderer final {
   void emit_variable_name(const std::string& name, const javascript::lir::VariableAccess access =
                                                        javascript::lir::VariableAccess::direct) {
     output_ << mangler_->name(name);
+    if (access == javascript::lir::VariableAccess::reference_box_value) output_ << ".value";
+  }
+
+  void emit_variable_name(
+      const SymbolId symbol, const std::string& name,
+      const javascript::lir::VariableAccess access = javascript::lir::VariableAccess::direct) {
+    output_ << mangler_->name(symbol, name);
     if (access == javascript::lir::VariableAccess::reference_box_value) output_ << ".value";
   }
 
@@ -494,11 +506,11 @@ class Renderer final {
       indentation();
       output_ << "let ";
       bool first = true;
-      for (const auto& name : plan.declarations) {
+      for (const auto& declaration : plan.declarations) {
         if (!first) {
           output_ << ", ";
         }
-        output_ << mangler_->name(name);
+        output_ << mangler_->name(declaration.symbol, declaration.name);
         first = false;
       }
       output_ << ";\n";
@@ -580,6 +592,7 @@ class Renderer final {
       emit_case_condition(clause, selector, statement.plan.character_selector);
       output_ << ") {\n";
       ++indent_;
+      emit_scope_declarations(clause.body_scope);
       emit_statements(clause.body);
       --indent_;
       indentation();
@@ -591,11 +604,13 @@ class Renderer final {
         indentation();
         output_ << "else {\n";
         ++indent_;
+        emit_scope_declarations(default_clause->body_scope);
         emit_statements(default_clause->body);
         --indent_;
         indentation();
         output_ << "}\n";
       } else {
+        emit_scope_declarations(default_clause->body_scope);
         emit_statements(default_clause->body);
       }
     }
@@ -621,21 +636,21 @@ class Renderer final {
       case javascript::lir::StatementForm::discard: break;
       case javascript::lir::StatementForm::declaration_initializer:
         indentation();
-        emit_variable_name(statement.name, statement.plan.target_access);
+        emit_variable_name(statement.symbol_id, statement.name, statement.plan.target_access);
         output_ << " = ";
         emit_expression(statement.expression);
         output_ << ";\n";
         break;
       case javascript::lir::StatementForm::declaration_array:
         indentation();
-        emit_variable_name(statement.name, statement.plan.target_access);
+        emit_variable_name(statement.symbol_id, statement.name, statement.plan.target_access);
         output_ << " = ";
         emit_array_initializer(statement.plan.array_shape, statement.plan.array_default);
         output_ << ";\n";
         break;
       case javascript::lir::StatementForm::assignment:
         indentation();
-        emit_variable_name(statement.name, statement.plan.target_access);
+        emit_variable_name(statement.symbol_id, statement.name, statement.plan.target_access);
         output_ << " = ";
         emit_expression(statement.expression);
         output_ << ";\n";
@@ -655,7 +670,10 @@ class Renderer final {
         output_ << '[';
         for (std::size_t index = 0; index < statement.plan.targets.size(); ++index) {
           if (index != 0) output_ << ", ";
-          emit_variable_name(statement.plan.targets[index], statement.plan.target_accesses[index]);
+          emit_variable_name(index < statement.target_symbols.size()
+                                 ? statement.target_symbols[index]
+                                 : SymbolId{},
+                             statement.plan.targets[index], statement.plan.target_accesses[index]);
         }
         output_ << "] = ";
         emit_expression(statement.expression);
@@ -750,6 +768,7 @@ class Renderer final {
         emit_condition(statement.expression, statement.plan.condition);
         output_ << ") {\n";
         ++indent_;
+        emit_scope_declarations(statement.body_scope);
         emit_statements(statement.body);
         --indent_;
         indentation();
@@ -757,6 +776,7 @@ class Renderer final {
         if (statement.plan.has_alternative) {
           output_ << " else {\n";
           ++indent_;
+          emit_scope_declarations(statement.alternative_scope);
           emit_statements(statement.alternative);
           --indent_;
           indentation();
@@ -780,6 +800,7 @@ class Renderer final {
         emit_condition(statement.expression, statement.plan.condition);
         output_ << ") {\n";
         ++indent_;
+        emit_scope_declarations(statement.body_scope);
         loop_completion_flags_.push_back(completion);
         emit_statements(statement.body);
         loop_completion_flags_.pop_back();
@@ -790,6 +811,7 @@ class Renderer final {
           indentation();
           output_ << "if (" << completion << ") {\n";
           ++indent_;
+          emit_scope_declarations(statement.alternative_scope);
           emit_statements(statement.alternative);
           --indent_;
           indentation();
@@ -801,7 +823,7 @@ class Renderer final {
         const auto start = temporary(statement.id, javascript::lir::TemporaryRole::range_start);
         const auto stop = temporary(statement.id, javascript::lir::TemporaryRole::range_stop);
         const auto step = temporary(statement.id, javascript::lir::TemporaryRole::range_step);
-        auto variable = mangler_->name(statement.name);
+        auto variable = mangler_->name(statement.symbol_id, statement.name);
         if (statement.plan.target_access == javascript::lir::VariableAccess::reference_box_value) {
           variable += ".value";
         }
@@ -812,6 +834,7 @@ class Renderer final {
         indentation();
         output_ << "{\n";
         ++indent_;
+        emit_scope_declarations(statement.statement_scope);
         indentation();
         output_ << "const " << start << " = ";
         emit_expression(statement.expression);
@@ -847,6 +870,7 @@ class Renderer final {
                 << (statement.plan.inclusive_stop ? " >= " : " > ") << stop << "; " << cursor
                 << " += " << step << ") {\n";
         ++indent_;
+        emit_scope_declarations(statement.body_scope);
         loop_completion_flags_.push_back(completion);
         if (statement.plan.retain_loop_value) {
           indentation();
@@ -861,6 +885,7 @@ class Renderer final {
           indentation();
           output_ << "if (" << completion << ") {\n";
           ++indent_;
+          emit_scope_declarations(statement.alternative_scope);
           emit_statements(statement.alternative);
           --indent_;
           indentation();
@@ -871,17 +896,50 @@ class Renderer final {
         output_ << "}\n";
         break;
       }
+      case javascript::lir::StatementForm::for_loop: {
+        auto variable = mangler_->name(statement.symbol_id, statement.name);
+        if (statement.plan.target_access == javascript::lir::VariableAccess::reference_box_value) {
+          variable += ".value";
+        }
+        indentation();
+        output_ << "{\n";
+        ++indent_;
+        emit_scope_declarations(statement.statement_scope);
+        indentation();
+        output_ << "for (" << variable << " = ";
+        emit_expression(statement.expression);
+        output_ << "; ";
+        emit_condition(statement.secondary_expression, statement.plan.condition);
+        output_ << "; " << variable << " = ";
+        emit_expression(statement.tertiary_expression);
+        output_ << ") {\n";
+        ++indent_;
+        emit_scope_declarations(statement.body_scope);
+        loop_completion_flags_.push_back({});
+        emit_statements(statement.body);
+        loop_completion_flags_.pop_back();
+        --indent_;
+        indentation();
+        output_ << "}\n";
+        --indent_;
+        indentation();
+        output_ << "}\n";
+        break;
+      }
       case javascript::lir::StatementForm::function: {
         indentation();
         if (statement.function_abi.exported) {
           output_ << "export ";
         }
-        output_ << "function " << mangler_->name(statement.name) << '(';
+        output_ << "function " << mangler_->name(statement.symbol_id, statement.name) << '(';
         for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
           if (index != 0) {
             output_ << ", ";
           }
-          output_ << mangler_->name(statement.parameters[index]);
+          output_ << mangler_->name(index < statement.parameter_symbols.size()
+                                        ? statement.parameter_symbols[index]
+                                        : SymbolId{},
+                                    statement.parameters[index]);
           if (index < statement.plan.parameter_defaults.size() &&
               statement.plan.parameter_defaults[index]) {
             output_ << " = ";
@@ -895,14 +953,22 @@ class Renderer final {
         if (!statement.plan.return_names.empty()) {
           indentation();
           if (statement.plan.return_names.size() == 1) {
-            output_ << "return " << mangler_->name(statement.plan.return_names.front()) << ";\n";
+            output_ << "return "
+                    << mangler_->name(statement.return_symbols.empty()
+                                          ? SymbolId{}
+                                          : statement.return_symbols.front(),
+                                      statement.plan.return_names.front())
+                    << ";\n";
           } else {
             output_ << "return [";
             for (std::size_t index = 0; index < statement.plan.return_names.size(); ++index) {
               if (index != 0) {
                 output_ << ", ";
               }
-              output_ << mangler_->name(statement.plan.return_names[index]);
+              output_ << mangler_->name(index < statement.return_symbols.size()
+                                            ? statement.return_symbols[index]
+                                            : SymbolId{},
+                                        statement.plan.return_names[index]);
             }
             output_ << "];\n";
           }

@@ -17,6 +17,7 @@ enum class StatementKind {
   case_clause,
   while_loop,
   range_loop,
+  for_loop,
   function
 };
 

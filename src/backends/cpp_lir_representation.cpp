@@ -486,6 +486,11 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
       result.retain_loop_value = statement.retain_last_loop_value;
       result.inclusive_stop = statement.inclusive_stop;
       break;
+    case StatementKind::for_loop:
+      result.form = lir::StatementForm::for_loop;
+      result.condition = lir::ConditionForm::direct;
+      result.target_access = variable_access(context, statement.name);
+      break;
     case StatementKind::function:
       result.form = lir::StatementForm::function;
       result.return_names = statement.return_names;

@@ -40,6 +40,7 @@ struct EmissionPlan {
   bool dynamic_truthiness{false};
   bool operand_logical_result{false};
   bool explicit_exports_only{false};
+  bool lexical_block_scopes{false};
   bool structural_equality{false};
   bool resizable_sections{false};
   bool emit_parameter_defaults{false};
@@ -90,7 +91,7 @@ struct TemporaryPlan {
 
 struct ScopePlan {
   bool valid{false};
-  std::vector<std::string> declarations;
+  std::vector<IdentifierReference> declarations;
 };
 
 enum class ExpressionForm : std::uint8_t {
@@ -214,6 +215,7 @@ enum class StatementForm : std::uint8_t {
   case_clause,
   while_loop,
   range_loop,
+  for_loop,
   function
 };
 
@@ -265,6 +267,7 @@ struct Expression {
   SourceLocation location{};
   ExpressionKind kind{ExpressionKind::invalid};
   std::string value;
+  SymbolId symbol_id{};
   ComparisonOperator comparison{ComparisonOperator::none};
   std::vector<ComparisonOperator> comparisons;
   std::vector<Expression> children;
@@ -307,6 +310,7 @@ struct Statement {
   StatementKind kind{StatementKind::expression};
   std::size_t line{1};
   std::string name;
+  SymbolId symbol_id{};
   Expression expression;
   bool has_expression{false};
   bool procedure_call{false};
@@ -330,6 +334,7 @@ struct Statement {
   Expression target_expression;
   bool has_target_expression{false};
   std::vector<std::string> parameters;
+  std::vector<SymbolId> parameter_symbols;
   std::vector<ParameterKind> parameter_kinds;
   std::vector<Expression> parameter_defaults;
   std::vector<ParameterIntent> parameter_intents;
@@ -338,6 +343,7 @@ struct Statement {
   std::vector<ValueType> parameter_element_types;
   std::vector<std::vector<std::size_t>> parameter_shapes;
   std::vector<std::string> return_names;
+  std::vector<SymbolId> return_symbols;
   bool has_value_return{false};
   std::vector<ValueType> return_types;
   std::vector<ValueType> return_element_types;
@@ -345,6 +351,7 @@ struct Statement {
   bool return_sequence_is_list{false};
   std::vector<ValueMetadata> return_sequence_elements;
   std::vector<std::string> target_names;
+  std::vector<SymbolId> target_symbols;
   AssignmentPattern target_pattern;
   bool has_target_pattern{false};
   std::vector<ValueType> target_types;
@@ -356,6 +363,9 @@ struct Statement {
   bool default_case{false};
   FunctionAbi function_abi;
   ScopePlan function_scope;
+  ScopePlan statement_scope;
+  ScopePlan body_scope;
+  ScopePlan alternative_scope;
   StatementPlan plan;
   std::vector<Statement> body;
   std::vector<Statement> alternative;

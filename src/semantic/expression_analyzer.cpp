@@ -17,8 +17,10 @@ ValueType Analyzer::analyze_expression(Expression& expression) {
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     case ExpressionKind::number_literal:
       semantic(semantics_, expression).inferred_type =
-          expression.value.find_first_of(".eE") == std::string::npos ? ValueType::integer
-                                                                     : ValueType::real;
+          program_.language == SourceLanguage::typescript ||
+                  expression.value.find_first_of(".eE") != std::string::npos
+              ? ValueType::real
+              : ValueType::integer;
       return semantic(semantics_, expression).inferred_type;
     case ExpressionKind::string_literal:
       return semantic(semantics_, expression).inferred_type = ValueType::string;
@@ -890,7 +892,15 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
       continue;
     }
     const auto index_type = analyze_expression(index);
-    if (index_type != ValueType::integer && index_type != ValueType::unknown) {
+    const auto constant = numeric_constant(index);
+    const bool typescript_integral_number =
+        program_.language == SourceLanguage::typescript && index_type == ValueType::real &&
+        constant.has_value() &&
+        *constant >= static_cast<double>(std::numeric_limits<long long>::min()) &&
+        *constant <= static_cast<double>(std::numeric_limits<long long>::max()) &&
+        static_cast<double>(static_cast<long long>(*constant)) == *constant;
+    if (index_type != ValueType::integer && index_type != ValueType::unknown &&
+        !typescript_integral_number) {
       diagnose(index.location.line, "MPF2023", "array/list index must be an integer");
     }
     validate_static_index(index.location.line, index, extent,

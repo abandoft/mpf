@@ -30,11 +30,11 @@ class NameAnalyzer final {
     result_.names.hir_revision = program.revision;
     result_.names.hir_node_count = program.node_count;
     result_.names.nodes.resize(program.node_count + 1U);
-    result_.names.owned_scopes.resize(program.node_count + 1U);
+    result_.names.scope_edges.resize(program.node_count + 1U);
     result_.names.symbols.push_back({});
     result_.names.scopes.push_back({});
     builders_.push_back({});
-    result_.names.global_scope = create_scope({}, {});
+    result_.names.global_scope = create_scope({}, {}, NameScopeKind::global);
   }
 
   NameAnalysisResult run() {
@@ -44,15 +44,32 @@ class NameAnalyzer final {
   }
 
  private:
-  ScopeId create_scope(const ScopeId parent, const HirNodeId owner) {
+  ScopeId create_scope(const ScopeId parent, const HirNodeId owner, const NameScopeKind kind) {
     const auto value = result_.names.scopes.size();
     const auto id = ScopeId{static_cast<ScopeId::value_type>(value)};
-    result_.names.scopes.push_back({id, parent, owner, {}});
+    result_.names.scopes.push_back({id, parent, owner, kind, {}});
     builders_.push_back({});
-    if (owner.valid() && owner.value() < result_.names.owned_scopes.size()) {
-      result_.names.owned_scopes[owner.value()] = id;
+    if (owner.valid() && owner.value() < result_.names.scope_edges.size()) {
+      auto& edges = result_.names.scope_edges[owner.value()];
+      switch (kind) {
+        case NameScopeKind::function: edges.function = id; break;
+        case NameScopeKind::statement: edges.statement = id; break;
+        case NameScopeKind::body: edges.body = id; break;
+        case NameScopeKind::alternative: edges.alternative = id; break;
+        case NameScopeKind::global: break;
+      }
     }
     return id;
+  }
+
+  [[nodiscard]] bool lexical_blocks() const noexcept {
+    return program_.semantics.scope_model == semantic::ScopeModel::lexical_blocks;
+  }
+
+  ScopeId branch_scope(const ScopeId parent, const hir::Statement& statement,
+                       const NameScopeKind kind) {
+    if (!lexical_blocks()) return parent;
+    return create_scope(parent, statement.id, kind);
   }
 
   SymbolId declare(const ScopeId scope, const std::string& name, const NameSymbolKind kind,
@@ -98,8 +115,10 @@ class NameAnalyzer final {
       switch (statement.kind) {
         case StatementKind::function: {
           declare(scope, statement.name, NameSymbolKind::function, statement.id);
-          auto child_scope = result_.names.owned_scope(statement.id);
-          if (!child_scope.valid()) child_scope = create_scope(scope, statement.id);
+          auto child_scope = result_.names.function_scope(statement.id);
+          if (!child_scope.valid()) {
+            child_scope = create_scope(scope, statement.id, NameScopeKind::function);
+          }
           for (const auto& parameter : statement.parameters) {
             declare(child_scope, parameter, NameSymbolKind::parameter, statement.id);
           }
@@ -111,26 +130,57 @@ class NameAnalyzer final {
           break;
         }
         case StatementKind::declaration:
-        case StatementKind::assignment:
           declare(scope, statement.name, NameSymbolKind::variable, statement.id);
           break;
-        case StatementKind::multi_assignment:
-          for (const auto& name : statement.target_names) {
-            declare(scope, name, NameSymbolKind::variable, statement.id);
+        case StatementKind::assignment:
+          if (!lexical_blocks()) {
+            declare(scope, statement.name, NameSymbolKind::variable, statement.id);
           }
           break;
-        case StatementKind::range_loop:
-          declare(scope, statement.name, NameSymbolKind::loop_variable, statement.id);
-          collect_statements(statement.body, scope);
+        case StatementKind::multi_assignment:
+          if (!lexical_blocks()) {
+            for (const auto& name : statement.target_names) {
+              declare(scope, name, NameSymbolKind::variable, statement.id);
+            }
+          }
+          break;
+        case StatementKind::range_loop: {
+          auto loop_scope = scope;
+          auto body_scope = scope;
+          if (lexical_blocks()) {
+            loop_scope = create_scope(scope, statement.id, NameScopeKind::statement);
+            body_scope = create_scope(loop_scope, statement.id, NameScopeKind::body);
+          }
+          declare(loop_scope, statement.name, NameSymbolKind::loop_variable, statement.id);
+          collect_statements(statement.body, body_scope);
+          const auto alternative_scope =
+              statement.alternative.empty()
+                  ? scope
+                  : branch_scope(scope, statement, NameScopeKind::alternative);
+          collect_statements(statement.alternative, alternative_scope);
+          break;
+        }
+        case StatementKind::for_loop: {
+          const auto loop_scope = create_scope(scope, statement.id, NameScopeKind::statement);
+          const auto body_scope = create_scope(loop_scope, statement.id, NameScopeKind::body);
+          declare(loop_scope, statement.name, NameSymbolKind::loop_variable, statement.id);
+          collect_statements(statement.body, body_scope);
           collect_statements(statement.alternative, scope);
           break;
+        }
         case StatementKind::if_statement:
         case StatementKind::select_case:
         case StatementKind::case_clause:
-        case StatementKind::while_loop:
-          collect_statements(statement.body, scope);
-          collect_statements(statement.alternative, scope);
+        case StatementKind::while_loop: {
+          const auto body_scope = branch_scope(scope, statement, NameScopeKind::body);
+          const auto alternative_scope =
+              statement.alternative.empty()
+                  ? scope
+                  : branch_scope(scope, statement, NameScopeKind::alternative);
+          collect_statements(statement.body, body_scope);
+          collect_statements(statement.alternative, alternative_scope);
           break;
+        }
         case StatementKind::indexed_assignment:
         case StatementKind::print:
         case StatementKind::return_statement:
@@ -166,6 +216,14 @@ class NameAnalyzer final {
     const auto symbol = find_local(scope, name);
     const auto* data = symbol.valid() ? &result_.names.symbols[symbol.value()] : nullptr;
     add_use(origin, scope, symbol, role, ordinal,
+            data == nullptr ? BindingKind::unresolved : binding_for(data->kind));
+  }
+
+  void add_assignment(const HirNodeId origin, const ScopeId scope, const std::string& name,
+                      const std::size_t ordinal) {
+    const auto symbol = resolve(scope, name);
+    const auto* data = symbol.valid() ? &result_.names.symbols[symbol.value()] : nullptr;
+    add_use(origin, scope, symbol, NameRole::assignment, ordinal,
             data == nullptr ? BindingKind::unresolved : binding_for(data->kind));
   }
 
@@ -205,7 +263,7 @@ class NameAnalyzer final {
           for (const auto& expression : statement.parameter_defaults) {
             bind_expression(expression, scope);
           }
-          const auto child_scope = result_.names.owned_scope(statement.id);
+          const auto child_scope = result_.names.function_scope(statement.id);
           for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
             add_definition(statement.id, child_scope, statement.parameters[index],
                            NameRole::parameter, index);
@@ -222,17 +280,44 @@ class NameAnalyzer final {
           add_definition(statement.id, scope, statement.name, NameRole::declaration, 0);
           break;
         case StatementKind::assignment:
-          add_definition(statement.id, scope, statement.name, NameRole::assignment, 0);
+          if (lexical_blocks())
+            add_assignment(statement.id, scope, statement.name, 0);
+          else
+            add_definition(statement.id, scope, statement.name, NameRole::assignment, 0);
           break;
         case StatementKind::multi_assignment:
           for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
-            add_definition(statement.id, scope, statement.target_names[index], NameRole::assignment,
-                           index);
+            if (lexical_blocks())
+              add_assignment(statement.id, scope, statement.target_names[index], index);
+            else
+              add_definition(statement.id, scope, statement.target_names[index],
+                             NameRole::assignment, index);
           }
           break;
-        case StatementKind::range_loop:
-          add_definition(statement.id, scope, statement.name, NameRole::loop_variable, 0);
-          break;
+        case StatementKind::range_loop: {
+          bind_statement_expressions(statement, scope);
+          const auto loop_scope =
+              lexical_blocks() ? result_.names.statement_scope(statement.id) : scope;
+          const auto body_scope = lexical_blocks() ? result_.names.body_scope(statement.id) : scope;
+          add_definition(statement.id, loop_scope, statement.name, NameRole::loop_variable, 0);
+          bind_statements(statement.body, body_scope);
+          const auto alternative_scope = lexical_blocks() && !statement.alternative.empty()
+                                             ? result_.names.alternative_scope(statement.id)
+                                             : scope;
+          bind_statements(statement.alternative, alternative_scope);
+          continue;
+        }
+        case StatementKind::for_loop: {
+          const auto loop_scope = result_.names.statement_scope(statement.id);
+          add_definition(statement.id, loop_scope, statement.name, NameRole::loop_variable, 0);
+          bind_expression(statement.expression, loop_scope);
+          bind_expression(statement.secondary_expression, loop_scope);
+          bind_expression(statement.tertiary_expression, loop_scope);
+          bind_expression(statement.target_expression, loop_scope);
+          bind_statements(statement.body, result_.names.body_scope(statement.id));
+          bind_statements(statement.alternative, scope);
+          continue;
+        }
         case StatementKind::indexed_assignment:
         case StatementKind::print:
         case StatementKind::return_statement:
@@ -245,8 +330,17 @@ class NameAnalyzer final {
         case StatementKind::while_loop: break;
       }
       bind_statement_expressions(statement, scope);
-      bind_statements(statement.body, scope);
-      bind_statements(statement.alternative, scope);
+      const bool nested_scope =
+          lexical_blocks() && (statement.kind == StatementKind::if_statement ||
+                               statement.kind == StatementKind::select_case ||
+                               statement.kind == StatementKind::case_clause ||
+                               statement.kind == StatementKind::while_loop);
+      const auto body_scope = nested_scope ? result_.names.body_scope(statement.id) : scope;
+      const auto alternative_scope = nested_scope && !statement.alternative.empty()
+                                         ? result_.names.alternative_scope(statement.id)
+                                         : scope;
+      bind_statements(statement.body, body_scope);
+      bind_statements(statement.alternative, alternative_scope);
     }
   }
 
@@ -284,12 +378,34 @@ void verify_expression(const hir::Expression& expression, const ScopeId scope,
 
 void require_definition(const hir::Statement& statement, const ScopeId scope,
                         const NameTable& names, const NameRole role, const std::size_t ordinal,
-                        const std::string_view stage, std::vector<Diagnostic>& diagnostics) {
+                        const bool local, const std::string_view stage,
+                        std::vector<Diagnostic>& diagnostics) {
   const auto* use = names.use(statement.id, role, ordinal);
-  if (use == nullptr || !use->symbol.valid() || use->scope != scope) {
+  const auto* symbol = use == nullptr ? nullptr : names.symbol(use->symbol);
+  if (use == nullptr || symbol == nullptr || use->scope != scope ||
+      (local && symbol->scope != scope) ||
+      (!local && !scope_contains(names, scope, symbol->scope))) {
     add_error(diagnostics, {statement.line, 1}, stage,
               "statement definition has no resolved symbol in its lexical scope");
   }
+}
+
+bool lexical_blocks(const hir::Program& program) noexcept {
+  return program.semantics.scope_model == semantic::ScopeModel::lexical_blocks;
+}
+
+ScopeId child_scope(const hir::Program& program, const NameTable& names,
+                    const hir::Statement& statement, const NameScopeKind kind,
+                    const ScopeId fallback) {
+  if (!lexical_blocks(program)) return fallback;
+  switch (kind) {
+    case NameScopeKind::statement: return names.statement_scope(statement.id);
+    case NameScopeKind::body: return names.body_scope(statement.id);
+    case NameScopeKind::alternative: return names.alternative_scope(statement.id);
+    case NameScopeKind::function: return names.function_scope(statement.id);
+    case NameScopeKind::global: break;
+  }
+  return {};
 }
 
 void verify_statement_expressions(const hir::Statement& statement, const ScopeId scope,
@@ -306,51 +422,104 @@ void verify_statement_expressions(const hir::Statement& statement, const ScopeId
   }
 }
 
-void verify_statements(const std::vector<hir::Statement>& statements, const ScopeId scope,
-                       const NameTable& names, std::vector<bool>& resident,
+void verify_statements(const hir::Program& program, const std::vector<hir::Statement>& statements,
+                       const ScopeId scope, const NameTable& names, std::vector<bool>& resident,
                        const std::string_view stage, std::vector<Diagnostic>& diagnostics) {
   for (const auto& statement : statements) {
     resident[statement.id.value()] = true;
     if (statement.kind == StatementKind::function) {
-      require_definition(statement, scope, names, NameRole::declaration, 0, stage, diagnostics);
-      const auto child_scope = names.owned_scope(statement.id);
-      const auto* child = names.scope(child_scope);
-      if (child == nullptr || child->parent != scope || child->owner != statement.id) {
+      require_definition(statement, scope, names, NameRole::declaration, 0, true, stage,
+                         diagnostics);
+      const auto function_scope = names.function_scope(statement.id);
+      const auto* child = names.scope(function_scope);
+      if (child == nullptr || child->parent != scope || child->owner != statement.id ||
+          child->kind != NameScopeKind::function) {
         add_error(diagnostics, {statement.line, 1}, stage,
                   "function does not own a valid child scope");
         continue;
       }
       for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
-        require_definition(statement, child_scope, names, NameRole::parameter, index, stage,
-                           diagnostics);
+        require_definition(statement, function_scope, names, NameRole::parameter, index, true,
+                           stage, diagnostics);
       }
       for (std::size_t index = 0; index < statement.return_names.size(); ++index) {
-        require_definition(statement, child_scope, names, NameRole::result, index, stage,
+        require_definition(statement, function_scope, names, NameRole::result, index, true, stage,
                            diagnostics);
       }
       for (const auto& expression : statement.parameter_defaults) {
         verify_expression(expression, scope, names, resident, stage, diagnostics);
       }
-      verify_statements(statement.body, child_scope, names, resident, stage, diagnostics);
-      verify_statements(statement.alternative, child_scope, names, resident, stage, diagnostics);
+      verify_statements(program, statement.body, function_scope, names, resident, stage,
+                        diagnostics);
+      verify_statements(program, statement.alternative, function_scope, names, resident, stage,
+                        diagnostics);
       continue;
     }
     switch (statement.kind) {
       case StatementKind::declaration:
-        require_definition(statement, scope, names, NameRole::declaration, 0, stage, diagnostics);
+        require_definition(statement, scope, names, NameRole::declaration, 0, true, stage,
+                           diagnostics);
         break;
       case StatementKind::assignment:
-        require_definition(statement, scope, names, NameRole::assignment, 0, stage, diagnostics);
+        require_definition(statement, scope, names, NameRole::assignment, 0,
+                           !lexical_blocks(program), stage, diagnostics);
         break;
       case StatementKind::multi_assignment:
         for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
-          require_definition(statement, scope, names, NameRole::assignment, index, stage,
-                             diagnostics);
+          require_definition(statement, scope, names, NameRole::assignment, index,
+                             !lexical_blocks(program), stage, diagnostics);
         }
         break;
-      case StatementKind::range_loop:
-        require_definition(statement, scope, names, NameRole::loop_variable, 0, stage, diagnostics);
-        break;
+      case StatementKind::range_loop: {
+        verify_statement_expressions(statement, scope, names, resident, stage, diagnostics);
+        const auto loop_scope =
+            child_scope(program, names, statement, NameScopeKind::statement, scope);
+        const auto body_scope = child_scope(program, names, statement, NameScopeKind::body, scope);
+        const auto* loop_data = names.scope(loop_scope);
+        const auto* body_data = names.scope(body_scope);
+        if (lexical_blocks(program) &&
+            (loop_data == nullptr || body_data == nullptr || loop_data->parent != scope ||
+             body_data->parent != loop_scope || loop_data->owner != statement.id ||
+             body_data->owner != statement.id)) {
+          add_error(diagnostics, {statement.line, 1}, stage,
+                    "range loop does not own valid statement/body scopes");
+        }
+        require_definition(statement, loop_scope, names, NameRole::loop_variable, 0, true, stage,
+                           diagnostics);
+        verify_statements(program, statement.body, body_scope, names, resident, stage, diagnostics);
+        const auto alternative_scope = lexical_blocks(program) && !statement.alternative.empty()
+                                           ? names.alternative_scope(statement.id)
+                                           : scope;
+        verify_statements(program, statement.alternative, alternative_scope, names, resident, stage,
+                          diagnostics);
+        continue;
+      }
+      case StatementKind::for_loop: {
+        const auto loop_scope = names.statement_scope(statement.id);
+        const auto body_scope = names.body_scope(statement.id);
+        const auto* loop_data = names.scope(loop_scope);
+        const auto* body_data = names.scope(body_scope);
+        if (loop_data == nullptr || body_data == nullptr || loop_data->parent != scope ||
+            body_data->parent != loop_scope || loop_data->owner != statement.id ||
+            body_data->owner != statement.id || loop_data->kind != NameScopeKind::statement ||
+            body_data->kind != NameScopeKind::body) {
+          add_error(diagnostics, {statement.line, 1}, stage,
+                    "for loop does not own valid statement/body scopes");
+        }
+        require_definition(statement, loop_scope, names, NameRole::loop_variable, 0, true, stage,
+                           diagnostics);
+        verify_expression(statement.expression, loop_scope, names, resident, stage, diagnostics);
+        verify_expression(statement.secondary_expression, loop_scope, names, resident, stage,
+                          diagnostics);
+        verify_expression(statement.tertiary_expression, loop_scope, names, resident, stage,
+                          diagnostics);
+        verify_expression(statement.target_expression, loop_scope, names, resident, stage,
+                          diagnostics);
+        verify_statements(program, statement.body, body_scope, names, resident, stage, diagnostics);
+        verify_statements(program, statement.alternative, scope, names, resident, stage,
+                          diagnostics);
+        continue;
+      } break;
       case StatementKind::function:
       case StatementKind::indexed_assignment:
       case StatementKind::print:
@@ -364,8 +533,34 @@ void verify_statements(const std::vector<hir::Statement>& statements, const Scop
       case StatementKind::while_loop: break;
     }
     verify_statement_expressions(statement, scope, names, resident, stage, diagnostics);
-    verify_statements(statement.body, scope, names, resident, stage, diagnostics);
-    verify_statements(statement.alternative, scope, names, resident, stage, diagnostics);
+    const bool scoped_control =
+        lexical_blocks(program) && (statement.kind == StatementKind::if_statement ||
+                                    statement.kind == StatementKind::select_case ||
+                                    statement.kind == StatementKind::case_clause ||
+                                    statement.kind == StatementKind::while_loop);
+    const auto body_scope = scoped_control ? names.body_scope(statement.id) : scope;
+    const auto alternative_scope = scoped_control && !statement.alternative.empty()
+                                       ? names.alternative_scope(statement.id)
+                                       : scope;
+    if (scoped_control) {
+      const auto* child = names.scope(body_scope);
+      if (child == nullptr || child->parent != scope || child->owner != statement.id ||
+          child->kind != NameScopeKind::body) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "control-flow body does not own a valid lexical scope");
+      }
+    }
+    if (scoped_control && !statement.alternative.empty()) {
+      const auto* child = names.scope(alternative_scope);
+      if (child == nullptr || child->parent != scope || child->owner != statement.id ||
+          child->kind != NameScopeKind::alternative) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "control-flow alternative does not own a valid lexical scope");
+      }
+    }
+    verify_statements(program, statement.body, body_scope, names, resident, stage, diagnostics);
+    verify_statements(program, statement.alternative, alternative_scope, names, resident, stage,
+                      diagnostics);
   }
 }
 
@@ -398,9 +593,25 @@ const NameScope* NameTable::scope(const ScopeId id) const noexcept {
   return id.valid() && id.value() < scopes.size() ? &scopes[id.value()] : nullptr;
 }
 
-ScopeId NameTable::owned_scope(const HirNodeId owner) const noexcept {
-  return owner.valid() && owner.value() < owned_scopes.size() ? owned_scopes[owner.value()]
-                                                              : ScopeId{};
+ScopeId NameTable::function_scope(const HirNodeId owner) const noexcept {
+  return owner.valid() && owner.value() < scope_edges.size() ? scope_edges[owner.value()].function
+                                                             : ScopeId{};
+}
+
+ScopeId NameTable::statement_scope(const HirNodeId owner) const noexcept {
+  return owner.valid() && owner.value() < scope_edges.size() ? scope_edges[owner.value()].statement
+                                                             : ScopeId{};
+}
+
+ScopeId NameTable::body_scope(const HirNodeId owner) const noexcept {
+  return owner.valid() && owner.value() < scope_edges.size() ? scope_edges[owner.value()].body
+                                                             : ScopeId{};
+}
+
+ScopeId NameTable::alternative_scope(const HirNodeId owner) const noexcept {
+  return owner.valid() && owner.value() < scope_edges.size()
+             ? scope_edges[owner.value()].alternative
+             : ScopeId{};
 }
 
 NameAnalysisResult analyze_names(const hir::Program& program) {
@@ -416,7 +627,7 @@ std::vector<Diagnostic> verify_names(const hir::Program& program, const NameTabl
     add_error(diagnostics, {1, 1}, stage, "HIR revision is stale");
   }
   if (names.hir_node_count != program.node_count || names.nodes.size() != program.node_count + 1U ||
-      names.owned_scopes.size() != names.nodes.size()) {
+      names.scope_edges.size() != names.nodes.size()) {
     add_error(diagnostics, {1, 1}, stage, "dense node index does not cover the HIR ID space");
     return diagnostics;
   }
@@ -428,8 +639,24 @@ std::vector<Diagnostic> verify_names(const hir::Program& program, const NameTabl
   for (std::size_t index = 1; index < names.scopes.size(); ++index) {
     const auto& scope = names.scopes[index];
     if (scope.id.value() != index ||
-        (scope.parent.valid() && names.scope(scope.parent) == nullptr)) {
+        (scope.parent.valid() && names.scope(scope.parent) == nullptr) ||
+        (scope.kind == NameScopeKind::global) != (scope.id == names.global_scope)) {
       add_error(diagnostics, {1, 1}, stage, "scope identity or parent is invalid");
+    }
+    if (scope.kind != NameScopeKind::global) {
+      if (!scope.owner.valid() || scope.owner.value() >= names.scope_edges.size()) {
+        add_error(diagnostics, {1, 1}, stage, "non-global scope has no valid HIR owner");
+      } else {
+        const auto& edges = names.scope_edges[scope.owner.value()];
+        const auto linked =
+            (scope.kind == NameScopeKind::function && edges.function == scope.id) ||
+            (scope.kind == NameScopeKind::statement && edges.statement == scope.id) ||
+            (scope.kind == NameScopeKind::body && edges.body == scope.id) ||
+            (scope.kind == NameScopeKind::alternative && edges.alternative == scope.id);
+        if (!linked) {
+          add_error(diagnostics, {1, 1}, stage, "scope is not linked from its owner edge");
+        }
+      }
     }
     for (std::size_t offset = 0; offset < scope.symbols.size(); ++offset) {
       const auto* symbol = names.symbol(scope.symbols[offset]);
@@ -438,6 +665,21 @@ std::vector<Diagnostic> verify_names(const hir::Program& program, const NameTabl
       }
     }
   }
+  for (std::size_t owner = 0; owner < names.scope_edges.size(); ++owner) {
+    const auto verify_edge = [&](const ScopeId id, const NameScopeKind kind) {
+      if (!id.valid()) return;
+      const auto* scope = names.scope(id);
+      if (scope == nullptr || scope->owner.value() != owner || scope->kind != kind) {
+        add_error(diagnostics, {1, 1}, stage,
+                  "scope edge does not match its HIR owner and scope kind");
+      }
+    };
+    const auto& edges = names.scope_edges[owner];
+    verify_edge(edges.function, NameScopeKind::function);
+    verify_edge(edges.statement, NameScopeKind::statement);
+    verify_edge(edges.body, NameScopeKind::body);
+    verify_edge(edges.alternative, NameScopeKind::alternative);
+  }
   for (std::size_t index = 1; index < names.symbols.size(); ++index) {
     const auto& symbol = names.symbols[index];
     if (symbol.id.value() != index || names.scope(symbol.scope) == nullptr || symbol.name.empty()) {
@@ -445,7 +687,8 @@ std::vector<Diagnostic> verify_names(const hir::Program& program, const NameTabl
     }
   }
   std::vector<bool> resident(names.nodes.size(), false);
-  verify_statements(program.statements, names.global_scope, names, resident, stage, diagnostics);
+  verify_statements(program, program.statements, names.global_scope, names, resident, stage,
+                    diagnostics);
   std::vector<bool> seen_use(names.uses.size(), false);
   for (std::size_t id = 1; id < names.nodes.size(); ++id) {
     const auto slot = names.nodes[id];
@@ -468,7 +711,8 @@ std::vector<Diagnostic> verify_names(const hir::Program& program, const NameTabl
             use.binding != binding_for(symbol->kind) || use.intrinsic != IntrinsicId::none) {
           add_error(diagnostics, {1, 1}, stage, "resolved name use has an invalid symbol contract");
         }
-        if (use.role != NameRole::reference && symbol->scope != use.scope) {
+        if (use.role != NameRole::reference && use.role != NameRole::assignment &&
+            symbol->scope != use.scope) {
           add_error(diagnostics, {1, 1}, stage, "definition does not belong to its scope");
         }
       } else if ((use.binding == BindingKind::builtin) != (use.intrinsic != IntrinsicId::none) ||

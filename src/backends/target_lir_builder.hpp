@@ -70,6 +70,7 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
   result.location = source.location;
   result.kind = source.kind;
   result.value = attributes.spelling;
+  result.symbol_id = source.symbol_id;
   result.comparison = attributes.comparison;
   result.comparisons = attributes.comparisons;
   result.children.reserve(source.children.size());
@@ -166,6 +167,7 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
   result.kind = source.kind;
   result.line = source.line;
   result.name = source.name;
+  result.symbol_id = source.symbol_id;
   result.expression = lower_lir_expression<LirExpression>(program, source.expression, ids,
                                                           resolve_binding, call_sites);
   result.has_expression = source.has_expression;
@@ -201,6 +203,7 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
                                                                  ids, resolve_binding, call_sites);
   result.has_target_expression = source.has_target_expression;
   result.parameters = source.parameters;
+  result.parameter_symbols = source.parameter_symbols;
   result.parameter_kinds = source.parameter_kinds;
   result.parameter_defaults.reserve(source.parameter_defaults.size());
   for (const auto expression : source.parameter_defaults) {
@@ -235,6 +238,7 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
     }
   }
   result.return_names = source.return_names;
+  result.return_symbols = source.return_symbols;
   result.has_value_return = function != nullptr && !function->result_types.empty();
   if (function != nullptr) {
     const auto* tuple_result = function->result_types.size() == 1U
@@ -263,6 +267,7 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
     }
   }
   result.target_names = source.target_names;
+  result.target_symbols = source.target_symbols;
   result.target_pattern = lower_assignment_pattern(program, attributes.target_pattern);
   result.has_target_pattern = source.has_target_pattern;
   result.target_types.reserve(attributes.targets.size());

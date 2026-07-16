@@ -1,5 +1,6 @@
 #include "javascript_lir_planning.hpp"
 
+#include <map>
 #include <set>
 #include <string>
 #include <utility>
@@ -123,40 +124,78 @@ void plan_expression_temporaries(lir::SemanticProgram& program, const lir::Expre
   }
 }
 
+void add_scope_name(const SymbolId symbol, const std::string& name,
+                    const std::set<SymbolId>& excluded_symbols,
+                    const std::set<std::string>& excluded_names,
+                    std::map<SymbolId, std::string>& symbols, std::set<std::string>& names) {
+  if (symbol.valid()) {
+    if (excluded_symbols.count(symbol) == 0U) symbols.emplace(symbol, name);
+  } else if (excluded_names.count(name) == 0U) {
+    names.insert(name);
+  }
+}
+
 void collect_scope_names(const std::vector<lir::Statement>& statements,
-                         const std::set<std::string>& excluded, std::set<std::string>& names) {
+                         const std::set<SymbolId>& excluded_symbols,
+                         const std::set<std::string>& excluded_names, const bool lexical_blocks,
+                         std::map<SymbolId, std::string>& symbols, std::set<std::string>& names) {
   for (const auto& statement : statements) {
-    if ((statement.kind == StatementKind::assignment ||
-         statement.kind == StatementKind::declaration) &&
-        excluded.count(statement.name) == 0U) {
-      names.insert(statement.name);
-    } else if (statement.kind == StatementKind::multi_assignment) {
-      for (const auto& name : statement.target_names) {
-        if (excluded.count(name) == 0U) names.insert(name);
+    if (statement.kind == StatementKind::declaration ||
+        (!lexical_blocks && statement.kind == StatementKind::assignment)) {
+      add_scope_name(statement.symbol_id, statement.name, excluded_symbols, excluded_names, symbols,
+                     names);
+    } else if (!lexical_blocks && statement.kind == StatementKind::multi_assignment) {
+      for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
+        add_scope_name(
+            index < statement.target_symbols.size() ? statement.target_symbols[index] : SymbolId{},
+            statement.target_names[index], excluded_symbols, excluded_names, symbols, names);
       }
     } else if (statement.kind == StatementKind::if_statement ||
                statement.kind == StatementKind::while_loop) {
-      collect_scope_names(statement.body, excluded, names);
-      collect_scope_names(statement.alternative, excluded, names);
+      if (!lexical_blocks) {
+        collect_scope_names(statement.body, excluded_symbols, excluded_names, false, symbols,
+                            names);
+        collect_scope_names(statement.alternative, excluded_symbols, excluded_names, false, symbols,
+                            names);
+      }
     } else if (statement.kind == StatementKind::select_case ||
                statement.kind == StatementKind::case_clause) {
-      collect_scope_names(statement.body, excluded, names);
+      if (!lexical_blocks) {
+        collect_scope_names(statement.body, excluded_symbols, excluded_names, false, symbols,
+                            names);
+      }
     } else if (statement.kind == StatementKind::range_loop) {
-      if (excluded.count(statement.name) == 0U) names.insert(statement.name);
-      auto loop_excluded = excluded;
-      loop_excluded.insert(statement.name);
-      collect_scope_names(statement.body, loop_excluded, names);
-      collect_scope_names(statement.alternative, excluded, names);
+      if (!lexical_blocks) {
+        add_scope_name(statement.symbol_id, statement.name, excluded_symbols, excluded_names,
+                       symbols, names);
+        auto loop_symbols = excluded_symbols;
+        auto loop_names = excluded_names;
+        if (statement.symbol_id.valid())
+          loop_symbols.insert(statement.symbol_id);
+        else
+          loop_names.insert(statement.name);
+        collect_scope_names(statement.body, loop_symbols, loop_names, false, symbols, names);
+        collect_scope_names(statement.alternative, excluded_symbols, excluded_names, false, symbols,
+                            names);
+      }
     }
   }
 }
 
-std::vector<std::string> expected_scope(const std::vector<lir::Statement>& statements,
-                                        const std::vector<std::string>& parameters = {}) {
-  const std::set<std::string> excluded(parameters.begin(), parameters.end());
+std::vector<IdentifierReference> expected_scope(
+    const std::vector<lir::Statement>& statements, const bool lexical_blocks,
+    const std::vector<std::string>& parameters = {},
+    const std::vector<SymbolId>& parameter_symbols = {}) {
+  const std::set<std::string> excluded_names(parameters.begin(), parameters.end());
+  const std::set<SymbolId> excluded_symbols(parameter_symbols.begin(), parameter_symbols.end());
+  std::map<SymbolId, std::string> symbols;
   std::set<std::string> names;
-  collect_scope_names(statements, excluded, names);
-  return {names.begin(), names.end()};
+  collect_scope_names(statements, excluded_symbols, excluded_names, lexical_blocks, symbols, names);
+  std::vector<IdentifierReference> result;
+  result.reserve(symbols.size() + names.size());
+  for (const auto& [symbol, name] : symbols) result.push_back({symbol, name});
+  for (const auto& name : names) result.push_back({{}, name});
+  return result;
 }
 
 void plan_statement_resources(lir::SemanticProgram& program,
@@ -179,7 +218,30 @@ void plan_statement_resources(lir::SemanticProgram& program,
                                                         : lir::ParameterPassing::value);
       }
       statement.function_scope.valid = true;
-      statement.function_scope.declarations = expected_scope(statement.body, statement.parameters);
+      statement.function_scope.declarations =
+          expected_scope(statement.body, program.emission.lexical_block_scopes,
+                         statement.parameters, statement.parameter_symbols);
+    }
+    if (program.emission.lexical_block_scopes) {
+      const auto scoped_control = statement.kind == StatementKind::if_statement ||
+                                  statement.kind == StatementKind::select_case ||
+                                  statement.kind == StatementKind::case_clause ||
+                                  statement.kind == StatementKind::while_loop ||
+                                  statement.kind == StatementKind::range_loop ||
+                                  statement.kind == StatementKind::for_loop;
+      if (statement.kind == StatementKind::range_loop ||
+          statement.kind == StatementKind::for_loop) {
+        statement.statement_scope.valid = true;
+        statement.statement_scope.declarations = {{statement.symbol_id, statement.name}};
+      }
+      if (scoped_control) {
+        statement.body_scope.valid = true;
+        statement.body_scope.declarations = expected_scope(statement.body, true);
+        if (!statement.alternative.empty()) {
+          statement.alternative_scope.valid = true;
+          statement.alternative_scope.declarations = expected_scope(statement.alternative, true);
+        }
+      }
     }
     if (statement.kind == StatementKind::select_case) {
       add_temporary(program, used, statement.id, lir::TemporaryRole::select_value);
@@ -268,6 +330,12 @@ void verify_statement_resources(const lir::SemanticProgram& program,
                                 std::vector<std::size_t>& expected, std::set<std::string>& names,
                                 std::vector<Diagnostic>& diagnostics, const bool top_level) {
   for (const auto& statement : statements) {
+    if (statement.parameter_symbols.size() != statement.parameters.size() ||
+        statement.return_symbols.size() != statement.return_names.size() ||
+        statement.target_symbols.size() != statement.target_names.size()) {
+      add_error(diagnostics, {statement.line, 1},
+                "JavaScript LIR symbol identity arrays have inconsistent arity");
+    }
     const auto function = statement.kind == StatementKind::function;
     if (function != statement.function_abi.valid || function != statement.function_scope.valid ||
         (function && statement.function_abi.parameters.size() != statement.parameters.size()) ||
@@ -279,9 +347,37 @@ void verify_statement_resources(const lir::SemanticProgram& program,
              (top_level && program.emission.module == lir::EmissionPlan::ModuleFormat::esm &&
               (!program.emission.explicit_exports_only || statement.source_exported))) ||
         (function && statement.function_scope.declarations !=
-                         expected_scope(statement.body, statement.parameters))) {
+                         expected_scope(statement.body, program.emission.lexical_block_scopes,
+                                        statement.parameters, statement.parameter_symbols))) {
       add_error(diagnostics, {statement.line, 1},
                 "JavaScript LIR function ABI or scope plan is incomplete or inconsistent");
+    }
+    const auto scoped_control = statement.kind == StatementKind::if_statement ||
+                                statement.kind == StatementKind::select_case ||
+                                statement.kind == StatementKind::case_clause ||
+                                statement.kind == StatementKind::while_loop ||
+                                statement.kind == StatementKind::range_loop ||
+                                statement.kind == StatementKind::for_loop;
+    const auto expected_statement_scope =
+        program.emission.lexical_block_scopes &&
+        (statement.kind == StatementKind::range_loop || statement.kind == StatementKind::for_loop);
+    const auto expected_body_scope = program.emission.lexical_block_scopes && scoped_control;
+    const auto expected_alternative_scope = expected_body_scope && !statement.alternative.empty();
+    if (statement.statement_scope.valid != expected_statement_scope ||
+        statement.body_scope.valid != expected_body_scope ||
+        statement.alternative_scope.valid != expected_alternative_scope ||
+        (expected_statement_scope &&
+         statement.statement_scope.declarations !=
+             std::vector<IdentifierReference>{{statement.symbol_id, statement.name}}) ||
+        (expected_body_scope &&
+         statement.body_scope.declarations != expected_scope(statement.body, true)) ||
+        (expected_alternative_scope &&
+         statement.alternative_scope.declarations != expected_scope(statement.alternative, true)) ||
+        (!expected_statement_scope && !statement.statement_scope.declarations.empty()) ||
+        (!expected_body_scope && !statement.body_scope.declarations.empty()) ||
+        (!expected_alternative_scope && !statement.alternative_scope.declarations.empty())) {
+      add_error(diagnostics, {statement.line, 1},
+                "JavaScript LIR lexical scope plan is incomplete or inconsistent");
     }
     if (function && statement.function_abi.parameters.size() == statement.parameters.size()) {
       for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
@@ -347,7 +443,8 @@ void plan_lir_resources(lir::SemanticProgram& program, const TranspileOptions& o
   program.temporaries.offsets = {0};
   program.temporaries.slots.clear();
   program.program_scope.valid = true;
-  program.program_scope.declarations = expected_scope(program.statements);
+  program.program_scope.declarations =
+      expected_scope(program.statements, program.emission.lexical_block_scopes);
   auto used = program.identifiers.used;
   plan_statement_resources(program, program.statements, used, true);
   plan_module(program, options);
@@ -361,7 +458,8 @@ void verify_lir_resources(const lir::SemanticProgram& program,
                           std::vector<Diagnostic>& diagnostics) {
   verify_module(program, diagnostics);
   if (!program.program_scope.valid ||
-      program.program_scope.declarations != expected_scope(program.statements)) {
+      program.program_scope.declarations !=
+          expected_scope(program.statements, program.emission.lexical_block_scopes)) {
     add_error(diagnostics, {1, 1}, "JavaScript LIR program scope plan is inconsistent");
   }
   if (program.temporaries.offsets.size() != program.node_count + 2U ||

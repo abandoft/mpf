@@ -166,13 +166,15 @@ bool explicit_return_type(const lir::Statement& statement, std::string& type) {
   return true;
 }
 
-lir::DeclarationPlan make_declaration(std::string name, const lir::Expression* initializer,
+lir::DeclarationPlan make_declaration(const SymbolId symbol, std::string name,
+                                      const lir::Expression* initializer,
                                       const ValueType explicit_type, const ValueType element_type,
                                       const std::vector<std::size_t>& shape,
                                       const std::size_t tuple_index = dynamic_extent,
                                       const AssignmentPattern* pattern_leaf = nullptr) {
   lir::DeclarationPlan result;
   result.name = std::move(name);
+  result.symbol_id = symbol;
   result.tuple_index = tuple_index;
   if (pattern_leaf != nullptr && pattern_leaf->kind == AssignmentPatternKind::name) {
     result.probe_path = pattern_leaf->access_path;
@@ -207,34 +209,63 @@ lir::DeclarationPlan make_declaration(std::string name, const lir::Expression* i
   return result;
 }
 
+bool accept_declaration(const SymbolId symbol, const std::string& name,
+                        const std::set<SymbolId>& excluded_symbols,
+                        const std::set<std::string>& excluded_names,
+                        std::set<SymbolId>& found_symbols, std::set<std::string>& found_names) {
+  if (symbol.valid()) {
+    return excluded_symbols.count(symbol) == 0U && found_symbols.insert(symbol).second;
+  }
+  return excluded_names.count(name) == 0U && found_names.insert(name).second;
+}
+
 void collect_declarations(const std::vector<lir::Statement>& statements,
-                          const std::set<std::string>& excluded, std::set<std::string>& found,
+                          const std::set<SymbolId>& excluded_symbols,
+                          const std::set<std::string>& excluded_names,
+                          std::set<SymbolId>& found_symbols, std::set<std::string>& found_names,
+                          const bool lexical_blocks,
                           std::vector<lir::DeclarationPlan>& declarations) {
   for (const auto& statement : statements) {
-    if (statement.kind == StatementKind::declaration && excluded.count(statement.name) == 0U &&
-        found.insert(statement.name).second) {
-      declarations.push_back(make_declaration(
-          statement.name, statement.has_expression ? &statement.expression : nullptr,
-          statement.declared_type, statement.element_type, statement.shape));
-    } else if (statement.kind == StatementKind::assignment &&
-               excluded.count(statement.name) == 0U && found.insert(statement.name).second) {
-      declarations.push_back(make_declaration(statement.name, &statement.expression,
-                                              statement.declared_type, statement.element_type,
-                                              statement.shape));
-    } else if (statement.kind == StatementKind::multi_assignment) {
+    if (statement.kind == StatementKind::declaration &&
+        accept_declaration(statement.symbol_id, statement.name, excluded_symbols, excluded_names,
+                           found_symbols, found_names)) {
+      declarations.push_back(
+          make_declaration(statement.symbol_id, statement.name,
+                           statement.has_expression ? &statement.expression : nullptr,
+                           statement.declared_type, statement.element_type, statement.shape));
+    } else if (!lexical_blocks && statement.kind == StatementKind::assignment &&
+               accept_declaration(statement.symbol_id, statement.name, excluded_symbols,
+                                  excluded_names, found_symbols, found_names)) {
+      declarations.push_back(make_declaration(statement.symbol_id, statement.name,
+                                              &statement.expression, statement.declared_type,
+                                              statement.element_type, statement.shape));
+    } else if (!lexical_blocks && statement.kind == StatementKind::multi_assignment) {
       if (statement.has_target_pattern) {
         std::vector<const AssignmentPattern*> leaves;
         collect_assignment_leaves(statement.target_pattern, leaves);
-        for (const auto* leaf : leaves) {
-          if (excluded.count(leaf->name) != 0U || !found.insert(leaf->name).second) continue;
-          declarations.push_back(make_declaration(leaf->name, &statement.expression, leaf->type,
-                                                  leaf->element_type, leaf->shape, dynamic_extent,
-                                                  leaf));
+        for (std::size_t index = 0; index < leaves.size(); ++index) {
+          const auto* leaf = leaves[index];
+          const auto symbol = index < statement.target_symbols.size()
+                                  ? statement.target_symbols[index]
+                                  : SymbolId{};
+          if (!accept_declaration(symbol, leaf->name, excluded_symbols, excluded_names,
+                                  found_symbols, found_names)) {
+            continue;
+          }
+          declarations.push_back(make_declaration(symbol, leaf->name, &statement.expression,
+                                                  leaf->type, leaf->element_type, leaf->shape,
+                                                  dynamic_extent, leaf));
         }
       } else {
         for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
           const auto& name = statement.target_names[index];
-          if (excluded.count(name) != 0U || !found.insert(name).second) continue;
+          const auto symbol = index < statement.target_symbols.size()
+                                  ? statement.target_symbols[index]
+                                  : SymbolId{};
+          if (!accept_declaration(symbol, name, excluded_symbols, excluded_names, found_symbols,
+                                  found_names)) {
+            continue;
+          }
           const auto type = index < statement.target_types.size() ? statement.target_types[index]
                                                                   : ValueType::unknown;
           const auto element_type = index < statement.target_element_types.size()
@@ -242,38 +273,60 @@ void collect_declarations(const std::vector<lir::Statement>& statements,
                                         : ValueType::unknown;
           const auto shape = index < statement.target_shapes.size() ? statement.target_shapes[index]
                                                                     : std::vector<std::size_t>{};
-          declarations.push_back(
-              make_declaration(name, &statement.expression, type, element_type, shape, index));
+          declarations.push_back(make_declaration(symbol, name, &statement.expression, type,
+                                                  element_type, shape, index));
         }
       }
     } else if (statement.kind == StatementKind::if_statement ||
                statement.kind == StatementKind::while_loop) {
-      collect_declarations(statement.body, excluded, found, declarations);
-      collect_declarations(statement.alternative, excluded, found, declarations);
+      if (!lexical_blocks) {
+        collect_declarations(statement.body, excluded_symbols, excluded_names, found_symbols,
+                             found_names, false, declarations);
+        collect_declarations(statement.alternative, excluded_symbols, excluded_names, found_symbols,
+                             found_names, false, declarations);
+      }
     } else if (statement.kind == StatementKind::select_case ||
                statement.kind == StatementKind::case_clause) {
-      collect_declarations(statement.body, excluded, found, declarations);
-    } else if (statement.kind == StatementKind::range_loop) {
-      if (excluded.count(statement.name) == 0U && found.insert(statement.name).second) {
-        declarations.push_back(make_declaration(statement.name, &statement.expression,
-                                                statement.declared_type, statement.element_type,
-                                                statement.shape));
+      if (!lexical_blocks) {
+        collect_declarations(statement.body, excluded_symbols, excluded_names, found_symbols,
+                             found_names, false, declarations);
       }
-      auto loop_excluded = excluded;
-      loop_excluded.insert(statement.name);
-      collect_declarations(statement.body, loop_excluded, found, declarations);
-      collect_declarations(statement.alternative, excluded, found, declarations);
+    } else if (statement.kind == StatementKind::range_loop) {
+      if (!lexical_blocks &&
+          accept_declaration(statement.symbol_id, statement.name, excluded_symbols, excluded_names,
+                             found_symbols, found_names)) {
+        declarations.push_back(make_declaration(statement.symbol_id, statement.name,
+                                                &statement.expression, statement.declared_type,
+                                                statement.element_type, statement.shape));
+      }
+      if (!lexical_blocks) {
+        auto loop_symbols = excluded_symbols;
+        auto loop_names = excluded_names;
+        if (statement.symbol_id.valid())
+          loop_symbols.insert(statement.symbol_id);
+        else
+          loop_names.insert(statement.name);
+        collect_declarations(statement.body, loop_symbols, loop_names, found_symbols, found_names,
+                             false, declarations);
+        collect_declarations(statement.alternative, excluded_symbols, excluded_names, found_symbols,
+                             found_names, false, declarations);
+      }
     }
   }
 }
 
 lir::ScopePlan expected_scope(const std::vector<lir::Statement>& statements,
-                              const std::vector<std::string>& parameters = {}) {
+                              const bool lexical_blocks,
+                              const std::vector<std::string>& parameters = {},
+                              const std::vector<SymbolId>& parameter_symbols = {}) {
   lir::ScopePlan result;
   result.valid = true;
-  const std::set<std::string> excluded(parameters.begin(), parameters.end());
-  std::set<std::string> found;
-  collect_declarations(statements, excluded, found, result.declarations);
+  const std::set<std::string> excluded_names(parameters.begin(), parameters.end());
+  const std::set<SymbolId> excluded_symbols(parameter_symbols.begin(), parameter_symbols.end());
+  std::set<std::string> found_names;
+  std::set<SymbolId> found_symbols;
+  collect_declarations(statements, excluded_symbols, excluded_names, found_symbols, found_names,
+                       lexical_blocks, result.declarations);
   return result;
 }
 
@@ -289,9 +342,10 @@ bool same_declaration(const lir::DeclarationPlan& left,
     }
     return true;
   };
-  return left.name == right.name && left.type_kind == right.type_kind &&
-         left.concrete_type == right.concrete_type && left.type_probe == right.type_probe &&
-         same_path(left.probe_path, right.probe_path) && left.tuple_index == right.tuple_index &&
+  return left.name == right.name && left.symbol_id == right.symbol_id &&
+         left.type_kind == right.type_kind && left.concrete_type == right.concrete_type &&
+         left.type_probe == right.type_probe && same_path(left.probe_path, right.probe_path) &&
+         left.tuple_index == right.tuple_index &&
          left.probe_sequence_list == right.probe_sequence_list &&
          left.fixed_shape == right.fixed_shape &&
          left.fixed_nested_types == right.fixed_nested_types;
@@ -435,13 +489,36 @@ void plan_function_abis(lir::SemanticProgram& program) {
   }
 }
 
-void plan_function_scopes(std::vector<lir::Statement>& statements) {
+void plan_scopes(lir::SemanticProgram& program, std::vector<lir::Statement>& statements) {
   for (auto& statement : statements) {
     if (statement.kind == StatementKind::function) {
-      statement.function_scope = expected_scope(statement.body, statement.parameters);
+      statement.function_scope =
+          expected_scope(statement.body, program.emission.lexical_block_scopes,
+                         statement.parameters, statement.parameter_symbols);
     }
-    plan_function_scopes(statement.body);
-    plan_function_scopes(statement.alternative);
+    if (program.emission.lexical_block_scopes) {
+      const auto scoped_control = statement.kind == StatementKind::if_statement ||
+                                  statement.kind == StatementKind::select_case ||
+                                  statement.kind == StatementKind::case_clause ||
+                                  statement.kind == StatementKind::while_loop ||
+                                  statement.kind == StatementKind::range_loop ||
+                                  statement.kind == StatementKind::for_loop;
+      if (statement.kind == StatementKind::range_loop ||
+          statement.kind == StatementKind::for_loop) {
+        statement.statement_scope.valid = true;
+        statement.statement_scope.declarations.push_back(
+            make_declaration(statement.symbol_id, statement.name, &statement.expression,
+                             statement.declared_type, statement.element_type, statement.shape));
+      }
+      if (scoped_control) {
+        statement.body_scope = expected_scope(statement.body, true);
+        if (!statement.alternative.empty()) {
+          statement.alternative_scope = expected_scope(statement.alternative, true);
+        }
+      }
+    }
+    plan_scopes(program, statement.body);
+    plan_scopes(program, statement.alternative);
   }
 }
 
@@ -557,17 +634,52 @@ void verify_statement_resources(const lir::SemanticProgram& program,
                                 std::vector<std::size_t>& expected, std::set<std::string>& names,
                                 std::vector<Diagnostic>& diagnostics) {
   for (const auto& statement : statements) {
+    if (statement.parameter_symbols.size() != statement.parameters.size() ||
+        statement.return_symbols.size() != statement.return_names.size() ||
+        statement.target_symbols.size() != statement.target_names.size()) {
+      add_error(diagnostics, {statement.line, 1},
+                "cpp LIR symbol identity arrays have inconsistent arity");
+    }
     if (statement.kind == StatementKind::function) {
       if (!statement.function_abi.valid) {
         add_error(diagnostics, {statement.line, 1}, "cpp LIR function is missing its ABI plan");
       }
-      verify_scope(statement.function_scope, expected_scope(statement.body, statement.parameters),
+      verify_scope(statement.function_scope,
+                   expected_scope(statement.body, program.emission.lexical_block_scopes,
+                                  statement.parameters, statement.parameter_symbols),
                    program.node_count, {statement.line, 1}, diagnostics);
     } else if (statement.function_abi.valid || !statement.function_abi.parameters.empty() ||
                statement.function_scope.valid || !statement.function_scope.declarations.empty()) {
       add_error(diagnostics, {statement.line, 1},
                 "non-function cpp LIR node owns function ABI or scope plan");
     }
+    const auto scoped_control = statement.kind == StatementKind::if_statement ||
+                                statement.kind == StatementKind::select_case ||
+                                statement.kind == StatementKind::case_clause ||
+                                statement.kind == StatementKind::while_loop ||
+                                statement.kind == StatementKind::range_loop ||
+                                statement.kind == StatementKind::for_loop;
+    lir::ScopePlan expected_statement_scope;
+    if (program.emission.lexical_block_scopes && (statement.kind == StatementKind::range_loop ||
+                                                  statement.kind == StatementKind::for_loop)) {
+      expected_statement_scope.valid = true;
+      expected_statement_scope.declarations.push_back(
+          make_declaration(statement.symbol_id, statement.name, &statement.expression,
+                           statement.declared_type, statement.element_type, statement.shape));
+    }
+    const auto expected_body_scope = program.emission.lexical_block_scopes && scoped_control
+                                         ? expected_scope(statement.body, true)
+                                         : lir::ScopePlan{};
+    const auto expected_alternative_scope =
+        program.emission.lexical_block_scopes && scoped_control && !statement.alternative.empty()
+            ? expected_scope(statement.alternative, true)
+            : lir::ScopePlan{};
+    verify_scope(statement.statement_scope, expected_statement_scope, program.node_count,
+                 {statement.line, 1}, diagnostics);
+    verify_scope(statement.body_scope, expected_body_scope, program.node_count, {statement.line, 1},
+                 diagnostics);
+    verify_scope(statement.alternative_scope, expected_alternative_scope, program.node_count,
+                 {statement.line, 1}, diagnostics);
     if (statement.kind == StatementKind::select_case) {
       require_temporary(program, statement.id, lir::TemporaryRole::select_value, 0, expected, names,
                         diagnostics, {statement.line, 1});
@@ -618,10 +730,10 @@ void verify_statement_resources(const lir::SemanticProgram& program,
 void plan_lir_resources(lir::SemanticProgram& program, const TranspileOptions& options) {
   program.temporaries.offsets = {0};
   program.temporaries.slots.clear();
-  program.program_scope = expected_scope(program.statements);
+  program.program_scope = expected_scope(program.statements, program.emission.lexical_block_scopes);
   auto used = program.identifiers.used;
   plan_function_abis(program);
-  plan_function_scopes(program.statements);
+  plan_scopes(program, program.statements);
   plan_translation_unit(program, options);
   plan_statement_temporaries(program, program.statements, used);
   while (program.temporaries.offsets.size() <= program.node_count + 1U) {
@@ -633,8 +745,9 @@ void plan_lir_resources(lir::SemanticProgram& program, const TranspileOptions& o
 void verify_lir_resources(const lir::SemanticProgram& program,
                           std::vector<Diagnostic>& diagnostics) {
   verify_translation_unit(program, diagnostics);
-  verify_scope(program.program_scope, expected_scope(program.statements), program.node_count,
-               {1, 1}, diagnostics);
+  verify_scope(program.program_scope,
+               expected_scope(program.statements, program.emission.lexical_block_scopes),
+               program.node_count, {1, 1}, diagnostics);
   if (program.temporaries.offsets.size() != program.node_count + 2U ||
       program.temporaries.offsets.back() != program.temporaries.slots.size()) {
     add_error(diagnostics, {1, 1}, "cpp LIR temporary plan has invalid dense inventory");

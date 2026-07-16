@@ -22,6 +22,7 @@ enum class TypeScriptStatementTokenKind {
   keyword_if,
   keyword_else,
   keyword_while,
+  keyword_for,
   keyword_return,
   keyword_break,
   keyword_continue,

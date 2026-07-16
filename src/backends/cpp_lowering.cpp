@@ -249,7 +249,7 @@ std::vector<Diagnostic> verify_lir(const lir::SemanticProgram& program) {
   if (program.emission.module_top_level == program.emission.entry_function_top_level) {
     add_error(diagnostics, {1, 1}, "cpp LIR must select exactly one top-level storage plan");
   }
-  if (!identifier_plan_complete(program.identifiers, collect_identifier_names(program))) {
+  if (!identifier_plan_complete(program.identifiers, collect_identifier_inventory(program))) {
     add_error(diagnostics, {1, 1}, "cpp LIR identifier allocation plan is incomplete");
   }
   std::vector<bool> seen(program.node_count + 1, false);
@@ -359,6 +359,8 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
                                              mpf::detail::semantic::LogicalResult::operand;
   lowered->emission.real_division =
       semantic_program.source_semantics.division == mpf::detail::semantic::Division::real_quotient;
+  lowered->emission.lexical_block_scopes = semantic_program.source_semantics.scope_model ==
+                                           mpf::detail::semantic::ScopeModel::lexical_blocks;
   lowered->emission.resizable_sections = semantic_program.source_semantics.resizable_sections;
   lowered->emission.module_top_level = semantic_program.source_semantics.top_level_storage ==
                                        mpf::detail::semantic::TopLevelStorage::module;
@@ -366,7 +368,7 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
       semantic_program.source_semantics.top_level_storage ==
       mpf::detail::semantic::TopLevelStorage::entry_function;
   lowered->identifiers =
-      allocate_identifiers(TargetLanguage::cpp, collect_identifier_names(*lowered));
+      allocate_identifiers(TargetLanguage::cpp, collect_identifier_inventory(*lowered));
   lowered->dependencies = semantic_program.dependencies;
   lowered->function_graph =
       build_function_dependency_graph_generic<lir::Expression, lir::Statement>(lowered->statements);
@@ -401,7 +403,8 @@ std::string lir::dump(const SemanticProgram& program) {
   const auto dump_scope = [&](const std::string_view label, const ScopePlan& scope) {
     output << label << '\n';
     for (const auto& declaration : scope.declarations) {
-      output << "  declaration " << std::quoted(declaration.name) << " type-kind "
+      output << "  declaration @s" << declaration.symbol_id.value() << ' '
+             << std::quoted(declaration.name) << " type-kind "
              << static_cast<int>(declaration.type_kind) << " type "
              << std::quoted(declaration.concrete_type) << " probe %l"
              << declaration.type_probe.value() << " tuple ";
@@ -440,6 +443,14 @@ std::string lir::dump(const SemanticProgram& program) {
         dump_scope("  function-scope %l" + std::to_string(statement.id.value()),
                    statement.function_scope);
       }
+      if (statement.statement_scope.valid || statement.body_scope.valid ||
+          statement.alternative_scope.valid) {
+        dump_scope("  statement-scope %l" + std::to_string(statement.id.value()),
+                   statement.statement_scope);
+        dump_scope("  body-scope %l" + std::to_string(statement.id.value()), statement.body_scope);
+        dump_scope("  alternative-scope %l" + std::to_string(statement.id.value()),
+                   statement.alternative_scope);
+      }
       self(self, statement.body);
       self(self, statement.alternative);
     }
@@ -476,6 +487,7 @@ std::string lir::dump(const SemanticProgram& program) {
   output << "emission dynamic-truthiness=" << program.emission.dynamic_truthiness
          << " operand-logical-result=" << program.emission.operand_logical_result
          << " real-division=" << program.emission.real_division
+         << " lexical-block-scopes=" << program.emission.lexical_block_scopes
          << " resizable-sections=" << program.emission.resizable_sections
          << " module-top-level=" << program.emission.module_top_level
          << " entry-function-top-level=" << program.emission.entry_function_top_level << '\n';

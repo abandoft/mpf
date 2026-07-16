@@ -44,6 +44,7 @@ namespace mpf::detail::mir {
     case StatementKind::case_clause: return Opcode::selection;
     case StatementKind::while_loop:
     case StatementKind::range_loop: return Opcode::loop;
+    case StatementKind::for_loop: return Opcode::store;
     case StatementKind::function: return Opcode::function;
     case StatementKind::break_statement:
     case StatementKind::continue_statement: return Opcode::control;

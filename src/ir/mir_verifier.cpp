@@ -332,6 +332,26 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
     if (!statement.origin.valid()) {
       add_error(diagnostics, {statement.line, 1}, stage, "statement has no HIR origin");
     }
+    if (statement.parameter_symbols.size() != statement.parameters.size() ||
+        statement.return_symbols.size() != statement.return_names.size() ||
+        statement.target_symbols.size() != statement.target_names.size()) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "statement symbol identity arrays have inconsistent arity");
+    }
+    if (statement.has_expression != statement.expression.valid() ||
+        statement.has_secondary_expression != statement.secondary_expression.valid() ||
+        statement.has_tertiary_expression != statement.tertiary_expression.valid() ||
+        statement.has_target_expression != statement.target_expression.valid()) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "statement expression presence flags disagree with strong-ID edges");
+    }
+    if (statement.kind == StatementKind::for_loop &&
+        (!statement.has_expression || !statement.has_secondary_expression ||
+         !statement.has_tertiary_expression || statement.name.empty() ||
+         !statement.symbol_id.valid() || !statement.alternative.empty())) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "for loop has an incomplete initializer/condition/update contract");
+    }
     const auto* statement_attributes = attributes(program, statement.id);
     if (statement_attributes == nullptr || statement_attributes->origin != statement.id) {
       add_error(diagnostics, {statement.line, 1}, stage,
@@ -345,11 +365,6 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
           statement_attributes->targets.size() != statement.target_names.size()) {
         add_error(diagnostics, {statement.line, 1}, stage,
                   "multi-assignment target attributes have inconsistent arity");
-      }
-      if (statement.kind == StatementKind::multi_assignment &&
-          statement.target_symbols.size() != statement.target_names.size()) {
-        add_error(diagnostics, {statement.line, 1}, stage,
-                  "multi-assignment target symbols have inconsistent arity");
       }
       if (!valid_index(statement_attributes->previous_type, program.types)) {
         add_error(diagnostics, {statement.line, 1}, stage,

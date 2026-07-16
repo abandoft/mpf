@@ -28,17 +28,18 @@ Kind keyword_kind(const std::string_view word) {
   if (word == "if") return Kind::keyword_if;
   if (word == "else") return Kind::keyword_else;
   if (word == "while") return Kind::keyword_while;
+  if (word == "for") return Kind::keyword_for;
   if (word == "return") return Kind::keyword_return;
   if (word == "break") return Kind::keyword_break;
   if (word == "continue") return Kind::keyword_continue;
-  constexpr std::array<std::string_view, 43> unsupported{
-      "abstract",  "as",         "asserts", "async",   "await",      "class",     "declare",
-      "default",   "delete",     "do",      "enum",    "extends",    "for",       "from",
-      "get",       "implements", "import",  "in",      "instanceof", "interface", "keyof",
-      "namespace", "new",        "of",      "private", "protected",  "public",    "readonly",
-      "satisfies", "set",        "static",  "super",   "switch",     "this",      "throw",
-      "try",       "type",       "typeof",  "using",   "var",        "void",      "with",
-      "yield"};
+  constexpr std::array<std::string_view, 42> unsupported{
+      "abstract",   "as",     "asserts", "async",      "await",     "class",    "declare",
+      "default",    "delete", "do",      "enum",       "extends",   "from",     "get",
+      "implements", "import", "in",      "instanceof", "interface", "keyof",    "namespace",
+      "new",        "of",     "private", "protected",  "public",    "readonly", "satisfies",
+      "set",        "static", "super",   "switch",     "this",      "throw",    "try",
+      "type",       "typeof", "using",   "var",        "void",      "with",     "yield",
+  };
   return std::binary_search(unsupported.begin(), unsupported.end(), word)
              ? Kind::unsupported_keyword
              : Kind::identifier;
@@ -235,6 +236,7 @@ const char* to_string(const TypeScriptStatementTokenKind kind) noexcept {
     case Kind::keyword_if: return "if";
     case Kind::keyword_else: return "else";
     case Kind::keyword_while: return "while";
+    case Kind::keyword_for: return "for";
     case Kind::keyword_return: return "return";
     case Kind::keyword_break: return "break";
     case Kind::keyword_continue: return "continue";

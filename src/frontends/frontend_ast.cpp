@@ -30,6 +30,7 @@ semantic::Profile semantic_profile(const SourceLanguage language) noexcept {
   } else if (language == SourceLanguage::typescript) {
     profile.division = semantic::Division::real_quotient;
     profile.export_policy = semantic::ExportPolicy::explicit_only;
+    profile.scope_model = semantic::ScopeModel::lexical_blocks;
     profile.emit_parameter_defaults = true;
   }
   return profile;
