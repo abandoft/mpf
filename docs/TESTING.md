@@ -10,17 +10,17 @@ MPF 的验证体系分为七层：
 6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖三种前端、两个目标、资源耗尽和确定性重放；
 7. 小文件延迟、吞吐、深 CFG、大 shape、跨函数图、峰值 arena、产物大小和并发 session 进入发布性能门禁。
 
-0.3.4 已覆盖生产 stage/include architecture test、AST/HIR/MIR/双目标 LIR verifier negative、normalized HIR 与双目标 semantic LIR golden、人类可读目标 LIR dump、analysis revision/preservation、source map v3、编译报告、前后端 conformance、安装后 consumer、细粒度 resource exhaustion、fuzz smoke/libFuzzer 和绑定项目版本的性能回归门禁。0.3.5 新增 tuple/function/reference 类型签名、跨函数 call-site/return、缺失 call edge、writable-reference corruption、Analyzer 不写回 HIR、结构规范化 revision/dense remap、post-analysis HIR resource gate，独立 flow/name table 的 dense/stale/corruption case，alias/effect table 的 revision cache、弱化事实拒绝、跨函数参数摘要、call-site 实例化和后端 stale-input，borrow/copy/optional-forward/lifetime/writable-overlap contract，以及 LIR v5 函数 ABI/CSR temporary/scope/declaration inventory 的缺失与不一致拒绝；内部测试现为 153 项，生产代码行覆盖率实测 88.54%（16453/18583）。更广官方 grammar、精确 N 维 selector region overlap 及宽 IR 收敛继续按 [TODO 0.3.5](../TODO.md) 推进。
+0.3.4 已覆盖生产 stage/include architecture test、AST/HIR/MIR/双目标 LIR verifier negative、normalized HIR 与双目标 semantic LIR golden、人类可读目标 LIR dump、analysis revision/preservation、source map v3、编译报告、前后端 conformance、安装后 consumer、细粒度 resource exhaustion、fuzz smoke/libFuzzer 和绑定项目版本的性能回归门禁。0.3.5 新增 tuple/function/reference 类型签名、跨函数 call-site/return、缺失 call edge、writable-reference corruption、Analyzer 不写回 HIR、结构规范化 revision/dense remap、post-analysis HIR resource gate，独立 flow/name table 的 dense/stale/corruption case，alias/effect table 的 revision cache、弱化事实拒绝、跨函数参数摘要、call-site 实例化和后端 stale-input，borrow/copy/optional-forward/lifetime/writable-overlap contract，以及 LIR v6 函数 ABI/CSR temporary/scope/declaration/module/translation-unit inventory 的缺失、乱序与不一致拒绝；架构门禁同时禁止 renderer 接收 options、读取 runtime requirements/function graph 或重新扫描顶层布局，并要求 runtime catalog 独立编译。内部测试现为 154 项，生产代码行覆盖率实测 88.62%（16611/18744）。更广官方 grammar、精确 N 维 selector region overlap 及宽 IR 收敛继续按 [TODO 0.3.5](../TODO.md) 推进。
 
 ## 当前开发分支与发布基线
 
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 153 项，零失败 |
+| C++ 单元与集成测试 | 154 项，零失败 |
 | CTest | 59 项，包含 48 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
 | Differential corpus | Python 20、Fortran 18、Matlab 10，共 48 个 case |
 | 工具完整环境执行路径 | 134 条程序路径，另有每 case 一条 oracle |
-| 生产代码行覆盖率 | 88.54%（16453/18583），门槛 85% |
+| 生产代码行覆盖率 | 88.62%（16611/18744），门槛 85% |
 
 ## Differential corpus
 
@@ -81,7 +81,7 @@ cmake --preset coverage
 cmake --build --preset coverage
 ```
 
-coverage preset 使用 Clang source-based coverage，将多进程 `.profraw` 合并后排除 `build/`、`tests/`、不贡献 profile 的子构建 isolation case 和已由独立 workflow 拥有的性能阈值，只统计生产源码；报告位于 `build/coverage/coverage/`。当前门槛为 85%，0.3.5 开发线实测 88.54%（16453/18583）；0.3.4 封版数据保留在 changelog。独立 `Security` workflow 先探测仓库的 GitHub Advanced Security 能力；公共仓库或已授权 GHAS 的私有仓库对 C/C++ 运行 CodeQL `security-extended`，并在 pull request 上拒绝引入 moderate 及以上已知漏洞的依赖变更。未授权私有仓库明确记录 capability notice，并继续依赖始终执行的 clang-tidy/Clang analyzer、Sanitizer 和零告警构建门禁。
+coverage preset 使用 Clang source-based coverage，将多进程 `.profraw` 合并后排除 `build/`、`tests/`、不贡献 profile 的子构建 isolation case 和已由独立 workflow 拥有的性能阈值，只统计生产源码；报告位于 `build/coverage/coverage/`。当前门槛为 85%，0.3.5 开发线实测 88.62%（16611/18744）；0.3.4 封版数据保留在 changelog。独立 `Security` workflow 先探测仓库的 GitHub Advanced Security 能力；公共仓库或已授权 GHAS 的私有仓库对 C/C++ 运行 CodeQL `security-extended`，并在 pull request 上拒绝引入 moderate 及以上已知漏洞的依赖变更。未授权私有仓库明确记录 capability notice，并继续依赖始终执行的 clang-tidy/Clang analyzer、Sanitizer 和零告警构建门禁。
 
 完整的 workflow 边界、required check 名称、超时和产物策略见 [临时停用的 GitHub Actions 职责矩阵](../.github/workflows-disabled/README.md)。恢复自动执行时应将该目录整体改回 `.github/workflows/`。
 

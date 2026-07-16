@@ -10,8 +10,9 @@
 - JavaScript 与 `cpp` 私有 LIR 保存 MIR 已决定的 argument transfer plan；JavaScript box/writeback、`cpp` section temporary/copy-out 和两目标 optional forwarding 均消费该计划，不再由 renderer 依据 AST section 形状重新推断调用 ABI。架构门禁禁止 call-site 回退为并行数组或 target LIR 重新携带源 `argument_intents`。
 - 双目标 LIR artifact schema 升级到 v4。JavaScript LIR 固化 script/ESM、export 与 value/reference-box 函数 ABI，`cpp` LIR 固化 template parameter、value/const-reference/mutable-reference/optional-reference、具体 optional 类型和递归返回/前置声明 ABI；两个目标分别以按 `LirNodeId` 的 CSR `offsets + slots` 保存 comparison、call、section、selection、unpack 与 loop 临时资源。renderer 删除动态临时名分配、module option 和源 parameter intent 解释，目标 verifier 拒绝缺失、重复、碰撞、非稠密计划。
 - 双目标 LIR artifact schema 继续升级到 v5：Program 与 Function 显式保存目标 scope/declaration plan。JavaScript lowering 一次性计算确定性声明顺序；`cpp` declaration plan 保存 concrete type 或按 `LirNodeId` 的 `decltype` probe、assignment-pattern 路径、tuple 下标、fixed-shape extent 与预解析嵌套类型。`cpp` renderer 只建立一次稠密 expression view 后 O(1) 查询 probe；两个 renderer 删除递归声明扫描。ABI/temporary/scope planner 与 verifier 从 lowering 主文件拆成目标专属编译单元，架构门禁禁止 renderer 恢复声明收集。
+- 双目标 LIR artifact schema 升级到 v6。JavaScript `ModulePlan` 固化 banner、strict directive、runtime fragment 和顶层 body order；`cpp` `TranslationUnitPlan` 固化标准头文件、runtime/generated namespace、runtime fragment、前置声明/定义/入口顺序、module/entry scope 与 run/main 拓扑。两个 renderer 的公共入口删除 `TranspileOptions`，不再扫描顶层可执行语句、读取 runtime requirements 或函数图；数百行目标 runtime 模板迁入各自独立 catalog 编译单元。verifier 重建并逐字段核对布局，架构门禁阻止布局规划回流 renderer。
 - Analyzer 按职责拆为控制/函数分析、表达式/调用/索引分析和内部 contract 三个编译单元，避免继续扩张单体源码；name/flow 表在参数关联改变结构后按新 revision 重建。
-- 分析后再次检查 HIR 节点资源上限，防止默认参数物化绕过前置门禁；新增 HIR/semantic/name/flow/alias-effect dense/revision/stale、scope corruption、弱化 effect、跨函数摘要、call borrow/copy/forward/lifetime/overlap，以及目标 ABI/temporary/scope/declaration plan 负向测试，内部测试增至 153 项；本轮生产代码行覆盖率实测 88.54%（16453/18583），继续高于 85% 门槛。
+- 分析后再次检查 HIR 节点资源上限，防止默认参数物化绕过前置门禁；新增 HIR/semantic/name/flow/alias-effect dense/revision/stale、scope corruption、弱化 effect、跨函数摘要、call borrow/copy/forward/lifetime/overlap，以及目标 ABI/temporary/scope/declaration/module/translation-unit plan 负向测试，内部测试增至 154 项；本轮生产代码行覆盖率实测 88.62%（16611/18744），继续高于 85% 门槛。
 
 ## 0.3.4
 
