@@ -8,6 +8,7 @@
 
 #include "../compiler/assignment_pattern.hpp"
 #include "../compiler/binding.hpp"
+#include "../compiler/call_contract.hpp"
 #include "../compiler/function_graph.hpp"
 #include "../ir/ids.hpp"
 #include "backend_artifact.hpp"
@@ -65,9 +66,8 @@ struct Expression {
   std::vector<ValueMetadata> sequence_elements;
   std::size_t requested_outputs{1};
   bool multi_output_call{false};
-  std::vector<ParameterIntent> argument_intents;
+  std::vector<ArgumentTransfer> argument_transfers;
   std::vector<std::string> argument_names;
-  std::vector<bool> argument_optional_forward;
   bool procedure_has_result{false};
   std::size_t index_base{0};
   bool allow_negative_index{false};

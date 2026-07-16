@@ -21,7 +21,16 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     if (index != 0) output << ',';
     output << expression.shape[index];
   }
-  output << "] value " << std::quoted(expression.value) << '\n';
+  output << "] value " << std::quoted(expression.value);
+  if (!expression.argument_transfers.empty()) {
+    output << " transfers [";
+    for (std::size_t index = 0; index < expression.argument_transfers.size(); ++index) {
+      if (index != 0) output << ',';
+      output << static_cast<int>(expression.argument_transfers[index]);
+    }
+    output << ']';
+  }
+  output << '\n';
   for (const auto& child : expression.children) {
     dump_target_expression(output, child, depth + 1U);
   }

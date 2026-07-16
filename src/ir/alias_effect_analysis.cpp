@@ -259,10 +259,34 @@ bool same_function(const FunctionEffectFacts& left, const FunctionEffectFacts& r
 }
 
 bool same_call(const CallEffectFacts& left, const CallEffectFacts& right) noexcept {
-  return left.instruction == right.instruction && left.caller == right.caller &&
-         left.callee == right.callee && left.effects.bits() == right.effects.bits() &&
-         left.reads == right.reads && left.writes == right.writes &&
-         left.reads_unknown == right.reads_unknown && left.writes_unknown == right.writes_unknown;
+  if (left.instruction != right.instruction || left.caller != right.caller ||
+      left.callee != right.callee || left.effects.bits() != right.effects.bits() ||
+      left.reads != right.reads || left.writes != right.writes ||
+      left.reads_unknown != right.reads_unknown || left.writes_unknown != right.writes_unknown ||
+      left.arguments.size() != right.arguments.size() ||
+      left.overlaps.size() != right.overlaps.size()) {
+    return false;
+  }
+  for (std::size_t index = 0; index < left.arguments.size(); ++index) {
+    const auto& actual = left.arguments[index];
+    const auto& expected = right.arguments[index];
+    if (actual.ordinal != expected.ordinal || actual.storage != expected.storage ||
+        actual.root != expected.root || actual.transfer != expected.transfer ||
+        actual.reads != expected.reads || actual.writes != expected.writes ||
+        actual.escapes != expected.escapes) {
+      return false;
+    }
+  }
+  for (std::size_t index = 0; index < left.overlaps.size(); ++index) {
+    const auto& actual = left.overlaps[index];
+    const auto& expected = right.overlaps[index];
+    if (actual.left != expected.left || actual.right != expected.right ||
+        actual.relation != expected.relation ||
+        actual.writable_conflict != expected.writable_conflict) {
+      return false;
+    }
+  }
+  return true;
 }
 
 }  // namespace
@@ -421,9 +445,9 @@ AliasEffectTable analyze_alias_effects(const Program& program) {
       changed = update_flag(instruction.writes_unknown, callee.writes_unknown) || changed;
       changed = update_flag(caller.reads_unknown, callee.reads_unknown) || changed;
       changed = update_flag(caller.writes_unknown, callee.writes_unknown) || changed;
-      for (std::size_t argument = 0; argument < call.argument_storages.size(); ++argument) {
-        if (argument < call.argument_omitted.size() && call.argument_omitted[argument]) continue;
-        const auto actual = call.argument_storages[argument];
+      for (std::size_t argument = 0; argument < call.arguments.size(); ++argument) {
+        if (call.arguments[argument].transfer == ArgumentTransfer::omitted) continue;
+        const auto actual = call.arguments[argument].storage;
         if (!actual.valid()) continue;
         const bool reads =
             argument < callee.parameter_reads.size() && callee.parameter_reads[argument];
@@ -477,6 +501,32 @@ AliasEffectTable analyze_alias_effects(const Program& program) {
       facts.writes = instruction->writes;
       facts.reads_unknown = instruction->reads_unknown;
       facts.writes_unknown = instruction->writes_unknown;
+    }
+    const auto* callee = result.function(call.callee);
+    facts.arguments.reserve(call.arguments.size());
+    for (std::size_t index = 0; index < call.arguments.size(); ++index) {
+      const auto& argument = call.arguments[index];
+      const auto reads = callee != nullptr && index < callee->parameter_reads.size() &&
+                         callee->parameter_reads[index];
+      const auto writes = callee != nullptr && index < callee->parameter_writes.size() &&
+                          callee->parameter_writes[index];
+      const auto escapes = callee != nullptr && index < callee->parameter_escapes.size() &&
+                           callee->parameter_escapes[index];
+      facts.arguments.push_back({static_cast<std::uint32_t>(index), argument.storage, argument.root,
+                                 argument.transfer, reads, writes, escapes});
+    }
+    for (std::size_t left = 0; left < call.arguments.size(); ++left) {
+      if (!call.arguments[left].storage.valid()) continue;
+      for (std::size_t right = left + 1U; right < call.arguments.size(); ++right) {
+        if (!call.arguments[right].storage.valid()) continue;
+        const auto relation =
+            alias_between(result, call.arguments[left].storage, call.arguments[right].storage);
+        if (relation == AliasClass::no_alias) continue;
+        facts.overlaps.push_back({static_cast<std::uint32_t>(left),
+                                  static_cast<std::uint32_t>(right), relation,
+                                  argument_transfer_writes(call.arguments[left].transfer) &&
+                                      argument_transfer_writes(call.arguments[right].transfer)});
+      }
     }
     result.calls.push_back(std::move(facts));
   }
@@ -577,6 +627,12 @@ std::vector<Diagnostic> verify_alias_effects(const Program& program,
     if (!same_call(analysis.calls[index], expected.calls[index])) {
       add_error(diagnostics, {1, 1}, stage,
                 "call effect instantiation disagrees with its callee summary");
+    }
+    for (const auto& overlap : analysis.calls[index].overlaps) {
+      if (overlap.writable_conflict) {
+        add_error(diagnostics, {1, 1}, stage,
+                  "multiple writable call arguments may overlap the same storage region");
+      }
     }
   }
   return diagnostics;

@@ -414,9 +414,10 @@ class Renderer final {
   void emit_expression(const Expression& expression, const int parent_precedence = 0) {
     mark(expression.location, expression.origin);
     if (expression.kind == ExpressionKind::call &&
-        std::any_of(expression.argument_intents.begin(), expression.argument_intents.end(),
-                    [](const ParameterIntent intent) {
-                      return intent == ParameterIntent::out || intent == ParameterIntent::inout;
+        std::any_of(expression.argument_transfers.begin(), expression.argument_transfers.end(),
+                    [](const ArgumentTransfer transfer) {
+                      return argument_transfer_writes(transfer) &&
+                             !argument_transfer_forwards_optional(transfer);
                     })) {
       emit_reference_call(expression);
       return;
@@ -585,8 +586,8 @@ class Renderer final {
         for (std::size_t index = 1; index < expression.children.size(); ++index) {
           if (index != 1) output_ << ", ";
           const auto intent_index = index - 1;
-          if (intent_index < expression.argument_optional_forward.size() &&
-              expression.argument_optional_forward[intent_index] &&
+          if (intent_index < expression.argument_transfers.size() &&
+              argument_transfer_forwards_optional(expression.argument_transfers[intent_index]) &&
               expression.children[index].kind == ExpressionKind::identifier) {
             output_ << mangler_->name(expression.children[index].value);
           } else {
@@ -682,23 +683,23 @@ class Renderer final {
 
   void emit_reference_call(const Expression& expression) {
     auto raw_call = expression;
-    raw_call.argument_intents.clear();
+    raw_call.argument_transfers.clear();
     std::vector<std::string> references(expression.children.size());
     output_ << "(() => { ";
     for (std::size_t index = 1; index < expression.children.size(); ++index) {
       const auto intent_index = index - 1;
-      const auto intent = intent_index < expression.argument_intents.size()
-                              ? expression.argument_intents[intent_index]
-                              : ParameterIntent::in;
-      if (intent != ParameterIntent::out && intent != ParameterIntent::inout) continue;
+      const auto transfer = intent_index < expression.argument_transfers.size()
+                                ? expression.argument_transfers[intent_index]
+                                : ArgumentTransfer::value;
+      if (!argument_transfer_writes(transfer)) continue;
       if (expression.children[index].kind == ExpressionKind::omitted_argument ||
-          (intent_index < expression.argument_optional_forward.size() &&
-           expression.argument_optional_forward[intent_index])) {
+          argument_transfer_forwards_optional(transfer)) {
         continue;
       }
       references[index] = mangler_->temporary("reference");
       output_ << "const " << references[index] << " = { value: ";
-      if (intent == ParameterIntent::out &&
+      if ((transfer == ArgumentTransfer::mutable_borrow_out ||
+           transfer == ArgumentTransfer::copy_out) &&
           expression.children[index].inferred_type != ValueType::list) {
         output_ << "undefined";
       } else {

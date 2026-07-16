@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "../compiler/assignment_pattern.hpp"
+#include "../compiler/call_contract.hpp"
 #include "hir.hpp"
 #include "ids.hpp"
 #include "semantic_table.hpp"
@@ -115,6 +116,7 @@ struct StorageData {
   TypeId type{};
   ShapeId shape{};
   bool writable{true};
+  bool optional{false};
   StorageKind kind{StorageKind::local};
   StorageLifetime lifetime{StorageLifetime::function};
   StorageId base{};
@@ -183,9 +185,18 @@ struct CallSite {
   HirNodeId origin{};
   MirFunctionId caller{};
   MirFunctionId callee{};
-  std::vector<TypeId> argument_types;
-  std::vector<StorageId> argument_storages;
-  std::vector<bool> argument_omitted;
+  struct Argument {
+    TypeId type{};
+    StorageId storage{};
+    StorageId root{};
+    ParameterIntent intent{ParameterIntent::none};
+    ArgumentTransfer transfer{ArgumentTransfer::value};
+    StorageViewKind view{StorageViewKind::none};
+    StorageLifetime lifetime{StorageLifetime::expression};
+    bool writable{false};
+  };
+
+  std::vector<Argument> arguments;
   TypeId result_type{};
   std::size_t requested_results{1};
 };
@@ -333,6 +344,23 @@ struct FunctionEffectFacts {
   bool writes_unknown{false};
 };
 
+struct CallArgumentEffectFacts {
+  std::uint32_t ordinal{0};
+  StorageId storage{};
+  StorageId root{};
+  ArgumentTransfer transfer{ArgumentTransfer::value};
+  bool reads{false};
+  bool writes{false};
+  bool escapes{false};
+};
+
+struct CallOverlapFacts {
+  std::uint32_t left{0};
+  std::uint32_t right{0};
+  AliasClass relation{AliasClass::no_alias};
+  bool writable_conflict{false};
+};
+
 struct CallEffectFacts {
   InstructionId instruction{};
   MirFunctionId caller{};
@@ -340,6 +368,8 @@ struct CallEffectFacts {
   Effect effects{Effect::none};
   std::vector<StorageId> reads;
   std::vector<StorageId> writes;
+  std::vector<CallArgumentEffectFacts> arguments;
+  std::vector<CallOverlapFacts> overlaps;
   bool reads_unknown{false};
   bool writes_unknown{false};
 };

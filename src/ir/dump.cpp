@@ -207,9 +207,10 @@ std::string dump_mir(const mir::Program& program) {
     output << "storage !m" << index << " name=" << std::quoted(storage.name) << " symbol=$s"
            << storage.symbol.value() << " type=!t" << storage.type.value() << " shape=!s"
            << storage.shape.value() << " writable=" << storage.writable
-           << " kind=" << enum_value(storage.kind) << " lifetime=" << enum_value(storage.lifetime)
-           << " base=!m" << storage.base.value() << " view=" << enum_value(storage.view)
-           << " origin=%h" << storage.origin.value() << '\n';
+           << " optional=" << storage.optional << " kind=" << enum_value(storage.kind)
+           << " lifetime=" << enum_value(storage.lifetime) << " base=!m" << storage.base.value()
+           << " view=" << enum_value(storage.view) << " origin=%h" << storage.origin.value()
+           << '\n';
   }
   for (std::size_t index = 1; index < program.functions.size(); ++index) {
     const auto& function = program.functions[index];
@@ -263,9 +264,18 @@ std::string dump_mir(const mir::Program& program) {
   }
   for (const auto& call : program.calls) {
     output << "call !i" << call.instruction.value() << " caller=@f" << call.caller.value()
-           << " callee=@f" << call.callee.value() << " arguments=";
-    dump_ids(output, call.argument_types, "!t");
-    output << " result=!t" << call.result_type.value() << " requested=" << call.requested_results
+           << " callee=@f" << call.callee.value() << " arguments=[";
+    for (std::size_t index = 0; index < call.arguments.size(); ++index) {
+      if (index != 0) output << ',';
+      const auto& argument = call.arguments[index];
+      output << "{type=!t" << argument.type.value() << " storage=!m" << argument.storage.value()
+             << " root=!m" << argument.root.value() << " intent=" << enum_value(argument.intent)
+             << " transfer=" << enum_value(argument.transfer)
+             << " view=" << enum_value(argument.view)
+             << " lifetime=" << enum_value(argument.lifetime) << " writable=" << argument.writable
+             << '}';
+    }
+    output << "] result=!t" << call.result_type.value() << " requested=" << call.requested_results
            << " origin=%h" << call.origin.value() << '\n';
   }
   return output.str();
@@ -316,6 +326,17 @@ std::string dump_mir(const mir::Program& program, const mir::AliasEffectTable& a
     dump_ids(output, facts.writes, "!m");
     output << " unknown-read=" << facts.reads_unknown << " unknown-write=" << facts.writes_unknown
            << '\n';
+    for (const auto& argument : facts.arguments) {
+      output << "  argument " << argument.ordinal << " storage=!m" << argument.storage.value()
+             << " root=!m" << argument.root.value() << " transfer=" << enum_value(argument.transfer)
+             << " reads=" << argument.reads << " writes=" << argument.writes
+             << " escapes=" << argument.escapes << '\n';
+    }
+    for (const auto& overlap : facts.overlaps) {
+      output << "  overlap " << overlap.left << ',' << overlap.right
+             << " relation=" << enum_value(overlap.relation)
+             << " writable-conflict=" << overlap.writable_conflict << '\n';
+    }
   }
   return output.str();
 }

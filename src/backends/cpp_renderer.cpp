@@ -978,31 +978,22 @@ class Renderer final {
 
   bool has_writable_section_actual(const Expression& expression) const {
     if (expression.kind != ExpressionKind::call) return false;
-    for (std::size_t index = 1; index < expression.children.size(); ++index) {
-      const auto intent_index = index - 1;
-      const auto intent = intent_index < expression.argument_intents.size()
-                              ? expression.argument_intents[intent_index]
-                              : ParameterIntent::in;
-      if ((intent == ParameterIntent::out || intent == ParameterIntent::inout) &&
-          expression_has_direct_slice(expression.children[index])) {
-        return true;
-      }
-    }
-    return false;
+    return std::any_of(
+        expression.argument_transfers.begin(), expression.argument_transfers.end(),
+        [](const ArgumentTransfer transfer) { return argument_transfer_copies(transfer); });
   }
 
   void emit_section_reference_call(const Expression& expression) {
     auto raw_call = expression;
-    raw_call.argument_intents.clear();
+    raw_call.argument_transfers.clear();
     std::vector<std::string> temporaries(expression.children.size());
     output_ << "([&]() { ";
     for (std::size_t index = 1; index < expression.children.size(); ++index) {
       const auto intent_index = index - 1;
-      const auto intent = intent_index < expression.argument_intents.size()
-                              ? expression.argument_intents[intent_index]
-                              : ParameterIntent::in;
-      if (intent != ParameterIntent::out && intent != ParameterIntent::inout) continue;
-      if (!expression_has_direct_slice(expression.children[index])) continue;
+      const auto transfer = intent_index < expression.argument_transfers.size()
+                                ? expression.argument_transfers[intent_index]
+                                : ArgumentTransfer::value;
+      if (!argument_transfer_copies(transfer)) continue;
       temporaries[index] = mangler_->temporary("section_reference");
       output_ << "auto " << temporaries[index] << " = ";
       emit_expression(expression.children[index]);
@@ -1198,8 +1189,8 @@ class Renderer final {
         for (std::size_t index = 1; index < expression.children.size(); ++index) {
           if (index != 1) output_ << ", ";
           const auto intent_index = index - 1;
-          if (intent_index < expression.argument_optional_forward.size() &&
-              expression.argument_optional_forward[intent_index] &&
+          if (intent_index < expression.argument_transfers.size() &&
+              argument_transfer_forwards_optional(expression.argument_transfers[intent_index]) &&
               expression.children[index].kind == ExpressionKind::identifier) {
             output_ << mangler_->name(expression.children[index].value);
           } else {

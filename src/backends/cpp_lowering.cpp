@@ -144,6 +144,12 @@ std::vector<Diagnostic> verify_semantic(const semantic::Program& program) {
   return diagnostics;
 }
 
+bool contains_slice(const lir::Expression& expression) {
+  if (expression.kind == ExpressionKind::slice) return true;
+  return std::any_of(expression.children.begin(), expression.children.end(),
+                     [](const lir::Expression& child) { return contains_slice(child); });
+}
+
 void verify_expression(const lir::Expression& expression, const std::size_t node_count,
                        std::vector<bool>& seen, std::vector<Diagnostic>& diagnostics) {
   if (!expression.valid()) return;
@@ -156,6 +162,28 @@ void verify_expression(const lir::Expression& expression, const std::size_t node
   if (expression.binding == BindingKind::builtin && expression.intrinsic != IntrinsicId::none &&
       expression.target_binding.kind == CodeBindingKind::unavailable) {
     add_error(diagnostics, expression.location, "cpp LIR has an unresolved intrinsic binding");
+  }
+  if (expression.kind == ExpressionKind::call && !expression.argument_transfers.empty() &&
+      expression.argument_transfers.size() + 1U != expression.children.size()) {
+    add_error(diagnostics, expression.location,
+              "cpp LIR call has an invalid argument transfer plan");
+  }
+  for (std::size_t index = 0; index < expression.argument_transfers.size(); ++index) {
+    const auto transfer = expression.argument_transfers[index];
+    const auto& argument = expression.children[index + 1U];
+    if ((transfer == ArgumentTransfer::omitted) !=
+        (argument.kind == ExpressionKind::omitted_argument)) {
+      add_error(diagnostics, expression.location,
+                "cpp LIR omitted argument disagrees with its transfer plan");
+    }
+    if (argument_transfer_copies(transfer) && !contains_slice(argument)) {
+      add_error(diagnostics, expression.location, "cpp LIR copy transfer has no section actual");
+    }
+    if (argument_transfer_forwards_optional(transfer) &&
+        argument.kind != ExpressionKind::identifier) {
+      add_error(diagnostics, expression.location,
+                "cpp LIR optional forwarding has no parameter name");
+    }
   }
   for (const auto& child : expression.children) {
     verify_expression(child, node_count, seen, diagnostics);

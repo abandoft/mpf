@@ -587,7 +587,11 @@ TEST_CASE("MIR interns tuple function and reference signatures across call sites
   REQUIRE(reference.reference_intent == mpf::detail::ParameterIntent::inout);
   REQUIRE(reference.referent == bump->parameter_types.front());
   REQUIRE(fortran_mir.program.calls.size() == 1U);
-  REQUIRE(fortran_mir.program.calls.front().argument_storages.front().valid());
+  REQUIRE(fortran_mir.program.calls.front().arguments.front().storage.valid());
+  REQUIRE(fortran_mir.program.calls.front().arguments.front().root.valid());
+  REQUIRE(fortran_mir.program.calls.front().arguments.front().transfer ==
+          mpf::detail::ArgumentTransfer::mutable_borrow_inout);
+  REQUIRE(fortran_mir.program.calls.front().arguments.front().writable);
   const auto* bump_effects = fortran_effects.function(bump->id);
   REQUIRE(bump_effects != nullptr);
   REQUIRE(bump_effects->parameter_reads.front());
@@ -601,12 +605,118 @@ TEST_CASE("MIR interns tuple function and reference signatures across call sites
   REQUIRE(!mpf::detail::mir::verify(invalid_signature, "bad-signature").empty());
 
   auto invalid_reference_actual = fortran_mir.program;
-  invalid_reference_actual.calls.front().argument_storages.front() = {};
+  invalid_reference_actual.calls.front().arguments.front().storage = {};
   REQUIRE(!mpf::detail::mir::verify(invalid_reference_actual, "bad-reference").empty());
+
+  auto invalid_transfer = fortran_mir.program;
+  invalid_transfer.calls.front().arguments.front().transfer =
+      mpf::detail::ArgumentTransfer::read_only_borrow;
+  REQUIRE(!mpf::detail::mir::verify(invalid_transfer, "bad-transfer").empty());
 
   auto missing_call_edge = fortran_mir.program;
   missing_call_edge.calls.clear();
   REQUIRE(!mpf::detail::mir::verify(missing_call_edge, "missing-call-edge").empty());
+}
+
+TEST_CASE("MIR call regions model borrow copy forwarding lifetime and overlap") {
+  auto lowered = lower_source(mpf::SourceLanguage::fortran,
+                              "program transfer_contract\n"
+                              "integer :: values(5) = [1,2,3,4,5]\n"
+                              "call bump(values(2))\n"
+                              "call adjust(values(1:5:2))\n"
+                              "contains\n"
+                              "subroutine bump(value)\n"
+                              "integer, intent(inout) :: value\n"
+                              "value = value + 1\n"
+                              "end subroutine bump\n"
+                              "subroutine adjust(items)\n"
+                              "integer, intent(inout) :: items(:)\n"
+                              "items(1) = items(1) + 1\n"
+                              "end subroutine adjust\n"
+                              "end program transfer_contract\n",
+                              "transfer_contract.f90");
+  auto analysis = mpf::detail::analyze_program(lowered.program);
+  REQUIRE(analysis.empty());
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mir.program.calls.size() == 2U);
+  const auto& element = mir.program.calls[0].arguments.front();
+  const auto& section = mir.program.calls[1].arguments.front();
+  REQUIRE(element.transfer == mpf::detail::ArgumentTransfer::mutable_borrow_inout);
+  REQUIRE(element.view == mpf::detail::mir::StorageViewKind::element);
+  REQUIRE(section.transfer == mpf::detail::ArgumentTransfer::copy_in_out);
+  REQUIRE(section.view == mpf::detail::mir::StorageViewKind::section);
+  REQUIRE(section.lifetime == mpf::detail::mir::StorageLifetime::expression);
+  REQUIRE(element.root == section.root);
+  const auto transfer_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, transfer_effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, transfer_effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  const auto borrow_plan =
+      "transfers [" +
+      std::to_string(static_cast<int>(mpf::detail::ArgumentTransfer::mutable_borrow_inout)) + ']';
+  const auto copy_plan =
+      "transfers [" + std::to_string(static_cast<int>(mpf::detail::ArgumentTransfer::copy_in_out)) +
+      ']';
+  REQUIRE(javascript.artifact->debug_dump().find(borrow_plan) != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find(copy_plan) != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find(borrow_plan) != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find(copy_plan) != std::string::npos);
+
+  auto optional = lower_source(mpf::SourceLanguage::fortran,
+                               "program optional_forward\n"
+                               "call outer()\n"
+                               "contains\n"
+                               "subroutine outer(value)\n"
+                               "integer, intent(inout), optional :: value\n"
+                               "call inner(value)\n"
+                               "end subroutine outer\n"
+                               "subroutine inner(value)\n"
+                               "integer, intent(inout), optional :: value\n"
+                               "end subroutine inner\n"
+                               "end program optional_forward\n",
+                               "optional_forward.f90");
+  auto optional_analysis = mpf::detail::analyze_program(optional.program);
+  REQUIRE(optional_analysis.empty());
+  auto optional_mir = mpf::detail::mir::lower_from_hir(
+      std::move(optional.program), std::move(optional_analysis.semantics), optional_analysis.names);
+  REQUIRE(optional_mir.diagnostics.empty());
+  REQUIRE(optional_mir.program.calls.size() == 2U);
+  REQUIRE(optional_mir.program.calls[0].arguments.front().transfer ==
+          mpf::detail::ArgumentTransfer::omitted);
+  REQUIRE(optional_mir.program.calls[1].arguments.front().transfer ==
+          mpf::detail::ArgumentTransfer::optional_forward_inout);
+  const auto forwarded_storage = optional_mir.program.calls[1].arguments.front().storage;
+  REQUIRE(optional_mir.program.storages[forwarded_storage.value()].optional);
+
+  auto distinct = lower_source(mpf::SourceLanguage::fortran,
+                               "program overlap_contract\n"
+                               "integer :: left = 1\n"
+                               "integer :: right = 2\n"
+                               "call update(left, right)\n"
+                               "contains\n"
+                               "subroutine update(first, second)\n"
+                               "integer, intent(inout) :: first, second\n"
+                               "first = first + 1\n"
+                               "second = second + 1\n"
+                               "end subroutine update\n"
+                               "end program overlap_contract\n",
+                               "overlap_contract.f90");
+  auto distinct_analysis = mpf::detail::analyze_program(distinct.program);
+  REQUIRE(distinct_analysis.empty());
+  auto distinct_mir = mpf::detail::mir::lower_from_hir(
+      std::move(distinct.program), std::move(distinct_analysis.semantics), distinct_analysis.names);
+  REQUIRE(distinct_mir.diagnostics.empty());
+  auto corrupted = distinct_mir.program;
+  corrupted.calls.front().arguments[1].storage = corrupted.calls.front().arguments[0].storage;
+  corrupted.calls.front().arguments[1].root = corrupted.calls.front().arguments[0].root;
+  const auto overlap_facts = mpf::detail::mir::analyze_alias_effects(corrupted);
+  REQUIRE(!overlap_facts.calls.front().overlaps.empty());
+  REQUIRE(overlap_facts.calls.front().overlaps.front().writable_conflict);
+  REQUIRE(!mpf::detail::mir::verify_alias_effects(corrupted, overlap_facts, "overlap").empty());
 }
 
 TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR artifacts") {

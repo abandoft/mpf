@@ -91,6 +91,24 @@ bool contains_slice(const Expression& expression) {
                      [](const Expression& child) { return contains_slice(child); });
 }
 
+bool transfer_matches_intent(const ArgumentTransfer transfer,
+                             const ParameterIntent intent) noexcept {
+  switch (transfer) {
+    case ArgumentTransfer::value:
+      return intent == ParameterIntent::none || intent == ParameterIntent::in;
+    case ArgumentTransfer::read_only_borrow:
+    case ArgumentTransfer::optional_forward_in: return intent == ParameterIntent::in;
+    case ArgumentTransfer::mutable_borrow_out:
+    case ArgumentTransfer::copy_out:
+    case ArgumentTransfer::optional_forward_out: return intent == ParameterIntent::out;
+    case ArgumentTransfer::mutable_borrow_inout:
+    case ArgumentTransfer::copy_in_out:
+    case ArgumentTransfer::optional_forward_inout: return intent == ParameterIntent::inout;
+    case ArgumentTransfer::omitted: return true;
+  }
+  return false;
+}
+
 class Builder final {
  public:
   Builder(Program& program, const hir::SemanticTable& semantics, const NameTable& names)
@@ -141,9 +159,7 @@ class Builder final {
         call.callee = found->second;
         program_.instructions[call.instruction.value()].callee = call.callee;
       }
-      call.argument_types = std::move(unresolved.argument_types);
-      call.argument_storages = std::move(unresolved.argument_storages);
-      call.argument_omitted = std::move(unresolved.argument_omitted);
+      call.arguments = std::move(unresolved.arguments);
       call.result_type = unresolved.result_type;
       call.requested_results = unresolved.requested_results;
       program_.calls.push_back(std::move(call));
@@ -536,9 +552,7 @@ class Builder final {
     HirNodeId origin{};
     MirFunctionId caller{};
     SymbolId callee_symbol{};
-    std::vector<TypeId> argument_types;
-    std::vector<StorageId> argument_storages;
-    std::vector<bool> argument_omitted;
+    std::vector<CallSite::Argument> arguments;
     TypeId result_type{};
     std::size_t requested_results{1};
   };
@@ -633,14 +647,16 @@ class Builder final {
       call.result_type = result.type_id;
       call.requested_results =
           program_.source_language == SourceLanguage::matlab ? result.requested_outputs : 1U;
-      call.argument_types.reserve(result.children.size() - 1U);
-      call.argument_storages.reserve(result.children.size() - 1U);
-      call.argument_omitted.reserve(result.children.size() - 1U);
+      call.arguments.reserve(result.children.size() - 1U);
       for (std::size_t index = 1; index < result.children.size(); ++index) {
-        call.argument_types.push_back(result.children[index].type_id);
-        call.argument_storages.push_back(result.children[index].storage_id);
-        call.argument_omitted.push_back(result.children[index].kind ==
-                                        ExpressionKind::omitted_argument);
+        const auto intent_index = index - 1U;
+        const auto intent = intent_index < result.argument_intents.size()
+                                ? result.argument_intents[intent_index]
+                                : ParameterIntent::none;
+        const auto optional_forward = intent_index < result.argument_optional_forward.size() &&
+                                      result.argument_optional_forward[intent_index];
+        call.arguments.push_back(
+            make_call_argument(result.children[index], intent, optional_forward));
       }
       unresolved_calls_.push_back(std::move(call));
     }
@@ -734,10 +750,60 @@ class Builder final {
     append_instruction(std::move(instruction));
   }
 
+  StorageId storage_root(StorageId storage) const noexcept {
+    for (std::size_t depth = 0; depth < program_.storages.size(); ++depth) {
+      if (!storage.valid() || storage.value() >= program_.storages.size()) return {};
+      const auto& metadata = program_.storages[storage.value()];
+      if (metadata.kind != StorageKind::view) return storage;
+      storage = metadata.base;
+    }
+    return {};
+  }
+
+  ArgumentTransfer argument_transfer(const ParameterIntent intent, const StorageId storage,
+                                     const bool optional_forward,
+                                     const bool omitted) const noexcept {
+    if (omitted) return ArgumentTransfer::omitted;
+    if (optional_forward) {
+      if (intent == ParameterIntent::out) return ArgumentTransfer::optional_forward_out;
+      if (intent == ParameterIntent::inout) return ArgumentTransfer::optional_forward_inout;
+      return ArgumentTransfer::optional_forward_in;
+    }
+    if (intent == ParameterIntent::none) return ArgumentTransfer::value;
+    if (intent == ParameterIntent::in) {
+      return storage.valid() ? ArgumentTransfer::read_only_borrow : ArgumentTransfer::value;
+    }
+    const auto section = storage.valid() && storage.value() < program_.storages.size() &&
+                         program_.storages[storage.value()].view == StorageViewKind::section;
+    if (intent == ParameterIntent::out) {
+      return section ? ArgumentTransfer::copy_out : ArgumentTransfer::mutable_borrow_out;
+    }
+    return section ? ArgumentTransfer::copy_in_out : ArgumentTransfer::mutable_borrow_inout;
+  }
+
+  CallSite::Argument make_call_argument(const Expression& expression, const ParameterIntent intent,
+                                        const bool optional_forward) const {
+    CallSite::Argument result;
+    result.type = expression.type_id;
+    result.storage = expression.storage_id;
+    result.root = storage_root(result.storage);
+    result.intent = intent;
+    result.transfer = argument_transfer(intent, result.storage, optional_forward,
+                                        expression.kind == ExpressionKind::omitted_argument);
+    if (result.storage.valid() && result.storage.value() < program_.storages.size()) {
+      const auto& metadata = program_.storages[result.storage.value()];
+      result.view = metadata.view;
+      result.lifetime = metadata.lifetime;
+      result.writable = metadata.writable;
+    }
+    return result;
+  }
+
   StorageId storage_for(const SymbolId symbol, const std::string& name, const HirNodeId origin,
                         const TypeId type, const ShapeId shape,
                         const StorageKind kind = StorageKind::local,
-                        const ParameterIntent intent = ParameterIntent::none) {
+                        const ParameterIntent intent = ParameterIntent::none,
+                        const bool optional = false) {
     auto storage_kind = kind;
     if (kind == StorageKind::local) {
       const auto* name_symbol = names_.symbol(symbol);
@@ -757,6 +823,7 @@ class Builder final {
                                  type,
                                  shape,
                                  intent != ParameterIntent::in,
+                                 optional,
                                  storage_kind,
                                  parameter ? StorageLifetime::borrowed
                                  : module  ? StorageLifetime::module
@@ -773,7 +840,7 @@ class Builder final {
     const auto id = StorageId{static_cast<StorageId::value_type>(program_.storages.size())};
     program_.storages.push_back(
         {"$view" + std::to_string(id.value()), program_.storages[base.value()].symbol, origin, type,
-         shape, program_.storages[base.value()].writable, StorageKind::view,
+         shape, program_.storages[base.value()].writable, false, StorageKind::view,
          StorageLifetime::expression, base,
          section ? StorageViewKind::section : StorageViewKind::element, ParameterIntent::none});
     return id;
@@ -799,11 +866,12 @@ class Builder final {
       const auto intent = index < statement.parameter_intents.size()
                               ? statement.parameter_intents[index]
                               : ParameterIntent::none;
-      const auto storage = storage_for(index < statement.parameter_symbols.size()
-                                           ? statement.parameter_symbols[index]
-                                           : SymbolId{},
-                                       statement.parameters[index], statement.origin, type, shape,
-                                       StorageKind::parameter, intent);
+      const auto storage = storage_for(
+          index < statement.parameter_symbols.size() ? statement.parameter_symbols[index]
+                                                     : SymbolId{},
+          statement.parameters[index], statement.origin, type, shape, StorageKind::parameter,
+          intent,
+          index < statement.parameter_optional.size() && statement.parameter_optional[index]);
       const auto value = value_ids_.next();
       current_block().arguments.push_back({value, type, shape, storage});
       storage_values_[storage] = value;
@@ -1438,25 +1506,26 @@ void verify_function_types_and_calls(const Program& program, std::vector<Diagnos
   }
 
   std::vector<bool> seen_call_instruction(program.instructions.size(), false);
+  std::vector<bool> seen_call_origin(program.hir_node_count + 1U, false);
   for (const auto& call : program.calls) {
     if (!valid_index(call.instruction, program.instructions) ||
         !valid_index(call.caller, program.functions) ||
         !valid_index(call.callee, program.functions) || !call.origin.valid() ||
-        call.requested_results == 0 ||
-        call.argument_types.size() != call.argument_storages.size() ||
-        call.argument_types.size() != call.argument_omitted.size()) {
+        call.origin.value() >= seen_call_origin.size() || call.requested_results == 0) {
       add_error(diagnostics, {1, 1}, stage, "call-site table contains invalid identity or arity");
       continue;
     }
     const auto& instruction = program.instructions[call.instruction.value()];
-    if (seen_call_instruction[call.instruction.value()] || instruction.opcode != Opcode::call ||
-        instruction.origin != call.origin || instruction.callee != call.callee ||
+    if (seen_call_instruction[call.instruction.value()] || seen_call_origin[call.origin.value()] ||
+        instruction.opcode != Opcode::call || instruction.origin != call.origin ||
+        instruction.callee != call.callee ||
         instruction_callers[call.instruction.value()] != call.caller) {
       add_error(diagnostics, instruction.location, stage,
                 "call site does not match its call instruction or owning function");
       continue;
     }
     seen_call_instruction[call.instruction.value()] = true;
+    seen_call_origin[call.origin.value()] = true;
     const auto& callee = program.functions[call.callee.value()];
     const auto* signature = type_data(program, callee.signature);
     if (signature == nullptr || signature->kind != TypeKind::function) {
@@ -1464,43 +1533,93 @@ void verify_function_types_and_calls(const Program& program, std::vector<Diagnos
                 "call site references a callee without a function type");
       continue;
     }
-    if (call.argument_types.size() > signature->parameters.size()) {
+    if (call.arguments.size() > signature->parameters.size()) {
       add_error(diagnostics, instruction.location, stage,
                 "call has more arguments than the callee signature");
       continue;
     }
-    for (std::size_t parameter = call.argument_types.size();
-         parameter < signature->parameters.size(); ++parameter) {
+    for (std::size_t parameter = call.arguments.size(); parameter < signature->parameters.size();
+         ++parameter) {
       if (parameter >= callee.parameter_optional.size() || !callee.parameter_optional[parameter]) {
         add_error(diagnostics, instruction.location, stage,
                   "call omits a required function parameter");
       }
     }
-    for (std::size_t argument = 0; argument < call.argument_types.size(); ++argument) {
+    for (std::size_t argument = 0; argument < call.arguments.size(); ++argument) {
+      const auto& actual = call.arguments[argument];
       const bool optional =
           argument < callee.parameter_optional.size() && callee.parameter_optional[argument];
-      if (call.argument_omitted[argument]) {
-        if (!optional) {
+      const auto* formal = type_data(program, signature->parameters[argument]);
+      const auto formal_intent = formal != nullptr && formal->kind == TypeKind::reference
+                                     ? formal->reference_intent
+                                     : ParameterIntent::none;
+      if (actual.intent != formal_intent) {
+        add_error(diagnostics, instruction.location, stage,
+                  "call argument intent disagrees with the callee signature");
+      }
+      if (!transfer_matches_intent(actual.transfer, actual.intent)) {
+        add_error(diagnostics, instruction.location, stage,
+                  "call argument transfer mode disagrees with its intent");
+      }
+      if (actual.transfer == ArgumentTransfer::omitted) {
+        if (!optional || actual.storage.valid() || actual.root.valid() || actual.writable) {
           add_error(diagnostics, instruction.location, stage,
-                    "call uses an omitted value for a required function parameter");
+                    "omitted call argument has an invalid optional or storage contract");
         }
         continue;
       }
-      if (!valid_index(call.argument_types[argument], program.types) ||
-          !compatible_type(program, call.argument_types[argument],
-                           signature->parameters[argument])) {
+      if (!valid_index(actual.type, program.types) ||
+          !compatible_type(program, actual.type, signature->parameters[argument])) {
         add_error(diagnostics, instruction.location, stage,
                   "call argument type disagrees with the callee signature");
         continue;
       }
-      const auto* formal = type_data(program, signature->parameters[argument]);
-      if (formal != nullptr && formal->kind == TypeKind::reference &&
-          (formal->reference_intent == ParameterIntent::out ||
-           formal->reference_intent == ParameterIntent::inout) &&
-          (!valid_index(call.argument_storages[argument], program.storages) ||
-           !program.storages[call.argument_storages[argument].value()].writable)) {
+      if (actual.storage.valid()) {
+        if (!valid_index(actual.storage, program.storages)) {
+          add_error(diagnostics, instruction.location, stage,
+                    "call argument references invalid storage");
+          continue;
+        }
+        const auto& storage = program.storages[actual.storage.value()];
+        StorageId root = actual.storage;
+        for (std::size_t depth = 0;
+             depth < program.storages.size() && valid_index(root, program.storages) &&
+             program.storages[root.value()].kind == StorageKind::view;
+             ++depth) {
+          root = program.storages[root.value()].base;
+        }
+        if (actual.root != root || actual.view != storage.view ||
+            actual.lifetime != storage.lifetime || actual.writable != storage.writable) {
+          add_error(diagnostics, instruction.location, stage,
+                    "call argument storage region metadata is stale or inconsistent");
+        }
+      } else if (actual.root.valid() || actual.view != StorageViewKind::none || actual.writable) {
+        add_error(diagnostics, instruction.location, stage,
+                  "storage-free call argument has storage region metadata");
+      }
+      if (argument_transfer_writes(actual.transfer) &&
+          (!valid_index(actual.storage, program.storages) || !actual.writable)) {
         add_error(diagnostics, instruction.location, stage,
                   "OUT/INOUT call argument is not backed by writable storage");
+      }
+      if (argument_transfer_copies(actual.transfer) &&
+          (actual.view != StorageViewKind::section ||
+           actual.lifetime != StorageLifetime::expression)) {
+        add_error(diagnostics, instruction.location, stage,
+                  "copy-in/copy-out call argument is not an expression-lifetime section view");
+      }
+      if ((actual.transfer == ArgumentTransfer::mutable_borrow_out ||
+           actual.transfer == ArgumentTransfer::mutable_borrow_inout) &&
+          actual.view == StorageViewKind::section) {
+        add_error(diagnostics, instruction.location, stage,
+                  "section writable actual requires an explicit copy transfer");
+      }
+      if (argument_transfer_forwards_optional(actual.transfer) &&
+          (!valid_index(actual.storage, program.storages) ||
+           program.storages[actual.storage.value()].kind != StorageKind::parameter ||
+           !program.storages[actual.storage.value()].optional)) {
+        add_error(diagnostics, instruction.location, stage,
+                  "optional forwarding does not reference optional parameter storage");
       }
     }
     if (signature->results.empty()) continue;
@@ -1674,6 +1793,14 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
     }
     if (storage.intent == ParameterIntent::in && storage.writable) {
       add_error(diagnostics, {1, 1}, stage, "intent-in storage must not be writable");
+    }
+    if (storage.optional && storage.kind != StorageKind::parameter) {
+      add_error(diagnostics, {1, 1}, stage, "only parameter storage may be optional");
+    }
+    if ((storage.kind == StorageKind::parameter && storage.lifetime != StorageLifetime::borrowed) ||
+        (storage.kind == StorageKind::global && storage.lifetime != StorageLifetime::module) ||
+        (storage.kind == StorageKind::view && storage.lifetime != StorageLifetime::expression)) {
+      add_error(diagnostics, {1, 1}, stage, "storage kind and lifetime contract are inconsistent");
     }
   }
   for (std::size_t index = 1; index < program.instructions.size(); ++index) {

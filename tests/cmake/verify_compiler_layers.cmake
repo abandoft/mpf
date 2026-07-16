@@ -54,6 +54,7 @@ foreach(required IN ITEMS
     "successor_arguments"
     "BlockArgument"
     "AliasEffectTable"
+    "ArgumentTransfer"
     "StorageLifetime"
     "StorageViewKind")
   if(NOT mir_contract MATCHES "${required}")
@@ -64,6 +65,24 @@ if(mir_contract MATCHES "struct LoweringResult[^{]*\\{[^}]*AliasEffectTable" OR
    mir_contract MATCHES "struct Instruction[^{]*\\{[^}]*Effect[ \t]+effects")
   message(FATAL_ERROR "alias/effect analysis is coupled back into MIR lowering or instructions")
 endif()
+if(mir_contract MATCHES "argument_(types|storages|omitted)")
+  message(FATAL_ERROR "MIR call sites regressed to parallel argument arrays")
+endif()
+
+foreach(target_lir IN ITEMS src/backends/javascript_lir.hpp src/backends/cpp_lir.hpp)
+  file(READ "${SOURCE_DIR}/${target_lir}" target_lir_contract)
+  if(NOT target_lir_contract MATCHES "argument_transfers" OR
+     target_lir_contract MATCHES "argument_intents")
+    message(FATAL_ERROR "target LIR does not own a lowered argument transfer plan: ${target_lir}")
+  endif()
+endforeach()
+
+foreach(renderer IN ITEMS src/backends/javascript_renderer.cpp src/backends/cpp_renderer.cpp)
+  file(READ "${SOURCE_DIR}/${renderer}" renderer_contract)
+  if(NOT renderer_contract MATCHES "argument_transfer_(writes|copies|forwards_optional)")
+    message(FATAL_ERROR "target renderer ignores the lowered argument transfer plan: ${renderer}")
+  endif()
+endforeach()
 
 foreach(required_file IN ITEMS
     include/mpf/source_map.hpp
