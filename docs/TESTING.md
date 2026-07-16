@@ -10,17 +10,17 @@ MPF 的验证体系分为七层：
 6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖三种前端、两个目标、资源耗尽和确定性重放；
 7. 小文件延迟、吞吐、深 CFG、大 shape、跨函数图、峰值 arena、产物大小和并发 session 进入发布性能门禁。
 
-0.3.7 已覆盖生产 stage/include architecture test、AST/HIR/MIR/双目标 LIR verifier negative、normalized HIR 与双目标 semantic LIR golden、人类可读目标 LIR dump、analysis revision/preservation、source map v3、编译报告、前后端 conformance、安装后 consumer、细粒度 resource exhaustion、fuzz smoke/libFuzzer 和绑定项目版本的性能回归门禁。新增 direct-arena parser contract 要求三个 statement parser 使用 `FrontendAstBuilder`、block 只返回 `AstNodeId`，并拒绝共享 syntax scratch/facade 文件恢复；三语言错误恢复进一步验证 arena 可达性、parser session allocator ownership 和强类型 `ParseResult` 隔离。LIR v10 负向测试继续覆盖函数 ABI/CSR temporary/scope/layout、expression/statement、强类型 comparison、聚合 call ownership/writeback、target closure evaluation 与稠密 source segment。内部测试现为 159 项，生产代码行覆盖率实测 89.74%（17788/19822）。更广官方 grammar、精确 N 维 selector region overlap 及 MIR 宽投影收敛继续按 [TODO](../TODO.md) 推进。
+0.3.8 已覆盖生产 stage/include architecture test、AST/HIR/MIR/双目标 LIR verifier negative、normalized HIR 与双目标 semantic LIR golden、人类可读目标 LIR dump、analysis revision/preservation、source map v3、编译报告、前后端 conformance、安装后 consumer、细粒度 resource exhaustion、fuzz smoke/libFuzzer 和绑定项目版本的性能回归门禁。新增 flat-MIR contract 要求 expression/operation child 与 roots 只保存 `MirExpressionId`/`MirStatementId`，target LIR builder 只按 ID 查询；negative test 覆盖 expression/instruction metadata 分歧、非法 child、重复 operation root、cycle/unreachable ownership，MIR dump v2 公开 resident instruction 和 SSA/type/shape/storage inventory。内部测试现为 160 项，生产代码行覆盖率实测 89.65%（17987/20063）。更广官方 grammar、显式 lazy CFG/load/store、精确 N 维 selector region overlap 及 flat MIR payload 收敛继续按 [TODO](../TODO.md) 推进。
 
 ## 当前开发分支与发布基线
 
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 159 项，零失败 |
+| C++ 单元与集成测试 | 160 项，零失败 |
 | CTest | 60 项，包含 49 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
 | Differential corpus | Python 21、Fortran 18、Matlab 10，共 49 个 case |
 | 工具完整环境执行路径 | 137 条程序路径，另有每 case 一条 oracle |
-| 生产代码行覆盖率 | 89.74%（17788/19822），门槛 85% |
+| 生产代码行覆盖率 | 89.65%（17987/20063），门槛 85% |
 
 ## Differential corpus
 

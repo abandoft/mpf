@@ -2,7 +2,7 @@
 
 本文是 MPF 前端、公共中间表示、分析/优化基础设施和后端的权威架构规范，也是重构验收依据。若其他文档与本文的层级职责冲突，以本文和 [TODO](../TODO.md) 的逐项状态为准。
 
-> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 的 AST→HIR ownership transfer 原子产出窄结构 HIR 与按 `HirNodeId` 稠密、绑定 revision 的唯一 `SemanticTable` seed；Analyzer 先验证再原位完善该表，HIR 不再镜像 type/shape/binding/call/assignment facts。0.3.6 的双目标 LIR v10 以聚合 `CallArgumentPlan`、目标 `EvaluationForm`、强类型 `ComparisonForm` 和稠密 `SourceSegmentPlan` 固化 ownership/writeback、求值、比较与 source/origin，renderer 不再读取节点语义或源码位置。0.3.7 进一步让三个 statement parser 直接构造语言专属 arena：表达式解析后立即驻留，block/root 只保存 `AstNodeId`，parser session 直接发布强类型 artifact；共享 syntax scratch、facade、整树转换器和专属兼容算法已删除。0.3.8 及后续迁移集中在 MIR 宽兼容字段、完整独立 target AST、一般 RAII/copy-move/runtime ABI node、结构化 import/export/chunk、完整官方 grammar、动态 rank/广播、精确 N 维 overlap 和插件 ABI；不能把已交付的架构收尾等同于完整语言兼容。
+> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 原子产出窄 HIR 与 revision-bound `SemanticTable` seed；0.3.6 的双目标 LIR v10 固化 call ownership/writeback、目标求值、强类型比较和 source segment；0.3.7 让三个 statement parser 直接构造语言专属 arena。0.3.8 删除 MIR 的递归 HIR 兼容 ownership，改为 `MirExpressionId`/`MirStatementId` 稠密 arena，并让每个节点绑定 resident instruction；目标只按 ID 查询后构造各自私有 LIR。0.3.9 及后续迁移集中在 flat MIR 剩余源语义 payload、显式 lazy CFG/load/store operation、完整独立 target AST、一般 RAII/copy-move/runtime ABI node、结构化 import/export/chunk、完整官方 grammar、动态 rank/广播、精确 N 维 overlap 和插件 ABI；不能把已交付的架构收尾等同于完整语言兼容。
 
 ## 目标与永久约束
 
@@ -119,13 +119,14 @@ MIR 是真正独立的一层，不是带更多注解的 HIR。它以函数和控
 
 ```text
 MirModule
+├── expression inventory: dense arena<MirExpressionId, resident InstructionId>
+├── operation inventory: dense arena<MirStatementId, resident InstructionId>
+├── operation roots/body/alternative: strong-ID ownership edges
 └── MirFunction
     ├── signature + calling convention semantics
     ├── blocks: dense arena<BlockId, BasicBlock>
-    ├── values: dense arena<ValueId, ValueData>
-    ├── types: interned TypeId
-    ├── shapes: interned ShapeId
-    ├── storage regions: StorageId
+    ├── SSA values: ValueId
+    ├── types/shapes/storage: TypeId / ShapeId / StorageId
     └── source origins
 
 BasicBlock
@@ -133,6 +134,8 @@ BasicBlock
 ├── ordered instructions
 └── exactly one terminator
 ```
+
+0.3.8 的 arena 只通过强类型 ID 连接，目标后端必须 O(1) lookup 后构造自己的 LIR，不能恢复递归 MIR ownership。每个 expression/operation 节点都与真实 instruction 核对 origin/opcode/operand/SSA/type/shape/storage；roots 与 body edge 必须形成无重复、无环且覆盖全部 operation 的 ownership graph。flat 节点中仍镜像的源语义 payload 只是迁移中的内部输入，后续必须拆成强类型 operation attribute/side table；conditional、短路逻辑与 comparison chain 也仍需从目标 `EvaluationForm` 进一步上移为 MIR 自身的 lazy CFG/value merge。
 
 核心 instruction family 至少覆盖：
 

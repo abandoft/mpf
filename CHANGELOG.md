@@ -1,3 +1,14 @@
+## 0.3.8
+
+- MIR 新增强类型 `MirExpressionId`/`MirStatementId`，把原递归 `Expression`/`Statement` 兼容树改为带零号哨兵的稠密 arena；expression child、statement body/alternative 与 program root 只保存 ID，不再按 HIR 形状递归拥有节点。
+- 每个 MIR expression arena 节点显式绑定唯一 resident instruction、SSA `ValueId`、`TypeId`、`ShapeId` 与 `StorageId`；lowering 先驻留子值并按确定的左到右顺序形成 instruction operands，缺省 slice operand 以无效强类型 ID 保留位置而不伪造值。
+- 每个 MIR statement arena 节点显式绑定 operation instruction；函数、选择、循环、恢复后的控制 body 与顶层顺序通过 `MirStatementId` ownership graph 表达，生产 `Program` 新增独立 roots inventory，删除后端对递归 MIR statement 容器的依赖。
+- MIR verifier 新增 expression/instruction opcode、origin、result、type、shape、storage 与 operand 逐项一致性检查，并验证 operation/instruction identity、根可达性、唯一 ownership、cycle、非法子边和未驻留节点，损坏 arena 在 backend 前失败关闭。
+- 双目标公共 LIR builder 改为从 MIR ID arena 进行 O(1) lookup，再分别构造 JavaScript LIR 与 `cpp` LIR；目标递归结构只存在于各自私有 LIR，公共 lowering 不再从 `source.statements` 复制 MIR 兼容树。
+- JavaScript/`cpp` semantic lowering、runtime feature discovery 和 selector/default traversal 全部切换到 flat MIR view；`cpp` capability validator 直接使用 MIR function/call-site graph 判断递归，并在 ID arena 上执行 return、类型、slice 与 comparison 验证。
+- code-binding 验证直接扫描唯一 MIR expression inventory，删除重复的递归 statement walker；确定性 MIR textual dump 升级为 v2，公开 root、expression/operation ID、resident instruction、child edge 与 SSA/type/shape/storage 对应关系。
+- 架构门禁拒绝恢复 `vector<Expression> children`、`vector<Statement> body/alternative` 或 target builder 的 `source.statements` 路径；新增 flat arena 稠密性、instruction correspondence、非法 expression edge、重复 operation root 与 dump inventory 测试，内部测试增至 160 项；生产代码行覆盖率实测 89.65%（17987/20063）。
+
 ## 0.3.7
 
 - Python statement parser 不再构造共享递归 syntax tree，直接以语言专属 `python::ast::Statement` draft 和 `AstNodeId` 边生成 PMR arena AST；参数默认值、assignment target、控制流 body 与恢复后的根节点都只物化一次。
