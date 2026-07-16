@@ -33,8 +33,8 @@ TEST_CASE("Python range and while lower through both backends") {
   REQUIRE(javascript.code.find("while (__mpf_truthy(total < 12))") != std::string::npos);
   REQUIRE(cpp.code.find("auto mpf_internal_cursor") != std::string::npos);
   REQUIRE(cpp.code.find("while (mpf_runtime::range_next(") != std::string::npos);
-  REQUIRE(cpp.code.find("while (mpf_runtime::truthy(mpf_runtime::py_compare(") !=
-          std::string::npos);
+  REQUIRE(cpp.code.find("while (mpf_runtime::truthy(([&]() {") != std::string::npos);
+  REQUIRE(cpp.code.find("return mpf_runtime::py_compare(") != std::string::npos);
   REQUIRE(cpp.code.find("std::less<>{}") != std::string::npos);
 }
 

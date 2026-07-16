@@ -766,9 +766,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v9") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v10") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v9") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v10") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -984,6 +984,15 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   javascript_index_statement.expression.children = {
       std::move(javascript_container), std::move(javascript_slice), std::move(javascript_selector)};
   javascript.statements.push_back(std::move(javascript_index_statement));
+  mpf::detail::javascript::lir::Statement javascript_comparison_statement;
+  javascript_comparison_statement.expression.kind = mpf::detail::ExpressionKind::binary;
+  javascript_comparison_statement.expression.comparison =
+      mpf::detail::ComparisonOperator::not_contains;
+  javascript_comparison_statement.expression.children.resize(2);
+  javascript_comparison_statement.expression.children[0].kind =
+      mpf::detail::ExpressionKind::number_literal;
+  javascript_comparison_statement.expression.children[1].kind = mpf::detail::ExpressionKind::list;
+  javascript.statements.push_back(std::move(javascript_comparison_statement));
   mpf::detail::javascript::plan_lir_representation(javascript);
   const auto& javascript_plan = javascript.statements.front().expression.plan;
   REQUIRE(javascript_plan.form == mpf::detail::javascript::lir::ExpressionForm::call);
@@ -998,9 +1007,21 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   const auto& javascript_index_plan = javascript.statements[1].expression.plan;
   REQUIRE(javascript_index_plan.index == mpf::detail::javascript::lir::IndexForm::section);
   REQUIRE((javascript_index_plan.selector_slices == std::vector<bool>{true, false}));
+  const auto& javascript_comparison_plan = javascript.statements[2].expression.plan;
+  REQUIRE(javascript_comparison_plan.form ==
+          mpf::detail::javascript::lir::ExpressionForm::binary_comparison);
+  REQUIRE(javascript_comparison_plan.comparisons.front().form ==
+          mpf::detail::javascript::lir::ComparisonForm::not_membership);
   std::vector<mpf::Diagnostic> diagnostics;
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(diagnostics.empty());
+  javascript.statements[2].expression.plan.comparisons.front().form =
+      mpf::detail::javascript::lir::ComparisonForm::identity;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  javascript.statements[2].expression.plan.comparisons.front().form =
+      mpf::detail::javascript::lir::ComparisonForm::not_membership;
+  diagnostics.clear();
   javascript.statements.front().expression.plan.call = mpf::detail::javascript::lir::CallForm::sum;
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(!diagnostics.empty());
@@ -1054,6 +1075,13 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   cpp_section.children = {std::move(cpp_section_base), std::move(cpp_section_slice)};
   cpp_call_statement.expression.children = {std::move(cpp_callee), std::move(cpp_section)};
   cpp.statements.push_back(std::move(cpp_call_statement));
+  mpf::detail::cpp::lir::Statement cpp_comparison_statement;
+  cpp_comparison_statement.expression.kind = mpf::detail::ExpressionKind::binary;
+  cpp_comparison_statement.expression.comparison = mpf::detail::ComparisonOperator::identity;
+  cpp_comparison_statement.expression.children.resize(2);
+  cpp_comparison_statement.expression.children[0].kind = mpf::detail::ExpressionKind::null_literal;
+  cpp_comparison_statement.expression.children[1].kind = mpf::detail::ExpressionKind::null_literal;
+  cpp.statements.push_back(std::move(cpp_comparison_statement));
   mpf::detail::cpp::plan_lir_representation(cpp);
   const auto& cpp_plan = cpp.statements.front().expression.plan;
   REQUIRE(cpp_plan.form == mpf::detail::cpp::lir::ExpressionForm::list);
@@ -1070,9 +1098,22 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
           mpf::detail::cpp::lir::CallArgumentForm::copy_section);
   REQUIRE(cpp_call_plan.call_arguments.front().writeback ==
           mpf::detail::cpp::lir::WritebackForm::section);
+  const auto& cpp_comparison_plan = cpp.statements[3].expression.plan;
+  REQUIRE(cpp_comparison_plan.form == mpf::detail::cpp::lir::ExpressionForm::binary_comparison);
+  REQUIRE(cpp_comparison_plan.evaluation ==
+          mpf::detail::cpp::lir::EvaluationForm::binary_comparison_reference_lambda_iife);
+  REQUIRE(cpp_comparison_plan.comparisons.front().form ==
+          mpf::detail::cpp::lir::ComparisonForm::identity);
   diagnostics.clear();
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(diagnostics.empty());
+  cpp.statements[3].expression.plan.comparisons.front().form =
+      mpf::detail::cpp::lir::ComparisonForm::membership;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  cpp.statements[3].expression.plan.comparisons.front().form =
+      mpf::detail::cpp::lir::ComparisonForm::identity;
+  diagnostics.clear();
   cpp.statements.front().expression.plan.concrete_type = "std::vector<float>";
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
@@ -1259,7 +1300,7 @@ TEST_CASE("target LIR scope plans own declarations types and probes") {
   REQUIRE(javascript_dump.find("program-scope [\"items\",\"pair\",\"value\"]") !=
           std::string::npos);
   REQUIRE(javascript_dump.find("scope [\"local\",\"result\"]") != std::string::npos);
-  REQUIRE(javascript_dump.find("module banner=1 directives [] runtime [] body [0,1,2,3,4]") !=
+  REQUIRE(javascript_dump.find("module banner=1 directives [] runtime [0] body [0,1,2,3,4]") !=
           std::string::npos);
   const auto cpp_dump = cpp.artifact->debug_dump();
   REQUIRE(cpp_dump.find("program-scope\n  declaration \"value\"") != std::string::npos);

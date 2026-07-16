@@ -1,5 +1,6 @@
 #include "expression.hpp"
 
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -8,22 +9,45 @@
 namespace mpf::detail {
 namespace {
 
-bool comparison_operator(const TokenKind kind) noexcept {
-  return kind == TokenKind::equal_equal || kind == TokenKind::not_equal ||
-         kind == TokenKind::less || kind == TokenKind::less_equal || kind == TokenKind::greater ||
-         kind == TokenKind::greater_equal;
+struct ComparisonToken {
+  ComparisonOperator operation{ComparisonOperator::none};
+  SourceLocation location{};
+  std::size_t width{1};
+};
+
+std::optional<ComparisonToken> comparison_token(const Token& current, const Token& next,
+                                                const SourceLanguage language) noexcept {
+  ComparisonOperator operation{ComparisonOperator::none};
+  switch (current.kind) {
+    case TokenKind::equal_equal: operation = ComparisonOperator::equal; break;
+    case TokenKind::not_equal: operation = ComparisonOperator::not_equal; break;
+    case TokenKind::less: operation = ComparisonOperator::less; break;
+    case TokenKind::less_equal: operation = ComparisonOperator::less_equal; break;
+    case TokenKind::greater: operation = ComparisonOperator::greater; break;
+    case TokenKind::greater_equal: operation = ComparisonOperator::greater_equal; break;
+    case TokenKind::identity_is:
+      if (language != SourceLanguage::python) return std::nullopt;
+      return ComparisonToken{next.kind == TokenKind::logical_not ? ComparisonOperator::not_identity
+                                                                 : ComparisonOperator::identity,
+                             current.location, next.kind == TokenKind::logical_not ? 2U : 1U};
+    case TokenKind::membership_in:
+      if (language != SourceLanguage::python) return std::nullopt;
+      operation = ComparisonOperator::contains;
+      break;
+    case TokenKind::logical_not:
+      if (language != SourceLanguage::python || next.kind != TokenKind::membership_in) {
+        return std::nullopt;
+      }
+      return ComparisonToken{ComparisonOperator::not_contains, current.location, 2U};
+    default: return std::nullopt;
+  }
+  return ComparisonToken{operation, current.location, 1U};
 }
 
 int binding_power(const TokenKind kind) noexcept {
   switch (kind) {
     case TokenKind::logical_or: return 1;
     case TokenKind::logical_and: return 2;
-    case TokenKind::equal_equal:
-    case TokenKind::not_equal:
-    case TokenKind::less:
-    case TokenKind::less_equal:
-    case TokenKind::greater:
-    case TokenKind::greater_equal: return 3;
     case TokenKind::plus:
     case TokenKind::minus: return 4;
     case TokenKind::star:
@@ -44,12 +68,6 @@ std::string canonical_operator(const TokenKind kind) {
     case TokenKind::floor_slash: return "//";
     case TokenKind::percent: return "%";
     case TokenKind::power: return "**";
-    case TokenKind::equal_equal: return "===";
-    case TokenKind::not_equal: return "!==";
-    case TokenKind::less: return "<";
-    case TokenKind::less_equal: return "<=";
-    case TokenKind::greater: return ">";
-    case TokenKind::greater_equal: return ">=";
     case TokenKind::logical_and: return "&&";
     case TokenKind::logical_or: return "||";
     case TokenKind::logical_not: return "!";
@@ -112,6 +130,16 @@ class Parser final {
     }
     take();
     return true;
+  }
+
+  std::optional<ComparisonToken> current_comparison() const noexcept {
+    return comparison_token(current(), peek(), language_);
+  }
+
+  ComparisonToken take_comparison() {
+    const auto comparison = *current_comparison();
+    for (std::size_t index = 0; index < comparison.width; ++index) take();
+    return comparison;
   }
 
   void error(const Token& token, std::string code, std::string message) {
@@ -183,31 +211,38 @@ class Parser final {
         continue;
       }
 
-      const auto power = binding_power(current().kind);
+      const auto comparison = current_comparison();
+      const auto power = comparison.has_value() ? 3 : binding_power(current().kind);
       if (power < minimum_power) {
         break;
       }
-      if (language_ == SourceLanguage::python && comparison_operator(current().kind)) {
-        const auto first_operator = take();
+      if (comparison.has_value()) {
+        const auto first_operator = take_comparison();
         auto right = parse_precedence(power + 1);
-        if (comparison_operator(current().kind)) {
+        if (language_ == SourceLanguage::python && current_comparison().has_value()) {
           Expression chain;
           chain.kind = ExpressionKind::comparison_chain;
           chain.location = first_operator.location;
-          chain.operators.push_back(canonical_operator(first_operator.kind));
+          chain.comparisons.push_back(first_operator.operation);
           chain.children.push_back(std::move(left));
           chain.children.push_back(std::move(right));
-          while (comparison_operator(current().kind)) {
-            const auto operator_token = take();
-            chain.operators.push_back(canonical_operator(operator_token.kind));
+          while (current_comparison().has_value()) {
+            const auto operator_token = take_comparison();
+            chain.comparisons.push_back(operator_token.operation);
             chain.children.push_back(parse_precedence(power + 1));
           }
           left = std::move(chain);
         } else {
+          if (language_ != SourceLanguage::python && left.kind == ExpressionKind::binary &&
+              left.comparison != ComparisonOperator::none) {
+            error({TokenKind::end, {}, first_operator.location}, "MPF1110",
+                  "chained comparisons require single-evaluation lowering and are not yet "
+                  "supported");
+          }
           Expression expression;
           expression.kind = ExpressionKind::binary;
           expression.location = first_operator.location;
-          expression.value = canonical_operator(first_operator.kind);
+          expression.comparison = first_operator.operation;
           expression.children.push_back(std::move(left));
           expression.children.push_back(std::move(right));
           left = std::move(expression);
@@ -215,12 +250,6 @@ class Parser final {
         continue;
       }
       const auto operator_token = take();
-      if (comparison_operator(operator_token.kind) && left.kind == ExpressionKind::binary &&
-          (left.value == "===" || left.value == "!==" || left.value == "<" || left.value == "<=" ||
-           left.value == ">" || left.value == ">=")) {
-        error(operator_token, "MPF1110",
-              "chained comparisons require single-evaluation lowering and are not yet supported");
-      }
       const auto right_power = operator_token.kind == TokenKind::power ? power : power + 1;
       auto right = parse_precedence(right_power);
       Expression expression;
@@ -265,7 +294,8 @@ class Parser final {
       case TokenKind::logical_not:
         expression.kind = ExpressionKind::unary;
         expression.value = canonical_operator(token.kind);
-        expression.children.push_back(parse_precedence(6));
+        expression.children.push_back(parse_precedence(
+            language_ == SourceLanguage::python && token.kind == TokenKind::logical_not ? 3 : 6));
         return expression;
       case TokenKind::left_parenthesis:
         expression = parse_conditional();

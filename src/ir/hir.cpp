@@ -30,9 +30,16 @@ void verify_expression(const Expression& expression, const std::size_t node_coun
     return;
   }
   seen[id] = true;
+  if (expression.kind == ExpressionKind::binary &&
+      ((expression.comparison != ComparisonOperator::none) == !expression.value.empty())) {
+    add_error(diagnostics, expression.location, stage,
+              "binary expression has no operator or carries multiple operator forms");
+  }
   if (expression.kind == ExpressionKind::comparison_chain &&
-      (expression.children.size() < 2 ||
-       expression.operators.size() + 1 != expression.children.size())) {
+      (expression.children.size() < 3 ||
+       expression.comparisons.size() + 1 != expression.children.size() ||
+       std::any_of(expression.comparisons.begin(), expression.comparisons.end(),
+                   [](const auto operation) { return operation == ComparisonOperator::none; }))) {
     add_error(diagnostics, expression.location, stage,
               "comparison chain operand/operator count is inconsistent");
   }

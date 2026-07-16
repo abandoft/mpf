@@ -99,21 +99,32 @@ TEST_CASE("Python mixed and-or result types remain JavaScript-only") {
   REQUIRE(parameters_cpp.diagnostics.front().code == "MPF2032");
 }
 
-TEST_CASE("Python conditional and comparison compatibility fails closed per target") {
+TEST_CASE("Python conditional ordering identity and membership fail closed at owned boundaries") {
   const std::string mixed_conditional = "flag = True\nvalue = 1 if flag else 'one'\nprint(value)\n";
   const std::string mixed_equality = "value = 1 == '1'\nprint(value)\n";
   const std::string invalid_ordering = "value = 1 < '2' < 3\nprint(value)\n";
+  const std::string invalid_identity = "value = 1 is 1\nprint(value)\n";
+  const std::string invalid_membership = "value = 1 in 2\nprint(value)\n";
+  const std::string invalid_string_membership = "value = 1 in '123'\nprint(value)\n";
   REQUIRE(python(mixed_conditional).success());
   REQUIRE(python(mixed_equality).success());
   const auto conditional_cpp = python(mixed_conditional, mpf::TargetLanguage::cpp);
   const auto equality_cpp = python(mixed_equality, mpf::TargetLanguage::cpp);
   const auto ordering = python(invalid_ordering);
+  const auto identity = python(invalid_identity);
+  const auto membership = python(invalid_membership);
+  const auto string_membership = python(invalid_string_membership);
   REQUIRE(!conditional_cpp.success());
-  REQUIRE(!equality_cpp.success());
+  REQUIRE(equality_cpp.success());
   REQUIRE(!ordering.success());
+  REQUIRE(!identity.success());
+  REQUIRE(!membership.success());
+  REQUIRE(!string_membership.success());
   REQUIRE(conditional_cpp.diagnostics.front().code == "MPF2044");
-  REQUIRE(equality_cpp.diagnostics.front().code == "MPF2044");
   REQUIRE(ordering.diagnostics.front().code == "MPF2044");
+  REQUIRE(identity.diagnostics.front().code == "MPF2045");
+  REQUIRE(membership.diagnostics.front().code == "MPF2045");
+  REQUIRE(string_membership.diagnostics.front().code == "MPF2045");
 }
 
 TEST_CASE("Python float conversion validates arity and supported source types") {

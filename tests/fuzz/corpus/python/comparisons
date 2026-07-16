@@ -1,0 +1,5 @@
+items = [1, 2]
+pair = (1, "x")
+same = items
+print(1 in items, 3 not in pair, items is same, None is not False, [1] != (1,))
+print([True] == [1], (True, (2,)) == (1, (2.0,)), 2.0 in (2,))

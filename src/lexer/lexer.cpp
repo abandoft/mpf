@@ -44,6 +44,8 @@ const char* to_string(const TokenKind kind) noexcept {
     case TokenKind::logical_and: return "and";
     case TokenKind::logical_or: return "or";
     case TokenKind::logical_not: return "not";
+    case TokenKind::identity_is: return "is";
+    case TokenKind::membership_in: return "in";
     case TokenKind::conditional_if: return "if";
     case TokenKind::conditional_else: return "else";
     case TokenKind::equal: return "=";

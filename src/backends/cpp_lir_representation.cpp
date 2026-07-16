@@ -62,31 +62,45 @@ int binary_precedence(const std::string& token) noexcept {
   return 10;
 }
 
-std::string comparison_token(const std::string& token) {
-  if (token == "===" || token == "==") return "std::equal_to<>{}";
-  if (token == "!==" || token == "!=") return "std::not_equal_to<>{}";
-  if (token == "<") return "std::less<>{}";
-  if (token == "<=") return "std::less_equal<>{}";
-  if (token == ">") return "std::greater<>{}";
-  if (token == ">=") return "std::greater_equal<>{}";
-  return {};
-}
-
-std::string operator_token(const std::string& token) {
-  if (token == "===") return "==";
-  if (token == "!==") return "!=";
-  return token;
-}
-
-lir::ComparisonPlan comparison_plan(const std::string& token, const lir::EmissionPlan& emission) {
+lir::ComparisonPlan comparison_plan(const ComparisonOperator operation,
+                                    const lir::EmissionPlan& emission) {
   lir::ComparisonPlan result;
-  result.token = operator_token(token);
-  if (emission.dynamic_truthiness) {
-    const auto dynamic = comparison_token(token);
-    if (!dynamic.empty()) {
-      result.form = lir::ComparisonForm::dynamic_compare;
-      result.token = dynamic;
-    }
+  switch (operation) {
+    case ComparisonOperator::none: break;
+    case ComparisonOperator::equal:
+      result.form = emission.dynamic_truthiness ? lir::ComparisonForm::structural_equal
+                                                : lir::ComparisonForm::infix;
+      result.token = "==";
+      break;
+    case ComparisonOperator::not_equal:
+      result.form = emission.dynamic_truthiness ? lir::ComparisonForm::structural_not_equal
+                                                : lir::ComparisonForm::infix;
+      result.token = "!=";
+      break;
+    case ComparisonOperator::less:
+      result.form = emission.dynamic_truthiness ? lir::ComparisonForm::dynamic_compare
+                                                : lir::ComparisonForm::infix;
+      result.token = emission.dynamic_truthiness ? "std::less<>{}" : "<";
+      break;
+    case ComparisonOperator::less_equal:
+      result.form = emission.dynamic_truthiness ? lir::ComparisonForm::dynamic_compare
+                                                : lir::ComparisonForm::infix;
+      result.token = emission.dynamic_truthiness ? "std::less_equal<>{}" : "<=";
+      break;
+    case ComparisonOperator::greater:
+      result.form = emission.dynamic_truthiness ? lir::ComparisonForm::dynamic_compare
+                                                : lir::ComparisonForm::infix;
+      result.token = emission.dynamic_truthiness ? "std::greater<>{}" : ">";
+      break;
+    case ComparisonOperator::greater_equal:
+      result.form = emission.dynamic_truthiness ? lir::ComparisonForm::dynamic_compare
+                                                : lir::ComparisonForm::infix;
+      result.token = emission.dynamic_truthiness ? "std::greater_equal<>{}" : ">=";
+      break;
+    case ComparisonOperator::identity: result.form = lir::ComparisonForm::identity; break;
+    case ComparisonOperator::not_identity: result.form = lir::ComparisonForm::not_identity; break;
+    case ComparisonOperator::contains: result.form = lir::ComparisonForm::membership; break;
+    case ComparisonOperator::not_contains: result.form = lir::ComparisonForm::not_membership; break;
   }
   return result;
 }
@@ -165,26 +179,36 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
                         : lir::ExpressionForm::unary_operator;
       break;
     case ExpressionKind::binary: {
-      result.precedence = binary_precedence(expression.value);
-      result.token = operator_token(expression.value);
-      const auto comparator =
-          emission.dynamic_truthiness ? comparison_token(expression.value) : std::string{};
-      if (emission.operand_logical_result && expression.value == "&&") {
+      if (expression.comparison != ComparisonOperator::none) {
+        result.form = lir::ExpressionForm::binary_comparison;
+        result.evaluation = lir::EvaluationForm::binary_comparison_reference_lambda_iife;
+        result.precedence = 3;
+        result.comparisons.push_back(comparison_plan(expression.comparison, emission));
+      } else if (emission.operand_logical_result && expression.value == "&&") {
+        result.precedence = binary_precedence(expression.value);
+        result.token = expression.value;
         result.form = lir::ExpressionForm::binary_lazy_and;
         result.evaluation = lir::EvaluationForm::lazy_reference_lambda_thunks;
       } else if (emission.operand_logical_result && expression.value == "||") {
+        result.precedence = binary_precedence(expression.value);
+        result.token = expression.value;
         result.form = lir::ExpressionForm::binary_lazy_or;
         result.evaluation = lir::EvaluationForm::lazy_reference_lambda_thunks;
       } else if (expression.value == "**") {
+        result.precedence = binary_precedence(expression.value);
+        result.token = expression.value;
         result.form = lir::ExpressionForm::binary_power;
       } else if (expression.value == "//") {
+        result.precedence = binary_precedence(expression.value);
+        result.token = expression.value;
         result.form = lir::ExpressionForm::binary_floor_divide;
       } else if (expression.value == "/" && emission.real_division) {
+        result.precedence = binary_precedence(expression.value);
+        result.token = expression.value;
         result.form = lir::ExpressionForm::binary_real_divide;
-      } else if (!comparator.empty()) {
-        result.form = lir::ExpressionForm::binary_dynamic_compare;
-        result.token = comparator;
       } else {
+        result.precedence = binary_precedence(expression.value);
+        result.token = expression.value;
         result.form = lir::ExpressionForm::binary_operator;
       }
       break;
@@ -193,9 +217,9 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       result.form = lir::ExpressionForm::comparison_chain;
       result.evaluation = lir::EvaluationForm::comparison_reference_lambda_iife;
       result.precedence = 3;
-      result.comparisons.reserve(expression.operators.size());
-      for (const auto& token : expression.operators) {
-        result.comparisons.push_back(comparison_plan(token, emission));
+      result.comparisons.reserve(expression.comparisons.size());
+      for (const auto operation : expression.comparisons) {
+        result.comparisons.push_back(comparison_plan(operation, emission));
       }
       break;
     case ExpressionKind::conditional:

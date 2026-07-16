@@ -574,7 +574,8 @@ class Builder final {
     result.location = source.location;
     result.kind = source.kind;
     result.value = std::move(source.value);
-    result.operators = std::move(source.operators);
+    result.comparison = source.comparison;
+    result.comparisons = std::move(source.comparisons);
     result.children.reserve(source.children.size());
     std::vector<ValueId> operands;
     operands.reserve(source.children.size());
@@ -1107,6 +1108,19 @@ void verify_expression(const Expression& expression, const Program& program,
   if (expression.storage_id.valid() && !valid_index(expression.storage_id, program.storages)) {
     add_error(diagnostics, expression.location, stage,
               "expression references an invalid storage ID");
+  }
+  if (expression.kind == ExpressionKind::binary &&
+      ((expression.comparison != ComparisonOperator::none) == !expression.value.empty())) {
+    add_error(diagnostics, expression.location, stage,
+              "binary expression has an ambiguous operator representation");
+  }
+  if (expression.kind == ExpressionKind::comparison_chain &&
+      (expression.children.size() < 3U ||
+       expression.comparisons.size() + 1U != expression.children.size() ||
+       std::any_of(expression.comparisons.begin(), expression.comparisons.end(),
+                   [](const auto operation) { return operation == ComparisonOperator::none; }))) {
+    add_error(diagnostics, expression.location, stage,
+              "comparison chain operand/operator count is inconsistent");
   }
   for (const auto& child : expression.children) {
     verify_expression(child, program, diagnostics, stage);

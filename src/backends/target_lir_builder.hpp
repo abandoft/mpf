@@ -19,7 +19,8 @@ LirExpression lower_lir_expression(const mir::Expression& source, IrIdAllocator<
   result.location = source.location;
   result.kind = source.kind;
   result.value = source.value;
-  result.operators = source.operators;
+  result.comparison = source.comparison;
+  result.comparisons = source.comparisons;
   result.children.reserve(source.children.size());
   for (const auto& child : source.children) {
     result.children.push_back(

@@ -48,11 +48,14 @@ void dump_hir_statements(std::ostringstream& output, const std::vector<hir::Stat
 void dump_normalized_hir_expression(std::ostringstream& output, const hir::Expression& expression,
                                     const std::size_t depth) {
   if (!expression.valid()) return;
+  const auto value = expression.comparison == ComparisonOperator::none
+                         ? std::string_view(expression.value)
+                         : comparison_spelling(expression.comparison);
   output << std::string(depth * 2U, ' ') << "expr kind=" << enum_value(expression.kind)
-         << " value=" << std::quoted(expression.value) << " operators=[";
-  for (std::size_t index = 0; index < expression.operators.size(); ++index) {
+         << " value=" << std::quoted(std::string(value)) << " operators=[";
+  for (std::size_t index = 0; index < expression.comparisons.size(); ++index) {
     if (index != 0) output << ',';
-    output << std::quoted(expression.operators[index]);
+    output << std::quoted(std::string(comparison_spelling(expression.comparisons[index])));
   }
   output << "]\n";
   for (const auto& child : expression.children) {

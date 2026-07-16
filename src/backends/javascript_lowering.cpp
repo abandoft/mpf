@@ -68,10 +68,11 @@ void analyze_expression(const mir::Expression& expression, semantic::Program& re
   }
   if (expression.kind == ExpressionKind::conditional ||
       expression.kind == ExpressionKind::comparison_chain ||
+      expression.kind == ExpressionKind::tuple ||
       (expression.kind == ExpressionKind::unary && expression.value == "!") ||
       (expression.kind == ExpressionKind::binary &&
-       (expression.value == "&&" || expression.value == "||" || expression.value == "===" ||
-        expression.value == "!=="))) {
+       (expression.value == "&&" || expression.value == "||" ||
+        expression.comparison != ComparisonOperator::none))) {
     result.runtime.require(lir::RuntimeFeature::dynamic_values);
   }
   if (expression.kind == ExpressionKind::call && !expression.children.empty()) {

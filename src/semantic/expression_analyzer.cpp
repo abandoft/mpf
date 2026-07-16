@@ -176,6 +176,13 @@ ValueType Analyzer::analyze_expression(Expression& expression) {
 ValueType Analyzer::analyze_binary(Expression& expression) {
   const auto left = analyze_expression(expression.children[0]);
   const auto right = analyze_expression(expression.children[1]);
+  if (expression.comparison != ComparisonOperator::none) {
+    if (program_.language == SourceLanguage::python) {
+      validate_python_comparison(expression.comparison, expression.children[0], left,
+                                 expression.children[1], right);
+    }
+    return semantic(semantics_, expression).inferred_type = ValueType::boolean;
+  }
   if (program_.language == SourceLanguage::python &&
       (expression.value == "&&" || expression.value == "||")) {
     semantic(semantics_, expression).inferred_type = join_types(left, right);
@@ -193,14 +200,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
     }
     return semantic(semantics_, expression).inferred_type;
   }
-  if (expression.value == "&&" || expression.value == "||" || expression.value == "===" ||
-      expression.value == "!==" || expression.value == "<" || expression.value == "<=" ||
-      expression.value == ">" || expression.value == ">=") {
-    if (program_.language == SourceLanguage::python &&
-        (expression.value == "<" || expression.value == "<=" || expression.value == ">" ||
-         expression.value == ">=")) {
-      validate_python_ordering(left, right, expression.location.line);
-    }
+  if (expression.value == "&&" || expression.value == "||") {
     return semantic(semantics_, expression).inferred_type = ValueType::boolean;
   }
   if (expression.value == "+" && left == ValueType::string && right == ValueType::string) {
@@ -224,6 +224,40 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
   return semantic(semantics_, expression).inferred_type = join_types(left, right);
 }
 
+void Analyzer::validate_python_comparison(const ComparisonOperator operation,
+                                          const Expression& left, const ValueType left_type,
+                                          const Expression& right, const ValueType right_type) {
+  if (comparison_is_ordering(operation)) {
+    validate_python_ordering(left_type, right_type, left.location.line);
+    return;
+  }
+  if (comparison_is_identity(operation)) {
+    if (left_type == ValueType::unknown || right_type == ValueType::unknown ||
+        left_type == ValueType::null_value || right_type == ValueType::null_value ||
+        left_type == ValueType::boolean || right_type == ValueType::boolean ||
+        ((left_type == ValueType::list || left_type == ValueType::tuple) &&
+         (right_type == ValueType::list || right_type == ValueType::tuple))) {
+      return;
+    }
+    diagnose(left.location.line, "MPF2045",
+             "Python identity currently supports singleton and sequence object operands; "
+             "numeric and string object interning is not portable");
+    return;
+  }
+  if (!comparison_is_membership(operation) || right_type == ValueType::unknown) return;
+  if (right_type == ValueType::string) {
+    if (left_type != ValueType::unknown && left_type != ValueType::string) {
+      diagnose(right.location.line, "MPF2045",
+               "Python string membership requires a string left operand");
+    }
+    return;
+  }
+  if (right_type != ValueType::list && right_type != ValueType::tuple) {
+    diagnose(right.location.line, "MPF2045",
+             "Python membership currently requires a string, list, or tuple container");
+  }
+}
+
 void Analyzer::validate_python_ordering(const ValueType left, const ValueType right,
                                         const std::size_t line) {
   if (left == ValueType::unknown || right == ValueType::unknown) return;
@@ -241,7 +275,7 @@ void Analyzer::validate_python_ordering(const ValueType left, const ValueType ri
 
 ValueType Analyzer::analyze_comparison_chain(Expression& expression) {
   if (expression.children.size() < 3 ||
-      expression.operators.size() + 1 != expression.children.size()) {
+      expression.comparisons.size() + 1 != expression.children.size()) {
     diagnose(expression.location.line, "MPF2044", "malformed Python comparison chain IR");
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
@@ -250,12 +284,10 @@ ValueType Analyzer::analyze_comparison_chain(Expression& expression) {
   for (auto& child : expression.children) {
     operand_types.push_back(analyze_expression(child));
   }
-  for (std::size_t index = 0; index < expression.operators.size(); ++index) {
-    const auto& operation = expression.operators[index];
-    if (operation == "<" || operation == "<=" || operation == ">" || operation == ">=") {
-      validate_python_ordering(operand_types[index], operand_types[index + 1],
-                               expression.location.line);
-    }
+  for (std::size_t index = 0; index < expression.comparisons.size(); ++index) {
+    validate_python_comparison(expression.comparisons[index], expression.children[index],
+                               operand_types[index], expression.children[index + 1],
+                               operand_types[index + 1]);
   }
   return semantic(semantics_, expression).inferred_type = ValueType::boolean;
 }

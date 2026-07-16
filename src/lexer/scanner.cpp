@@ -87,6 +87,12 @@ TokenKind identifier_kind(const std::string& word, const SourceLanguage language
   if (language == SourceLanguage::python && key == "not") {
     return TokenKind::logical_not;
   }
+  if (language == SourceLanguage::python && key == "is") {
+    return TokenKind::identity_is;
+  }
+  if (language == SourceLanguage::python && key == "in") {
+    return TokenKind::membership_in;
+  }
   if (language == SourceLanguage::python && key == "if") {
     return TokenKind::conditional_if;
   }

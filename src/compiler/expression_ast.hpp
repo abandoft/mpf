@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstdint>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "intrinsic.hpp"
@@ -18,6 +20,51 @@ enum class BindingKind { unresolved, variable, function, builtin };
 enum class ParameterIntent { none, in, out, inout };
 
 enum class ParameterKind { positional_only, positional_or_keyword, keyword_only };
+
+enum class ComparisonOperator : std::uint8_t {
+  none,
+  equal,
+  not_equal,
+  less,
+  less_equal,
+  greater,
+  greater_equal,
+  identity,
+  not_identity,
+  contains,
+  not_contains
+};
+
+[[nodiscard]] constexpr std::string_view comparison_spelling(
+    const ComparisonOperator operation) noexcept {
+  switch (operation) {
+    case ComparisonOperator::none: return {};
+    case ComparisonOperator::equal: return "==";
+    case ComparisonOperator::not_equal: return "!=";
+    case ComparisonOperator::less: return "<";
+    case ComparisonOperator::less_equal: return "<=";
+    case ComparisonOperator::greater: return ">";
+    case ComparisonOperator::greater_equal: return ">=";
+    case ComparisonOperator::identity: return "is";
+    case ComparisonOperator::not_identity: return "is not";
+    case ComparisonOperator::contains: return "in";
+    case ComparisonOperator::not_contains: return "not in";
+  }
+  return {};
+}
+
+[[nodiscard]] constexpr bool comparison_is_ordering(const ComparisonOperator operation) noexcept {
+  return operation == ComparisonOperator::less || operation == ComparisonOperator::less_equal ||
+         operation == ComparisonOperator::greater || operation == ComparisonOperator::greater_equal;
+}
+
+[[nodiscard]] constexpr bool comparison_is_identity(const ComparisonOperator operation) noexcept {
+  return operation == ComparisonOperator::identity || operation == ComparisonOperator::not_identity;
+}
+
+[[nodiscard]] constexpr bool comparison_is_membership(const ComparisonOperator operation) noexcept {
+  return operation == ComparisonOperator::contains || operation == ComparisonOperator::not_contains;
+}
 
 enum class ExpressionKind {
   invalid,
@@ -52,7 +99,8 @@ struct Expression {
   ExpressionKind kind{ExpressionKind::invalid};
   SourceLocation location{};
   std::string value;
-  std::vector<std::string> operators;
+  ComparisonOperator comparison{ComparisonOperator::none};
+  std::vector<ComparisonOperator> comparisons;
   std::vector<Expression> children;
   ValueType inferred_type{ValueType::unknown};
   BindingKind binding{BindingKind::unresolved};

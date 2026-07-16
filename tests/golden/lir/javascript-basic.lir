@@ -1,4 +1,4 @@
-javascript-semantic-lir-v9 revision 1 nodes 5 runtime 0x0
+javascript-semantic-lir-v10 revision 1 nodes 5 runtime 0x0
 dependencies
 temporaries
 source-segments
@@ -8,7 +8,7 @@ source-segments
   %l4 origin %h4 at 1:5
   %l5 origin %h5 at 1:6
 stmt %l1 origin %h1 kind 4 line 1 name "" plan 9 condition 0 target-access 0 alternative 0 range-step 0 retain-loop 0 inclusive-stop 0 resizable-section 0 character-selector 0 targets 0 assignment-leaves 0 selectors 0 returns 0
-  expr %l2 origin %h2 kind 11 type 1 binding 0 intrinsic 0 shape [] value "" plan 15 precedence 9 token "" call 1 evaluation 0 call-value 0 index 0 string-value 0 variable-access 0 index-base 0 negative-index 0 column-major 0 inclusive-slice 0
+  expr %l2 origin %h2 kind 11 type 1 binding 0 intrinsic 0 shape [] value "" plan 14 precedence 9 token "" call 1 evaluation 0 call-value 0 index 0 string-value 0 variable-access 0 index-base 0 negative-index 0 column-major 0 inclusive-slice 0
     expr %l3 origin %h3 kind 1 type 8 binding 3 intrinsic 1 shape [] value "abs" plan 3 precedence 10 token "Math.abs" call 0 evaluation 0 call-value 0 index 0 string-value 0 variable-access 0 index-base 0 negative-index 0 column-major 0 inclusive-slice 0
     expr %l4 origin %h4 kind 7 type 1 binding 0 intrinsic 0 shape [] value "-" plan 5 precedence 6 token "-" call 0 evaluation 0 call-value 0 index 0 string-value 0 variable-access 0 index-base 0 negative-index 0 column-major 0 inclusive-slice 0
       expr %l5 origin %h5 kind 2 type 1 binding 0 intrinsic 0 shape [] value "2" plan 4 precedence 10 token "2" call 0 evaluation 0 call-value 0 index 0 string-value 0 variable-access 0 index-base 0 negative-index 0 column-major 0 inclusive-slice 0

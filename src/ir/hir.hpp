@@ -17,7 +17,8 @@ struct Expression {
   SourceLocation location{};
   ExpressionKind kind{ExpressionKind::invalid};
   std::string value;
-  std::vector<std::string> operators;
+  ComparisonOperator comparison{ComparisonOperator::none};
+  std::vector<ComparisonOperator> comparisons;
   std::vector<Expression> children;
 
   [[nodiscard]] bool valid() const noexcept { return kind != ExpressionKind::invalid; }

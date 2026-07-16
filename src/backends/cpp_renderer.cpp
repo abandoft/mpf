@@ -110,12 +110,46 @@ class Renderer final {
 
   void emit_named_comparison(const std::string& left, const cpp::lir::ComparisonPlan& comparison,
                              const std::string& right) {
-    if (comparison.form == cpp::lir::ComparisonForm::dynamic_compare) {
-      output_ << "mpf_runtime::py_compare(" << left << ", " << right << ", " << comparison.token
-              << ')';
-      return;
+    switch (comparison.form) {
+      case cpp::lir::ComparisonForm::dynamic_compare:
+        output_ << "mpf_runtime::py_compare(" << left << ", " << right << ", " << comparison.token
+                << ')';
+        return;
+      case cpp::lir::ComparisonForm::structural_equal:
+      case cpp::lir::ComparisonForm::structural_not_equal:
+        if (comparison.form == cpp::lir::ComparisonForm::structural_not_equal) output_ << '!';
+        output_ << "mpf_runtime::py_equal(" << left << ", " << right << ')';
+        return;
+      case cpp::lir::ComparisonForm::identity:
+      case cpp::lir::ComparisonForm::not_identity:
+        if (comparison.form == cpp::lir::ComparisonForm::not_identity) output_ << '!';
+        output_ << "mpf_runtime::py_is(" << left << ", " << right << ')';
+        return;
+      case cpp::lir::ComparisonForm::membership:
+      case cpp::lir::ComparisonForm::not_membership:
+        if (comparison.form == cpp::lir::ComparisonForm::not_membership) output_ << '!';
+        output_ << "mpf_runtime::py_contains(" << right << ", " << left << ')';
+        return;
+      case cpp::lir::ComparisonForm::infix: break;
     }
     output_ << left << ' ' << comparison.token << ' ' << right;
+  }
+
+  void emit_binary_comparison(const Expression& expression) {
+    if (expression.plan.evaluation !=
+        cpp::lir::EvaluationForm::binary_comparison_reference_lambda_iife) {
+      throw std::logic_error("verified cpp binary comparison evaluation plan is missing");
+    }
+    const auto& comparison = expression.plan.comparisons.front();
+    const auto& left = temporary(expression.id, cpp::lir::TemporaryRole::comparison_operand, 0);
+    const auto& right = temporary(expression.id, cpp::lir::TemporaryRole::comparison_operand, 1);
+    output_ << "([&]() { auto&& " << left << " = ";
+    emit_expression(expression.children[0]);
+    output_ << "; auto&& " << right << " = ";
+    emit_expression(expression.children[1]);
+    output_ << "; return ";
+    emit_named_comparison(left, comparison, right);
+    output_ << "; })()";
   }
 
   void emit_comparison_chain(const Expression& expression) {
@@ -486,13 +520,10 @@ class Renderer final {
         emit_expression(expression.children[1]);
         output_ << ')';
         break;
-      case cpp::lir::ExpressionForm::binary_dynamic_compare:
-        output_ << "mpf_runtime::py_compare(";
-        emit_expression(expression.children[0]);
-        output_ << ", ";
-        emit_expression(expression.children[1]);
-        output_ << ", " << expression.plan.token << ')';
+      case cpp::lir::ExpressionForm::binary_comparison: {
+        emit_binary_comparison(expression);
         break;
+      }
       case cpp::lir::ExpressionForm::binary_operator:
         emit_expression(expression.children[0], own);
         output_ << ' ' << expression.plan.token << ' ';

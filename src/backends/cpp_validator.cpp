@@ -123,9 +123,55 @@ bool cpp_expression_types_compatible(const Expression& left, const Expression& r
   return false;
 }
 
-bool comparison_expression(const std::string& operation) {
-  return operation == "===" || operation == "!==" || operation == "<" || operation == "<=" ||
-         operation == ">" || operation == ">=";
+bool compatible_value_types(const ValueType left, const ValueType right) noexcept {
+  if (left == ValueType::unknown || right == ValueType::unknown || left == right) return true;
+  const auto arithmetic = [](const ValueType type) {
+    return type == ValueType::integer || type == ValueType::real || type == ValueType::boolean;
+  };
+  return arithmetic(left) && arithmetic(right);
+}
+
+bool cpp_comparison_supported(const ComparisonOperator operation, const Expression& left,
+                              const Expression& right,
+                              const FunctionReturnTypes& function_returns) {
+  if (operation == ComparisonOperator::equal || operation == ComparisonOperator::not_equal) {
+    return true;
+  }
+  if (comparison_is_identity(operation)) {
+    const auto left_type = effective_type(left, function_returns);
+    const auto right_type = effective_type(right, function_returns);
+    if (left_type == ValueType::null_value || right_type == ValueType::null_value ||
+        left_type == ValueType::boolean || right_type == ValueType::boolean) {
+      return true;
+    }
+    return left_type != ValueType::list && left_type != ValueType::tuple &&
+           right_type != ValueType::list && right_type != ValueType::tuple;
+  }
+  if (comparison_is_membership(operation)) {
+    const auto left_type = effective_type(left, function_returns);
+    const auto right_type = effective_type(right, function_returns);
+    if (right_type == ValueType::unknown) return true;
+    if (right_type == ValueType::string) return left_type == ValueType::string;
+    if (right_type == ValueType::list) {
+      if (!right.sequence_elements.empty()) {
+        return std::any_of(
+            right.sequence_elements.begin(), right.sequence_elements.end(),
+            [&](const auto& element) { return compatible_value_types(left_type, element.type); });
+      }
+      return compatible_value_types(left_type, right.element_type);
+    }
+    if (right_type == ValueType::tuple) {
+      if (!right.sequence_elements.empty()) {
+        return std::any_of(
+            right.sequence_elements.begin(), right.sequence_elements.end(),
+            [&](const auto& element) { return compatible_value_types(left_type, element.type); });
+      }
+      return std::any_of(right.tuple_types.begin(), right.tuple_types.end(),
+                         [&](const auto type) { return compatible_value_types(left_type, type); });
+    }
+    return false;
+  }
+  return cpp_expression_types_compatible(left, right, function_returns);
 }
 
 void validate_expression(const Expression& expression, const semantic::Profile& semantics,
@@ -159,21 +205,28 @@ void validate_expression(const Expression& expression, const semantic::Profile& 
     }
   }
   if (semantics.truthiness == semantic::Truthiness::dynamic &&
-      expression.kind == ExpressionKind::binary && comparison_expression(expression.value) &&
-      expression.children.size() == 2 &&
-      !cpp_expression_types_compatible(expression.children[0], expression.children[1],
-                                       function_returns)) {
+      expression.kind == ExpressionKind::binary &&
+      expression.comparison != ComparisonOperator::none && expression.children.size() == 2 &&
+      !cpp_comparison_supported(expression.comparison, expression.children[0],
+                                expression.children[1], function_returns)) {
     add_error(diagnostics, expression.location.line, "MPF2044",
-              "C++17 cannot compare these Python operand types without changing semantics");
+              comparison_is_identity(expression.comparison)
+                  ? "C++17 cannot preserve Python sequence object identity with value containers"
+                  : "C++17 cannot compare these Python operand types without changing semantics");
   }
   if (semantics.truthiness == semantic::Truthiness::dynamic &&
       expression.kind == ExpressionKind::comparison_chain) {
     for (std::size_t index = 0; index + 1 < expression.children.size(); ++index) {
-      if (!cpp_expression_types_compatible(expression.children[index],
-                                           expression.children[index + 1], function_returns)) {
+      if (index >= expression.comparisons.size() ||
+          !cpp_comparison_supported(expression.comparisons[index], expression.children[index],
+                                    expression.children[index + 1], function_returns)) {
         add_error(diagnostics, expression.location.line, "MPF2044",
-                  "C++17 cannot compare these Python chain operand types without changing "
-                  "semantics");
+                  index < expression.comparisons.size() &&
+                          comparison_is_identity(expression.comparisons[index])
+                      ? "C++17 cannot preserve Python sequence object identity in a comparison "
+                        "chain"
+                      : "C++17 cannot compare these Python chain operand types without changing "
+                        "semantics");
         break;
       }
     }

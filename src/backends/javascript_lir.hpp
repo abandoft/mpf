@@ -103,8 +103,7 @@ enum class ExpressionForm : std::uint8_t {
   binary_operator,
   binary_lazy_and,
   binary_lazy_or,
-  binary_structural_equal,
-  binary_structural_not_equal,
+  binary_comparison,
   binary_floor_divide,
   comparison_chain,
   conditional,
@@ -116,7 +115,15 @@ enum class ExpressionForm : std::uint8_t {
   tuple
 };
 
-enum class ComparisonForm : std::uint8_t { infix, structural_equal, structural_not_equal };
+enum class ComparisonForm : std::uint8_t {
+  infix,
+  structural_equal,
+  structural_not_equal,
+  identity,
+  not_identity,
+  membership,
+  not_membership
+};
 
 enum class CallForm : std::uint8_t {
   none,
@@ -257,7 +264,8 @@ struct Expression {
   SourceLocation location{};
   ExpressionKind kind{ExpressionKind::invalid};
   std::string value;
-  std::vector<std::string> operators;
+  ComparisonOperator comparison{ComparisonOperator::none};
+  std::vector<ComparisonOperator> comparisons;
   std::vector<Expression> children;
   ValueType inferred_type{ValueType::unknown};
   BindingKind binding{BindingKind::unresolved};

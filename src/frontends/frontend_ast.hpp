@@ -29,7 +29,8 @@ struct ArenaExpression {
   SourceLocation location{};
   ExpressionKind kind{ExpressionKind::invalid};
   std::string value;
-  std::vector<std::string> operators;
+  ComparisonOperator comparison{ComparisonOperator::none};
+  std::vector<ComparisonOperator> comparisons;
   std::vector<AstNodeId> children;
   ValueType inferred_type{ValueType::unknown};
   BindingKind binding{BindingKind::unresolved};

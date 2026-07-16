@@ -118,6 +118,9 @@ class Analyzer final {
   ValueType analyze_expression(Expression& expression);
   [[nodiscard]] ValueType analyze_binary(Expression& expression);
   void validate_python_ordering(ValueType left, ValueType right, std::size_t line);
+  void validate_python_comparison(ComparisonOperator operation, const Expression& left,
+                                  ValueType left_type, const Expression& right,
+                                  ValueType right_type);
   [[nodiscard]] ValueType analyze_comparison_chain(Expression& expression);
   [[nodiscard]] ValueType analyze_conditional(Expression& expression);
   void normalize_fortran_arguments(Expression& expression, const Statement& function);

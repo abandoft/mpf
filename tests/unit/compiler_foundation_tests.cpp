@@ -182,14 +182,18 @@ TEST_CASE("Matlab logical source diagnoses incomplete delimiters comments and el
   REQUIRE(ellipsis_result.diagnostics.front().code == "MPF1505");
 }
 
-TEST_CASE("Python lexer normalizes logical and floor division tokens") {
-  const auto result = mpf::detail::lex_python_expression("not True and 7 // 2", 4, 3);
+TEST_CASE("Python lexer normalizes logical comparison and floor division tokens") {
+  const auto result =
+      mpf::detail::lex_python_expression("not True and 7 // 2 is not None or 2 in [1, 2]", 4, 3);
   REQUIRE(result.diagnostics.empty());
-  REQUIRE(result.tokens.size() == 7);
+  REQUIRE(result.tokens.size() == 18);
   REQUIRE(result.tokens[0].kind == mpf::detail::TokenKind::logical_not);
   REQUIRE(result.tokens[1].kind == mpf::detail::TokenKind::true_keyword);
   REQUIRE(result.tokens[2].kind == mpf::detail::TokenKind::logical_and);
   REQUIRE(result.tokens[4].kind == mpf::detail::TokenKind::floor_slash);
+  REQUIRE(result.tokens[6].kind == mpf::detail::TokenKind::identity_is);
+  REQUIRE(result.tokens[7].kind == mpf::detail::TokenKind::logical_not);
+  REQUIRE(result.tokens[11].kind == mpf::detail::TokenKind::membership_in);
   REQUIRE(result.tokens[0].location.line == 4);
   REQUIRE(result.tokens[0].location.column == 3);
 }
@@ -206,10 +210,25 @@ TEST_CASE(
   REQUIRE(chain.diagnostics.empty());
   REQUIRE(chain.expression.kind == mpf::detail::ExpressionKind::comparison_chain);
   REQUIRE(chain.expression.children.size() == 4);
-  REQUIRE(chain.expression.operators.size() == 3);
-  REQUIRE(chain.expression.operators[0] == "<");
-  REQUIRE(chain.expression.operators[1] == "<=");
-  REQUIRE(chain.expression.operators[2] == "!==");
+  REQUIRE(chain.expression.comparisons.size() == 3);
+  REQUIRE(chain.expression.comparisons[0] == mpf::detail::ComparisonOperator::less);
+  REQUIRE(chain.expression.comparisons[1] == mpf::detail::ComparisonOperator::less_equal);
+  REQUIRE(chain.expression.comparisons[2] == mpf::detail::ComparisonOperator::not_equal);
+
+  const auto compound = mpf::detail::parse_expression("needle not in values is not None",
+                                                      mpf::SourceLanguage::python, 5);
+  REQUIRE(compound.diagnostics.empty());
+  REQUIRE(compound.expression.kind == mpf::detail::ExpressionKind::comparison_chain);
+  REQUIRE(compound.expression.comparisons.size() == 2);
+  REQUIRE(compound.expression.comparisons[0] == mpf::detail::ComparisonOperator::not_contains);
+  REQUIRE(compound.expression.comparisons[1] == mpf::detail::ComparisonOperator::not_identity);
+
+  const auto precedence =
+      mpf::detail::parse_expression("not 1 in values", mpf::SourceLanguage::python, 5);
+  REQUIRE(precedence.diagnostics.empty());
+  REQUIRE(precedence.expression.kind == mpf::detail::ExpressionKind::unary);
+  REQUIRE(precedence.expression.children.front().comparison ==
+          mpf::detail::ComparisonOperator::contains);
 
   const auto conditional = mpf::detail::parse_expression("1 if first else 2 if second else 3",
                                                          mpf::SourceLanguage::python, 5);

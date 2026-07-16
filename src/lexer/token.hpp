@@ -30,6 +30,8 @@ enum class TokenKind {
   logical_and,
   logical_or,
   logical_not,
+  identity_is,
+  membership_in,
   conditional_if,
   conditional_else,
   equal,

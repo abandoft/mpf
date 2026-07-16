@@ -262,10 +262,26 @@ if(NOT javascript_lir_contract MATCHES "ModulePlan" OR
   message(FATAL_ERROR "JavaScript LIR does not own module topology")
 endif()
 if(NOT javascript_lir_contract MATCHES "ComparisonPlan" OR
-   NOT javascript_lir_contract MATCHES "binary_structural_equal" OR
+   NOT javascript_lir_contract MATCHES "binary_comparison" OR
+   NOT javascript_lir_contract MATCHES "not_membership" OR
    NOT javascript_lir_contract MATCHES "reference_box_uninitialized")
   message(FATAL_ERROR "JavaScript LIR does not own expression and call representation")
 endif()
+
+foreach(comparison_ir IN ITEMS
+    src/compiler/expression_ast.hpp
+    src/frontends/frontend_ast.hpp
+    src/ir/hir.hpp
+    src/ir/mir.hpp
+    src/backends/javascript_lir.hpp
+    src/backends/cpp_lir.hpp)
+  file(READ "${SOURCE_DIR}/${comparison_ir}" comparison_contract)
+  if(NOT comparison_contract MATCHES "ComparisonOperator" OR
+     comparison_contract MATCHES "vector<std::string> operators")
+    message(FATAL_ERROR
+      "comparison operators are not strongly typed through the pipeline: ${comparison_ir}")
+  endif()
+endforeach()
 
 mpf_assert_file_excludes("src/backends/identifier_mangler.hpp" "temporary\\("
   "renderer-facing identifier mangler still allocates temporaries")

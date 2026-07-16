@@ -33,7 +33,8 @@ class AstBuilder final {
     node.location = source.location;
     node.kind = source.kind;
     node.value = std::move(source.value);
-    node.operators = std::move(source.operators);
+    node.comparison = source.comparison;
+    node.comparisons = std::move(source.comparisons);
     node.children.reserve(source.children.size());
     for (auto& child : source.children) node.children.push_back(add_expression(std::move(child)));
     node.inferred_type = source.inferred_type;
@@ -210,7 +211,8 @@ class HirLowerer final {
     result.location = node.location;
     result.kind = node.kind;
     result.value = std::move(node.value);
-    result.operators = std::move(node.operators);
+    result.comparison = node.comparison;
+    result.comparisons = std::move(node.comparisons);
     result.children.reserve(node.children.size());
     for (const auto child : node.children) result.children.push_back(expression(child));
     hir::ExpressionFacts facts;
@@ -375,6 +377,17 @@ std::vector<Diagnostic> verify_typed_ast(const ArenaProgram<Tag>& ast,
       const auto& node = ast.expressions[record.index];
       if (node.kind == ExpressionKind::invalid || node.requested_outputs == 0) {
         add_error(node.location, "frontend AST expression payload is invalid");
+      }
+      if (node.kind == ExpressionKind::binary &&
+          ((node.comparison != ComparisonOperator::none) == !node.value.empty())) {
+        add_error(node.location, "frontend AST binary operator representation is ambiguous");
+      }
+      if (node.kind == ExpressionKind::comparison_chain &&
+          (node.children.size() < 3U || node.comparisons.size() + 1U != node.children.size() ||
+           std::any_of(node.comparisons.begin(), node.comparisons.end(), [](const auto operation) {
+             return operation == ComparisonOperator::none;
+           }))) {
+        add_error(node.location, "frontend AST comparison chain arity is inconsistent");
       }
       for (const auto child : node.children) {
         if (child.valid()) self(self, child, AstNodeKind::expression);

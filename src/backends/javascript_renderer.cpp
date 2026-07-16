@@ -44,20 +44,65 @@ class Renderer final {
     return form == javascript::lir::ExpressionForm::binary_operator ||
            form == javascript::lir::ExpressionForm::binary_lazy_and ||
            form == javascript::lir::ExpressionForm::binary_lazy_or ||
-           form == javascript::lir::ExpressionForm::binary_structural_equal ||
-           form == javascript::lir::ExpressionForm::binary_structural_not_equal ||
+           form == javascript::lir::ExpressionForm::binary_comparison ||
            form == javascript::lir::ExpressionForm::binary_floor_divide;
   }
 
   void emit_comparison(const javascript::lir::ComparisonPlan& comparison, const std::string& left,
                        const std::string& right) {
-    if (comparison.form == javascript::lir::ComparisonForm::structural_equal ||
-        comparison.form == javascript::lir::ComparisonForm::structural_not_equal) {
-      if (comparison.form == javascript::lir::ComparisonForm::structural_not_equal) output_ << '!';
-      output_ << "__mpf_py_equal(" << left << ", " << right << ')';
-      return;
+    switch (comparison.form) {
+      case javascript::lir::ComparisonForm::structural_equal:
+      case javascript::lir::ComparisonForm::structural_not_equal:
+        if (comparison.form == javascript::lir::ComparisonForm::structural_not_equal) {
+          output_ << '!';
+        }
+        output_ << "__mpf_py_equal(" << left << ", " << right << ')';
+        return;
+      case javascript::lir::ComparisonForm::identity:
+      case javascript::lir::ComparisonForm::not_identity:
+        if (comparison.form == javascript::lir::ComparisonForm::not_identity) output_ << '!';
+        output_ << "__mpf_py_is(" << left << ", " << right << ')';
+        return;
+      case javascript::lir::ComparisonForm::membership:
+      case javascript::lir::ComparisonForm::not_membership:
+        if (comparison.form == javascript::lir::ComparisonForm::not_membership) output_ << '!';
+        output_ << "__mpf_py_contains(" << right << ", " << left << ')';
+        return;
+      case javascript::lir::ComparisonForm::infix: break;
     }
     output_ << left << ' ' << comparison.token << ' ' << right;
+  }
+
+  void emit_binary_comparison(const Expression& expression) {
+    const auto& comparison = expression.plan.comparisons.front();
+    const bool negate = comparison.form == javascript::lir::ComparisonForm::structural_not_equal ||
+                        comparison.form == javascript::lir::ComparisonForm::not_identity ||
+                        comparison.form == javascript::lir::ComparisonForm::not_membership;
+    if (negate) output_ << '!';
+    if (comparison.form == javascript::lir::ComparisonForm::structural_equal ||
+        comparison.form == javascript::lir::ComparisonForm::structural_not_equal) {
+      output_ << "__mpf_py_equal(";
+    } else if (comparison.form == javascript::lir::ComparisonForm::identity ||
+               comparison.form == javascript::lir::ComparisonForm::not_identity) {
+      output_ << "__mpf_py_is(";
+    } else if (comparison.form == javascript::lir::ComparisonForm::membership ||
+               comparison.form == javascript::lir::ComparisonForm::not_membership) {
+      output_ << "__mpf_py_contains(";
+      emit_expression(expression.children[1]);
+      output_ << ", ";
+      emit_expression(expression.children[0]);
+      output_ << ')';
+      return;
+    } else {
+      emit_expression(expression.children[0], expression.plan.precedence);
+      output_ << ' ' << comparison.token << ' ';
+      emit_expression(expression.children[1], expression.plan.precedence + 1);
+      return;
+    }
+    emit_expression(expression.children[0]);
+    output_ << ", ";
+    emit_expression(expression.children[1]);
+    output_ << ')';
   }
 
   void emit_comparison_chain(const Expression& expression) {
@@ -215,17 +260,10 @@ class Renderer final {
         emit_expression(expression.children[1]);
         output_ << "))";
         break;
-      case javascript::lir::ExpressionForm::binary_structural_equal:
-      case javascript::lir::ExpressionForm::binary_structural_not_equal:
-        if (expression.plan.form == javascript::lir::ExpressionForm::binary_structural_not_equal) {
-          output_ << '!';
-        }
-        output_ << "__mpf_py_equal(";
-        emit_expression(expression.children[0]);
-        output_ << ", ";
-        emit_expression(expression.children[1]);
-        output_ << ')';
+      case javascript::lir::ExpressionForm::binary_comparison: {
+        emit_binary_comparison(expression);
         break;
+      }
       case javascript::lir::ExpressionForm::binary_floor_divide:
         output_ << "Math.floor(";
         emit_expression(expression.children[0]);
@@ -297,13 +335,20 @@ class Renderer final {
         output_ << '.' << expression.plan.token;
         break;
       case javascript::lir::ExpressionForm::array:
-      case javascript::lir::ExpressionForm::tuple:
         output_ << '[';
         for (std::size_t index = 0; index < expression.children.size(); ++index) {
           if (index != 0) output_ << ", ";
           emit_expression(expression.children[index]);
         }
         output_ << ']';
+        break;
+      case javascript::lir::ExpressionForm::tuple:
+        output_ << "__mpf_tuple([";
+        for (std::size_t index = 0; index < expression.children.size(); ++index) {
+          if (index != 0) output_ << ", ";
+          emit_expression(expression.children[index]);
+        }
+        output_ << "])";
         break;
     }
     if (parenthesize) output_ << ')';

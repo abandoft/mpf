@@ -73,6 +73,37 @@ TEST_CASE("Python chained comparisons and conditional expressions lower lazily i
   REQUIRE(cpp.code.find("mpf_runtime::truthy(first)") != std::string::npos);
 }
 
+TEST_CASE("Python equality identity and membership have target-explicit lowering") {
+  const std::string portable =
+      "items = [1, 2]\n"
+      "pair = (1, 'x')\n"
+      "result = 1 if 1 in items and 3 not in pair and 'bc' in 'abcd' else 0\n"
+      "singletons = 2 if None is None and True is not False else 0\n"
+      "kinds = 3 if [1, 2] != (1, 2) and 1 != '1' else 0\n"
+      "chain = 4 if 1 in items is not None else 0\n"
+      "print(result, singletons, kinds, chain)\n";
+  const auto javascript = transpile(portable, mpf::SourceLanguage::python);
+  const auto cpp = transpile(portable, mpf::SourceLanguage::python, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_py_contains") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_py_is") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_tuple([") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::py_contains") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::py_is") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::py_equal") != std::string::npos);
+
+  const std::string object_identity =
+      "items = [1, 2]\n"
+      "same = items\n"
+      "print(1 if items is same else 0)\n";
+  REQUIRE(transpile(object_identity, mpf::SourceLanguage::python).success());
+  const auto identity_cpp =
+      transpile(object_identity, mpf::SourceLanguage::python, mpf::TargetLanguage::cpp);
+  REQUIRE(!identity_cpp.success());
+  REQUIRE(identity_cpp.diagnostics.front().code == "MPF2044");
+}
+
 }  // namespace
 
 TEST_CASE("Python function, branch, return and call transpile end to end") {

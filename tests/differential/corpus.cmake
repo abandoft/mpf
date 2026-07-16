@@ -18,6 +18,7 @@ mpf_add_differential_case(python-parameter-association python examples/python/pa
 mpf_add_differential_case(python-unpacking python examples/python/unpacking.py "41 40 42 42 answer 42 42 42 42")
 mpf_add_differential_case(python-structured-unpacking python examples/python/structured_unpacking.py "10 20 43 23 42 1 5 4 0 42")
 mpf_add_differential_case(python-expression-semantics python examples/python/expression_semantics.py "2 2 40 42 2 3 7 8")
+mpf_add_differential_case(python-comparisons python examples/python/comparisons.py "10 20 3 4 5 6 7 9 8")
 mpf_add_differential_case(matlab-logical-lines matlab examples/matlab/logical_lines.m "42")
 mpf_add_differential_case(matlab-statement-tokens matlab examples/matlab/statement_tokens.m "42")
 mpf_add_differential_case(matlab-multi-output matlab examples/matlab/multi_output.m "97")

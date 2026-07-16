@@ -338,7 +338,9 @@ void add_temporary(lir::SemanticProgram& program, std::set<std::string>& used, c
 void plan_expression_temporaries(lir::SemanticProgram& program, const lir::Expression& expression,
                                  std::set<std::string>& used) {
   if (!expression.valid()) return;
-  if (expression.kind == ExpressionKind::comparison_chain) {
+  if (expression.kind == ExpressionKind::comparison_chain ||
+      (expression.kind == ExpressionKind::binary &&
+       expression.comparison != ComparisonOperator::none)) {
     for (std::size_t index = 0; index < expression.children.size(); ++index) {
       add_temporary(program, used, expression.id, lir::TemporaryRole::comparison_operand, index);
     }
@@ -465,7 +467,9 @@ void verify_expression_resources(const lir::SemanticProgram& program,
                                  std::vector<std::size_t>& expected, std::set<std::string>& names,
                                  std::vector<Diagnostic>& diagnostics) {
   if (!expression.valid()) return;
-  if (expression.kind == ExpressionKind::comparison_chain) {
+  if (expression.kind == ExpressionKind::comparison_chain ||
+      (expression.kind == ExpressionKind::binary &&
+       expression.comparison != ComparisonOperator::none)) {
     for (std::size_t index = 0; index < expression.children.size(); ++index) {
       require_temporary(program, expression.id, lir::TemporaryRole::comparison_operand, index,
                         expected, names, diagnostics, expression.location);
