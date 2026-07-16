@@ -6,9 +6,11 @@
 #include "backends/backend_conformance.hpp"
 #include "backends/cpp_lir.hpp"
 #include "backends/cpp_lir_planning.hpp"
+#include "backends/cpp_lir_representation.hpp"
 #include "backends/cpp_lowering.hpp"
 #include "backends/javascript_lir.hpp"
 #include "backends/javascript_lir_planning.hpp"
+#include "backends/javascript_lir_representation.hpp"
 #include "backends/javascript_lowering.hpp"
 #include "core/backend_registry.hpp"
 #include "frontends/frontend_conformance.hpp"
@@ -756,9 +758,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v6") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v7") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v6") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v7") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -819,6 +821,7 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   javascript.identifiers = mpf::detail::allocate_identifiers(
       mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_names(javascript));
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
+  mpf::detail::javascript::plan_lir_representation(javascript);
   mpf::detail::javascript::plan_lir_resources(javascript, mpf::TranspileOptions{});
   REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript).empty());
   javascript.program_scope.declarations.clear();
@@ -839,6 +842,7 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   javascript_function.statements.push_back(std::move(javascript_abi));
   javascript_function.identifiers = mpf::detail::allocate_identifiers(
       mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_names(javascript_function));
+  mpf::detail::javascript::plan_lir_representation(javascript_function);
   mpf::detail::javascript::plan_lir_resources(javascript_function, mpf::TranspileOptions{});
   REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript_function).empty());
   javascript_function.statements.front().function_abi.parameters.front() =
@@ -865,6 +869,7 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   cpp.identifiers = mpf::detail::allocate_identifiers(mpf::TargetLanguage::cpp,
                                                       mpf::detail::collect_identifier_names(cpp));
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  mpf::detail::cpp::plan_lir_representation(cpp);
   mpf::detail::cpp::plan_lir_resources(cpp, mpf::TranspileOptions{});
   REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp).empty());
   mpf::detail::cpp::lir::DeclarationPlan unexpected;
@@ -895,6 +900,7 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
       mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_names(javascript));
   mpf::TranspileOptions options;
   options.emit_source_banner = false;
+  mpf::detail::javascript::plan_lir_representation(javascript);
   mpf::detail::javascript::plan_lir_resources(javascript, options);
   REQUIRE(!javascript.module.emit_banner);
   REQUIRE(javascript.module.banner.empty());
@@ -918,6 +924,7 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   cpp.statements.push_back(std::move(cpp_statement));
   cpp.identifiers = mpf::detail::allocate_identifiers(mpf::TargetLanguage::cpp,
                                                       mpf::detail::collect_identifier_names(cpp));
+  mpf::detail::cpp::plan_lir_representation(cpp);
   mpf::detail::cpp::plan_lir_resources(cpp, options);
   REQUIRE(!cpp.translation_unit.emit_banner);
   REQUIRE(cpp.translation_unit.banner.empty());
@@ -932,6 +939,105 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   std::swap(cpp.translation_unit.standard_headers.front(),
             cpp.translation_unit.standard_headers.back());
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+}
+
+TEST_CASE("target LIR expression plans own operators calls and concrete representation") {
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.emission.dynamic_truthiness = true;
+  javascript.emission.operand_logical_result = true;
+  javascript.emission.structural_equality = true;
+  mpf::detail::javascript::lir::Statement javascript_statement;
+  javascript_statement.expression.kind = mpf::detail::ExpressionKind::call;
+  javascript_statement.expression.multi_output_call = true;
+  javascript_statement.expression.requested_outputs = 1;
+  javascript_statement.expression.argument_transfers = {
+      mpf::detail::ArgumentTransfer::mutable_borrow_out};
+  mpf::detail::javascript::lir::Expression javascript_callee;
+  javascript_callee.kind = mpf::detail::ExpressionKind::identifier;
+  javascript_callee.value = "update";
+  mpf::detail::javascript::lir::Expression javascript_argument;
+  javascript_argument.kind = mpf::detail::ExpressionKind::identifier;
+  javascript_argument.value = "value";
+  javascript_argument.inferred_type = mpf::detail::ValueType::integer;
+  javascript_statement.expression.children = {std::move(javascript_callee),
+                                              std::move(javascript_argument)};
+  javascript.statements.push_back(std::move(javascript_statement));
+  mpf::detail::javascript::lir::Statement javascript_index_statement;
+  javascript_index_statement.expression.kind = mpf::detail::ExpressionKind::index;
+  mpf::detail::javascript::lir::Expression javascript_container;
+  javascript_container.kind = mpf::detail::ExpressionKind::identifier;
+  javascript_container.value = "items";
+  mpf::detail::javascript::lir::Expression javascript_slice;
+  javascript_slice.kind = mpf::detail::ExpressionKind::slice;
+  javascript_slice.children.resize(3);
+  mpf::detail::javascript::lir::Expression javascript_selector;
+  javascript_selector.kind = mpf::detail::ExpressionKind::number_literal;
+  javascript_selector.value = "1";
+  javascript_index_statement.expression.children = {
+      std::move(javascript_container), std::move(javascript_slice), std::move(javascript_selector)};
+  javascript.statements.push_back(std::move(javascript_index_statement));
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  const auto& javascript_plan = javascript.statements.front().expression.plan;
+  REQUIRE(javascript_plan.form == mpf::detail::javascript::lir::ExpressionForm::call);
+  REQUIRE(javascript_plan.call == mpf::detail::javascript::lir::CallForm::direct);
+  REQUIRE(javascript_plan.first_result);
+  REQUIRE(javascript_plan.call_arguments.front() ==
+          mpf::detail::javascript::lir::CallArgumentForm::reference_box_uninitialized);
+  const auto& javascript_index_plan = javascript.statements[1].expression.plan;
+  REQUIRE(javascript_index_plan.index == mpf::detail::javascript::lir::IndexForm::section);
+  REQUIRE((javascript_index_plan.selector_slices == std::vector<bool>{true, false}));
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript.statements.front().expression.plan.call = mpf::detail::javascript::lir::CallForm::sum;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.emission.dynamic_truthiness = true;
+  cpp.emission.real_division = true;
+  mpf::detail::cpp::lir::Statement cpp_statement;
+  cpp_statement.expression.kind = mpf::detail::ExpressionKind::list;
+  cpp_statement.expression.element_type = mpf::detail::ValueType::real;
+  cpp_statement.expression.shape = {2};
+  mpf::detail::cpp::lir::Expression integer_child;
+  integer_child.kind = mpf::detail::ExpressionKind::number_literal;
+  integer_child.value = "1";
+  integer_child.inferred_type = mpf::detail::ValueType::integer;
+  mpf::detail::cpp::lir::Expression real_child;
+  real_child.kind = mpf::detail::ExpressionKind::number_literal;
+  real_child.value = "2.5";
+  real_child.inferred_type = mpf::detail::ValueType::real;
+  cpp_statement.expression.children = {std::move(integer_child), std::move(real_child)};
+  cpp.statements.push_back(std::move(cpp_statement));
+  mpf::detail::cpp::lir::Statement cpp_index_statement;
+  cpp_index_statement.expression.kind = mpf::detail::ExpressionKind::index;
+  mpf::detail::cpp::lir::Expression cpp_container;
+  cpp_container.kind = mpf::detail::ExpressionKind::identifier;
+  cpp_container.value = "tensor";
+  mpf::detail::cpp::lir::Expression cpp_slice;
+  cpp_slice.kind = mpf::detail::ExpressionKind::slice;
+  cpp_slice.children.resize(3);
+  mpf::detail::cpp::lir::Expression cpp_selector;
+  cpp_selector.kind = mpf::detail::ExpressionKind::number_literal;
+  cpp_selector.value = "1";
+  cpp_index_statement.expression.children = {std::move(cpp_container), std::move(cpp_slice),
+                                             cpp_selector, std::move(cpp_selector)};
+  cpp.statements.push_back(std::move(cpp_index_statement));
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  const auto& cpp_plan = cpp.statements.front().expression.plan;
+  REQUIRE(cpp_plan.form == mpf::detail::cpp::lir::ExpressionForm::list);
+  REQUIRE(cpp_plan.concrete_type == "std::vector<double>");
+  REQUIRE((cpp_plan.widen_children == std::vector<bool>{true, true}));
+  const auto& cpp_index_plan = cpp.statements[1].expression.plan;
+  REQUIRE(cpp_index_plan.index == mpf::detail::cpp::lir::IndexForm::section_nd);
+  REQUIRE((cpp_index_plan.selector_slices == std::vector<bool>{true, false, false}));
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp.statements.front().expression.plan.concrete_type = "std::vector<float>";
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
 }
 
 TEST_CASE("target LIR scope plans own declarations types and probes") {

@@ -120,6 +120,82 @@ struct ScopePlan {
   std::vector<DeclarationPlan> declarations;
 };
 
+enum class ExpressionForm : std::uint8_t {
+  invalid,
+  omitted,
+  variable,
+  target_symbol,
+  scalar_literal,
+  string_literal,
+  null_literal,
+  unary_operator,
+  unary_truthiness,
+  binary_operator,
+  binary_lazy_and,
+  binary_lazy_or,
+  binary_power,
+  binary_floor_divide,
+  binary_real_divide,
+  binary_dynamic_compare,
+  comparison_chain,
+  conditional,
+  call,
+  index,
+  slice,
+  member,
+  list,
+  tuple
+};
+
+enum class ComparisonForm : std::uint8_t { infix, dynamic_compare };
+
+enum class CallForm : std::uint8_t {
+  none,
+  direct,
+  python_float,
+  python_length,
+  matlab_length,
+  element_count,
+  sum,
+  present,
+  reshape
+};
+
+enum class CallArgumentForm : std::uint8_t { value, forward_optional, copy_section };
+
+enum class IndexForm : std::uint8_t {
+  none,
+  nested,
+  matrix_linear,
+  slice,
+  row_slice,
+  column,
+  block,
+  section_nd
+};
+
+struct ComparisonPlan {
+  ComparisonForm form{ComparisonForm::infix};
+  std::string token;
+};
+
+struct ExpressionPlan {
+  bool valid{false};
+  ExpressionForm form{ExpressionForm::invalid};
+  int precedence{10};
+  std::string token;
+  std::vector<ComparisonPlan> comparisons;
+  CallForm call{CallForm::none};
+  std::vector<CallArgumentForm> call_arguments;
+  IndexForm index{IndexForm::none};
+  std::vector<bool> selector_slices;
+  bool flatten_base{false};
+  bool first_result{false};
+  bool string_value{false};
+  std::string concrete_type;
+  std::vector<bool> widen_children;
+};
+
 enum class RuntimeFragment : std::uint8_t { core, dynamic_values };
 
 struct TranslationUnitPlan {
@@ -167,6 +243,7 @@ struct Expression {
   bool allow_negative_index{false};
   bool column_major{false};
   bool slice_stop_inclusive{false};
+  ExpressionPlan plan;
 
   [[nodiscard]] bool valid() const noexcept { return kind != ExpressionKind::invalid; }
 };

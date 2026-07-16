@@ -1,11 +1,11 @@
-cpp-semantic-lir-v6 revision 1 nodes 5 runtime 0x0
+cpp-semantic-lir-v7 revision 1 nodes 5 runtime 0x0
 dependencies
 temporaries
 stmt %l1 origin %h1 kind 4 line 1 name ""
-  expr %l2 origin %h2 kind 11 type 1 binding 0 intrinsic 0 shape [] value ""
-    expr %l3 origin %h3 kind 1 type 8 binding 3 intrinsic 1 shape [] value "abs"
-    expr %l4 origin %h4 kind 7 type 1 binding 0 intrinsic 0 shape [] value "-"
-      expr %l5 origin %h5 kind 2 type 1 binding 0 intrinsic 0 shape [] value "2"
+  expr %l2 origin %h2 kind 11 type 1 binding 0 intrinsic 0 shape [] value "" plan 18 precedence 9 token "" call 1 index 0 first-result 0 string-value 0
+    expr %l3 origin %h3 kind 1 type 8 binding 3 intrinsic 1 shape [] value "abs" plan 3 precedence 10 token "std::abs" call 0 index 0 first-result 0 string-value 0
+    expr %l4 origin %h4 kind 7 type 1 binding 0 intrinsic 0 shape [] value "-" plan 7 precedence 6 token "-" call 0 index 0 first-result 0 string-value 0
+      expr %l5 origin %h5 kind 2 type 1 binding 0 intrinsic 0 shape [] value "2" plan 4 precedence 10 token "2" call 0 index 0 first-result 0 string-value 0
 function-abis
 program-scope
 translation-unit banner=1 runtime-namespace "mpf_runtime" generated-namespace "mpf_generated" headers ["<algorithm>","<array>","<cmath>","<cstddef>","<cstdint>","<functional>","<iostream>","<limits>","<numeric>","<optional>","<stdexcept>","<string>","<type_traits>","<tuple>","<utility>","<vector>"] runtime [0,1] forward [] definitions [] entry [0] module-scope=1 entry-scope=0 emit-entry=1 emit-main=1

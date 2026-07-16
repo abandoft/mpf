@@ -47,8 +47,24 @@ foreach(lowering IN ITEMS
   file(READ "${SOURCE_DIR}/${lowering}" lowering_contents)
   if(NOT lowering_contents MATCHES "materialize_chunks\\(render_" OR
      NOT lowering_contents MATCHES "SemanticProgram" OR
-     NOT lowering_contents MATCHES "plan_lir_resources")
+     NOT lowering_contents MATCHES "plan_lir_resources" OR
+     NOT lowering_contents MATCHES "plan_lir_representation")
     message(FATAL_ERROR "target lowering does not materialize an independent serialized LIR: ${lowering}")
+  endif()
+endforeach()
+
+foreach(representation IN ITEMS
+    src/backends/javascript_lir_representation.cpp
+    src/backends/cpp_lir_representation.cpp)
+  if(NOT EXISTS "${SOURCE_DIR}/${representation}")
+    message(FATAL_ERROR "target LIR representation layer is missing: ${representation}")
+  endif()
+  file(READ "${SOURCE_DIR}/${representation}" representation_contents)
+  if(NOT representation_contents MATCHES "plan_lir_representation" OR
+     NOT representation_contents MATCHES "verify_lir_representation" OR
+     NOT representation_contents MATCHES "expected_plan" OR
+     NOT representation_contents MATCHES "CallArgumentForm")
+    message(FATAL_ERROR "target LIR representation layer does not own expression plans: ${representation}")
   endif()
 endforeach()
 
@@ -97,6 +113,12 @@ foreach(target_lir IN ITEMS src/backends/javascript_lir.hpp src/backends/cpp_lir
      NOT target_lir_contract MATCHES "program_scope" OR
      NOT target_lir_contract MATCHES "function_scope" OR
      NOT target_lir_contract MATCHES "RuntimeFragment" OR
+     NOT target_lir_contract MATCHES "ExpressionPlan" OR
+     NOT target_lir_contract MATCHES "ExpressionForm" OR
+     NOT target_lir_contract MATCHES "CallForm" OR
+     NOT target_lir_contract MATCHES "CallArgumentForm" OR
+     NOT target_lir_contract MATCHES "IndexForm" OR
+     NOT target_lir_contract MATCHES "selector_slices" OR
      NOT target_lir_contract MATCHES "offsets" OR
      target_lir_contract MATCHES "argument_intents")
     message(FATAL_ERROR "target LIR does not own a lowered argument transfer plan: ${target_lir}")
@@ -105,10 +127,13 @@ endforeach()
 
 foreach(renderer IN ITEMS src/backends/javascript_renderer.cpp src/backends/cpp_renderer.cpp)
   file(READ "${SOURCE_DIR}/${renderer}" renderer_contract)
-  if(NOT renderer_contract MATCHES "argument_transfer_(writes|copies|forwards_optional)")
-    message(FATAL_ERROR "target renderer ignores the lowered argument transfer plan: ${renderer}")
+  if(NOT renderer_contract MATCHES "plan\\.call_arguments" OR
+     NOT renderer_contract MATCHES "plan\\.form" OR
+     NOT renderer_contract MATCHES "plan\\.token" OR
+     NOT renderer_contract MATCHES "plan\\.index")
+    message(FATAL_ERROR "target renderer ignores the lowered expression representation plan: ${renderer}")
   endif()
-  if(renderer_contract MATCHES "mangler_->temporary|parameter_intents|parameter_optional|TranspileOptions|options_|program\\.runtime|program\\.function_graph|has_executable_statements|MPF_VERSION|collect_(assignments|declarations)" OR
+  if(renderer_contract MATCHES "mangler_->temporary|parameter_intents|parameter_optional|TranspileOptions|options_|program\\.runtime|program\\.function_graph|has_executable_statements|MPF_VERSION|collect_(assignments|declarations)|ExpressionKind::|IntrinsicId::|BindingKind::|argument_transfer_" OR
      NOT renderer_contract MATCHES "temporaries_->find" OR
      NOT renderer_contract MATCHES "function_abi" OR
      NOT renderer_contract MATCHES "program_scope" OR
@@ -148,6 +173,12 @@ if(NOT cpp_lir_contract MATCHES "DeclarationTypeKind" OR
   message(FATAL_ERROR "cpp LIR does not own declaration type and initialization plans")
 endif()
 
+if(NOT cpp_lir_contract MATCHES "concrete_type" OR
+   NOT cpp_lir_contract MATCHES "widen_children" OR
+   NOT cpp_lir_contract MATCHES "ComparisonPlan")
+  message(FATAL_ERROR "cpp LIR does not own expression type and comparison representation")
+endif()
+
 if(NOT cpp_lir_contract MATCHES "TranslationUnitPlan" OR
    NOT cpp_lir_contract MATCHES "standard_headers" OR
    NOT cpp_lir_contract MATCHES "forward_declarations" OR
@@ -160,6 +191,11 @@ if(NOT javascript_lir_contract MATCHES "ModulePlan" OR
    NOT javascript_lir_contract MATCHES "directives" OR
    NOT javascript_lir_contract MATCHES "body_order")
   message(FATAL_ERROR "JavaScript LIR does not own module topology")
+endif()
+if(NOT javascript_lir_contract MATCHES "ComparisonPlan" OR
+   NOT javascript_lir_contract MATCHES "binary_structural_equal" OR
+   NOT javascript_lir_contract MATCHES "reference_box_uninitialized")
+  message(FATAL_ERROR "JavaScript LIR does not own expression and call representation")
 endif()
 
 mpf_assert_file_excludes("src/backends/identifier_mangler.hpp" "temporary\\("

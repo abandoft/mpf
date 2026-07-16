@@ -21,9 +21,11 @@ using Statement = cpp::lir::Statement;
 using Program = cpp::lir::SemanticProgram;
 
 bool expression_has_direct_slice(const Expression& expression) {
-  return expression.kind == ExpressionKind::index && expression.children.size() > 1 &&
-         std::any_of(expression.children.begin() + 1, expression.children.end(),
-                     [](const Expression& child) { return child.kind == ExpressionKind::slice; });
+  return expression.plan.index == cpp::lir::IndexForm::slice ||
+         expression.plan.index == cpp::lir::IndexForm::row_slice ||
+         expression.plan.index == cpp::lir::IndexForm::column ||
+         expression.plan.index == cpp::lir::IndexForm::block ||
+         expression.plan.index == cpp::lir::IndexForm::section_nd;
 }
 
 class Renderer final {
@@ -113,48 +115,17 @@ class Renderer final {
   }
 
   static int precedence(const Expression& expression) noexcept {
-    if (expression.kind == ExpressionKind::conditional) return 0;
-    if (expression.kind == ExpressionKind::binary) {
-      if (expression.value == "||") return 1;
-      if (expression.value == "&&") return 2;
-      if (expression.value == "===" || expression.value == "!==" || expression.value == "<" ||
-          expression.value == "<=" || expression.value == ">" || expression.value == ">=")
-        return 3;
-      if (expression.value == "+" || expression.value == "-") return 4;
-      if (expression.value == "*" || expression.value == "/" || expression.value == "%") return 5;
-    }
-    if (expression.kind == ExpressionKind::unary) return 6;
-    if (expression.kind == ExpressionKind::call || expression.kind == ExpressionKind::member ||
-        expression.kind == ExpressionKind::index)
-      return 9;
-    return 10;
+    return expression.plan.precedence;
   }
 
-  static const char* cpp_comparison_operator(const std::string& operation) noexcept {
-    if (operation == "===") return "==";
-    if (operation == "!==") return "!=";
-    return operation.c_str();
-  }
-
-  static const char* cpp_python_comparison(const std::string& operation) noexcept {
-    if (operation == "===" || operation == "==") return "std::equal_to<>{}";
-    if (operation == "!==" || operation == "!=") return "std::not_equal_to<>{}";
-    if (operation == "<") return "std::less<>{}";
-    if (operation == "<=") return "std::less_equal<>{}";
-    if (operation == ">") return "std::greater<>{}";
-    if (operation == ">=") return "std::greater_equal<>{}";
-    return nullptr;
-  }
-
-  void emit_named_comparison(const std::string& left, const std::string& operation,
+  void emit_named_comparison(const std::string& left, const cpp::lir::ComparisonPlan& comparison,
                              const std::string& right) {
-    const auto* comparator =
-        emission_.dynamic_truthiness ? cpp_python_comparison(operation) : nullptr;
-    if (comparator != nullptr) {
-      output_ << "mpf_runtime::py_compare(" << left << ", " << right << ", " << comparator << ')';
+    if (comparison.form == cpp::lir::ComparisonForm::dynamic_compare) {
+      output_ << "mpf_runtime::py_compare(" << left << ", " << right << ", " << comparison.token
+              << ')';
       return;
     }
-    output_ << left << ' ' << cpp_comparison_operator(operation) << ' ' << right;
+    output_ << left << ' ' << comparison.token << ' ' << right;
   }
 
   void emit_comparison_chain(const Expression& expression) {
@@ -168,22 +139,18 @@ class Renderer final {
       emit_expression(expression.children[index]);
       output_ << "; ";
       if (index == 0) continue;
-      const auto& operation = expression.operators[index - 1];
       if (index < expression.children.size() - 1)
         output_ << "if (!(";
       else
         output_ << "return ";
-      emit_named_comparison(operands[index - 1], operation, operands[index]);
+      emit_named_comparison(operands[index - 1], expression.plan.comparisons[index - 1U],
+                            operands[index]);
       if (index < expression.children.size() - 1)
         output_ << ")) return false; ";
       else
         output_ << "; ";
     }
     output_ << "})()";
-  }
-
-  static std::string mapped_identifier(const Expression& expression) {
-    return std::string(expression.target_binding.code);
   }
 
   void emit_optional_bound(const Expression& bound) {
@@ -224,7 +191,7 @@ class Renderer final {
     for (std::size_t index = 1; index < expression.children.size(); ++index) {
       if (index != 1) output_ << ", ";
       const auto& selector = expression.children[index];
-      if (selector.kind == ExpressionKind::slice) {
+      if (expression.plan.selector_slices[index - 1U]) {
         output_ << "mpf_runtime::slice_selector{";
         emit_slice_bounds(selector);
         output_ << ", " << expression.index_base << ", "
@@ -269,8 +236,7 @@ class Renderer final {
   }
 
   void emit_section_assignment(const Expression& target, const Expression& replacement) {
-    const auto selector_count = target.children.size() - 1;
-    if (selector_count > 2) {
+    if (target.plan.index == cpp::lir::IndexForm::section_nd) {
       output_ << "mpf_runtime::assign_section_nd(";
       emit_expression(target.children[0]);
       output_ << ", ";
@@ -281,9 +247,9 @@ class Renderer final {
       output_ << ')';
       return;
     }
-    if (selector_count == 1) {
+    if (target.plan.index == cpp::lir::IndexForm::slice) {
       const auto& slice = target.children[1];
-      if (target.column_major && target.children[0].shape.size() > 1) {
+      if (target.plan.flatten_base) {
         output_ << "mpf_runtime::assign_linear_column_major(";
         emit_expression(target.children[0]);
         output_ << ", ";
@@ -305,7 +271,7 @@ class Renderer final {
     }
     const auto& row = target.children[1];
     const auto& column = target.children[2];
-    if (row.kind != ExpressionKind::slice) {
+    if (target.plan.index == cpp::lir::IndexForm::row_slice) {
       output_ << "mpf_runtime::assign_slice(";
       emit_runtime_index(target.children[0], row, target);
       output_ << ", ";
@@ -313,7 +279,7 @@ class Renderer final {
       output_ << ", ";
       emit_section_replacement(target, replacement);
       output_ << ", false)";
-    } else if (column.kind != ExpressionKind::slice) {
+    } else if (target.plan.index == cpp::lir::IndexForm::column) {
       output_ << "mpf_runtime::assign_column(";
       emit_expression(target.children[0]);
       output_ << ", ";
@@ -341,48 +307,113 @@ class Renderer final {
   }
 
   bool has_writable_section_actual(const Expression& expression) const {
-    if (expression.kind != ExpressionKind::call) return false;
-    return std::any_of(
-        expression.argument_transfers.begin(), expression.argument_transfers.end(),
-        [](const ArgumentTransfer transfer) { return argument_transfer_copies(transfer); });
+    return expression.plan.form == cpp::lir::ExpressionForm::call &&
+           std::any_of(expression.plan.call_arguments.begin(), expression.plan.call_arguments.end(),
+                       [](const cpp::lir::CallArgumentForm form) {
+                         return form == cpp::lir::CallArgumentForm::copy_section;
+                       });
+  }
+
+  void emit_direct_call(const Expression& expression,
+                        const std::vector<std::string>* replacements = nullptr) {
+    switch (expression.plan.call) {
+      case cpp::lir::CallForm::python_float:
+        output_ << "mpf_runtime::py_float(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        return;
+      case cpp::lir::CallForm::python_length:
+        output_ << "static_cast<std::int64_t>(";
+        emit_expression(expression.children[1]);
+        output_ << ".size())";
+        return;
+      case cpp::lir::CallForm::matlab_length:
+        output_ << "static_cast<std::int64_t>(mpf_runtime::length(";
+        emit_expression(expression.children[1]);
+        output_ << "))";
+        return;
+      case cpp::lir::CallForm::element_count:
+        output_ << "static_cast<std::int64_t>(mpf_runtime::numel(";
+        emit_expression(expression.children[1]);
+        output_ << "))";
+        return;
+      case cpp::lir::CallForm::sum:
+        output_ << "mpf_runtime::sum(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        return;
+      case cpp::lir::CallForm::present:
+        output_ << '(' << mangler_->name(expression.children[1].plan.token) << ".has_value())";
+        return;
+      case cpp::lir::CallForm::reshape:
+        output_ << "mpf_runtime::reshape_column_major_nd(";
+        emit_expression(expression.children[1]);
+        output_ << ", ";
+        emit_shape_array(expression.children[1].shape);
+        output_ << ", ";
+        emit_shape_array(expression.shape);
+        output_ << ')';
+        return;
+      case cpp::lir::CallForm::none:
+      case cpp::lir::CallForm::direct: break;
+    }
+    if (!expression.children.empty()) {
+      emit_expression(expression.children.front(), expression.plan.precedence);
+    }
+    output_ << '(';
+    for (std::size_t index = 1; index < expression.children.size(); ++index) {
+      if (index != 1) output_ << ", ";
+      if (replacements != nullptr && index < replacements->size() &&
+          !(*replacements)[index].empty()) {
+        output_ << (*replacements)[index];
+      } else if (index - 1U < expression.plan.call_arguments.size() &&
+                 expression.plan.call_arguments[index - 1U] ==
+                     cpp::lir::CallArgumentForm::forward_optional) {
+        output_ << mangler_->name(expression.children[index].plan.token);
+      } else {
+        emit_expression(expression.children[index]);
+      }
+    }
+    output_ << ')';
+  }
+
+  void emit_call_value(const Expression& expression,
+                       const std::vector<std::string>* replacements = nullptr) {
+    if (expression.plan.first_result) output_ << "std::get<0>(";
+    emit_direct_call(expression, replacements);
+    if (expression.plan.first_result) output_ << ')';
   }
 
   void emit_section_reference_call(const Expression& expression) {
-    auto raw_call = expression;
-    raw_call.argument_transfers.clear();
     std::vector<std::string> temporaries(expression.children.size());
     output_ << "([&]() { ";
     for (std::size_t index = 1; index < expression.children.size(); ++index) {
       const auto intent_index = index - 1;
-      const auto transfer = intent_index < expression.argument_transfers.size()
-                                ? expression.argument_transfers[intent_index]
-                                : ArgumentTransfer::value;
-      if (!argument_transfer_copies(transfer)) continue;
+      if (intent_index >= expression.plan.call_arguments.size() ||
+          expression.plan.call_arguments[intent_index] !=
+              cpp::lir::CallArgumentForm::copy_section) {
+        continue;
+      }
       temporaries[index] =
           temporary(expression.id, cpp::lir::TemporaryRole::section_argument, intent_index);
       output_ << "auto " << temporaries[index] << " = ";
       emit_expression(expression.children[index]);
       output_ << "; ";
-      raw_call.children[index] = expression.children[index];
-      raw_call.children[index].kind = ExpressionKind::identifier;
-      raw_call.children[index].value = temporaries[index];
-      raw_call.children[index].children.clear();
-      raw_call.children[index].binding = BindingKind::variable;
     }
     std::string result;
     if (expression.procedure_has_result) {
       result = temporary(expression.id, cpp::lir::TemporaryRole::call_result);
       output_ << "auto " << result << " = ";
     }
-    emit_expression(raw_call);
+    emit_call_value(expression, &temporaries);
     output_ << "; ";
     for (std::size_t index = 1; index < temporaries.size(); ++index) {
       if (temporaries[index].empty()) continue;
       Expression replacement = expression.children[index];
-      replacement.kind = ExpressionKind::identifier;
-      replacement.value = temporaries[index];
+      replacement.plan.form = cpp::lir::ExpressionForm::variable;
+      replacement.plan.token = temporaries[index];
+      replacement.plan.precedence = 10;
       replacement.children.clear();
-      replacement.binding = BindingKind::variable;
       emit_section_assignment(expression.children[index], replacement);
       output_ << "; ";
     }
@@ -392,96 +423,87 @@ class Renderer final {
 
   void emit_expression(const Expression& expression, const int parent = 0) {
     mark(expression.location, expression.origin);
-    if (has_writable_section_actual(expression)) {
-      emit_section_reference_call(expression);
-      return;
-    }
-    if (expression.kind == ExpressionKind::call && expression.multi_output_call &&
-        expression.requested_outputs == 1) {
-      auto raw_call = expression;
-      raw_call.multi_output_call = false;
-      output_ << "std::get<0>(";
-      emit_expression(raw_call);
-      output_ << ')';
+    if (expression.plan.form == cpp::lir::ExpressionForm::call) {
+      if (has_writable_section_actual(expression)) {
+        emit_section_reference_call(expression);
+      } else {
+        emit_call_value(expression);
+      }
       return;
     }
     const auto own = precedence(expression);
     const bool parentheses = own < parent;
     if (parentheses) output_ << '(';
-    switch (expression.kind) {
-      case ExpressionKind::invalid: output_ << "0"; break;
-      case ExpressionKind::omitted_argument: output_ << "std::nullopt"; break;
-      case ExpressionKind::identifier:
-        output_ << (expression.binding == BindingKind::builtin ? mapped_identifier(expression)
-                                                               : mangler_->name(expression.value));
-        if (expression.binding != BindingKind::builtin &&
-            active_optional_parameters_.count(expression.value) != 0U) {
+    switch (expression.plan.form) {
+      case cpp::lir::ExpressionForm::invalid: output_ << '0'; break;
+      case cpp::lir::ExpressionForm::omitted:
+      case cpp::lir::ExpressionForm::target_symbol:
+      case cpp::lir::ExpressionForm::scalar_literal:
+      case cpp::lir::ExpressionForm::null_literal: output_ << expression.plan.token; break;
+      case cpp::lir::ExpressionForm::variable:
+        output_ << mangler_->name(expression.plan.token);
+        if (active_optional_parameters_.count(expression.plan.token) != 0U) {
           output_ << ".value()";
         }
         break;
-      case ExpressionKind::number_literal:
-      case ExpressionKind::boolean_literal: output_ << expression.value; break;
-      case ExpressionKind::string_literal:
-        output_ << "std::string{" << expression.value << '}';
+      case cpp::lir::ExpressionForm::string_literal:
+        output_ << "std::string{" << expression.plan.token << '}';
         break;
-      case ExpressionKind::null_literal: output_ << "nullptr"; break;
-      case ExpressionKind::unary:
-        if (emission_.dynamic_truthiness && expression.value == "!") {
-          output_ << "mpf_runtime::py_not(";
-          if (!expression.children.empty()) emit_expression(expression.children.front());
-          output_ << ')';
-          break;
-        }
-        output_ << expression.value;
+      case cpp::lir::ExpressionForm::unary_truthiness:
+        output_ << "mpf_runtime::py_not(";
+        if (!expression.children.empty()) emit_expression(expression.children.front());
+        output_ << ')';
+        break;
+      case cpp::lir::ExpressionForm::unary_operator:
+        output_ << expression.plan.token;
         if (!expression.children.empty()) emit_expression(expression.children.front(), own);
         break;
-      case ExpressionKind::binary:
-        if (emission_.operand_logical_result &&
-            (expression.value == "&&" || expression.value == "||")) {
-          output_ << (expression.value == "&&" ? "mpf_runtime::py_and" : "mpf_runtime::py_or")
-                  << "([&]() { return (";
-          emit_expression(expression.children[0]);
-          output_ << "); }, [&]() { return (";
-          emit_expression(expression.children[1]);
-          output_ << "); })";
-        } else if (expression.value == "**") {
-          output_ << "std::pow(";
-          emit_expression(expression.children[0]);
-          output_ << ", ";
-          emit_expression(expression.children[1]);
-          output_ << ')';
-        } else if (expression.value == "//") {
-          output_ << "static_cast<std::int64_t>(std::floor(static_cast<double>(";
-          emit_expression(expression.children[0]);
-          output_ << ") / static_cast<double>(";
-          emit_expression(expression.children[1]);
-          output_ << ")))";
-        } else if (expression.value == "/" && emission_.real_division) {
-          output_ << "static_cast<double>(";
-          emit_expression(expression.children[0]);
-          output_ << ") / static_cast<double>(";
-          emit_expression(expression.children[1]);
-          output_ << ')';
-        } else if (const auto* comparator = emission_.dynamic_truthiness
-                                                ? cpp_python_comparison(expression.value)
-                                                : nullptr;
-                   comparator != nullptr) {
-          output_ << "mpf_runtime::py_compare(";
-          emit_expression(expression.children[0]);
-          output_ << ", ";
-          emit_expression(expression.children[1]);
-          output_ << ", " << comparator << ')';
-        } else {
-          emit_expression(expression.children[0], own);
-          const auto cpp_operator = expression.value == "==="   ? "=="
-                                    : expression.value == "!==" ? "!="
-                                                                : expression.value;
-          output_ << ' ' << cpp_operator << ' ';
-          emit_expression(expression.children[1], own + 1);
-        }
+      case cpp::lir::ExpressionForm::binary_lazy_and:
+      case cpp::lir::ExpressionForm::binary_lazy_or:
+        output_ << (expression.plan.form == cpp::lir::ExpressionForm::binary_lazy_and
+                        ? "mpf_runtime::py_and"
+                        : "mpf_runtime::py_or")
+                << "([&]() { return (";
+        emit_expression(expression.children[0]);
+        output_ << "); }, [&]() { return (";
+        emit_expression(expression.children[1]);
+        output_ << "); })";
         break;
-      case ExpressionKind::comparison_chain: emit_comparison_chain(expression); break;
-      case ExpressionKind::conditional:
+      case cpp::lir::ExpressionForm::binary_power:
+        output_ << "std::pow(";
+        emit_expression(expression.children[0]);
+        output_ << ", ";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        break;
+      case cpp::lir::ExpressionForm::binary_floor_divide:
+        output_ << "static_cast<std::int64_t>(std::floor(static_cast<double>(";
+        emit_expression(expression.children[0]);
+        output_ << ") / static_cast<double>(";
+        emit_expression(expression.children[1]);
+        output_ << ")))";
+        break;
+      case cpp::lir::ExpressionForm::binary_real_divide:
+        output_ << "static_cast<double>(";
+        emit_expression(expression.children[0]);
+        output_ << ") / static_cast<double>(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        break;
+      case cpp::lir::ExpressionForm::binary_dynamic_compare:
+        output_ << "mpf_runtime::py_compare(";
+        emit_expression(expression.children[0]);
+        output_ << ", ";
+        emit_expression(expression.children[1]);
+        output_ << ", " << expression.plan.token << ')';
+        break;
+      case cpp::lir::ExpressionForm::binary_operator:
+        emit_expression(expression.children[0], own);
+        output_ << ' ' << expression.plan.token << ' ';
+        emit_expression(expression.children[1], own + 1);
+        break;
+      case cpp::lir::ExpressionForm::comparison_chain: emit_comparison_chain(expression); break;
+      case cpp::lir::ExpressionForm::conditional:
         output_ << "(mpf_runtime::truthy(";
         emit_expression(expression.children[0]);
         output_ << ") ? (";
@@ -490,88 +512,12 @@ class Renderer final {
         emit_expression(expression.children[2]);
         output_ << "))";
         break;
-      case ExpressionKind::call:
-        if (!expression.children.empty()) {
-          const auto& callee = expression.children.front();
-          if (callee.kind == ExpressionKind::identifier) {
-            if (callee.binding == BindingKind::builtin &&
-                callee.intrinsic == IntrinsicId::python_float && expression.children.size() == 2) {
-              output_ << "mpf_runtime::py_float(";
-              emit_expression(expression.children[1]);
-              output_ << ')';
-              break;
-            }
-            if (callee.binding == BindingKind::builtin &&
-                callee.intrinsic == IntrinsicId::python_length && expression.children.size() == 2) {
-              output_ << "static_cast<std::int64_t>(";
-              emit_expression(expression.children[1]);
-              output_ << ".size())";
-              break;
-            }
-            if (callee.binding == BindingKind::builtin &&
-                callee.intrinsic == IntrinsicId::matlab_length && expression.children.size() == 2) {
-              output_ << "static_cast<std::int64_t>(mpf_runtime::length(";
-              emit_expression(expression.children[1]);
-              output_ << "))";
-              break;
-            }
-            if (callee.binding == BindingKind::builtin &&
-                callee.intrinsic == IntrinsicId::element_count && expression.children.size() == 2) {
-              output_ << "static_cast<std::int64_t>(mpf_runtime::numel(";
-              emit_expression(expression.children[1]);
-              output_ << "))";
-              break;
-            }
-            if (callee.binding == BindingKind::builtin && callee.intrinsic == IntrinsicId::sum &&
-                expression.children.size() == 2) {
-              output_ << "mpf_runtime::sum(";
-              emit_expression(expression.children[1]);
-              output_ << ')';
-              break;
-            }
-            if (callee.binding == BindingKind::builtin &&
-                callee.intrinsic == IntrinsicId::present && expression.children.size() == 2) {
-              output_ << '(' << mangler_->name(expression.children[1].value) << ".has_value())";
-              break;
-            }
-            if (callee.binding == BindingKind::builtin &&
-                callee.intrinsic == IntrinsicId::reshape && expression.children.size() >= 3) {
-              output_ << "mpf_runtime::reshape_column_major_nd(";
-              emit_expression(expression.children[1]);
-              output_ << ", ";
-              emit_shape_array(expression.children[1].shape);
-              output_ << ", ";
-              emit_shape_array(expression.shape);
-              output_ << ')';
-              break;
-            }
-            output_ << (callee.binding == BindingKind::builtin ? mapped_identifier(callee)
-                                                               : mangler_->name(callee.value));
-          } else
-            emit_expression(callee, own);
-        }
-        output_ << '(';
-        for (std::size_t index = 1; index < expression.children.size(); ++index) {
-          if (index != 1) output_ << ", ";
-          const auto intent_index = index - 1;
-          if (intent_index < expression.argument_transfers.size() &&
-              argument_transfer_forwards_optional(expression.argument_transfers[intent_index]) &&
-              expression.children[index].kind == ExpressionKind::identifier) {
-            output_ << mangler_->name(expression.children[index].value);
-          } else {
-            emit_expression(expression.children[index]);
-          }
-        }
-        output_ << ')';
-        break;
-      case ExpressionKind::index:
-        if (std::any_of(
-                expression.children.begin() + 1, expression.children.end(),
-                [](const Expression& child) { return child.kind == ExpressionKind::slice; })) {
-          const auto selector_count = expression.children.size() - 1;
-          if (selector_count == 1) {
+      case cpp::lir::ExpressionForm::call: break;
+      case cpp::lir::ExpressionForm::index:
+        switch (expression.plan.index) {
+          case cpp::lir::IndexForm::slice:
             output_ << "mpf_runtime::slice(";
-            if (expression.column_major && expression.children[0].shape.size() > 1) {
+            if (expression.plan.flatten_base) {
               output_ << "mpf_runtime::flatten_column_major(";
               emit_expression(expression.children[0]);
               output_ << ')';
@@ -581,68 +527,70 @@ class Renderer final {
             output_ << ", ";
             emit_slice_parameters(expression.children[1]);
             output_ << ')';
-          } else if (selector_count == 2) {
-            const auto& row = expression.children[1];
-            const auto& column = expression.children[2];
-            if (row.kind != ExpressionKind::slice) {
-              output_ << "mpf_runtime::slice(";
-              emit_runtime_index(expression.children[0], row, expression);
-              output_ << ", ";
-              emit_slice_parameters(column);
-              output_ << ')';
-            } else if (column.kind != ExpressionKind::slice) {
-              output_ << "mpf_runtime::column(";
-              emit_row_slice(expression, row);
-              output_ << ", static_cast<std::int64_t>(";
-              emit_expression(column);
-              output_ << "), " << expression.index_base << ", "
-                      << (expression.allow_negative_index ? "true" : "false") << ')';
-            } else {
-              output_ << "mpf_runtime::columns(";
-              emit_row_slice(expression, row);
-              output_ << ", ";
-              emit_slice_parameters(column);
-              output_ << ')';
-            }
-          } else {
+            break;
+          case cpp::lir::IndexForm::row_slice:
+            output_ << "mpf_runtime::slice(";
+            emit_runtime_index(expression.children[0], expression.children[1], expression);
+            output_ << ", ";
+            emit_slice_parameters(expression.children[2]);
+            output_ << ')';
+            break;
+          case cpp::lir::IndexForm::column:
+            output_ << "mpf_runtime::column(";
+            emit_row_slice(expression, expression.children[1]);
+            output_ << ", static_cast<std::int64_t>(";
+            emit_expression(expression.children[2]);
+            output_ << "), " << expression.index_base << ", "
+                    << (expression.allow_negative_index ? "true" : "false") << ')';
+            break;
+          case cpp::lir::IndexForm::block:
+            output_ << "mpf_runtime::columns(";
+            emit_row_slice(expression, expression.children[1]);
+            output_ << ", ";
+            emit_slice_parameters(expression.children[2]);
+            output_ << ')';
+            break;
+          case cpp::lir::IndexForm::section_nd:
             output_ << "mpf_runtime::section_nd(";
             emit_expression(expression.children[0]);
             output_ << ", ";
             emit_selector_tuple(expression);
             output_ << ", " << expression.index_base << ", "
                     << (expression.allow_negative_index ? "true" : "false") << ')';
-          }
-        } else if (expression.column_major && expression.children.size() == 2 &&
-                   expression.children[0].shape.size() > 1) {
-          output_ << "mpf_runtime::matrix_linear_index(";
-          emit_expression(expression.children[0]);
-          output_ << ", static_cast<std::int64_t>(";
-          emit_expression(expression.children[1]);
-          output_ << "), " << expression.index_base << ')';
-        } else {
-          for (std::size_t index = 1; index < expression.children.size(); ++index) {
-            output_ << "mpf_runtime::index(";
-          }
-          emit_expression(expression.children[0]);
-          for (std::size_t index = 1; index < expression.children.size(); ++index) {
+            break;
+          case cpp::lir::IndexForm::matrix_linear:
+            output_ << "mpf_runtime::matrix_linear_index(";
+            emit_expression(expression.children[0]);
             output_ << ", static_cast<std::int64_t>(";
-            emit_expression(expression.children[index]);
-            output_ << "), " << expression.index_base << ", "
-                    << (expression.allow_negative_index ? "true" : "false") << ')';
-          }
+            emit_expression(expression.children[1]);
+            output_ << "), " << expression.index_base << ')';
+            break;
+          case cpp::lir::IndexForm::nested:
+            for (std::size_t index = 1; index < expression.children.size(); ++index) {
+              output_ << "mpf_runtime::index(";
+            }
+            emit_expression(expression.children[0]);
+            for (std::size_t index = 1; index < expression.children.size(); ++index) {
+              output_ << ", static_cast<std::int64_t>(";
+              emit_expression(expression.children[index]);
+              output_ << "), " << expression.index_base << ", "
+                      << (expression.allow_negative_index ? "true" : "false") << ')';
+            }
+            break;
+          case cpp::lir::IndexForm::none: output_ << '0'; break;
         }
         break;
-      case ExpressionKind::slice: output_ << '0'; break;
-      case ExpressionKind::member:
+      case cpp::lir::ExpressionForm::slice: output_ << '0'; break;
+      case cpp::lir::ExpressionForm::member:
         if (!expression.children.empty()) emit_expression(expression.children.front(), own);
-        output_ << '.' << expression.value;
+        output_ << '.' << expression.plan.token;
         break;
-      case ExpressionKind::list:
-        output_ << cpp_container_type(expression.element_type, expression.shape.size()) << '{';
+      case cpp::lir::ExpressionForm::list:
+        output_ << expression.plan.concrete_type << '{';
         for (std::size_t index = 0; index < expression.children.size(); ++index) {
           if (index != 0) output_ << ", ";
-          if (expression.element_type == ValueType::real &&
-              expression.children[index].inferred_type != ValueType::list) {
+          if (index < expression.plan.widen_children.size() &&
+              expression.plan.widen_children[index]) {
             output_ << "static_cast<double>(";
             emit_expression(expression.children[index]);
             output_ << ')';
@@ -652,7 +600,7 @@ class Renderer final {
         }
         output_ << '}';
         break;
-      case ExpressionKind::tuple:
+      case cpp::lir::ExpressionForm::tuple:
         output_ << "std::make_tuple(";
         for (std::size_t index = 0; index < expression.children.size(); ++index) {
           if (index != 0) output_ << ", ";
@@ -663,7 +611,6 @@ class Renderer final {
     }
     if (parentheses) output_ << ')';
   }
-
   void emit_scope_declarations(const cpp::lir::ScopePlan& plan, const std::string& prefix = {}) {
     for (const auto& declaration : plan.declarations) {
       indentation();
@@ -935,8 +882,7 @@ class Renderer final {
       }
       indentation();
       output_ << (emitted_condition ? "else if (" : "if (");
-      emit_case_condition(clause, selector,
-                          statement.expression.inferred_type == ValueType::string);
+      emit_case_condition(clause, selector, statement.expression.plan.string_value);
       output_ << ") {\n";
       ++indent_;
       for (const auto& child : clause.body) emit_statement(child);
@@ -1016,7 +962,8 @@ class Renderer final {
       case StatementKind::print:
         indentation();
         output_ << "mpf_runtime::print(";
-        if (statement.has_expression && statement.expression.kind == ExpressionKind::tuple) {
+        if (statement.has_expression &&
+            statement.expression.plan.form == cpp::lir::ExpressionForm::tuple) {
           for (std::size_t index = 0; index < statement.expression.children.size(); ++index) {
             if (index != 0) output_ << ", ";
             emit_expression(statement.expression.children[index]);

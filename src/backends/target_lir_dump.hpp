@@ -8,6 +8,24 @@
 
 namespace mpf::detail {
 
+template <typename Plan>
+auto dump_target_representation_details(std::ostream& output, const Plan& plan, int)
+    -> decltype(plan.concrete_type, plan.widen_children, plan.flatten_base, void()) {
+  if (!plan.concrete_type.empty()) output << " concrete-type " << std::quoted(plan.concrete_type);
+  if (!plan.widen_children.empty()) {
+    output << " widen [";
+    for (std::size_t index = 0; index < plan.widen_children.size(); ++index) {
+      if (index != 0) output << ',';
+      output << plan.widen_children[index];
+    }
+    output << ']';
+  }
+  if (plan.flatten_base) output << " flatten-base 1";
+}
+
+template <typename Plan>
+void dump_target_representation_details(std::ostream&, const Plan&, long) {}
+
 template <typename Expression>
 void dump_target_expression(std::ostream& output, const Expression& expression,
                             const std::size_t depth) {
@@ -22,6 +40,37 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     output << expression.shape[index];
   }
   output << "] value " << std::quoted(expression.value);
+  output << " plan " << static_cast<int>(expression.plan.form) << " precedence "
+         << expression.plan.precedence << " token " << std::quoted(expression.plan.token)
+         << " call " << static_cast<int>(expression.plan.call) << " index "
+         << static_cast<int>(expression.plan.index) << " first-result "
+         << expression.plan.first_result << " string-value " << expression.plan.string_value;
+  if (!expression.plan.call_arguments.empty()) {
+    output << " call-arguments [";
+    for (std::size_t index = 0; index < expression.plan.call_arguments.size(); ++index) {
+      if (index != 0) output << ',';
+      output << static_cast<int>(expression.plan.call_arguments[index]);
+    }
+    output << ']';
+  }
+  if (!expression.plan.comparisons.empty()) {
+    output << " comparisons [";
+    for (std::size_t index = 0; index < expression.plan.comparisons.size(); ++index) {
+      if (index != 0) output << ',';
+      output << static_cast<int>(expression.plan.comparisons[index].form) << ':'
+             << std::quoted(expression.plan.comparisons[index].token);
+    }
+    output << ']';
+  }
+  if (!expression.plan.selector_slices.empty()) {
+    output << " selectors [";
+    for (std::size_t index = 0; index < expression.plan.selector_slices.size(); ++index) {
+      if (index != 0) output << ',';
+      output << expression.plan.selector_slices[index];
+    }
+    output << ']';
+  }
+  dump_target_representation_details(output, expression.plan, 0);
   if (!expression.argument_transfers.empty()) {
     output << " transfers [";
     for (std::size_t index = 0; index < expression.argument_transfers.size(); ++index) {
@@ -62,7 +111,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v6 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v7 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

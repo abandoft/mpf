@@ -9,6 +9,7 @@
 #include "../ir/pass_manager.hpp"
 #include "cpp_bindings.hpp"
 #include "cpp_lir_planning.hpp"
+#include "cpp_lir_representation.hpp"
 #include "cpp_renderer.hpp"
 #include "target_lir_builder.hpp"
 #include "target_lir_dump.hpp"
@@ -236,6 +237,7 @@ std::vector<Diagnostic> verify_lir(const lir::SemanticProgram& program) {
     add_error(diagnostics, {1, 1}, "cpp LIR has unreachable node identities");
   }
   verify_lir_resources(program, diagnostics);
+  verify_lir_representation(program, diagnostics);
   return diagnostics;
 }
 
@@ -347,6 +349,7 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
   lowered->dependencies = semantic_program.dependencies;
   lowered->function_graph =
       build_function_dependency_graph_generic<lir::Expression, lir::Statement>(lowered->statements);
+  plan_lir_representation(*lowered);
   plan_lir_resources(*lowered, options);
   PassManager<lir::SemanticProgram> passes(&verify_lir_stage);
   passes.add({"cpp-lir-canonicalization", &canonicalize_lir, true});

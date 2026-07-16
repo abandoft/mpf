@@ -19,9 +19,7 @@ using Statement = javascript::lir::Statement;
 using Program = javascript::lir::SemanticProgram;
 
 bool expression_has_direct_slice(const Expression& expression) {
-  return expression.kind == ExpressionKind::index && expression.children.size() > 1 &&
-         std::any_of(expression.children.begin() + 1, expression.children.end(),
-                     [](const Expression& child) { return child.kind == ExpressionKind::slice; });
+  return expression.plan.index == javascript::lir::IndexForm::section;
 }
 
 class Renderer final {
@@ -44,22 +42,27 @@ class Renderer final {
   }
 
   static int expression_precedence(const Expression& expression) noexcept {
-    if (expression.kind == ExpressionKind::conditional) return 0;
-    if (expression.kind == ExpressionKind::binary) {
-      if (expression.value == "||") return 1;
-      if (expression.value == "&&") return 2;
-      if (expression.value == "===" || expression.value == "!==" || expression.value == "<" ||
-          expression.value == "<=" || expression.value == ">" || expression.value == ">=")
-        return 3;
-      if (expression.value == "+" || expression.value == "-") return 4;
-      if (expression.value == "*" || expression.value == "/" || expression.value == "%") return 5;
-      if (expression.value == "**") return 7;
+    return expression.plan.precedence;
+  }
+
+  static bool binary_form(const javascript::lir::ExpressionForm form) noexcept {
+    return form == javascript::lir::ExpressionForm::binary_operator ||
+           form == javascript::lir::ExpressionForm::binary_lazy_and ||
+           form == javascript::lir::ExpressionForm::binary_lazy_or ||
+           form == javascript::lir::ExpressionForm::binary_structural_equal ||
+           form == javascript::lir::ExpressionForm::binary_structural_not_equal ||
+           form == javascript::lir::ExpressionForm::binary_floor_divide;
+  }
+
+  void emit_comparison(const javascript::lir::ComparisonPlan& comparison, const std::string& left,
+                       const std::string& right) {
+    if (comparison.form == javascript::lir::ComparisonForm::structural_equal ||
+        comparison.form == javascript::lir::ComparisonForm::structural_not_equal) {
+      if (comparison.form == javascript::lir::ComparisonForm::structural_not_equal) output_ << '!';
+      output_ << "__mpf_py_equal(" << left << ", " << right << ')';
+      return;
     }
-    if (expression.kind == ExpressionKind::unary) return 6;
-    if (expression.kind == ExpressionKind::call || expression.kind == ExpressionKind::member ||
-        expression.kind == ExpressionKind::index)
-      return 9;
-    return 10;
+    output_ << left << ' ' << comparison.token << ' ' << right;
   }
 
   void emit_comparison_chain(const Expression& expression) {
@@ -73,17 +76,12 @@ class Renderer final {
       emit_expression(expression.children[index]);
       output_ << "; ";
       if (index == 0) continue;
-      const auto& operation = expression.operators[index - 1];
       if (index < expression.children.size() - 1)
         output_ << "if (!(";
       else
         output_ << "return ";
-      if (emission_.structural_equality && (operation == "===" || operation == "!==")) {
-        if (operation == "!==") output_ << '!';
-        output_ << "__mpf_py_equal(" << operands[index - 1] << ", " << operands[index] << ')';
-      } else {
-        output_ << operands[index - 1] << ' ' << operation << ' ' << operands[index];
-      }
+      emit_comparison(expression.plan.comparisons[index - 1U], operands[index - 1U],
+                      operands[index]);
       if (index < expression.children.size() - 1)
         output_ << ")) return false; ";
       else
@@ -92,57 +90,117 @@ class Renderer final {
     output_ << "})()";
   }
 
-  static std::string mapped_identifier(const Expression& expression) {
-    return std::string(expression.target_binding.code);
+  void emit_direct_call(const Expression& expression,
+                        const std::vector<std::string>* replacements = nullptr) {
+    const auto& plan = expression.plan;
+    switch (plan.call) {
+      case javascript::lir::CallForm::python_float:
+        output_ << "__mpf_py_float(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        return;
+      case javascript::lir::CallForm::python_length:
+        output_ << '(';
+        emit_expression(expression.children[1]);
+        output_ << ").length";
+        return;
+      case javascript::lir::CallForm::matlab_length:
+        output_ << "__mpf_length(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        return;
+      case javascript::lir::CallForm::element_count:
+        output_ << "__mpf_numel(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        return;
+      case javascript::lir::CallForm::sum:
+        output_ << "__mpf_sum(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        return;
+      case javascript::lir::CallForm::present:
+        output_ << '(' << mangler_->name(expression.children[1].plan.token) << " !== undefined)";
+        return;
+      case javascript::lir::CallForm::reshape:
+        output_ << "__mpf_reshape(";
+        emit_expression(expression.children[1]);
+        output_ << ", ";
+        if (expression.children.size() == 3) {
+          emit_expression(expression.children[2]);
+        } else {
+          output_ << '[';
+          for (std::size_t dimension = 2; dimension < expression.children.size(); ++dimension) {
+            if (dimension != 2) output_ << ", ";
+            emit_expression(expression.children[dimension]);
+          }
+          output_ << ']';
+        }
+        output_ << ')';
+        return;
+      case javascript::lir::CallForm::none:
+      case javascript::lir::CallForm::direct: break;
+    }
+    if (!expression.children.empty()) emit_expression(expression.children.front(), plan.precedence);
+    output_ << '(';
+    for (std::size_t index = 1; index < expression.children.size(); ++index) {
+      if (index != 1) output_ << ", ";
+      if (replacements != nullptr && index < replacements->size() &&
+          !(*replacements)[index].empty()) {
+        output_ << (*replacements)[index];
+      } else if (index - 1U < plan.call_arguments.size() &&
+                 plan.call_arguments[index - 1U] ==
+                     javascript::lir::CallArgumentForm::forward_optional) {
+        output_ << mangler_->name(expression.children[index].plan.token);
+      } else {
+        emit_expression(expression.children[index]);
+      }
+    }
+    output_ << ')';
+  }
+
+  void emit_call_value(const Expression& expression,
+                       const std::vector<std::string>* replacements = nullptr) {
+    if (expression.plan.first_result) output_ << '(';
+    emit_direct_call(expression, replacements);
+    if (expression.plan.first_result) output_ << ")[0]";
   }
 
   void emit_expression(const Expression& expression, const int parent_precedence = 0) {
     mark(expression.location, expression.origin);
-    if (expression.kind == ExpressionKind::call &&
-        std::any_of(expression.argument_transfers.begin(), expression.argument_transfers.end(),
-                    [](const ArgumentTransfer transfer) {
-                      return argument_transfer_writes(transfer) &&
-                             !argument_transfer_forwards_optional(transfer);
-                    })) {
-      emit_reference_call(expression);
-      return;
-    }
-    if (expression.kind == ExpressionKind::call && expression.multi_output_call &&
-        expression.requested_outputs == 1) {
-      auto raw_call = expression;
-      raw_call.multi_output_call = false;
-      output_ << '(';
-      emit_expression(raw_call);
-      output_ << ")[0]";
+    if (expression.plan.form == javascript::lir::ExpressionForm::call) {
+      const bool reference_call = std::any_of(
+          expression.plan.call_arguments.begin(), expression.plan.call_arguments.end(),
+          [](const javascript::lir::CallArgumentForm form) {
+            return form == javascript::lir::CallArgumentForm::reference_box ||
+                   form == javascript::lir::CallArgumentForm::reference_box_uninitialized;
+          });
+      if (reference_call) {
+        emit_reference_call(expression);
+      } else {
+        emit_call_value(expression);
+      }
       return;
     }
     const auto precedence = expression_precedence(expression);
     const bool parenthesize = precedence < parent_precedence;
     if (parenthesize) output_ << '(';
-    switch (expression.kind) {
-      case ExpressionKind::invalid:
-      case ExpressionKind::omitted_argument: output_ << "undefined"; break;
-      case ExpressionKind::identifier:
-        if (expression.binding == BindingKind::builtin) {
-          output_ << mapped_identifier(expression);
-        } else {
-          emit_variable_name(expression.value);
-        }
+    switch (expression.plan.form) {
+      case javascript::lir::ExpressionForm::invalid:
+      case javascript::lir::ExpressionForm::omitted: output_ << expression.plan.token; break;
+      case javascript::lir::ExpressionForm::variable:
+        emit_variable_name(expression.plan.token);
         break;
-      case ExpressionKind::number_literal:
-      case ExpressionKind::string_literal:
-      case ExpressionKind::boolean_literal:
-      case ExpressionKind::null_literal: output_ << expression.value; break;
-      case ExpressionKind::unary:
-        if (emission_.dynamic_truthiness && expression.value == "!") {
-          output_ << "__mpf_py_not(";
-          if (!expression.children.empty()) emit_expression(expression.children.front());
-          output_ << ')';
-          break;
-        }
-        output_ << expression.value;
-        if (!expression.children.empty() &&
-            expression.children.front().kind == ExpressionKind::binary) {
+      case javascript::lir::ExpressionForm::target_symbol:
+      case javascript::lir::ExpressionForm::literal: output_ << expression.plan.token; break;
+      case javascript::lir::ExpressionForm::unary_truthiness:
+        output_ << "__mpf_py_not(";
+        if (!expression.children.empty()) emit_expression(expression.children.front());
+        output_ << ')';
+        break;
+      case javascript::lir::ExpressionForm::unary_operator:
+        output_ << expression.plan.token;
+        if (!expression.children.empty() && binary_form(expression.children.front().plan.form)) {
           output_ << '(';
           emit_expression(expression.children.front());
           output_ << ')';
@@ -150,46 +208,53 @@ class Renderer final {
           emit_expression(expression.children.front(), precedence);
         }
         break;
-      case ExpressionKind::binary:
-        if (emission_.operand_logical_result &&
-            (expression.value == "&&" || expression.value == "||")) {
-          output_ << (expression.value == "&&" ? "__mpf_py_and" : "__mpf_py_or") << "(() => (";
-          emit_expression(expression.children[0]);
-          output_ << "), () => (";
-          emit_expression(expression.children[1]);
-          output_ << "))";
-          break;
+      case javascript::lir::ExpressionForm::binary_lazy_and:
+      case javascript::lir::ExpressionForm::binary_lazy_or:
+        output_ << (expression.plan.form == javascript::lir::ExpressionForm::binary_lazy_and
+                        ? "__mpf_py_and"
+                        : "__mpf_py_or")
+                << "(() => (";
+        emit_expression(expression.children[0]);
+        output_ << "), () => (";
+        emit_expression(expression.children[1]);
+        output_ << "))";
+        break;
+      case javascript::lir::ExpressionForm::binary_structural_equal:
+      case javascript::lir::ExpressionForm::binary_structural_not_equal:
+        if (expression.plan.form == javascript::lir::ExpressionForm::binary_structural_not_equal) {
+          output_ << '!';
         }
-        if (emission_.structural_equality &&
-            (expression.value == "===" || expression.value == "!==")) {
-          if (expression.value == "!==") output_ << '!';
-          output_ << "__mpf_py_equal(";
-          emit_expression(expression.children[0]);
-          output_ << ", ";
-          emit_expression(expression.children[1]);
-          output_ << ')';
-          break;
-        }
-        if (expression.value == "//") {
-          output_ << "Math.floor(";
-          emit_expression(expression.children[0]);
-          output_ << " / ";
-          emit_expression(expression.children[1]);
-          output_ << ')';
-          break;
-        }
-        if (expression.value == "**" && expression.children[0].kind == ExpressionKind::unary) {
+        output_ << "__mpf_py_equal(";
+        emit_expression(expression.children[0]);
+        output_ << ", ";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        break;
+      case javascript::lir::ExpressionForm::binary_floor_divide:
+        output_ << "Math.floor(";
+        emit_expression(expression.children[0]);
+        output_ << " / ";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        break;
+      case javascript::lir::ExpressionForm::binary_operator: {
+        const bool power = expression.plan.token == "**";
+        if (power &&
+            expression.children[0].plan.form == javascript::lir::ExpressionForm::unary_operator) {
           output_ << '(';
           emit_expression(expression.children[0]);
           output_ << ')';
         } else {
-          emit_expression(expression.children[0], precedence + (expression.value == "**" ? 1 : 0));
+          emit_expression(expression.children[0], precedence + (power ? 1 : 0));
         }
-        output_ << ' ' << expression.value << ' ';
-        emit_expression(expression.children[1], precedence + (expression.value == "**" ? 0 : 1));
+        output_ << ' ' << expression.plan.token << ' ';
+        emit_expression(expression.children[1], precedence + (power ? 0 : 1));
         break;
-      case ExpressionKind::comparison_chain: emit_comparison_chain(expression); break;
-      case ExpressionKind::conditional:
+      }
+      case javascript::lir::ExpressionForm::comparison_chain:
+        emit_comparison_chain(expression);
+        break;
+      case javascript::lir::ExpressionForm::conditional:
         output_ << "(__mpf_truthy(";
         emit_expression(expression.children[0]);
         output_ << ") ? (";
@@ -198,99 +263,15 @@ class Renderer final {
         emit_expression(expression.children[2]);
         output_ << "))";
         break;
-      case ExpressionKind::call:
-        if (!expression.children.empty()) {
-          const auto& callee = expression.children.front();
-          if (callee.kind == ExpressionKind::identifier) {
-            if (callee.binding == BindingKind::builtin &&
-                callee.intrinsic == IntrinsicId::python_float && expression.children.size() == 2) {
-              output_ << "__mpf_py_float(";
-              emit_expression(expression.children[1]);
-              output_ << ')';
-              break;
-            }
-            if (callee.binding == BindingKind::builtin &&
-                callee.intrinsic == IntrinsicId::python_length && expression.children.size() == 2) {
-              output_ << '(';
-              emit_expression(expression.children[1]);
-              output_ << ").length";
-              break;
-            }
-            if (callee.binding == BindingKind::builtin &&
-                callee.intrinsic == IntrinsicId::matlab_length && expression.children.size() == 2) {
-              output_ << "__mpf_length(";
-              emit_expression(expression.children[1]);
-              output_ << ')';
-              break;
-            }
-            if (callee.binding == BindingKind::builtin &&
-                callee.intrinsic == IntrinsicId::element_count && expression.children.size() == 2) {
-              output_ << "__mpf_numel(";
-              emit_expression(expression.children[1]);
-              output_ << ')';
-              break;
-            }
-            if (callee.binding == BindingKind::builtin && callee.intrinsic == IntrinsicId::sum &&
-                expression.children.size() == 2) {
-              output_ << "__mpf_sum(";
-              emit_expression(expression.children[1]);
-              output_ << ')';
-              break;
-            }
-            if (callee.binding == BindingKind::builtin &&
-                callee.intrinsic == IntrinsicId::present && expression.children.size() == 2) {
-              output_ << '(' << mangler_->name(expression.children[1].value) << " !== undefined)";
-              break;
-            }
-            if (callee.binding == BindingKind::builtin &&
-                callee.intrinsic == IntrinsicId::reshape && expression.children.size() >= 3) {
-              output_ << "__mpf_reshape(";
-              emit_expression(expression.children[1]);
-              output_ << ", ";
-              if (expression.children.size() == 3) {
-                emit_expression(expression.children[2]);
-              } else {
-                output_ << '[';
-                for (std::size_t dimension = 2; dimension < expression.children.size();
-                     ++dimension) {
-                  if (dimension != 2) output_ << ", ";
-                  emit_expression(expression.children[dimension]);
-                }
-                output_ << ']';
-              }
-              output_ << ')';
-              break;
-            }
-            output_ << (callee.binding == BindingKind::builtin ? mapped_identifier(callee)
-                                                               : mangler_->name(callee.value));
-          } else {
-            emit_expression(callee, precedence);
-          }
-        }
-        output_ << '(';
-        for (std::size_t index = 1; index < expression.children.size(); ++index) {
-          if (index != 1) output_ << ", ";
-          const auto intent_index = index - 1;
-          if (intent_index < expression.argument_transfers.size() &&
-              argument_transfer_forwards_optional(expression.argument_transfers[intent_index]) &&
-              expression.children[index].kind == ExpressionKind::identifier) {
-            output_ << mangler_->name(expression.children[index].value);
-          } else {
-            emit_expression(expression.children[index]);
-          }
-        }
-        output_ << ')';
-        break;
-      case ExpressionKind::index:
-        if (std::any_of(
-                expression.children.begin() + 1, expression.children.end(),
-                [](const Expression& child) { return child.kind == ExpressionKind::slice; })) {
+      case javascript::lir::ExpressionForm::call: break;
+      case javascript::lir::ExpressionForm::index:
+        if (expression.plan.index == javascript::lir::IndexForm::section) {
           output_ << "__mpf_section(";
           emit_expression(expression.children[0]);
           output_ << ", [";
           for (std::size_t index = 1; index < expression.children.size(); ++index) {
             if (index != 1) output_ << ", ";
-            if (expression.children[index].kind == ExpressionKind::slice) {
+            if (expression.plan.selector_slices[index - 1U]) {
               emit_slice_descriptor(expression.children[index]);
             } else {
               output_ << "{ slice: false, value: ";
@@ -309,19 +290,18 @@ class Renderer final {
             if (index != 1) output_ << ", ";
             emit_expression(expression.children[index]);
           }
-          output_ << ']';
-          output_ << ", " << expression.index_base << ", "
+          output_ << "], " << expression.index_base << ", "
                   << (expression.allow_negative_index ? "true" : "false") << ", "
                   << (expression.column_major ? "true" : "false") << ')';
         }
         break;
-      case ExpressionKind::slice: output_ << "undefined"; break;
-      case ExpressionKind::member:
+      case javascript::lir::ExpressionForm::slice: output_ << "undefined"; break;
+      case javascript::lir::ExpressionForm::member:
         if (!expression.children.empty()) emit_expression(expression.children.front(), precedence);
-        output_ << '.' << expression.value;
+        output_ << '.' << expression.plan.token;
         break;
-      case ExpressionKind::list:
-      case ExpressionKind::tuple:
+      case javascript::lir::ExpressionForm::array:
+      case javascript::lir::ExpressionForm::tuple:
         output_ << '[';
         for (std::size_t index = 0; index < expression.children.size(); ++index) {
           if (index != 0) output_ << ", ";
@@ -332,7 +312,6 @@ class Renderer final {
     }
     if (parenthesize) output_ << ')';
   }
-
   void emit_variable_name(const std::string& name) {
     output_ << mangler_->name(name);
     if (active_reference_parameters_.count(name) != 0U) output_ << ".value";
@@ -367,39 +346,30 @@ class Renderer final {
   }
 
   void emit_reference_call(const Expression& expression) {
-    auto raw_call = expression;
-    raw_call.argument_transfers.clear();
     std::vector<std::string> references(expression.children.size());
     output_ << "(() => { ";
     for (std::size_t index = 1; index < expression.children.size(); ++index) {
       const auto intent_index = index - 1;
-      const auto transfer = intent_index < expression.argument_transfers.size()
-                                ? expression.argument_transfers[intent_index]
-                                : ArgumentTransfer::value;
-      if (!argument_transfer_writes(transfer)) continue;
-      if (expression.children[index].kind == ExpressionKind::omitted_argument ||
-          argument_transfer_forwards_optional(transfer)) {
+      const auto form = intent_index < expression.plan.call_arguments.size()
+                            ? expression.plan.call_arguments[intent_index]
+                            : javascript::lir::CallArgumentForm::value;
+      if (form != javascript::lir::CallArgumentForm::reference_box &&
+          form != javascript::lir::CallArgumentForm::reference_box_uninitialized) {
         continue;
       }
       references[index] = temporary(
           expression.id, javascript::lir::TemporaryRole::reference_argument, intent_index);
       output_ << "const " << references[index] << " = { value: ";
-      if ((transfer == ArgumentTransfer::mutable_borrow_out ||
-           transfer == ArgumentTransfer::copy_out) &&
-          expression.children[index].inferred_type != ValueType::list) {
+      if (form == javascript::lir::CallArgumentForm::reference_box_uninitialized) {
         output_ << "undefined";
       } else {
         emit_expression(expression.children[index]);
       }
       output_ << " }; ";
-      raw_call.children[index].kind = ExpressionKind::identifier;
-      raw_call.children[index].value = references[index];
-      raw_call.children[index].children.clear();
-      raw_call.children[index].binding = BindingKind::variable;
     }
     const auto result = temporary(expression.id, javascript::lir::TemporaryRole::call_result);
     output_ << "const " << result << " = ";
-    emit_expression(raw_call);
+    emit_call_value(expression, &references);
     output_ << "; ";
     for (std::size_t index = 1; index < references.size(); ++index) {
       if (references[index].empty()) continue;
@@ -416,7 +386,7 @@ class Renderer final {
       output_ << ", [";
       for (std::size_t index = 1; index < target.children.size(); ++index) {
         if (index != 1) output_ << ", ";
-        if (target.children[index].kind == ExpressionKind::slice) {
+        if (target.plan.selector_slices[index - 1U]) {
           emit_slice_descriptor(target.children[index]);
         } else {
           output_ << "{ slice: false, value: ";
@@ -429,7 +399,7 @@ class Renderer final {
               << (target.column_major ? "true" : "false") << ", false)";
       return;
     }
-    if (target.kind == ExpressionKind::index) {
+    if (target.plan.form == javascript::lir::ExpressionForm::index) {
       output_ << "__mpf_set(";
       emit_expression(target.children[0]);
       output_ << ", [";
@@ -554,8 +524,7 @@ class Renderer final {
       }
       indentation();
       output_ << (emitted_condition ? "else if (" : "if (");
-      emit_case_condition(clause, selector,
-                          statement.expression.inferred_type == ValueType::string);
+      emit_case_condition(clause, selector, statement.expression.plan.string_value);
       output_ << ") {\n";
       ++indent_;
       emit_statements(clause.body);
@@ -648,7 +617,7 @@ class Renderer final {
           for (std::size_t index = 1; index < statement.target_expression.children.size();
                ++index) {
             if (index != 1) output_ << ", ";
-            if (statement.target_expression.children[index].kind == ExpressionKind::slice) {
+            if (statement.target_expression.plan.selector_slices[index - 1U]) {
               emit_slice_descriptor(statement.target_expression.children[index]);
             } else {
               output_ << "{ slice: false, value: ";
@@ -681,7 +650,8 @@ class Renderer final {
       case StatementKind::print:
         indentation();
         output_ << "console.log(";
-        if (statement.has_expression && statement.expression.kind == ExpressionKind::tuple) {
+        if (statement.has_expression &&
+            statement.expression.plan.form == javascript::lir::ExpressionForm::tuple) {
           for (std::size_t index = 0; index < statement.expression.children.size(); ++index) {
             if (index != 0) output_ << ", ";
             emit_expression(statement.expression.children[index]);

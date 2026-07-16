@@ -179,6 +179,7 @@ if(MPF_ENABLE_JAVASCRIPT_BACKEND)
     src/backends/javascript_bindings.cpp
     src/backends/javascript_emitter.cpp
     src/backends/javascript_lir_planning.cpp
+    src/backends/javascript_lir_representation.cpp
     src/backends/javascript_lowering.cpp
     src/backends/javascript_renderer.cpp
     src/backends/javascript_runtime.cpp
@@ -198,6 +199,7 @@ if(MPF_ENABLE_CPP_BACKEND)
     src/backends/cpp_bindings.cpp
     src/backends/cpp_emitter.cpp
     src/backends/cpp_lir_planning.cpp
+    src/backends/cpp_lir_representation.cpp
     src/backends/cpp_lowering.cpp
     src/backends/cpp_renderer.cpp
     src/backends/cpp_runtime.cpp
