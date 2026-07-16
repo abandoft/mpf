@@ -14,10 +14,10 @@
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；`cpp` 当前生成严格 C++17 translation unit |
 | 前后端边界 | 生产驱动固定经过语言 AST artifact→HIR→MIR→目标私有 semantic plan/LIR→emitter；两个目标不读取彼此产物 |
 | 扩展架构 | frontend descriptor API v5、backend descriptor API v5；parser session/feature/resource contract、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
-| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；名称/作用域、控制流和 Analyzer 输出分别由 revision-checked 稠密 `NameTable`、`FlowTable`、`SemanticTable` 持有，Analyzer 以 `SymbolId` 稠密状态消费前两者；HIR→MIR 消费 semantic/name facts，MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime、驻留的 tuple/function/reference 签名，以及包含 region/intent/transfer 的单对象 call argument 表；alias/effect 由独立 `AliasEffectTable` 持有并提供 call argument/overlap facts；双目标 LIR 显式保存 transfer plan，emitter 仅序列化 |
+| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；名称/作用域、控制流和 Analyzer 输出分别由 revision-checked 稠密 `NameTable`、`FlowTable`、`SemanticTable` 持有，Analyzer 以 `SymbolId` 稠密状态消费前两者；HIR→MIR 消费 semantic/name facts，MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime、驻留的 tuple/function/reference 签名，以及包含 region/intent/transfer 的单对象 call argument 表；alias/effect 由独立 `AliasEffectTable` 持有并提供 call argument/overlap facts；双目标 LIR 显式保存 transfer、目标函数 ABI 与 CSR 临时资源计划，emitter 仅序列化 |
 | Python 最新能力 | relational/equality 比较链、右结合条件表达式、短路/惰性/单次求值；基础参数关联和递归固定序列解包 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流 |
-| 工程门禁 | 151 项内部测试；48 个差分 case、134 条工具完整环境执行路径；59 项 CTest；fuzz smoke、可选 libFuzzer、版本化性能发布阈值、阶段报告；生产代码行覆盖率实测 88.11%（15589/17693），门槛 85% |
+| 工程门禁 | 152 项内部测试；48 个差分 case、134 条工具完整环境执行路径；59 项 CTest；fuzz smoke、可选 libFuzzer、版本化性能发布阈值、阶段报告；生产代码行覆盖率实测 88.47%（16265/18385），硬门槛 85% |
 | 发布状态 | 0.x；没有长期 API/ABI 或完整语言兼容承诺 |
 
 ## 本轮商业级收尾验收（完成）
@@ -93,10 +93,11 @@
 
 - [x] 建立 JavaScript `TargetProfile`、MIR capability 和在生产 lowering 中逐 instruction 执行的稠密 legalization registry
 - [x] 建立不借用 MIR 生命周期的 JavaScript semantic lowering plan，提前解析 intrinsic binding、runtime feature、dependency 和源语义 profile
+- [x] JavaScript LIR v4 固化 script/ESM、顶层 export、value/reference-box 参数 ABI 和按 `LirNodeId` 的 CSR 临时资源计划；renderer 不再读取 module option/源 parameter intent 或动态分配临时名
 - [ ] 把 JS 数据表示、calling convention、module/chunk 与 NPM/runtime manifest 完整固化到 semantic IR
 - [ ] 建立 representation lowering 和独立 JavaScript AST/LIR，表达 module/script、import/export、表达式/语句、临时值、IIFE/closure 和 source-map segment
 - [x] 建立 JavaScript target pass pipeline，完成保留字安全名称分配、dependency canonicalization 和确定性排序
-- [ ] 将临时值/声明 canonicalization 和全部 representation choice 从 emitter 前移到 LIR pass
+- [ ] 将声明 canonicalization、完整 representation choice 与结构化 import/chunk 从 renderer 前移到 LIR pass；临时值名称/角色/ordinal 的 canonicalization 已完成
 - [x] 把 JavaScript emitter 中的源语言分支、runtime 扫描和 binding lookup 迁入 MIR→LIR lowering
 - [x] 为 legalization、semantic lowering plan 和 AST/LIR 建立 verifier，emitter 公共入口只能接收 JavaScript LIR artifact
 - [x] representation/type/shape/runtime/name 选择全部在目标 lowering/renderer 完成；emitter 仅 `serialize_chunks`，公共结果输出 source map v3 与确定性 dependency manifest
@@ -105,10 +106,11 @@
 
 - [x] 建立 `cpp` `TargetProfile`、MIR capability 和在生产 lowering 中逐 instruction 执行的稠密 legalization registry
 - [x] 建立不借用 MIR 生命周期的 `cpp` semantic lowering plan，提前解析 intrinsic binding、runtime feature、dependency 和源语义 profile
+- [x] `cpp` LIR v4 固化 template、value/const-reference/mutable-reference/optional-reference、optional 具体类型、递归返回/前置声明 ABI，以及按 `LirNodeId` 的 CSR 临时资源计划；renderer 不再读取源 parameter intent 或动态分配临时名
 - [ ] 把具体类型、calling convention、value/reference/ownership 与 ABI 完整固化到 semantic IR
 - [ ] 建立 representation/ABI lowering 和独立 `cpp` AST/LIR，表达 translation unit、include、namespace、声明/定义顺序、template、临时/lambda、copy/move 和 runtime ABI 调用
 - [x] 建立 `cpp` target pass pipeline，完成保留字安全名称分配、函数依赖排序、dependency canonicalization 和确定性排序
-- [ ] 将 temporary/declaration canonicalization 和全部 representation/ABI choice 从 emitter 前移到 LIR pass
+- [ ] 将 declaration canonicalization、完整 concrete representation/ownership 和 runtime ABI call 从 renderer 前移到 LIR pass；temporary canonicalization 与函数 ABI 已完成
 - [x] 把 `cpp` emitter 中的源语言分支、函数排序、target validation、runtime 扫描和 binding lookup 迁入 MIR→LIR lowering
 - [x] 为 legalization、semantic lowering plan 和 AST/LIR 建立 verifier，emitter 公共入口只能接收 `cpp` LIR artifact
 - [x] representation/ABI/type/shape/name 选择全部在目标 lowering/renderer 完成；emitter 仅 `serialize_chunks`，公共结果输出 source mapping 与 dependency manifest
