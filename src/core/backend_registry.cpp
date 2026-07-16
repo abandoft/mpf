@@ -1,0 +1,171 @@
+#include "backend_registry.hpp"
+
+#include <array>
+#include <cctype>
+
+#if MPF_HAS_JAVASCRIPT_BACKEND
+#include "../backends/javascript_backend.hpp"
+#endif
+#if MPF_HAS_CPP_BACKEND
+#include "../backends/cpp_backend.hpp"
+#endif
+
+namespace mpf::detail {
+namespace {
+
+constexpr std::string_view javascript_aliases[]{"js"};
+constexpr std::string_view cpp_aliases[]{"c++"};
+
+const BackendDescriptor javascript_metadata{
+    backend_descriptor_api_version,
+    TargetLanguage::javascript,
+    "javascript",
+    {javascript_aliases, std::size(javascript_aliases)},
+    {"ECMAScript-2020", "mpf.javascript.lir.v1", true, true},
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr};
+const BackendDescriptor cpp_metadata{backend_descriptor_api_version,
+                                     TargetLanguage::cpp,
+                                     "cpp",
+                                     {cpp_aliases, std::size(cpp_aliases)},
+                                     {"C++17", "mpf.cpp.lir.v1", true, true},
+                                     nullptr,
+                                     nullptr,
+                                     nullptr,
+                                     nullptr,
+                                     nullptr,
+                                     nullptr,
+                                     nullptr};
+
+using BackendFactory = const BackendDescriptor& (*)() noexcept;
+
+struct BackendRegistration {
+  const BackendDescriptor* metadata;
+  BackendFactory factory;
+};
+
+const std::array<BackendRegistration, 2> registrations{{
+    {&javascript_metadata,
+#if MPF_HAS_JAVASCRIPT_BACKEND
+     &javascript_backend
+#else
+     nullptr
+#endif
+    },
+    {&cpp_metadata,
+#if MPF_HAS_CPP_BACKEND
+     &cpp_backend
+#else
+     nullptr
+#endif
+    },
+}};
+
+bool equals_ci(const std::string_view left, const std::string_view right) noexcept {
+  if (left.size() != right.size()) return false;
+  for (std::size_t index = 0; index < left.size(); ++index) {
+    if (std::tolower(static_cast<unsigned char>(left[index])) !=
+        std::tolower(static_cast<unsigned char>(right[index]))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool has_name(const BackendDescriptor& descriptor, const std::string_view name) noexcept {
+  if (equals_ci(descriptor.name, name)) return true;
+  for (std::size_t index = 0; index < descriptor.aliases.size; ++index) {
+    if (equals_ci(descriptor.aliases.data[index], name)) return true;
+  }
+  return false;
+}
+
+std::string_view name_at(const BackendDescriptor& descriptor, const std::size_t index) noexcept {
+  return index == 0 ? std::string_view(descriptor.name) : descriptor.aliases.data[index - 1];
+}
+
+}  // namespace
+
+const BackendDescriptor* find_backend(const TargetLanguage target) noexcept {
+  for (const auto& registration : registrations) {
+    if (registration.metadata->target == target && registration.factory != nullptr) {
+      return &registration.factory();
+    }
+  }
+  return nullptr;
+}
+
+const BackendDescriptor* find_backend_descriptor(const TargetLanguage target) noexcept {
+  for (const auto& registration : registrations) {
+    if (registration.metadata->target != target) continue;
+    return registration.factory == nullptr ? registration.metadata : &registration.factory();
+  }
+  return nullptr;
+}
+
+const BackendDescriptor* find_backend_descriptor(const std::string_view name) noexcept {
+  for (const auto& registration : registrations) {
+    if (!has_name(*registration.metadata, name)) continue;
+    return registration.factory == nullptr ? registration.metadata : &registration.factory();
+  }
+  return nullptr;
+}
+
+std::size_t backend_descriptor_count() noexcept {
+  return registrations.size();
+}
+
+const BackendDescriptor* backend_descriptor_at(const std::size_t index) noexcept {
+  if (index >= registrations.size()) return nullptr;
+  const auto& registration = registrations[index];
+  return registration.factory == nullptr ? registration.metadata : &registration.factory();
+}
+
+bool validate_backend_catalog(const BackendDescriptor* const* descriptors, const std::size_t count,
+                              const bool require_callbacks) noexcept {
+  for (std::size_t left = 0; left < count; ++left) {
+    const auto* descriptor = descriptors[left];
+    if (descriptor == nullptr || descriptor->api_version != backend_descriptor_api_version ||
+        descriptor->name == nullptr || descriptor->name[0] == '\0' ||
+        descriptor->manifest.target_standard == nullptr ||
+        descriptor->manifest.target_standard[0] == '\0' ||
+        descriptor->manifest.artifact_schema == nullptr ||
+        descriptor->manifest.artifact_schema[0] == '\0' || !descriptor->manifest.deterministic ||
+        !descriptor->manifest.reentrant ||
+        (descriptor->aliases.size != 0 && descriptor->aliases.data == nullptr) ||
+        (require_callbacks &&
+         (descriptor->profile == nullptr || descriptor->legalizations == nullptr ||
+          descriptor->binding == nullptr || descriptor->validate == nullptr ||
+          descriptor->lower == nullptr || descriptor->verify == nullptr ||
+          descriptor->emit == nullptr))) {
+      return false;
+    }
+    if (require_callbacks && (descriptor->profile().target != descriptor->target ||
+                              !legalization_table_complete(descriptor->legalizations()))) {
+      return false;
+    }
+    for (std::size_t first = 0; first <= descriptor->aliases.size; ++first) {
+      if (name_at(*descriptor, first).empty()) return false;
+      for (std::size_t second = first + 1; second <= descriptor->aliases.size; ++second) {
+        if (equals_ci(name_at(*descriptor, first), name_at(*descriptor, second))) return false;
+      }
+    }
+    for (std::size_t right = left + 1; right < count; ++right) {
+      const auto* other = descriptors[right];
+      if (other == nullptr || descriptor->target == other->target) return false;
+      for (std::size_t first = 0; first <= descriptor->aliases.size; ++first) {
+        for (std::size_t second = 0; second <= other->aliases.size; ++second) {
+          if (equals_ci(name_at(*descriptor, first), name_at(*other, second))) return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+}  // namespace mpf::detail
