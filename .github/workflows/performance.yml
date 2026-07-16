@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Configure release benchmark
         run: >-
           cmake -S . -B build/performance
@@ -36,7 +36,7 @@ jobs:
         run: cmake --build build/performance --target mpf-performance
       - name: Preserve machine-readable report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: performance-report
           if-no-files-found: warn
