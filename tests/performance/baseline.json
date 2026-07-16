@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "maxLatencyNanoseconds": 1000000000,
+  "minThroughputBytesPerSecond": 10000,
+  "maxPeakArenaBytes": 67108864,
+  "maxGeneratedBytes": 8388608
+}
