@@ -74,6 +74,44 @@ std::string dump_hir(const hir::Program& program) {
   return output.str();
 }
 
+std::string dump_semantics(const hir::SemanticTable& table) {
+  std::ostringstream output;
+  output << "semantic-v1 hir-nodes=" << table.hir_node_count
+         << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
+         << " statements=" << table.statements.size() << '\n';
+  for (std::size_t id = 1; id < table.nodes.size(); ++id) {
+    const auto slot = table.nodes[id];
+    output << "%h" << id << " kind=" << enum_value(slot.kind) << " offset=" << slot.offset;
+    if (slot.kind == hir::SemanticNodeKind::expression &&
+        slot.offset < table.expressions.size()) {
+      const auto& facts = table.expressions[slot.offset];
+      output << " type=" << enum_value(facts.inferred_type)
+             << " element=" << enum_value(facts.element_type)
+             << " binding=" << enum_value(facts.binding)
+             << " intrinsic=" << enum_value(facts.intrinsic) << " shape=[";
+      for (std::size_t extent = 0; extent < facts.shape.size(); ++extent) {
+        if (extent != 0) output << ',';
+        output << facts.shape[extent];
+      }
+      output << "] outputs=" << facts.requested_outputs;
+    } else if (slot.kind == hir::SemanticNodeKind::statement &&
+               slot.offset < table.statements.size()) {
+      const auto& facts = table.statements[slot.offset];
+      output << " declared=" << enum_value(facts.declared_type)
+             << " element=" << enum_value(facts.element_type) << " shape=[";
+      for (std::size_t extent = 0; extent < facts.shape.size(); ++extent) {
+        if (extent != 0) output << ',';
+        output << facts.shape[extent];
+      }
+      output << "] parameters=" << facts.parameter_types.size()
+             << " returns=" << facts.return_types.size()
+             << " targets=" << facts.target_types.size();
+    }
+    output << '\n';
+  }
+  return output.str();
+}
+
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
   output << "mir-v1 language=" << enum_value(program.source_language)

@@ -9,6 +9,7 @@
 #include "../compiler/assignment_pattern.hpp"
 #include "hir.hpp"
 #include "ids.hpp"
+#include "semantic_table.hpp"
 
 namespace mpf::detail::mir {
 
@@ -280,7 +281,8 @@ struct LoweringResult {
   std::vector<Diagnostic> diagnostics;
 };
 
-[[nodiscard]] LoweringResult lower_from_hir(hir::Program&& program);
+[[nodiscard]] LoweringResult lower_from_hir(hir::Program&& program,
+                                            hir::SemanticTable&& semantics);
 [[nodiscard]] AliasClass alias_between(const Program& program, StorageId left,
                                        StorageId right) noexcept;
 [[nodiscard]] std::vector<Diagnostic> validate_effects(Program& program);

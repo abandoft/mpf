@@ -236,20 +236,20 @@ TranspileResult Transpiler::transpile(const std::string_view source,
                               std::make_move_iterator(hir_result.diagnostics.begin()),
                               std::make_move_iterator(hir_result.diagnostics.end()));
   }
+  detail::AnalysisResult analysis_result;
   if (result.success()) {
     const auto analysis_started = session.begin_stage();
-    detail::PassManager<detail::hir::Program> passes(&detail::hir::verify);
-    passes.add({"semantic-analysis", &detail::analyze_program, true});
-    auto semantic_diagnostics = passes.run(hir_result.program);
+    analysis_result = detail::analyze_program(hir_result.program);
     result.diagnostics.insert(result.diagnostics.end(),
-                              std::make_move_iterator(semantic_diagnostics.begin()),
-                              std::make_move_iterator(semantic_diagnostics.end()));
+                              std::make_move_iterator(analysis_result.diagnostics.begin()),
+                              std::make_move_iterator(analysis_result.diagnostics.end()));
     session.record("hir-passes", hir_result.program.node_count, analysis_started);
   }
   detail::mir::LoweringResult mir_result;
   if (result.success()) {
     const auto mir_started = session.begin_stage();
-    mir_result = detail::mir::lower_from_hir(std::move(hir_result.program));
+    mir_result = detail::mir::lower_from_hir(std::move(hir_result.program),
+                                             std::move(analysis_result.semantics));
     session.record("mir", mir_result.program.instructions.size() - 1U, mir_started);
     const auto instructions = mir_result.program.instructions.size() - 1U;
     if (instructions > session.limits().max_mir_instructions) {

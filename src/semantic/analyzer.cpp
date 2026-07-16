@@ -2425,10 +2425,16 @@ class Analyzer final {
 
 }  // namespace
 
-std::vector<Diagnostic> analyze_program(hir::Program& program) {
-  auto diagnostics = Analyzer(program).analyze();
+AnalysisResult analyze_program(hir::Program& program) {
+  AnalysisResult result;
+  result.diagnostics = Analyzer(program).analyze();
   hir::reindex(program);
-  return diagnostics;
+  result.semantics = hir::extract_semantics(program);
+  auto verifier_diagnostics = hir::verify_semantics(program, result.semantics, "analysis");
+  result.diagnostics.insert(result.diagnostics.end(),
+                            std::make_move_iterator(verifier_diagnostics.begin()),
+                            std::make_move_iterator(verifier_diagnostics.end()));
+  return result;
 }
 
 const char* to_string(const ValueType type) noexcept {

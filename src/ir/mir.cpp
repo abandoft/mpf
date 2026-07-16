@@ -101,7 +101,8 @@ Effect intrinsic_effects(const IntrinsicId intrinsic) noexcept {
 
 class Builder final {
  public:
-  explicit Builder(Program& program) : program_(program) {}
+  Builder(Program& program, const hir::SemanticTable& semantics)
+      : program_(program), semantics_(semantics) {}
 
   void begin_function(std::string name, const HirNodeId origin) {
     storages_.clear();
@@ -129,6 +130,7 @@ class Builder final {
   Statement lower_statement(hir::Statement&& source) {
     ensure_open_block();
     Statement result;
+    const auto* semantic_facts = semantics_.statement(source.id);
     result.origin = source.id;
     result.kind = source.kind;
     result.line = source.line;
@@ -162,16 +164,18 @@ class Builder final {
     result.has_tertiary_expression = source.has_tertiary_expression;
     result.inclusive_stop = source.inclusive_stop;
     result.retain_last_loop_value = source.retain_last_loop_value;
-    result.declared_type = source.declared_type;
-    result.element_type = source.element_type;
-    result.previous_type = source.previous_type;
-    result.previous_element_type = source.previous_element_type;
-    result.parameter_intent = source.parameter_intent;
-    result.optional_parameter = source.optional_parameter;
-    result.dummy_parameter = source.dummy_parameter;
-    result.shape = std::move(source.shape);
-    result.index_base = source.index_base;
-    result.allow_negative_index = source.allow_negative_index;
+    if (semantic_facts != nullptr) {
+      result.declared_type = semantic_facts->declared_type;
+      result.element_type = semantic_facts->element_type;
+      result.previous_type = semantic_facts->previous_type;
+      result.previous_element_type = semantic_facts->previous_element_type;
+      result.parameter_intent = semantic_facts->parameter_intent;
+      result.optional_parameter = semantic_facts->optional_parameter;
+      result.dummy_parameter = semantic_facts->dummy_parameter;
+      result.shape = semantic_facts->shape;
+      result.index_base = semantic_facts->index_base;
+      result.allow_negative_index = semantic_facts->allow_negative_index;
+    }
     result.target_expression = lower_expression(std::move(source.target_expression));
     result.has_target_expression = source.has_target_expression;
     result.parameters = std::move(source.parameters);
@@ -180,26 +184,32 @@ class Builder final {
     for (auto& expression : source.parameter_defaults) {
       result.parameter_defaults.push_back(lower_expression(std::move(expression)));
     }
-    result.parameter_intents = std::move(source.parameter_intents);
-    result.parameter_optional = std::move(source.parameter_optional);
-    result.parameter_types = std::move(source.parameter_types);
-    result.parameter_element_types = std::move(source.parameter_element_types);
-    result.parameter_shapes = std::move(source.parameter_shapes);
+    if (semantic_facts != nullptr) {
+      result.parameter_intents = semantic_facts->parameter_intents;
+      result.parameter_optional = semantic_facts->parameter_optional;
+      result.parameter_types = semantic_facts->parameter_types;
+      result.parameter_element_types = semantic_facts->parameter_element_types;
+      result.parameter_shapes = semantic_facts->parameter_shapes;
+    }
     result.return_names = std::move(source.return_names);
-    result.has_value_return = source.has_value_return;
-    result.return_types = std::move(source.return_types);
-    result.return_element_types = std::move(source.return_element_types);
-    result.return_shapes = std::move(source.return_shapes);
-    result.return_sequence_is_list = source.return_sequence_is_list;
-    result.return_sequence_elements = std::move(source.return_sequence_elements);
+    if (semantic_facts != nullptr) {
+      result.has_value_return = semantic_facts->has_value_return;
+      result.return_types = semantic_facts->return_types;
+      result.return_element_types = semantic_facts->return_element_types;
+      result.return_shapes = semantic_facts->return_shapes;
+      result.return_sequence_is_list = semantic_facts->return_sequence_is_list;
+      result.return_sequence_elements = semantic_facts->return_sequence_elements;
+    }
     result.target_names = std::move(source.target_names);
     result.target_pattern = std::move(source.target_pattern);
     result.has_target_pattern = source.has_target_pattern;
-    result.target_types = std::move(source.target_types);
-    result.target_element_types = std::move(source.target_element_types);
-    result.target_shapes = std::move(source.target_shapes);
-    result.target_previous_types = std::move(source.target_previous_types);
-    result.target_previous_element_types = std::move(source.target_previous_element_types);
+    if (semantic_facts != nullptr) {
+      result.target_types = semantic_facts->target_types;
+      result.target_element_types = semantic_facts->target_element_types;
+      result.target_shapes = semantic_facts->target_shapes;
+      result.target_previous_types = semantic_facts->target_previous_types;
+      result.target_previous_element_types = semantic_facts->target_previous_element_types;
+    }
     result.case_selectors.reserve(source.case_selectors.size());
     for (auto& selector : source.case_selectors) {
       result.case_selectors.push_back(lower_selector(std::move(selector)));
@@ -411,6 +421,7 @@ class Builder final {
 
   Expression lower_expression(hir::Expression&& source) {
     Expression result;
+    const auto* semantic_facts = semantics_.expression(source.id);
     result.origin = source.id;
     result.location = source.location;
     result.kind = source.kind;
@@ -426,26 +437,28 @@ class Builder final {
       child_effects |= lowered.effects;
       result.children.push_back(std::move(lowered));
     }
-    result.inferred_type = source.inferred_type;
-    result.binding = source.binding;
-    result.intrinsic = source.intrinsic;
-    result.element_type = source.element_type;
-    result.shape = std::move(source.shape);
-    result.tuple_types = std::move(source.tuple_types);
-    result.tuple_element_types = std::move(source.tuple_element_types);
-    result.tuple_shapes = std::move(source.tuple_shapes);
-    result.sequence_is_list = source.sequence_is_list;
-    result.sequence_elements = std::move(source.sequence_elements);
-    result.requested_outputs = source.requested_outputs;
-    result.multi_output_call = source.multi_output_call;
-    result.argument_intents = std::move(source.argument_intents);
+    if (semantic_facts != nullptr) {
+      result.inferred_type = semantic_facts->inferred_type;
+      result.binding = semantic_facts->binding;
+      result.intrinsic = semantic_facts->intrinsic;
+      result.element_type = semantic_facts->element_type;
+      result.shape = semantic_facts->shape;
+      result.tuple_types = semantic_facts->tuple_types;
+      result.tuple_element_types = semantic_facts->tuple_element_types;
+      result.tuple_shapes = semantic_facts->tuple_shapes;
+      result.sequence_is_list = semantic_facts->sequence_is_list;
+      result.sequence_elements = semantic_facts->sequence_elements;
+      result.requested_outputs = semantic_facts->requested_outputs;
+      result.multi_output_call = semantic_facts->multi_output_call;
+      result.argument_intents = semantic_facts->argument_intents;
+      result.argument_optional_forward = semantic_facts->argument_optional_forward;
+      result.procedure_has_result = semantic_facts->procedure_has_result;
+      result.index_base = semantic_facts->index_base;
+      result.allow_negative_index = semantic_facts->allow_negative_index;
+      result.column_major = semantic_facts->column_major;
+      result.slice_stop_inclusive = semantic_facts->slice_stop_inclusive;
+    }
     result.argument_names = std::move(source.argument_names);
-    result.argument_optional_forward = std::move(source.argument_optional_forward);
-    result.procedure_has_result = source.procedure_has_result;
-    result.index_base = source.index_base;
-    result.allow_negative_index = source.allow_negative_index;
-    result.column_major = source.column_major;
-    result.slice_stop_inclusive = source.slice_stop_inclusive;
     if (!result.valid()) return result;
 
     result.type_id = intern_type(result.inferred_type, result.element_type);
@@ -793,6 +806,7 @@ class Builder final {
   }
 
   Program& program_;
+  const hir::SemanticTable& semantics_;
   IrIdAllocator<MirFunctionId> function_ids_;
   IrIdAllocator<BlockId> block_ids_;
   IrIdAllocator<InstructionId> instruction_ids_;
@@ -1144,7 +1158,7 @@ void verify_cfg(const Program& program, std::vector<Diagnostic>& diagnostics,
 
 }  // namespace
 
-LoweringResult lower_from_hir(hir::Program&& source) {
+LoweringResult lower_from_hir(hir::Program&& source, hir::SemanticTable&& semantics) {
   LoweringResult result;
   result.program.source_language = source.language;
   result.program.semantics = source.semantics;
@@ -1156,7 +1170,10 @@ LoweringResult lower_from_hir(hir::Program&& source) {
   result.program.blocks.push_back({});
   result.program.functions.push_back({});
 
-  Builder builder(result.program);
+  result.diagnostics = hir::verify_semantics(source, semantics, "hir-to-mir");
+  if (!result.diagnostics.empty()) return result;
+
+  Builder builder(result.program, semantics);
   builder.begin_function("<module>", {});
   result.program.statements.reserve(source.statements.size());
   for (auto& statement : source.statements) {
