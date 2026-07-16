@@ -83,11 +83,17 @@ enum class TerminatorKind { none, branch, conditional_branch, return_value, unre
 enum class AliasClass { no_alias, may_alias, must_alias };
 enum class StorageKind { local, parameter, global, temporary, view };
 enum class StorageLifetime { function, module, borrowed, expression };
+enum class TypeKind { scalar, sequence, tuple, function, reference };
 
 struct TypeData {
+  TypeKind kind{TypeKind::scalar};
   ValueType value_type{ValueType::unknown};
   ValueType element_type{ValueType::unknown};
   std::vector<TypeId> elements;
+  std::vector<TypeId> parameters;
+  std::vector<TypeId> results;
+  TypeId referent{};
+  ParameterIntent reference_intent{ParameterIntent::none};
 };
 
 struct ShapeData {
@@ -120,6 +126,7 @@ struct Instruction {
   InstructionId id{};
   Opcode opcode{Opcode::invalid};
   HirNodeId origin{};
+  MirFunctionId callee{};
   SourceLocation location{};
   ValueId result{};
   TypeId type{};
@@ -158,7 +165,21 @@ struct Function {
   BlockId entry{};
   std::vector<BlockId> blocks;
   std::vector<TypeId> parameter_types;
+  std::vector<bool> parameter_optional;
   std::vector<TypeId> result_types;
+  TypeId signature{};
+};
+
+struct CallSite {
+  InstructionId instruction{};
+  HirNodeId origin{};
+  MirFunctionId caller{};
+  MirFunctionId callee{};
+  std::vector<TypeId> argument_types;
+  std::vector<StorageId> argument_storages;
+  std::vector<bool> argument_omitted;
+  TypeId result_type{};
+  std::size_t requested_results{1};
 };
 
 struct Expression {
@@ -272,6 +293,7 @@ struct Program {
   std::vector<Instruction> instructions;
   std::vector<BasicBlock> blocks;
   std::vector<Function> functions;
+  std::vector<CallSite> calls;
   std::size_t hir_node_count{0};
   std::uint64_t revision{0};
 };

@@ -14,6 +14,22 @@ std::uint32_t type_key(const ValueType type, const ValueType element_type) noexc
   return (static_cast<std::uint32_t>(type) << 16U) | static_cast<std::uint32_t>(element_type);
 }
 
+std::string composite_type_key(const char prefix, const std::vector<TypeId>& first,
+                               const std::vector<TypeId>& second) {
+  std::string key(1, prefix);
+  const auto append = [&](const std::vector<TypeId>& values) {
+    key.push_back(':');
+    key += std::to_string(values.size());
+    for (const auto value : values) {
+      key.push_back(':');
+      key += std::to_string(value.value());
+    }
+  };
+  append(first);
+  append(second);
+  return key;
+}
+
 std::string shape_key(const std::vector<std::size_t>& shape, const semantic::IndexLayout layout) {
   std::string key = layout == semantic::IndexLayout::column_major ? "c" : "r";
   for (const auto extent : shape) {
@@ -123,8 +139,36 @@ class Builder final {
     if (block.terminator.kind == TerminatorKind::none) {
       block.terminator.kind = TerminatorKind::return_value;
     }
+    if (!current_function().signature.valid()) {
+      current_function().signature = intern_function_type({}, {});
+    }
     current_function_ = {};
     current_block_ = {};
+  }
+
+  void link_calls() {
+    std::unordered_map<std::string, MirFunctionId> functions;
+    for (std::size_t index = 1; index < program_.functions.size(); ++index) {
+      functions.emplace(program_.functions[index].name, program_.functions[index].id);
+    }
+    program_.calls.reserve(unresolved_calls_.size());
+    for (auto& unresolved : unresolved_calls_) {
+      CallSite call;
+      call.instruction = unresolved.instruction;
+      call.origin = unresolved.origin;
+      call.caller = unresolved.caller;
+      const auto found = functions.find(unresolved.callee_name);
+      if (found != functions.end()) {
+        call.callee = found->second;
+        program_.instructions[call.instruction.value()].callee = call.callee;
+      }
+      call.argument_types = std::move(unresolved.argument_types);
+      call.argument_storages = std::move(unresolved.argument_storages);
+      call.argument_omitted = std::move(unresolved.argument_omitted);
+      call.result_type = unresolved.result_type;
+      call.requested_results = unresolved.requested_results;
+      program_.calls.push_back(std::move(call));
+    }
   }
 
   Statement lower_statement(hir::Statement&& source) {
@@ -374,9 +418,86 @@ class Builder final {
     const auto found = types_.find(key);
     if (found != types_.end()) return found->second;
     const auto id = TypeId{static_cast<TypeId::value_type>(program_.types.size())};
-    program_.types.push_back({type, element_type, {}});
+    const auto kind = type == ValueType::list       ? TypeKind::sequence
+                      : type == ValueType::tuple    ? TypeKind::tuple
+                      : type == ValueType::function ? TypeKind::function
+                                                    : TypeKind::scalar;
+    program_.types.push_back({kind, type, element_type, {}, {}, {}, {}, ParameterIntent::none});
     types_.emplace(key, id);
     return id;
+  }
+
+  [[nodiscard]] TypeId intern_tuple_type(const std::vector<TypeId>& elements) {
+    auto key = composite_type_key('t', elements, {});
+    const auto found = composite_types_.find(key);
+    if (found != composite_types_.end()) return found->second;
+    const auto id = TypeId{static_cast<TypeId::value_type>(program_.types.size())};
+    program_.types.push_back({TypeKind::tuple,
+                              ValueType::tuple,
+                              ValueType::unknown,
+                              elements,
+                              {},
+                              {},
+                              {},
+                              ParameterIntent::none});
+    composite_types_.emplace(std::move(key), id);
+    return id;
+  }
+
+  [[nodiscard]] TypeId intern_reference_type(const TypeId referent, const ParameterIntent intent) {
+    std::string key = "r:" + std::to_string(referent.value()) + ':' +
+                      std::to_string(static_cast<unsigned>(intent));
+    const auto found = composite_types_.find(key);
+    if (found != composite_types_.end()) return found->second;
+    const auto id = TypeId{static_cast<TypeId::value_type>(program_.types.size())};
+    program_.types.push_back({TypeKind::reference,
+                              ValueType::unknown,
+                              ValueType::unknown,
+                              {},
+                              {},
+                              {},
+                              referent,
+                              intent});
+    composite_types_.emplace(std::move(key), id);
+    return id;
+  }
+
+  [[nodiscard]] TypeId intern_function_type(const std::vector<TypeId>& parameters,
+                                            const std::vector<TypeId>& results) {
+    auto key = composite_type_key('f', parameters, results);
+    const auto found = composite_types_.find(key);
+    if (found != composite_types_.end()) return found->second;
+    const auto id = TypeId{static_cast<TypeId::value_type>(program_.types.size())};
+    program_.types.push_back({TypeKind::function,
+                              ValueType::function,
+                              ValueType::unknown,
+                              {},
+                              parameters,
+                              results,
+                              {},
+                              ParameterIntent::none});
+    composite_types_.emplace(std::move(key), id);
+    return id;
+  }
+
+  [[nodiscard]] TypeId intern_expression_type(const Expression& expression) {
+    if (expression.inferred_type != ValueType::tuple && expression.tuple_types.empty()) {
+      return intern_type(expression.inferred_type, expression.element_type);
+    }
+    std::vector<TypeId> elements;
+    if (!expression.tuple_types.empty()) {
+      elements.reserve(expression.tuple_types.size());
+      for (std::size_t index = 0; index < expression.tuple_types.size(); ++index) {
+        elements.push_back(
+            intern_type(expression.tuple_types[index], index < expression.tuple_element_types.size()
+                                                           ? expression.tuple_element_types[index]
+                                                           : ValueType::unknown));
+      }
+    } else {
+      elements.reserve(expression.children.size());
+      for (const auto& child : expression.children) elements.push_back(child.type_id);
+    }
+    return intern_tuple_type(elements);
   }
 
   [[nodiscard]] ShapeId intern_shape(const std::vector<std::size_t>& shape,
@@ -408,6 +529,17 @@ class Builder final {
 
  private:
   using StorageVersions = std::unordered_map<StorageId, ValueId>;
+  struct UnresolvedCall {
+    InstructionId instruction{};
+    HirNodeId origin{};
+    MirFunctionId caller{};
+    std::string callee_name;
+    std::vector<TypeId> argument_types;
+    std::vector<StorageId> argument_storages;
+    std::vector<bool> argument_omitted;
+    TypeId result_type{};
+    std::size_t requested_results{1};
+  };
   struct ControlEdge {
     BlockId block{};
     StorageVersions versions;
@@ -461,7 +593,7 @@ class Builder final {
     }
     if (!result.valid()) return result;
 
-    result.type_id = intern_type(result.inferred_type, result.element_type);
+    result.type_id = intern_expression_type(result);
     result.shape_id = intern_shape(result.shape, result.column_major);
     result.effects = expression_effects(result);
     result.effects |= child_effects;
@@ -485,6 +617,27 @@ class Builder final {
     instruction.storage = result.storage_id;
     instruction.effects = result.effects;
     instruction.operands = std::move(operands);
+    if (result.kind == ExpressionKind::call && !result.children.empty() &&
+        result.children.front().binding == BindingKind::function) {
+      UnresolvedCall call;
+      call.instruction = instruction.id;
+      call.origin = result.origin;
+      call.caller = current_function_;
+      call.callee_name = result.children.front().value;
+      call.result_type = result.type_id;
+      call.requested_results =
+          program_.source_language == SourceLanguage::matlab ? result.requested_outputs : 1U;
+      call.argument_types.reserve(result.children.size() - 1U);
+      call.argument_storages.reserve(result.children.size() - 1U);
+      call.argument_omitted.reserve(result.children.size() - 1U);
+      for (std::size_t index = 1; index < result.children.size(); ++index) {
+        call.argument_types.push_back(result.children[index].type_id);
+        call.argument_storages.push_back(result.children[index].storage_id);
+        call.argument_omitted.push_back(result.children[index].kind ==
+                                        ExpressionKind::omitted_argument);
+      }
+      unresolved_calls_.push_back(std::move(call));
+    }
     append_instruction(std::move(instruction));
     return result;
   }
@@ -657,6 +810,9 @@ class Builder final {
   void initialize_function_signature(const Statement& statement) {
     auto& function = current_function();
     function.parameter_types.reserve(statement.parameters.size());
+    function.parameter_optional = statement.parameter_optional;
+    std::vector<TypeId> signature_parameters;
+    signature_parameters.reserve(statement.parameters.size());
     for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
       const auto type =
           intern_type(index < statement.parameter_types.size() ? statement.parameter_types[index]
@@ -677,13 +833,33 @@ class Builder final {
       current_block().arguments.push_back({value, type, shape, storage});
       storage_values_[storage] = value;
       function.parameter_types.push_back(type);
+      signature_parameters.push_back(
+          intent == ParameterIntent::none ? type : intern_reference_type(type, intent));
     }
-    for (std::size_t index = 0; index < statement.return_types.size(); ++index) {
-      function.result_types.push_back(
-          intern_type(statement.return_types[index], index < statement.return_element_types.size()
-                                                         ? statement.return_element_types[index]
-                                                         : ValueType::unknown));
+    if (program_.source_language == SourceLanguage::python && statement.has_value_return) {
+      if (statement.declared_type == ValueType::tuple && !statement.return_types.empty()) {
+        std::vector<TypeId> elements;
+        elements.reserve(statement.return_types.size());
+        for (std::size_t index = 0; index < statement.return_types.size(); ++index) {
+          elements.push_back(intern_type(statement.return_types[index],
+                                         index < statement.return_element_types.size()
+                                             ? statement.return_element_types[index]
+                                             : ValueType::unknown));
+        }
+        function.result_types.push_back(intern_tuple_type(elements));
+      } else {
+        function.result_types.push_back(
+            intern_type(statement.declared_type, statement.element_type));
+      }
+    } else {
+      for (std::size_t index = 0; index < statement.return_types.size(); ++index) {
+        function.result_types.push_back(
+            intern_type(statement.return_types[index], index < statement.return_element_types.size()
+                                                           ? statement.return_element_types[index]
+                                                           : ValueType::unknown));
+      }
     }
+    function.signature = intern_function_type(signature_parameters, function.result_types);
   }
 
   void append_instruction(Instruction instruction) {
@@ -814,10 +990,12 @@ class Builder final {
   MirFunctionId current_function_{};
   BlockId current_block_{};
   std::unordered_map<std::uint32_t, TypeId> types_;
+  std::unordered_map<std::string, TypeId> composite_types_;
   std::unordered_map<std::string, ShapeId> shapes_;
   std::unordered_map<std::string, StorageId> storages_;
   StorageVersions storage_values_;
   std::vector<LoopContext> loops_;
+  std::vector<UnresolvedCall> unresolved_calls_;
 };
 
 void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation location,
@@ -830,6 +1008,46 @@ void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation locati
 template <typename Id, typename Item>
 bool valid_index(const Id id, const std::vector<Item>& items) noexcept {
   return id.valid() && static_cast<std::size_t>(id.value()) < items.size();
+}
+
+const TypeData* type_data(const Program& program, const TypeId id) noexcept {
+  return valid_index(id, program.types) ? &program.types[id.value()] : nullptr;
+}
+
+TypeId logical_type(const Program& program, const TypeId id) noexcept {
+  const auto* type = type_data(program, id);
+  return type != nullptr && type->kind == TypeKind::reference ? type->referent : id;
+}
+
+bool compatible_type(const Program& program, const TypeId actual, const TypeId expected) noexcept {
+  const auto actual_logical = logical_type(program, actual);
+  const auto expected_logical = logical_type(program, expected);
+  if (actual_logical == expected_logical) return true;
+  const auto* actual_data = type_data(program, actual_logical);
+  const auto* expected_data = type_data(program, expected_logical);
+  if (actual_data == nullptr || expected_data == nullptr) return false;
+  if (actual_data->value_type == ValueType::unknown ||
+      expected_data->value_type == ValueType::unknown) {
+    return true;
+  }
+  if (actual_data->kind != expected_data->kind ||
+      actual_data->value_type != expected_data->value_type) {
+    return false;
+  }
+  if (actual_data->kind == TypeKind::sequence) {
+    return actual_data->element_type == expected_data->element_type ||
+           actual_data->element_type == ValueType::unknown ||
+           expected_data->element_type == ValueType::unknown;
+  }
+  if (actual_data->kind == TypeKind::tuple) {
+    if (actual_data->elements.size() != expected_data->elements.size()) return false;
+    for (std::size_t index = 0; index < actual_data->elements.size(); ++index) {
+      if (!compatible_type(program, actual_data->elements[index], expected_data->elements[index])) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 void verify_expression(const Expression& expression, const Program& program,
@@ -1156,6 +1374,196 @@ void verify_cfg(const Program& program, std::vector<Diagnostic>& diagnostics,
   }
 }
 
+void verify_function_types_and_calls(const Program& program, std::vector<Diagnostic>& diagnostics,
+                                     const std::string_view stage) {
+  std::vector<MirFunctionId> instruction_callers(program.instructions.size());
+  std::unordered_map<ValueId, TypeId> value_types;
+  std::unordered_map<std::string, MirFunctionId> function_names;
+
+  for (std::size_t function_index = 1; function_index < program.functions.size();
+       ++function_index) {
+    const auto& function = program.functions[function_index];
+    if (!function_names.emplace(function.name, function.id).second) {
+      add_error(diagnostics, {1, 1}, stage, "function name is not unique in MIR");
+    }
+    const auto* signature = type_data(program, function.signature);
+    if (signature == nullptr || signature->kind != TypeKind::function ||
+        signature->parameters.size() != function.parameter_types.size() ||
+        signature->results != function.result_types ||
+        (!function.parameter_optional.empty() &&
+         function.parameter_optional.size() != function.parameter_types.size())) {
+      add_error(diagnostics, {1, 1}, stage,
+                "function signature is missing or disagrees with its logical types");
+    } else {
+      for (std::size_t parameter = 0; parameter < function.parameter_types.size(); ++parameter) {
+        if (!compatible_type(program, function.parameter_types[parameter],
+                             signature->parameters[parameter])) {
+          add_error(diagnostics, {1, 1}, stage,
+                    "function signature parameter disagrees with its logical type");
+        }
+      }
+    }
+    for (const auto block_id : function.blocks) {
+      if (!valid_index(block_id, program.blocks)) continue;
+      const auto& block = program.blocks[block_id.value()];
+      for (const auto& argument : block.arguments) {
+        if (argument.value.valid() && valid_index(argument.type, program.types)) {
+          value_types.emplace(argument.value, argument.type);
+        }
+      }
+      for (const auto instruction_id : block.instructions) {
+        if (!valid_index(instruction_id, program.instructions)) continue;
+        instruction_callers[instruction_id.value()] = function.id;
+        const auto& instruction = program.instructions[instruction_id.value()];
+        if (instruction.result.valid() && valid_index(instruction.type, program.types)) {
+          value_types.emplace(instruction.result, instruction.type);
+        }
+      }
+    }
+  }
+
+  for (std::size_t function_index = 1; function_index < program.functions.size();
+       ++function_index) {
+    const auto& function = program.functions[function_index];
+    for (const auto block_id : function.blocks) {
+      if (!valid_index(block_id, program.blocks)) continue;
+      const auto& terminator = program.blocks[block_id.value()].terminator;
+      if (terminator.kind != TerminatorKind::return_value || terminator.operands.empty()) continue;
+      if (function.result_types.empty()) {
+        add_error(diagnostics, {1, 1}, stage,
+                  "value-returning terminator belongs to a function with no result type");
+        continue;
+      }
+      const auto actual = value_types.find(terminator.operands.front());
+      if (actual == value_types.end()) continue;
+      if (function.result_types.size() == 1U) {
+        if (!compatible_type(program, actual->second, function.result_types.front())) {
+          add_error(diagnostics, {1, 1}, stage,
+                    "return value type disagrees with the function result signature");
+        }
+        continue;
+      }
+      const auto* tuple = type_data(program, actual->second);
+      if (tuple == nullptr || tuple->kind != TypeKind::tuple ||
+          tuple->elements.size() != function.result_types.size()) {
+        add_error(diagnostics, {1, 1}, stage,
+                  "multiple function results are not returned as a matching tuple type");
+        continue;
+      }
+      for (std::size_t result = 0; result < function.result_types.size(); ++result) {
+        if (!compatible_type(program, tuple->elements[result], function.result_types[result])) {
+          add_error(diagnostics, {1, 1}, stage,
+                    "tuple return element disagrees with the function result signature");
+        }
+      }
+    }
+  }
+
+  std::vector<bool> seen_call_instruction(program.instructions.size(), false);
+  for (const auto& call : program.calls) {
+    if (!valid_index(call.instruction, program.instructions) ||
+        !valid_index(call.caller, program.functions) ||
+        !valid_index(call.callee, program.functions) || !call.origin.valid() ||
+        call.requested_results == 0 ||
+        call.argument_types.size() != call.argument_storages.size() ||
+        call.argument_types.size() != call.argument_omitted.size()) {
+      add_error(diagnostics, {1, 1}, stage, "call-site table contains invalid identity or arity");
+      continue;
+    }
+    const auto& instruction = program.instructions[call.instruction.value()];
+    if (seen_call_instruction[call.instruction.value()] || instruction.opcode != Opcode::call ||
+        instruction.origin != call.origin || instruction.callee != call.callee ||
+        instruction_callers[call.instruction.value()] != call.caller) {
+      add_error(diagnostics, instruction.location, stage,
+                "call site does not match its call instruction or owning function");
+      continue;
+    }
+    seen_call_instruction[call.instruction.value()] = true;
+    const auto& callee = program.functions[call.callee.value()];
+    const auto* signature = type_data(program, callee.signature);
+    if (signature == nullptr || signature->kind != TypeKind::function) {
+      add_error(diagnostics, instruction.location, stage,
+                "call site references a callee without a function type");
+      continue;
+    }
+    if (call.argument_types.size() > signature->parameters.size()) {
+      add_error(diagnostics, instruction.location, stage,
+                "call has more arguments than the callee signature");
+      continue;
+    }
+    for (std::size_t parameter = call.argument_types.size();
+         parameter < signature->parameters.size(); ++parameter) {
+      if (parameter >= callee.parameter_optional.size() || !callee.parameter_optional[parameter]) {
+        add_error(diagnostics, instruction.location, stage,
+                  "call omits a required function parameter");
+      }
+    }
+    for (std::size_t argument = 0; argument < call.argument_types.size(); ++argument) {
+      const bool optional =
+          argument < callee.parameter_optional.size() && callee.parameter_optional[argument];
+      if (call.argument_omitted[argument]) {
+        if (!optional) {
+          add_error(diagnostics, instruction.location, stage,
+                    "call uses an omitted value for a required function parameter");
+        }
+        continue;
+      }
+      if (!valid_index(call.argument_types[argument], program.types) ||
+          !compatible_type(program, call.argument_types[argument],
+                           signature->parameters[argument])) {
+        add_error(diagnostics, instruction.location, stage,
+                  "call argument type disagrees with the callee signature");
+        continue;
+      }
+      const auto* formal = type_data(program, signature->parameters[argument]);
+      if (formal != nullptr && formal->kind == TypeKind::reference &&
+          (formal->reference_intent == ParameterIntent::out ||
+           formal->reference_intent == ParameterIntent::inout) &&
+          (!valid_index(call.argument_storages[argument], program.storages) ||
+           !program.storages[call.argument_storages[argument].value()].writable)) {
+        add_error(diagnostics, instruction.location, stage,
+                  "OUT/INOUT call argument is not backed by writable storage");
+      }
+    }
+    if (signature->results.empty()) continue;
+    if (!valid_index(call.result_type, program.types) ||
+        call.requested_results > signature->results.size()) {
+      add_error(diagnostics, instruction.location, stage,
+                "call result arity or type identity disagrees with the callee signature");
+      continue;
+    }
+    if (call.requested_results == 1U) {
+      if (!compatible_type(program, call.result_type, signature->results.front())) {
+        add_error(diagnostics, instruction.location, stage,
+                  "call result type disagrees with the callee result signature");
+      }
+      continue;
+    }
+    const auto* tuple = type_data(program, call.result_type);
+    if (tuple == nullptr || tuple->kind != TypeKind::tuple ||
+        tuple->elements.size() != call.requested_results) {
+      add_error(diagnostics, instruction.location, stage,
+                "multi-result call does not produce a matching tuple type");
+      continue;
+    }
+    for (std::size_t result = 0; result < call.requested_results; ++result) {
+      if (!compatible_type(program, tuple->elements[result], signature->results[result])) {
+        add_error(diagnostics, instruction.location, stage,
+                  "multi-result call tuple element disagrees with the callee signature");
+      }
+    }
+  }
+  for (std::size_t index = 1; index < program.instructions.size(); ++index) {
+    const auto& instruction = program.instructions[index];
+    if (instruction.callee.valid() &&
+        (instruction.opcode != Opcode::call ||
+         !valid_index(instruction.callee, program.functions) || !seen_call_instruction[index])) {
+      add_error(diagnostics, instruction.location, stage,
+                "linked user-function call instruction has no matching call-site entry");
+    }
+  }
+}
+
 }  // namespace
 
 LoweringResult lower_from_hir(hir::Program&& source, hir::SemanticTable&& semantics) {
@@ -1190,6 +1598,7 @@ LoweringResult lower_from_hir(hir::Program&& source, hir::SemanticTable&& semant
     result.program.statements.push_back(builder.lower_statement(std::move(statement)));
     builder.finish_function();
   }
+  builder.link_calls();
   result.diagnostics = verify(result.program, "hir-to-mir");
   return result;
 }
@@ -1266,6 +1675,50 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
         add_error(diagnostics, {1, 1}, stage, "composite type references an invalid element type");
       }
     }
+    for (const auto parameter : type.parameters) {
+      if (!valid_index(parameter, program.types)) {
+        add_error(diagnostics, {1, 1}, stage, "function type references an invalid parameter type");
+      }
+    }
+    for (const auto result : type.results) {
+      if (!valid_index(result, program.types)) {
+        add_error(diagnostics, {1, 1}, stage, "function type references an invalid result type");
+      }
+    }
+    const bool has_function_payload = !type.parameters.empty() || !type.results.empty();
+    switch (type.kind) {
+      case TypeKind::scalar:
+        if (type.value_type == ValueType::list || type.value_type == ValueType::tuple ||
+            type.value_type == ValueType::function || !type.elements.empty() ||
+            has_function_payload || type.referent.valid()) {
+          add_error(diagnostics, {1, 1}, stage, "scalar type has composite payload");
+        }
+        break;
+      case TypeKind::sequence:
+        if (type.value_type != ValueType::list || !type.elements.empty() || has_function_payload ||
+            type.referent.valid()) {
+          add_error(diagnostics, {1, 1}, stage, "sequence type has an invalid payload");
+        }
+        break;
+      case TypeKind::tuple:
+        if (type.value_type != ValueType::tuple || has_function_payload || type.referent.valid()) {
+          add_error(diagnostics, {1, 1}, stage, "tuple type has an invalid payload");
+        }
+        break;
+      case TypeKind::function:
+        if (type.value_type != ValueType::function || !type.elements.empty() ||
+            type.referent.valid()) {
+          add_error(diagnostics, {1, 1}, stage, "function type has an invalid payload");
+        }
+        break;
+      case TypeKind::reference:
+        if (!valid_index(type.referent, program.types) || type.referent.value() == index ||
+            type.reference_intent == ParameterIntent::none || !type.elements.empty() ||
+            has_function_payload) {
+          add_error(diagnostics, {1, 1}, stage, "reference type has an invalid referent or mode");
+        }
+        break;
+    }
   }
   for (std::size_t index = 1; index < program.shapes.size(); ++index) {
     const auto& shape = program.shapes[index];
@@ -1334,6 +1787,7 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
     }
   }
   verify_cfg(program, diagnostics, stage);
+  verify_function_types_and_calls(program, diagnostics, stage);
   verify_statements(program.statements, program, diagnostics, stage);
   return diagnostics;
 }

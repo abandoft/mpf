@@ -269,6 +269,76 @@ TEST_CASE("HIR lowers to typed CFG MIR with shape storage and effects") {
   REQUIRE(mpf::detail::mir::verify(mir.program, "test").empty());
 }
 
+TEST_CASE("MIR interns tuple function and reference signatures across call sites") {
+  auto python = lower_python(
+      "def pair(value):\n"
+      "    return value, value + 1\n"
+      "left, right = pair(20)\n"
+      "print(left + right)\n");
+  auto python_analysis = mpf::detail::analyze_program(python.program);
+  REQUIRE(python_analysis.empty());
+  auto python_mir = mpf::detail::mir::lower_from_hir(std::move(python.program),
+                                                     std::move(python_analysis.semantics));
+  REQUIRE(python_mir.diagnostics.empty());
+  const auto pair = std::find_if(
+      python_mir.program.functions.begin() + 1, python_mir.program.functions.end(),
+      [](const mpf::detail::mir::Function& function) { return function.name == "pair"; });
+  REQUIRE(pair != python_mir.program.functions.end());
+  REQUIRE(pair->signature.valid());
+  const auto& pair_signature = python_mir.program.types[pair->signature.value()];
+  REQUIRE(pair_signature.kind == mpf::detail::mir::TypeKind::function);
+  REQUIRE(pair_signature.parameters.size() == 1U);
+  REQUIRE(pair_signature.results.size() == 1U);
+  const auto& pair_result = python_mir.program.types[pair_signature.results.front().value()];
+  REQUIRE(pair_result.kind == mpf::detail::mir::TypeKind::tuple);
+  REQUIRE(pair_result.elements.size() == 2U);
+  REQUIRE(python_mir.program.calls.size() == 1U);
+  REQUIRE(python_mir.program.calls.front().callee == pair->id);
+  REQUIRE(python_mir.program.calls.front().requested_results == 1U);
+  REQUIRE(mpf::detail::dump_mir(python_mir.program).find("call !i") != std::string::npos);
+
+  auto fortran = lower_source(mpf::SourceLanguage::fortran,
+                              "program reference_contract\n"
+                              "  integer :: value = 41\n"
+                              "  call bump(value)\n"
+                              "contains\n"
+                              "  subroutine bump(value)\n"
+                              "    integer, intent(inout) :: value\n"
+                              "    value = value + 1\n"
+                              "  end subroutine bump\n"
+                              "end program reference_contract\n",
+                              "reference_contract.f90");
+  auto fortran_analysis = mpf::detail::analyze_program(fortran.program);
+  REQUIRE(fortran_analysis.empty());
+  auto fortran_mir = mpf::detail::mir::lower_from_hir(std::move(fortran.program),
+                                                      std::move(fortran_analysis.semantics));
+  REQUIRE(fortran_mir.diagnostics.empty());
+  const auto bump = std::find_if(
+      fortran_mir.program.functions.begin() + 1, fortran_mir.program.functions.end(),
+      [](const mpf::detail::mir::Function& function) { return function.name == "bump"; });
+  REQUIRE(bump != fortran_mir.program.functions.end());
+  const auto& bump_signature = fortran_mir.program.types[bump->signature.value()];
+  REQUIRE(bump_signature.parameters.size() == 1U);
+  const auto& reference = fortran_mir.program.types[bump_signature.parameters.front().value()];
+  REQUIRE(reference.kind == mpf::detail::mir::TypeKind::reference);
+  REQUIRE(reference.reference_intent == mpf::detail::ParameterIntent::inout);
+  REQUIRE(reference.referent == bump->parameter_types.front());
+  REQUIRE(fortran_mir.program.calls.size() == 1U);
+  REQUIRE(fortran_mir.program.calls.front().argument_storages.front().valid());
+
+  auto invalid_signature = fortran_mir.program;
+  invalid_signature.functions[bump->id.value()].signature = bump->parameter_types.front();
+  REQUIRE(!mpf::detail::mir::verify(invalid_signature, "bad-signature").empty());
+
+  auto invalid_reference_actual = fortran_mir.program;
+  invalid_reference_actual.calls.front().argument_storages.front() = {};
+  REQUIRE(!mpf::detail::mir::verify(invalid_reference_actual, "bad-reference").empty());
+
+  auto missing_call_edge = fortran_mir.program;
+  missing_call_edge.calls.clear();
+  REQUIRE(!mpf::detail::mir::verify(missing_call_edge, "missing-call-edge").empty());
+}
+
 TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR artifacts") {
   static_assert(
       !std::is_same_v<mpf::detail::javascript::lir::Program, mpf::detail::cpp::lir::Program>);

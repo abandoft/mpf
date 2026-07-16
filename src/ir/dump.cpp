@@ -167,8 +167,16 @@ std::string dump_mir(const mir::Program& program) {
          << " hir-nodes=" << program.hir_node_count << " revision=" << program.revision << '\n';
   for (std::size_t index = 1; index < program.types.size(); ++index) {
     const auto& type = program.types[index];
-    output << "type !t" << index << " value=" << enum_value(type.value_type)
-           << " element=" << enum_value(type.element_type) << '\n';
+    output << "type !t" << index << " kind=" << enum_value(type.kind)
+           << " value=" << enum_value(type.value_type)
+           << " element=" << enum_value(type.element_type) << " elements=";
+    dump_ids(output, type.elements, "!t");
+    output << " parameters=";
+    dump_ids(output, type.parameters, "!t");
+    output << " results=";
+    dump_ids(output, type.results, "!t");
+    output << " referent=!t" << type.referent.value()
+           << " intent=" << enum_value(type.reference_intent) << '\n';
   }
   for (std::size_t index = 1; index < program.shapes.size(); ++index) {
     const auto& shape = program.shapes[index];
@@ -201,7 +209,11 @@ std::string dump_mir(const mir::Program& program) {
   for (std::size_t index = 1; index < program.functions.size(); ++index) {
     const auto& function = program.functions[index];
     output << "function @f" << function.id.value() << " name=" << std::quoted(function.name)
-           << " entry=^b" << function.entry.value() << " blocks=";
+           << " signature=!t" << function.signature.value() << " parameters=";
+    dump_ids(output, function.parameter_types, "!t");
+    output << " results=";
+    dump_ids(output, function.result_types, "!t");
+    output << " entry=^b" << function.entry.value() << " blocks=";
     dump_ids(output, function.blocks, "^b");
     output << '\n';
     for (const auto block_id : function.blocks) {
@@ -226,9 +238,9 @@ std::string dump_mir(const mir::Program& program) {
         output << " op" << enum_value(instruction.opcode) << " operands=";
         dump_ids(output, instruction.operands, "%v");
         output << " type=!t" << instruction.type.value() << " shape=!s" << instruction.shape.value()
-               << " storage=!m" << instruction.storage.value()
-               << " effects=" << instruction.effects.bits() << " origin=%h"
-               << instruction.origin.value() << '\n';
+               << " storage=!m" << instruction.storage.value() << " callee=@f"
+               << instruction.callee.value() << " effects=" << instruction.effects.bits()
+               << " origin=%h" << instruction.origin.value() << '\n';
       }
       output << "    terminator op" << enum_value(block.terminator.kind) << " operands=";
       dump_ids(output, block.terminator.operands, "%v");
@@ -243,6 +255,13 @@ std::string dump_mir(const mir::Program& program) {
       output << ']';
       output << '\n';
     }
+  }
+  for (const auto& call : program.calls) {
+    output << "call !i" << call.instruction.value() << " caller=@f" << call.caller.value()
+           << " callee=@f" << call.callee.value() << " arguments=";
+    dump_ids(output, call.argument_types, "!t");
+    output << " result=!t" << call.result_type.value() << " requested=" << call.requested_results
+           << " origin=%h" << call.origin.value() << '\n';
   }
   return output.str();
 }
