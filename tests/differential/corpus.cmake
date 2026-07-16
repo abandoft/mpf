@@ -1,6 +1,8 @@
 # name, source language, repository-relative input, normalized output oracle
 mpf_add_differential_case(typescript-basic typescript examples/typescript/basic.ts "42")
 mpf_add_differential_case(typescript-arrays typescript examples/typescript/arrays.ts "42")
+mpf_add_differential_case(typescript-block-scopes typescript examples/typescript/block_scopes.ts "inner 42")
+mpf_add_differential_case(typescript-for-loops typescript examples/typescript/for_loops.ts "13")
 mpf_add_differential_case(fortran-basic fortran examples/fortran/basic.f90 "42")
 mpf_add_differential_case(fortran-statement-tokens fortran examples/fortran/statement_tokens.f90 "42")
 mpf_add_differential_case(fortran-procedures fortran examples/fortran/procedures.f90 "120 42 42 42 42 2 1")

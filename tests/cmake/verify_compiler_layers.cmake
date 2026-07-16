@@ -160,10 +160,27 @@ foreach(planning IN ITEMS
      NOT planning_contents MATCHES "verify_lir_resources" OR
      NOT planning_contents MATCHES "program_scope" OR
      NOT planning_contents MATCHES "function_scope" OR
+     NOT planning_contents MATCHES "statement_scope" OR
+     NOT planning_contents MATCHES "body_scope" OR
      NOT planning_contents MATCHES "RuntimeFragment")
     message(FATAL_ERROR "target LIR planning layer does not own scope and layout resources: ${planning}")
   endif()
 endforeach()
+
+foreach(renderer IN ITEMS
+    src/backends/javascript_renderer.cpp
+    src/backends/cpp_renderer.cpp)
+  mpf_assert_file_excludes("${renderer}"
+    "mangler_->name\\((statement\\.name|expression\\.plan\\.token|statement\\.parameters\\[|statement\\.plan\\.targets\\[)"
+    "target renderer bypasses SymbolId-aware identifier lookup")
+endforeach()
+
+file(READ "${SOURCE_DIR}/src/backends/identifier_mangler.hpp" identifier_contract)
+if(NOT identifier_contract MATCHES "struct IdentifierInventory" OR
+   NOT identifier_contract MATCHES "std::map<SymbolId, std::string> symbols" OR
+   NOT identifier_contract MATCHES "name\\(SymbolId symbol")
+  message(FATAL_ERROR "target identifier allocation is not keyed by semantic SymbolId")
+endif()
 
 file(READ "${SOURCE_DIR}/src/ir/mir.hpp" mir_contract)
 if(NOT EXISTS "${SOURCE_DIR}/src/ir/mir_verifier.cpp" OR

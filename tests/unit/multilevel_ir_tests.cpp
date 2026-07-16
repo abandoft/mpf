@@ -457,7 +457,7 @@ TEST_CASE("name analysis owns dense lexical scopes symbols and shadowing") {
   REQUIRE(parameter_definition != nullptr);
   REQUIRE(global_definition->symbol != parameter_definition->symbol);
   REQUIRE(function_definition->binding == mpf::detail::BindingKind::function);
-  const auto function_scope = analysis.names.owned_scope(function.id);
+  const auto function_scope = analysis.names.function_scope(function.id);
   REQUIRE(function_scope.valid());
   REQUIRE(analysis.names.scope(function_scope)->parent == analysis.names.global_scope);
   REQUIRE(analysis.names.symbol(parameter_definition->symbol)->scope == function_scope);
@@ -496,6 +496,175 @@ TEST_CASE("name analysis owns dense lexical scopes symbols and shadowing") {
   auto stale = analysis.names;
   ++lowered.program.revision;
   REQUIRE(!mpf::detail::verify_names(lowered.program, stale, "stale").empty());
+}
+
+TEST_CASE("TypeScript name analysis owns explicit branch scopes and outer assignments") {
+  auto lowered = lower_source(mpf::SourceLanguage::typescript,
+                              "let value: number = 1;\n"
+                              "if (true) {\n"
+                              "  let value: string = \"inner\";\n"
+                              "  console.log(value);\n"
+                              "} else {\n"
+                              "  value = 42;\n"
+                              "}\n"
+                              "console.log(value);\n",
+                              "scopes.ts");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  REQUIRE(mpf::detail::verify_names(lowered.program, analysis.names, "typescript-scope").empty());
+
+  const auto& global = lowered.program.statements[0];
+  const auto& conditional = lowered.program.statements[1];
+  const auto& local = conditional.body[0];
+  const auto& outer_assignment = conditional.alternative[0];
+  const auto* global_definition = analysis.names.use(global.id, mpf::detail::NameRole::declaration);
+  const auto* local_definition = analysis.names.use(local.id, mpf::detail::NameRole::declaration);
+  const auto* assignment =
+      analysis.names.use(outer_assignment.id, mpf::detail::NameRole::assignment);
+  REQUIRE(global_definition != nullptr);
+  REQUIRE(local_definition != nullptr);
+  REQUIRE(assignment != nullptr);
+  REQUIRE(global_definition->symbol != local_definition->symbol);
+  REQUIRE(assignment->symbol == global_definition->symbol);
+
+  const auto body_scope = analysis.names.body_scope(conditional.id);
+  const auto alternative_scope = analysis.names.alternative_scope(conditional.id);
+  REQUIRE(body_scope.valid());
+  REQUIRE(alternative_scope.valid());
+  REQUIRE(analysis.names.scope(body_scope)->parent == analysis.names.global_scope);
+  REQUIRE(analysis.names.scope(alternative_scope)->parent == analysis.names.global_scope);
+  REQUIRE(analysis.names.symbol(local_definition->symbol)->scope == body_scope);
+  REQUIRE(assignment->scope == alternative_scope);
+
+  std::vector<const mpf::detail::hir::Expression*> identifiers;
+  collect_identifiers(lowered.program.statements, identifiers);
+  const auto inner =
+      std::find_if(identifiers.begin(), identifiers.end(), [](const auto* expression) {
+        return expression->value == "value" && expression->location.line == 4;
+      });
+  const auto outer =
+      std::find_if(identifiers.begin(), identifiers.end(), [](const auto* expression) {
+        return expression->value == "value" && expression->location.line == 8;
+      });
+  REQUIRE(inner != identifiers.end());
+  REQUIRE(outer != identifiers.end());
+  REQUIRE(analysis.names.reference((*inner)->id)->symbol == local_definition->symbol);
+  REQUIRE(analysis.names.reference((*outer)->id)->symbol == global_definition->symbol);
+
+  auto corrupted = analysis.names;
+  corrupted.scope_edges[conditional.id.value()].body = alternative_scope;
+  REQUIRE(!mpf::detail::verify_names(lowered.program, corrupted, "corrupt-scope").empty());
+  auto aliased = analysis.names;
+  aliased.scope_edges[global.id.value()].body = body_scope;
+  REQUIRE(!mpf::detail::verify_names(lowered.program, aliased, "aliased-scope-edge").empty());
+}
+
+TEST_CASE("TypeScript for lowering owns initializer condition update and continue CFG blocks") {
+  auto lowered = lower_source(mpf::SourceLanguage::typescript,
+                              "let total: number = 0;\n"
+                              "for (let index: number = 0; index < 4; index++) {\n"
+                              "  if (index === 2) { continue; }\n"
+                              "  total = total + index;\n"
+                              "}\n",
+                              "for_cfg.ts");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "typescript-for-cfg").empty());
+
+  const mpf::detail::mir::Statement* loop = nullptr;
+  const mpf::detail::mir::Statement* continuation = nullptr;
+  for (std::size_t index = 1; index < mir.program.statements.size(); ++index) {
+    const auto& statement = mir.program.statements[index];
+    if (statement.kind == mpf::detail::StatementKind::for_loop) loop = &statement;
+    if (statement.kind == mpf::detail::StatementKind::continue_statement) continuation = &statement;
+  }
+  REQUIRE(loop != nullptr);
+  REQUIRE(continuation != nullptr);
+  REQUIRE(loop->expression.valid());
+  REQUIRE(loop->secondary_expression.valid());
+  REQUIRE(loop->tertiary_expression.valid());
+  REQUIRE(mir.program.instructions[loop->instruction.value()].opcode ==
+          mpf::detail::mir::Opcode::store);
+
+  const auto block_for_instruction = [&](const mpf::detail::InstructionId instruction) {
+    for (std::size_t index = 1; index < mir.program.blocks.size(); ++index) {
+      const auto& block = mir.program.blocks[index];
+      if (std::find(block.instructions.begin(), block.instructions.end(), instruction) !=
+          block.instructions.end()) {
+        return block.id;
+      }
+    }
+    return mpf::detail::BlockId{};
+  };
+  const auto* condition = mpf::detail::mir::expression(mir.program, loop->secondary_expression);
+  const auto* update = mpf::detail::mir::expression(mir.program, loop->tertiary_expression);
+  REQUIRE(condition != nullptr);
+  REQUIRE(update != nullptr);
+  const auto condition_block = block_for_instruction(condition->instruction);
+  const auto update_block = block_for_instruction(update->instruction);
+  const auto continue_block = block_for_instruction(continuation->instruction);
+  REQUIRE(condition_block.valid());
+  REQUIRE(update_block.valid());
+  REQUIRE(continue_block.valid());
+  REQUIRE(mir.program.blocks[condition_block.value()].terminator.kind ==
+          mpf::detail::mir::TerminatorKind::conditional_branch);
+  REQUIRE(std::find(mir.program.blocks[continue_block.value()].terminator.successors.begin(),
+                    mir.program.blocks[continue_block.value()].terminator.successors.end(),
+                    update_block) !=
+          mir.program.blocks[continue_block.value()].terminator.successors.end());
+  REQUIRE(std::any_of(mir.program.blocks[update_block.value()].instructions.begin(),
+                      mir.program.blocks[update_block.value()].instructions.end(),
+                      [&](const mpf::detail::InstructionId instruction) {
+                        return mir.program.instructions[instruction.value()].opcode ==
+                               mpf::detail::mir::Opcode::store;
+                      }));
+
+  auto direct_continue = lower_source(mpf::SourceLanguage::typescript,
+                                      "for (let index: number = 0; index < 2; index++) {\n"
+                                      "  continue;\n"
+                                      "}\n",
+                                      "for_direct_continue.ts");
+  auto direct_analysis =
+      mpf::detail::analyze_program(direct_continue.program, std::move(direct_continue.semantics));
+  REQUIRE(direct_analysis.empty());
+  auto direct_mir =
+      mpf::detail::mir::lower_from_hir(std::move(direct_continue.program),
+                                       std::move(direct_analysis.semantics), direct_analysis.names);
+  REQUIRE(direct_mir.diagnostics.empty());
+  const auto direct_loop =
+      std::find_if(direct_mir.program.statements.begin() + 1, direct_mir.program.statements.end(),
+                   [](const mpf::detail::mir::Statement& statement) {
+                     return statement.kind == mpf::detail::StatementKind::for_loop;
+                   });
+  REQUIRE(direct_loop != direct_mir.program.statements.end());
+  const auto* direct_update =
+      mpf::detail::mir::expression(direct_mir.program, direct_loop->tertiary_expression);
+  REQUIRE(direct_update != nullptr);
+  const auto direct_update_block = [&]() {
+    for (std::size_t index = 1; index < direct_mir.program.blocks.size(); ++index) {
+      const auto& block = direct_mir.program.blocks[index];
+      if (std::find(block.instructions.begin(), block.instructions.end(),
+                    direct_update->instruction) != block.instructions.end()) {
+        return block.id;
+      }
+    }
+    return mpf::detail::BlockId{};
+  }();
+  REQUIRE(direct_update_block.valid());
+  REQUIRE(!direct_mir.program.blocks[direct_update_block.value()].arguments.empty());
+  REQUIRE(mpf::detail::mir::verify(direct_mir.program, "typescript-direct-continue").empty());
+  auto corrupt_for = direct_mir.program;
+  const auto corrupt_loop =
+      std::find_if(corrupt_for.statements.begin() + 1, corrupt_for.statements.end(),
+                   [](const mpf::detail::mir::Statement& statement) {
+                     return statement.kind == mpf::detail::StatementKind::for_loop;
+                   });
+  REQUIRE(corrupt_loop != corrupt_for.statements.end());
+  corrupt_loop->has_tertiary_expression = false;
+  REQUIRE(!mpf::detail::mir::verify(corrupt_for, "typescript-corrupt-for").empty());
 }
 
 TEST_CASE("HIR lowers to typed CFG MIR with shape storage and effects") {
@@ -1022,9 +1191,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v11") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v12") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v11") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v12") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -1078,6 +1247,25 @@ TEST_CASE("target LIR verifiers reject missing identities and cross-target artif
   REQUIRE(!mpf::detail::cpp::verify_artifact(javascript).empty());
 }
 
+TEST_CASE("target identifier inventory preserves SymbolId identity and scoped spelling reuse") {
+  mpf::detail::IdentifierInventory inventory;
+  mpf::detail::add_identifier(inventory, mpf::detail::SymbolId{1}, "class");
+  mpf::detail::add_identifier(inventory, mpf::detail::SymbolId{2}, "class");
+  mpf::detail::add_identifier(inventory, {}, "mpf_class");
+  const auto plan = mpf::detail::allocate_identifiers(mpf::TargetLanguage::javascript, inventory);
+  REQUIRE(mpf::detail::identifier_plan_complete(plan, inventory));
+  REQUIRE(plan.symbols.at(mpf::detail::SymbolId{1}) == plan.symbols.at(mpf::detail::SymbolId{2}));
+  REQUIRE(plan.symbols.at(mpf::detail::SymbolId{1}) != plan.names.at("mpf_class"));
+
+  mpf::detail::IdentifierMangler mangler(plan);
+  REQUIRE(mangler.name(mpf::detail::SymbolId{1}, "class") ==
+          mangler.name(mpf::detail::SymbolId{2}, "class"));
+  auto invalid = inventory;
+  mpf::detail::add_identifier(invalid, mpf::detail::SymbolId{1}, "different");
+  REQUIRE(!invalid.valid);
+  REQUIRE(!mpf::detail::identifier_plan_complete(plan, invalid));
+}
+
 TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   mpf::detail::javascript::lir::SemanticProgram javascript;
   javascript.node_count = 1;
@@ -1089,14 +1277,14 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   javascript_range.retain_last_loop_value = false;
   javascript.statements.push_back(std::move(javascript_range));
   javascript.identifiers = mpf::detail::allocate_identifiers(
-      mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_names(javascript));
+      mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_inventory(javascript));
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
   mpf::detail::javascript::plan_lir_resources(javascript, mpf::TranspileOptions{});
   mpf::detail::javascript::plan_lir_representation(javascript);
   REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript).empty());
   javascript.program_scope.declarations.clear();
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
-  javascript.program_scope.declarations = {"index"};
+  javascript.program_scope.declarations = {{{}, "index"}};
   javascript.temporaries.slots.front().name = javascript.identifiers.names.at("index");
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
 
@@ -1108,10 +1296,12 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   javascript_abi.kind = mpf::detail::StatementKind::function;
   javascript_abi.name = "write";
   javascript_abi.parameters = {"value"};
+  javascript_abi.parameter_symbols = {{}};
   javascript_abi.parameter_intents = {mpf::detail::ParameterIntent::out};
   javascript_function.statements.push_back(std::move(javascript_abi));
   javascript_function.identifiers = mpf::detail::allocate_identifiers(
-      mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_names(javascript_function));
+      mpf::TargetLanguage::javascript,
+      mpf::detail::collect_identifier_inventory(javascript_function));
   mpf::detail::javascript::plan_lir_resources(javascript_function, mpf::TranspileOptions{});
   mpf::detail::javascript::plan_lir_representation(javascript_function);
   REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript_function).empty());
@@ -1136,8 +1326,8 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   cpp.function_graph.dependencies.resize(1);
   cpp.function_graph.recursive.resize(1, false);
   cpp.function_graph.definition_order.push_back(0);
-  cpp.identifiers = mpf::detail::allocate_identifiers(mpf::TargetLanguage::cpp,
-                                                      mpf::detail::collect_identifier_names(cpp));
+  cpp.identifiers = mpf::detail::allocate_identifiers(
+      mpf::TargetLanguage::cpp, mpf::detail::collect_identifier_inventory(cpp));
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
   mpf::detail::cpp::plan_lir_resources(cpp, mpf::TranspileOptions{});
   mpf::detail::cpp::plan_lir_representation(cpp);
@@ -1167,7 +1357,7 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   javascript_statement.origin = mpf::detail::HirNodeId{1};
   javascript.statements.push_back(std::move(javascript_statement));
   javascript.identifiers = mpf::detail::allocate_identifiers(
-      mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_names(javascript));
+      mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_inventory(javascript));
   mpf::TranspileOptions options;
   options.emit_source_banner = false;
   mpf::detail::javascript::plan_lir_resources(javascript, options);
@@ -1192,8 +1382,8 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   cpp_statement.id = mpf::detail::LirNodeId{1};
   cpp_statement.origin = mpf::detail::HirNodeId{1};
   cpp.statements.push_back(std::move(cpp_statement));
-  cpp.identifiers = mpf::detail::allocate_identifiers(mpf::TargetLanguage::cpp,
-                                                      mpf::detail::collect_identifier_names(cpp));
+  cpp.identifiers = mpf::detail::allocate_identifiers(
+      mpf::TargetLanguage::cpp, mpf::detail::collect_identifier_inventory(cpp));
   mpf::detail::cpp::plan_lir_resources(cpp, options);
   mpf::detail::cpp::plan_lir_representation(cpp);
   REQUIRE(!cpp.translation_unit.emit_banner);
@@ -1559,20 +1749,21 @@ TEST_CASE("target LIR scope plans own declarations types and probes") {
   REQUIRE(javascript.diagnostics.empty());
   REQUIRE(cpp.diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("program-scope [\"items\",\"pair\",\"value\"]") !=
-          std::string::npos);
-  REQUIRE(javascript_dump.find("scope [\"local\",\"result\"]") != std::string::npos);
+  REQUIRE(javascript_dump.find("program-scope [@s") != std::string::npos);
+  REQUIRE(javascript_dump.find(":\"items\"") != std::string::npos);
+  REQUIRE(javascript_dump.find(":\"pair\"") != std::string::npos);
+  REQUIRE(javascript_dump.find("scope [@s") != std::string::npos);
+  REQUIRE(javascript_dump.find(":\"local\"") != std::string::npos);
+  REQUIRE(javascript_dump.find(":\"result\"") != std::string::npos);
   REQUIRE(javascript_dump.find("module banner=1 directives [] runtime [0] body [0,1,2,3,4]") !=
           std::string::npos);
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(cpp_dump.find("program-scope\n  declaration \"value\"") != std::string::npos);
-  REQUIRE(cpp_dump.find("declaration \"items\" type-kind 0 type "
+  REQUIRE(cpp_dump.find("program-scope\n  declaration @s") != std::string::npos);
+  REQUIRE(cpp_dump.find("\"items\" type-kind 0 type "
                         "\"std::vector<std::int64_t>\"") != std::string::npos);
-  REQUIRE(cpp_dump.find("declaration \"pair\" type-kind 1 type \"\" probe %l") !=
-          std::string::npos);
+  REQUIRE(cpp_dump.find("\"pair\" type-kind 1 type \"\" probe %l") != std::string::npos);
   REQUIRE(cpp_dump.find("function-scope %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("declaration \"local\" type-kind 0 type \"std::int64_t\"") !=
-          std::string::npos);
+  REQUIRE(cpp_dump.find("\"local\" type-kind 0 type \"std::int64_t\"") != std::string::npos);
   REQUIRE(cpp_dump.find("translation-unit banner=1 runtime-namespace \"mpf_runtime\"") !=
           std::string::npos);
   REQUIRE(cpp_dump.find("runtime [0,1] forward [] definitions [4] entry [0,1,2,3]") !=

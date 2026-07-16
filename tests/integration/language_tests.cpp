@@ -1041,16 +1041,73 @@ TEST_CASE("TypeScript functions defaults control flow and strict equality lower 
   REQUIRE(private_function.code.find("export function hidden()") == std::string::npos);
 }
 
+TEST_CASE("TypeScript lexical blocks preserve shadowing and assignments to outer bindings") {
+  const std::string source =
+      "let value: number = 1;\n"
+      "if (true) {\n"
+      "  let value: string = \"inner\";\n"
+      "  console.log(value);\n"
+      "}\n"
+      "if (true) { value = 42; }\n"
+      "console.log(value);\n";
+  const auto javascript = transpile(source, mpf::SourceLanguage::typescript);
+  const auto cpp = transpile(source, mpf::SourceLanguage::typescript, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("if (true) {\n  let value;") != std::string::npos);
+  REQUIRE(javascript.code.find("value = \"inner\";") != std::string::npos);
+  REQUIRE(cpp.code.find("if (true) {\n      std::string value{};") != std::string::npos);
+  REQUIRE(cpp.code.find("value = 42;") != std::string::npos);
+}
+
+TEST_CASE("TypeScript canonical for loops preserve update continue break and loop scope") {
+  const std::string source =
+      "let total: number = 0;\n"
+      "for (let index: number = 0; index < 10; index++) {\n"
+      "  if (index === 2) { continue; }\n"
+      "  if (index === 6) { break; }\n"
+      "  total = total + index;\n"
+      "}\n"
+      "console.log(total);\n";
+  const auto javascript = transpile(source, mpf::SourceLanguage::typescript);
+  const auto cpp = transpile(source, mpf::SourceLanguage::typescript, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("for (index = 0; index < 10; index = index + 1)") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_py_equal") == std::string::npos);
+  REQUIRE(cpp.code.find("for (index = 0;") != std::string::npos);
+  REQUIRE(cpp.code.find("index = index + 1)") != std::string::npos);
+
+  const auto leaked =
+      transpile("for (let index: number = 0; index < 1; index++) {}\nconsole.log(index);\n",
+                mpf::SourceLanguage::typescript);
+  REQUIRE(!leaked.success());
+  REQUIRE(std::any_of(
+      leaked.diagnostics.begin(), leaked.diagnostics.end(), [](const mpf::Diagnostic& diagnostic) {
+        return diagnostic.message.find("undefined identifier 'index'") != std::string::npos;
+      }));
+}
+
 TEST_CASE("TypeScript frontend rejects semantics that cannot yet be preserved") {
   const struct Case {
     const char* source;
     const char* needle;
-  } cases[]{{"var value = 1;\n", "unsupported TypeScript statement keyword"},
-            {"const value = 1;\nvalue = 2;\n", "const binding"},
-            {"value = 1;\n", "undeclared TypeScript name"},
-            {"const same = 1 == 1;\n", "loose equality"},
-            {"const choose = (value: number) => value;\n", "arrow"},
-            {"if (true) { let local = 1; }\n", "block-local"}};
+  } cases[]{
+      {"var value = 1;\n", "unsupported TypeScript statement keyword"},
+      {"const value = 1;\nvalue = 2;\n", "const binding"},
+      {"value = 1;\n", "undeclared TypeScript name"},
+      {"const same = 1 == 1;\n", "loose equality"},
+      {"const choose = (value: number) => value;\n", "arrow"},
+      {"if (true) { let local = 1; }\nconsole.log(local);\n", "undefined identifier"},
+      {"for (const index: number = 0; index < 2; index++) {}\n", "must use let"},
+      {"for (let index: number = 0; 42; index++) {}\n", "requires a boolean"},
+      {"for (let index: number = 0; index < 2; other++) {}\n", "must assign the induction binding"},
+      {"let index: number = 9;\n"
+       "for (let index: number = index; index < 2; index++) {}\n",
+       "before it is definitely assigned"},
+      {"if (true) { function nested(): number { return 1; } }\n", "nested TypeScript function"},
+      {"const values: number[] = [1];\nconsole.log(values[0.5]);\n", "index must be an integer"}};
   for (const auto& test : cases) {
     const auto result = transpile(test.source, mpf::SourceLanguage::typescript);
     REQUIRE(!result.success());
