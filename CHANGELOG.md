@@ -6,8 +6,10 @@
 - lexical scope tree、声明/参数/结果/循环变量、遮蔽、引用和 builtin 解析迁入独立、只读 HIR 的稠密 `NameTable`；新增强类型 `ScopeId`，Analyzer 删除字符串符号哈希状态并改为按 `SymbolId` 访问，同时以 `FlowTable` termination facts 驱动确定赋值合流。
 - alias/effect 从 MIR storage/instruction 和 lowering builder 中移出，形成 revision-bound、可由 `AnalysisManager` 缓存的 `AliasEffectTable`；稠密保存 storage root/escape、instruction local/transitive effect 与 read/write set、函数参数读写/escape fixed point，稀疏保存 alias relation 和 call-site 实参实例化。NameTable 派生的 `SymbolId` 让跨函数全局 storage 共享身份，调用摘要不会把纯局部写入误报为调用者可见写入；未知外部调用保守读写 unknown storage 并 may-fail。独立 verifier/dump 拒绝 stale、inventory 不符、弱化事实和非 fixed-point 摘要。
 - backend descriptor 升级到 API v5，capability、lowering 与 conformance harness 必须同时接收 MIR 和已验证 alias/effect facts；JavaScript/`cpp` semantic plan 汇总函数 effect/unknown-memory 信息，两个后端均拒绝陈旧分析输入。
+- MIR call-site 删除 `argument_types`/`argument_storages`/`argument_omitted` 三组并行数组，改为单一参数区域对象；显式区分 value、read-only borrow、OUT/INOUT mutable borrow、copy-out、copy-in/out、optional forwarding 与 omitted，并记录 root/view/lifetime/writability。alias/effect table 新增参数读写/逃逸和成对 overlap facts，拒绝多个可写实参的保守重叠；optional parameter storage 与 global/borrowed/expression/module lifetime 进入 verifier。
+- JavaScript 与 `cpp` 私有 LIR 保存 MIR 已决定的 argument transfer plan；JavaScript box/writeback、`cpp` section temporary/copy-out 和两目标 optional forwarding 均消费该计划，不再由 renderer 依据 AST section 形状重新推断调用 ABI。架构门禁禁止 call-site 回退为并行数组或 target LIR 重新携带源 `argument_intents`。
 - Analyzer 按职责拆为控制/函数分析、表达式/调用/索引分析和内部 contract 三个编译单元，避免继续扩张单体源码；name/flow 表在参数关联改变结构后按新 revision 重建。
-- 分析后再次检查 HIR 节点资源上限，防止默认参数物化绕过前置门禁；新增 HIR/semantic/name/flow/alias-effect dense/revision/stale、scope corruption、弱化 effect、跨函数摘要和资源负向测试，内部测试增至 150 项；当前生产代码行覆盖率为 88.32%（15364/17396），继续高于 85% 门槛。
+- 分析后再次检查 HIR 节点资源上限，防止默认参数物化绕过前置门禁；新增 HIR/semantic/name/flow/alias-effect dense/revision/stale、scope corruption、弱化 effect、跨函数摘要，以及 call borrow/copy/forward/lifetime/overlap 负向测试，内部测试增至 151 项；本轮生产代码行覆盖率实测 88.11%（15589/17693），继续高于 85% 门槛。
 
 ## 0.3.4
 

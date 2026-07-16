@@ -14,10 +14,10 @@
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；`cpp` 当前生成严格 C++17 translation unit |
 | 前后端边界 | 生产驱动固定经过语言 AST artifact→HIR→MIR→目标私有 semantic plan/LIR→emitter；两个目标不读取彼此产物 |
 | 扩展架构 | frontend descriptor API v5、backend descriptor API v5；parser session/feature/resource contract、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
-| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；名称/作用域、控制流和 Analyzer 输出分别由 revision-checked 稠密 `NameTable`、`FlowTable`、`SemanticTable` 持有，Analyzer 以 `SymbolId` 稠密状态消费前两者；HIR→MIR 消费 semantic/name facts，MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime，以及驻留的 tuple/function/reference 签名和可验证 call-site 表；alias/effect 由独立 `AliasEffectTable` 持有并进入双后端 contract；目标 lowering 产出带 origin chunk 的最终 LIR，emitter 仅序列化 |
+| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；名称/作用域、控制流和 Analyzer 输出分别由 revision-checked 稠密 `NameTable`、`FlowTable`、`SemanticTable` 持有，Analyzer 以 `SymbolId` 稠密状态消费前两者；HIR→MIR 消费 semantic/name facts，MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime、驻留的 tuple/function/reference 签名，以及包含 region/intent/transfer 的单对象 call argument 表；alias/effect 由独立 `AliasEffectTable` 持有并提供 call argument/overlap facts；双目标 LIR 显式保存 transfer plan，emitter 仅序列化 |
 | Python 最新能力 | relational/equality 比较链、右结合条件表达式、短路/惰性/单次求值；基础参数关联和递归固定序列解包 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流 |
-| 工程门禁 | 150 项内部测试；48 个差分 case、134 条工具完整环境执行路径；59 项 CTest；fuzz smoke、可选 libFuzzer、版本化性能发布阈值、阶段报告；当前生产代码覆盖率 88.32%（15364/17396） |
+| 工程门禁 | 151 项内部测试；48 个差分 case、134 条工具完整环境执行路径；59 项 CTest；fuzz smoke、可选 libFuzzer、版本化性能发布阈值、阶段报告；生产代码行覆盖率实测 88.11%（15589/17693），门槛 85% |
 | 发布状态 | 0.x；没有长期 API/ABI 或完整语言兼容承诺 |
 
 ## 本轮商业级收尾验收（完成）
@@ -75,7 +75,7 @@
 - [x] 建立独立 `ShapeId`，表达当前 rank、静态/动态 extent 与 layout
 - [x] 增加 row/column-major canonical stride、dynamic-rank 标记、section view storage 与 shape canonicalization
 - [x] 建立 `StorageId` 和 `no_alias`/`may_alias`/`must_alias` 基础模型
-- [ ] 显式建模 view、copy-in/copy-out、writable actual、overlap 与 storage lifetime
+- [x] 显式建模 view、optional parameter storage、copy-in/copy-out、writable actual、保守 overlap 与 storage lifetime；`CallSite` 使用单一参数对象而非并行数组，参数保存 type/storage/root/intent/transfer/view/lifetime/writability，精确 N 维 region overlap 仍由后续条目跟踪
 - [x] 建立结构化 `EffectSet`：read、write、allocate、io、may-fail、control、external-unknown
 - [ ] HIR→MIR 显式固定 evaluation order、短路、循环/选择 CFG、多结果、load/store 和 runtime-independent semantic operation
 - [x] MIR verifier 检查稠密表、函数/块/指令唯一所有权、函数内 edge、terminator arity、值唯一定义及 definition-dominates-use

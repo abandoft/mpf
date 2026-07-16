@@ -148,9 +148,23 @@ BasicBlock
 
 - `TypeId` 描述标量、tuple、sequence、array、function/reference 等逻辑类型。
 - `ShapeId` 独立描述 rank、静态/动态 extent、stride、layout 和 section view。
-- `StorageId` 表示可能共享或重叠的存储区域；view、copy-in/copy-out 和 writable actual 必须显式关联。
+- `StorageId` 表示可能共享或重叠的存储区域；view、optional parameter、copy-in/copy-out、writable actual 和 lifetime 必须显式关联。
 - alias 结果不内嵌 `StorageData`，而在稀疏 side table 中使用 `no_alias`、`may_alias`、`must_alias` 等保守格；未知时不能假设不重叠。
 - mutable aggregate 不强行伪装为纯 SSA 值；通过 value SSA 加显式 memory/storage effect 表达，后续可演进 memory SSA。
+
+每个 user-function call argument 使用一个聚合 contract，不使用容易失配的 type/storage/omitted 并行数组：
+
+```text
+CallArgument
+├── logical TypeId
+├── actual StorageId + root StorageId
+├── ParameterIntent + writability
+├── view kind + actual lifetime
+└── transfer: value | read-only borrow | mutable OUT/INOUT borrow
+              | copy-out | copy-in/out | optional forward | omitted
+```
+
+section writable actual 的 copy transfer 在 MIR 中确定；目标 lowering 只能选择 box、reference、temporary 或 runtime ABI 等表示，不能重新根据 AST 形状判断是否 copy-out。精确 N 维 selector region 与部分重叠证明仍是独立的后续 alias 精化，不影响当前未知重叠必须保守处理的规则。
 
 ### 副作用模型
 
@@ -167,7 +181,7 @@ control
 external_unknown
 ```
 
-函数摘要只把 global/unknown memory 与非 memory effect 直接传播到调用点；参数读写通过 call-site actual storage 实例化，纯函数局部 storage 访问不得伪装成调用者可见写入。全局 storage 由 name analysis 的 `SymbolId` 统一身份，参数 storage 与潜在实参之间保持保守 `may_alias`。
+函数摘要只把 global/unknown memory 与非 memory effect 直接传播到调用点；参数读写/逃逸通过 call-site actual storage 实例化，纯函数局部 storage 访问不得伪装成调用者可见写入。每个 call effect fact 同时保存 argument transfer 和成对 overlap relation；多个 writable actual 若不是 `no_alias` 则失败关闭。全局 storage 由 name analysis 的 `SymbolId` 统一身份，参数 storage 与潜在实参之间保持保守 `may_alias`。
 
 公共优化只有在 effect、alias 和 evaluation-order 证明允许时才能重排或删除指令。外部未知调用默认读写未知存储并可能失败，除非 binding manifest 提供更强保证。
 

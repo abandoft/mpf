@@ -2,7 +2,7 @@
 
 0.3.4 使用对称的 descriptor/registry 架构接入内置源语言和输出目标。核心驱动执行“选择 descriptor → 创建 parser session → parse 语言 AST → AST verifier → AST→HIR → HIR pass → MIR → MIR pass → capability/legalization → 私有 semantic plan/LIR → LIR verifier/dump → printer”，不按具体语言或目标硬编码分派。当前 contract 面向同一源码树中的编译期组件；descriptor 带 API version，但尚不承诺跨动态库的稳定插件 ABI。
 
-本页记录当前可执行的 frontend API v5/backend API v5 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、Analyzer 直写 semantic side table、独立 name/scope、flow 与 MIR alias/effect side table、当前控制结构 MIR CFG、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；statement parser 的共享 scratch、HIR/MIR 宽兼容投影、精确 N 维 overlap 与完整 copy-in/copy-out 不是新扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
+本页记录当前可执行的 frontend API v5/backend API v5 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、Analyzer 直写 semantic side table、独立 name/scope、flow 与 MIR alias/effect side table、call argument borrow/copy/optional-forward contract、当前控制结构 MIR CFG、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；statement parser 的共享 scratch、HIR/MIR 宽兼容投影与精确 N 维 selector region overlap 不是新扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
 
 ## 设计约束
 
@@ -104,7 +104,7 @@ read-only MIR + verified alias/effect table
 
 当前 descriptor 已覆盖 configuration schema、runtime component/license/origin/integrity 供应链清单、semantic LIR dump 和 code emitter；公共 `TranspileResult` 提供 code、source map v3、确定性 dependency manifest 与阶段报告。项目自身尚未选择 SPDX 许可证，因此内联 runtime 如实使用 `LicenseRef-MPF-Project`，不能由接入方擅自改写为 MIT/Apache。
 
-新后端只依赖 MIR/analysis/pass contract 和允许的 backend-common 设施。capability 与 lowering 必须拒绝 revision、inventory 或 fixed-point verifier 不一致的 alias/effect facts；不得绕过该输入重新使用已删除的 MIR 内嵌 effect。每个后端拥有自己的 LIR 类型，不能把通用目标结构体加若干 target flag 当作 LIR，也不能调用其他后端的 capability、binding、lowering 或 emitter。
+新后端只依赖 MIR/analysis/pass contract 和允许的 backend-common 设施。capability 与 lowering 必须拒绝 revision、inventory 或 fixed-point verifier 不一致的 alias/effect facts；不得绕过该输入重新使用已删除的 MIR 内嵌 effect。MIR `CallArgument` 已确定 value/borrow/copy/optional-forward/omitted 语义，新后端必须将 transfer plan 复制到自己的 semantic IR/LIR，再选择目标 ABI；不得在 printer 中重新根据 expression/section 形状推断 copy-out。每个后端拥有自己的 LIR 类型，不能把通用目标结构体加若干 target flag 当作 LIR，也不能调用其他后端的 capability、binding、lowering 或 emitter。
 
 目标 descriptor contract 至少包括：
 
@@ -135,6 +135,7 @@ descriptor API 升级时必须保留 catalog validation 和禁用组件 metadata
 - descriptor/configuration/capability manifest；
 - 全量 intrinsic binding 的 direct/custom/unavailable 明确选择；
 - capability/legalization 完整性、MIR→target semantic IR→LIR golden、逐层 verifier negative case 和缺失 binding 失败关闭；
+- call argument transfer/lifetime、writable overlap 失败关闭，以及目标 LIR 不重新携带源 intent 并实际消费 transfer plan；
 - emitter 确定性、语法/编译、source map 与 dependency manifest；
 - target-only、其他后端关闭、core-only 构建/安装/外部消费隔离。
 

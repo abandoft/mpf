@@ -4,7 +4,7 @@
 
 TypeScript 6 已纳入产品目标，但当前尚未注册 TypeScript frontend descriptor，也没有可声明支持的 TypeScript 语法子集；其接入计划见路线图 M5。
 
-本表只描述语言行为覆盖，不以内部架构工作代替语言兼容声明。生产路径已经经过语言专属 PMR arena AST→HIR→revision-checked Analyzer side table→带 CFG/storage/alias 的 MIR→目标 semantic/rendered LIR→纯 emitter，并有 source map、fuzz/resource 和性能门禁；TypeScript 等新前端仍必须遵守独立 AST→HIR contract。静态一般 rank 的声明、RESHAPE 和直接 section 已完成，但尚未覆盖的官方 grammar、动态 rank/广播、精确 N 维 storage overlap/alias 与跨函数语义仍见 [商业级编译器管线方案](COMPILER_PIPELINE.md) 和 [TODO](../TODO.md)。
+本表只描述语言行为覆盖，不以内部架构工作代替语言兼容声明。生产路径已经经过语言专属 PMR arena AST→HIR→revision-checked Analyzer side table→带 CFG/storage/call-transfer 的 MIR与独立 alias/effect analysis→目标 semantic/rendered LIR→纯 emitter，并有 source map、fuzz/resource 和性能门禁；TypeScript 等新前端仍必须遵守独立 AST→HIR contract。静态一般 rank 的声明、RESHAPE、直接 section 和保守 borrow/copy/writeback contract 已完成，但尚未覆盖的官方 grammar、动态 rank/广播、精确 N 维 storage overlap/alias 与跨函数语义仍见 [商业级编译器管线方案](COMPILER_PIPELINE.md) 和 [TODO](../TODO.md)。
 
 表中的“支持”表示当前子集已经进入语义/后端测试；可执行能力还应进入差分 corpus。只在某个目标可表示的结构必须由另一个目标的 capability validator 明确拒绝，不能静默改变语义。
 
@@ -52,7 +52,7 @@ Python assignment parser 将裸/圆括号/方括号 target 解析为独立递归
 
 Python comparison chain 当前覆盖 `<`、`<=`、`>`、`>=`、`==`、`!=`，中间操作数只求值一次，后续操作数按前序比较结果短路。条件表达式按 Python 语法右结合，只执行被选中的分支。`is`/`is not`、`in`/`not in` 尚未进入当前表达式子集；JavaScript 表示也尚未完整区分 list 与 tuple 的对象种类，因此跨 sequence kind equality/identity 不作支持承诺。
 
-Python/Matlab/Fortran 都先把物理源码归一化为带首行位置的 logical statements，随后进入各自 statement lexer 和递归下降 parser；表达式跨度仍交给共享 Pratt parser。Fortran procedure 关键字保持上下文化，declaration attribute 支持 `INTENT(IN/OUT/INOUT)` 与 `OPTIONAL`；已知 interface 的 keyword actual 在 Analyzer 中规范化为 formal 顺序，缺省 optional 以中立 omitted-argument 节点表示。当前静态/assumed-shape rank 范围内，optional 标量/数组支持全部三种 intent，存在的可写 element/section actual 延续引用或 copy-in/copy-out。assumed-rank、同一根 storage 的多写回参数、generic interface、module procedure 与嵌套 procedure 尚未支持。
+Python/Matlab/Fortran 都先把物理源码归一化为带首行位置的 logical statements，随后进入各自 statement lexer 和递归下降 parser；表达式跨度仍交给共享 Pratt parser。Fortran procedure 关键字保持上下文化，declaration attribute 支持 `INTENT(IN/OUT/INOUT)` 与 `OPTIONAL`；已知 interface 的 keyword actual 在 Analyzer 中规范化为 formal 顺序，缺省 optional 以中立 omitted-argument 节点表示。当前静态/assumed-shape rank 范围内，optional 标量/数组支持全部三种 intent，存在的可写 name/element 使用 mutable borrow，section 使用显式 copy-out/copy-in-out，optional-to-optional 使用 forwarding contract；这些决定驻留于 MIR call argument 和双目标 LIR。assumed-rank、同一根 storage 的多写回参数、generic interface、module procedure 与嵌套 procedure 尚未支持。
 
 公共 `TranspileOptions::language_version` 和 CLI `--language-version` 选择 frontend manifest 声明范围内的标准；`{0,0}`/`latest` 选择该 frontend 上限。Python 使用 `major.minor`，Fortran 使用标准年份，Matlab 既接受 `R2024b` 也接受 `2024.2`。超出范围或在旧标准中使用较新 feature 以 `MPF1201` 失败关闭；当前细粒度 gate 已覆盖 Python 3.8 positional-only parameter 和 Fortran 2003 bracket array constructor。版本 contract 已完成不等于官方 grammar 已完整覆盖。
 
