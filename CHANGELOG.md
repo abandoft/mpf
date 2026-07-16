@@ -9,8 +9,9 @@
 - MIR call-site 删除 `argument_types`/`argument_storages`/`argument_omitted` 三组并行数组，改为单一参数区域对象；显式区分 value、read-only borrow、OUT/INOUT mutable borrow、copy-out、copy-in/out、optional forwarding 与 omitted，并记录 root/view/lifetime/writability。alias/effect table 新增参数读写/逃逸和成对 overlap facts，拒绝多个可写实参的保守重叠；optional parameter storage 与 global/borrowed/expression/module lifetime 进入 verifier。
 - JavaScript 与 `cpp` 私有 LIR 保存 MIR 已决定的 argument transfer plan；JavaScript box/writeback、`cpp` section temporary/copy-out 和两目标 optional forwarding 均消费该计划，不再由 renderer 依据 AST section 形状重新推断调用 ABI。架构门禁禁止 call-site 回退为并行数组或 target LIR 重新携带源 `argument_intents`。
 - 双目标 LIR artifact schema 升级到 v4。JavaScript LIR 固化 script/ESM、export 与 value/reference-box 函数 ABI，`cpp` LIR 固化 template parameter、value/const-reference/mutable-reference/optional-reference、具体 optional 类型和递归返回/前置声明 ABI；两个目标分别以按 `LirNodeId` 的 CSR `offsets + slots` 保存 comparison、call、section、selection、unpack 与 loop 临时资源。renderer 删除动态临时名分配、module option 和源 parameter intent 解释，目标 verifier 拒绝缺失、重复、碰撞、非稠密计划。
+- 双目标 LIR artifact schema 继续升级到 v5：Program 与 Function 显式保存目标 scope/declaration plan。JavaScript lowering 一次性计算确定性声明顺序；`cpp` declaration plan 保存 concrete type 或按 `LirNodeId` 的 `decltype` probe、assignment-pattern 路径、tuple 下标、fixed-shape extent 与预解析嵌套类型。`cpp` renderer 只建立一次稠密 expression view 后 O(1) 查询 probe；两个 renderer 删除递归声明扫描。ABI/temporary/scope planner 与 verifier 从 lowering 主文件拆成目标专属编译单元，架构门禁禁止 renderer 恢复声明收集。
 - Analyzer 按职责拆为控制/函数分析、表达式/调用/索引分析和内部 contract 三个编译单元，避免继续扩张单体源码；name/flow 表在参数关联改变结构后按新 revision 重建。
-- 分析后再次检查 HIR 节点资源上限，防止默认参数物化绕过前置门禁；新增 HIR/semantic/name/flow/alias-effect dense/revision/stale、scope corruption、弱化 effect、跨函数摘要、call borrow/copy/forward/lifetime/overlap，以及目标 ABI/temporary plan 负向测试，内部测试增至 152 项；本轮生产代码行覆盖率实测 88.47%（16265/18385），继续高于 85% 门槛。
+- 分析后再次检查 HIR 节点资源上限，防止默认参数物化绕过前置门禁；新增 HIR/semantic/name/flow/alias-effect dense/revision/stale、scope corruption、弱化 effect、跨函数摘要、call borrow/copy/forward/lifetime/overlap，以及目标 ABI/temporary/scope/declaration plan 负向测试，内部测试增至 153 项；本轮生产代码行覆盖率实测 88.54%（16453/18583），继续高于 85% 门槛。
 
 ## 0.3.4
 

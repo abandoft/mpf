@@ -104,7 +104,7 @@ read-only MIR + verified alias/effect table
 
 当前 descriptor 已覆盖 configuration schema、runtime component/license/origin/integrity 供应链清单、semantic LIR dump 和 code emitter；公共 `TranspileResult` 提供 code、source map v3、确定性 dependency manifest 与阶段报告。项目自身尚未选择 SPDX 许可证，因此内联 runtime 如实使用 `LicenseRef-MPF-Project`，不能由接入方擅自改写为 MIT/Apache。
 
-新后端只依赖 MIR/analysis/pass contract 和允许的 backend-common 设施。capability 与 lowering 必须拒绝 revision、inventory 或 fixed-point verifier 不一致的 alias/effect facts；不得绕过该输入重新使用已删除的 MIR 内嵌 effect。MIR `CallArgument` 已确定 value/borrow/copy/optional-forward/omitted 语义，新后端必须将 transfer plan 复制到自己的 semantic IR/LIR，再选择目标 ABI；不得在 printer 中重新根据 expression/section 形状推断 copy-out。函数 parameter passing/module/export/recursive declaration 和所有 renderer 所需临时值也必须在 target LIR 中显式规划并验证；推荐使用按 `LirNodeId` 的稠密 CSR inventory，printer 不得持有可变名称分配器。每个后端拥有自己的 LIR 类型，不能把通用目标结构体加若干 target flag 当作 LIR，也不能调用其他后端的 capability、binding、lowering 或 emitter。
+新后端只依赖 MIR/analysis/pass contract 和允许的 backend-common 设施。capability 与 lowering 必须拒绝 revision、inventory 或 fixed-point verifier 不一致的 alias/effect facts；不得绕过该输入重新使用已删除的 MIR 内嵌 effect。MIR `CallArgument` 已确定 value/borrow/copy/optional-forward/omitted 语义，新后端必须将 transfer plan 复制到自己的 semantic IR/LIR，再选择目标 ABI；不得在 printer 中重新根据 expression/section 形状推断 copy-out。函数 parameter passing/module/export/recursive declaration、Program/Function scope declaration 和所有 renderer 所需临时值也必须在 target LIR 中显式规划并验证；推荐使用按 `LirNodeId` 的稠密 inventory，printer 不得持有可变名称分配器或递归扫描声明。若类型必须引用表达式，保存强类型 LIR ID 与显式访问路径，并用一次性稠密索引解析，不保存跨容器裸指针或复制递归表达式树。每个后端拥有自己的 LIR 类型，不能把通用目标结构体加若干 target flag 当作 LIR，也不能调用其他后端的 capability、binding、lowering 或 emitter。
 
 目标 descriptor contract 至少包括：
 
@@ -135,7 +135,7 @@ descriptor API 升级时必须保留 catalog validation 和禁用组件 metadata
 - descriptor/configuration/capability manifest；
 - 全量 intrinsic binding 的 direct/custom/unavailable 明确选择；
 - capability/legalization 完整性、MIR→target semantic IR→LIR golden、逐层 verifier negative case 和缺失 binding 失败关闭；
-- call argument transfer/lifetime、writable overlap 失败关闭，目标 LIR 不重新携带源 call intent 并实际消费 transfer plan，以及 ABI/temporary inventory 的 dense、arity、碰撞和缺失负向测试；
+- call argument transfer/lifetime、writable overlap 失败关闭，目标 LIR 不重新携带源 call intent 并实际消费 transfer plan，以及 ABI/temporary/scope/declaration inventory 的 dense、arity、碰撞、类型 probe 和缺失负向测试；
 - emitter 确定性、语法/编译、source map 与 dependency manifest；
 - target-only、其他后端关闭、core-only 构建/安装/外部消费隔离。
 
