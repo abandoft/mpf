@@ -311,6 +311,9 @@ TranspileResult Transpiler::transpile(const std::string_view source,
                               std::make_move_iterator(analysis_result.diagnostics.begin()),
                               std::make_move_iterator(analysis_result.diagnostics.end()));
     session.record("hir-passes", hir_result.program.node_count, analysis_started);
+    if (hir_result.program.node_count > session.limits().max_hir_nodes) {
+      resource_error("hir-nodes", hir_result.program.node_count, session.limits().max_hir_nodes);
+    }
   }
   detail::mir::LoweringResult mir_result;
   if (result.success()) {

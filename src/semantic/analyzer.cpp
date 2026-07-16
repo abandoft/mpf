@@ -20,6 +20,19 @@ using Statement = hir::Statement;
 using Program = hir::Program;
 using CaseSelector = hir::CaseSelector;
 
+hir::ExpressionFacts& semantic(hir::SemanticTable& table, const Expression& expression) {
+  return *table.expression(expression.id);
+}
+
+const hir::ExpressionFacts& semantic(const hir::SemanticTable& table,
+                                     const Expression& expression) {
+  return *table.expression(expression.id);
+}
+
+hir::StatementFacts& semantic(hir::SemanticTable& table, const Statement& statement) {
+  return *table.statement(statement.id);
+}
+
 struct Symbol {
   Symbol() = default;
   Symbol(const ValueType symbol_type, const BindingKind symbol_binding, const bool symbol_assigned,
@@ -77,16 +90,16 @@ bool same_metadata(const std::vector<ValueMetadata>& left,
   return true;
 }
 
-ValueMetadata expression_metadata(const Expression& expression) {
+ValueMetadata expression_metadata(const Expression& expression, const hir::SemanticTable& table) {
+  const auto& facts = semantic(table, expression);
   ValueMetadata metadata;
-  metadata.type = expression.inferred_type;
-  metadata.element_type = expression.element_type;
-  metadata.shape = expression.shape;
+  metadata.type = facts.inferred_type;
+  metadata.element_type = facts.element_type;
+  metadata.shape = facts.shape;
   metadata.sequence =
-      expression.inferred_type == ValueType::tuple || expression.inferred_type == ValueType::list;
-  metadata.list_sequence =
-      expression.sequence_is_list || expression.inferred_type == ValueType::list;
-  metadata.elements = expression.sequence_elements;
+      facts.inferred_type == ValueType::tuple || facts.inferred_type == ValueType::list;
+  metadata.list_sequence = facts.sequence_is_list || facts.inferred_type == ValueType::list;
+  metadata.elements = facts.sequence_elements;
   return metadata;
 }
 
@@ -213,7 +226,8 @@ bool known_shape(const std::vector<std::size_t>& shape) {
 
 class Analyzer final {
  public:
-  explicit Analyzer(Program& program) : program_(program) {}
+  Analyzer(Program& program, hir::SemanticTable& semantics)
+      : program_(program), semantics_(semantics) {}
 
   std::vector<Diagnostic> analyze() {
     scopes_.emplace_back();
@@ -223,14 +237,9 @@ class Analyzer final {
     for (const auto index : function_graph.definition_order) {
       analyze_function(program_.statements[index]);
     }
-    bool terminated = false;
     for (auto& statement : program_.statements) {
       if (statement.kind == StatementKind::function) continue;
-      if (terminated) {
-        warn(statement.line, "MPF2101",
-             "statement is unreachable because control flow already terminates");
-      }
-      terminated = terminated || analyze_statement(statement);
+      analyze_statement(statement);
     }
     if (program_.language == SourceLanguage::fortran) {
       refresh_call_intents(program_.statements);
@@ -239,15 +248,34 @@ class Analyzer final {
     return std::move(diagnostics_);
   }
 
+  [[nodiscard]] bool structure_changed() const noexcept { return structure_changed_; }
+
  private:
+  void register_expression(Expression& expression, hir::ExpressionFacts facts = {}) {
+    expression.id = HirNodeId{static_cast<HirNodeId::value_type>(semantics_.nodes.size())};
+    facts.origin = expression.id;
+    const auto offset = semantics_.expressions.size();
+    semantics_.nodes.push_back(
+        {hir::SemanticNodeKind::expression, static_cast<std::uint32_t>(offset)});
+    semantics_.expressions.push_back(std::move(facts));
+    semantics_.hir_node_count = semantics_.nodes.size() - 1U;
+  }
+
+  Expression clone_expression(const Expression& source) {
+    auto facts = semantic(semantics_, source);
+    Expression result = source;
+    result.children.clear();
+    result.children.reserve(source.children.size());
+    for (const auto& child : source.children) {
+      result.children.push_back(clone_expression(child));
+    }
+    register_expression(result, std::move(facts));
+    return result;
+  }
+
   void diagnose(const std::size_t line, std::string code, std::string message) {
     diagnostics_.push_back(
         {DiagnosticSeverity::error, std::move(code), std::move(message), {line, 1}});
-  }
-
-  void warn(const std::size_t line, std::string code, std::string message) {
-    diagnostics_.push_back(
-        {DiagnosticSeverity::warning, std::move(code), std::move(message), {line, 1}});
   }
 
   void predeclare(const std::vector<Statement>& statements) {
@@ -259,9 +287,11 @@ class Analyzer final {
           break;
         case StatementKind::declaration:
         case StatementKind::assignment:
-          current().try_emplace(statement.name,
-                                Symbol{statement.declared_type, BindingKind::variable, false,
-                                       statement.element_type, statement.shape});
+          current().try_emplace(
+              statement.name,
+              Symbol{semantic(semantics_, statement).declared_type, BindingKind::variable, false,
+                     semantic(semantics_, statement).element_type,
+                     semantic(semantics_, statement).shape});
           break;
         case StatementKind::multi_assignment:
           for (const auto& name : statement.target_names) {
@@ -305,10 +335,6 @@ class Analyzer final {
   bool analyze_statements(std::vector<Statement>& statements) {
     bool terminated = false;
     for (auto& statement : statements) {
-      if (terminated) {
-        warn(statement.line, "MPF2101",
-             "statement is unreachable because control flow already terminates");
-      }
       const auto statement_terminates = analyze_statement(statement);
       terminated = terminated || statement_terminates;
     }
@@ -343,8 +369,8 @@ class Analyzer final {
     leaf.shape = metadata.shape;
     leaf.previous_type = symbol.type;
     leaf.previous_element_type = symbol.element_type;
-    statement.target_previous_types.push_back(symbol.type);
-    statement.target_previous_element_types.push_back(symbol.element_type);
+    semantic(semantics_, statement).target_previous_types.push_back(symbol.type);
+    semantic(semantics_, statement).target_previous_element_types.push_back(symbol.element_type);
     symbol.binding = BindingKind::variable;
     symbol.type = join_types(symbol.type, metadata.type);
     symbol.element_type = join_types(symbol.element_type, metadata.element_type);
@@ -362,9 +388,9 @@ class Analyzer final {
       }
     }
     symbol.assigned = true;
-    statement.target_types.push_back(metadata.type);
-    statement.target_element_types.push_back(metadata.element_type);
-    statement.target_shapes.push_back(metadata.shape);
+    semantic(semantics_, statement).target_types.push_back(metadata.type);
+    semantic(semantics_, statement).target_element_types.push_back(metadata.element_type);
+    semantic(semantics_, statement).target_shapes.push_back(metadata.shape);
   }
 
   ValueMetadata captured_metadata(const std::vector<ValueMetadata>& elements) const {
@@ -464,19 +490,22 @@ class Analyzer final {
         const bool is_parameter = !function_parameters_.empty() &&
                                   function_parameters_.back().count(statement.name) != 0U;
         if (program_.language == SourceLanguage::fortran &&
-            statement.parameter_intent != ParameterIntent::none && !is_parameter) {
+            semantic(semantics_, statement).parameter_intent != ParameterIntent::none &&
+            !is_parameter) {
           diagnose(statement.line, "MPF2036",
                    "Fortran INTENT attribute is only valid for a dummy argument");
         }
-        if (program_.language == SourceLanguage::fortran && statement.optional_parameter &&
-            !is_parameter) {
+        if (program_.language == SourceLanguage::fortran &&
+            semantic(semantics_, statement).optional_parameter && !is_parameter) {
           diagnose(statement.line, "MPF2040",
                    "Fortran OPTIONAL attribute is only valid for a dummy argument");
         }
         if (program_.language == SourceLanguage::fortran &&
-            statement.declared_type == ValueType::list && !statement.dummy_parameter &&
-            std::find(statement.shape.begin(), statement.shape.end(), dynamic_extent) !=
-                statement.shape.end()) {
+            semantic(semantics_, statement).declared_type == ValueType::list &&
+            !semantic(semantics_, statement).dummy_parameter &&
+            std::find(semantic(semantics_, statement).shape.begin(),
+                      semantic(semantics_, statement).shape.end(),
+                      dynamic_extent) != semantic(semantics_, statement).shape.end()) {
           diagnose(statement.line, "MPF2039",
                    "Fortran assumed-shape arrays are only valid as dummy arguments");
         }
@@ -486,26 +515,29 @@ class Analyzer final {
                    "Fortran dummy argument initialization is not valid in a procedure declaration");
         }
         symbol.binding = BindingKind::variable;
-        symbol.type = statement.declared_type;
-        symbol.element_type = statement.element_type;
-        symbol.shape = statement.shape;
+        symbol.type = semantic(semantics_, statement).declared_type;
+        symbol.element_type = semantic(semantics_, statement).element_type;
+        symbol.shape = semantic(semantics_, statement).shape;
         if (statement.has_expression) {
           const auto initializer_type = analyze_expression(statement.expression);
           symbol.type = join_types(symbol.type, initializer_type);
-          if (statement.expression.inferred_type == ValueType::list) {
+          if (semantic(semantics_, statement.expression).inferred_type == ValueType::list) {
             if (symbol.element_type != ValueType::unknown &&
-                statement.expression.element_type != ValueType::unknown &&
-                join_types(symbol.element_type, statement.expression.element_type) ==
+                semantic(semantics_, statement.expression).element_type != ValueType::unknown &&
+                join_types(symbol.element_type,
+                           semantic(semantics_, statement.expression).element_type) ==
                     ValueType::unknown) {
               diagnose(statement.line, "MPF2020",
                        "array initializer element type is incompatible with declaration");
             }
-            symbol.element_type =
-                join_types(symbol.element_type, statement.expression.element_type);
-            statement.expression.element_type = symbol.element_type;
-            if (!symbol.shape.empty() && !statement.expression.shape.empty() &&
-                known_shape(symbol.shape) && known_shape(statement.expression.shape) &&
-                symbol.shape != statement.expression.shape) {
+            symbol.element_type = join_types(
+                symbol.element_type, semantic(semantics_, statement.expression).element_type);
+            semantic(semantics_, statement.expression).element_type = symbol.element_type;
+            if (!symbol.shape.empty() &&
+                !semantic(semantics_, statement.expression).shape.empty() &&
+                known_shape(symbol.shape) &&
+                known_shape(semantic(semantics_, statement.expression).shape) &&
+                symbol.shape != semantic(semantics_, statement.expression).shape) {
               diagnose(statement.line, "MPF2024",
                        "array initializer shape does not match its declared shape");
             }
@@ -523,43 +555,49 @@ class Analyzer final {
         const auto type = analyze_expression(statement.expression);
         auto& symbol = current()[statement.name];
         symbol.binding = BindingKind::variable;
-        statement.previous_type = symbol.type;
-        statement.previous_element_type = symbol.element_type;
+        semantic(semantics_, statement).previous_type = symbol.type;
+        semantic(semantics_, statement).previous_element_type = symbol.element_type;
         const auto joined = join_types(symbol.type, type);
         symbol.type = joined;
         if (type == ValueType::list) {
-          const auto joined_element =
-              join_types(symbol.element_type, statement.expression.element_type);
+          const auto joined_element = join_types(
+              symbol.element_type, semantic(semantics_, statement.expression).element_type);
           symbol.element_type = joined_element;
           if (program_.language == SourceLanguage::fortran && !symbol.shape.empty() &&
-              !statement.expression.shape.empty() && known_shape(symbol.shape) &&
-              known_shape(statement.expression.shape) &&
-              symbol.shape != statement.expression.shape) {
+              !semantic(semantics_, statement.expression).shape.empty() &&
+              known_shape(symbol.shape) &&
+              known_shape(semantic(semantics_, statement.expression).shape) &&
+              symbol.shape != semantic(semantics_, statement.expression).shape) {
             diagnose(statement.line, "MPF2024",
                      "Fortran array assignment shape does not match its declared shape");
           }
           if (program_.language != SourceLanguage::fortran || symbol.shape.empty()) {
-            symbol.shape = statement.expression.shape;
+            symbol.shape = semantic(semantics_, statement.expression).shape;
           }
         } else if (type == ValueType::tuple) {
-          if (statement.previous_type == ValueType::unknown) {
-            symbol.tuple_types = statement.expression.tuple_types;
-            symbol.tuple_element_types = statement.expression.tuple_element_types;
-            symbol.tuple_shapes = statement.expression.tuple_shapes;
-          } else if (symbol.tuple_types != statement.expression.tuple_types ||
-                     symbol.tuple_element_types != statement.expression.tuple_element_types ||
-                     symbol.tuple_shapes != statement.expression.tuple_shapes) {
+          if (semantic(semantics_, statement).previous_type == ValueType::unknown) {
+            symbol.tuple_types = semantic(semantics_, statement.expression).tuple_types;
+            symbol.tuple_element_types =
+                semantic(semantics_, statement.expression).tuple_element_types;
+            symbol.tuple_shapes = semantic(semantics_, statement.expression).tuple_shapes;
+          } else if (symbol.tuple_types != semantic(semantics_, statement.expression).tuple_types ||
+                     symbol.tuple_element_types !=
+                         semantic(semantics_, statement.expression).tuple_element_types ||
+                     symbol.tuple_shapes !=
+                         semantic(semantics_, statement.expression).tuple_shapes) {
             symbol.tuple_types.clear();
             symbol.tuple_element_types.clear();
             symbol.tuple_shapes.clear();
           }
         }
         if (type == ValueType::list || type == ValueType::tuple) {
-          if (statement.previous_type == ValueType::unknown ||
-              (symbol.sequence_is_list == statement.expression.sequence_is_list &&
-               same_metadata(symbol.sequence_elements, statement.expression.sequence_elements))) {
-            symbol.sequence_is_list = statement.expression.sequence_is_list;
-            symbol.sequence_elements = statement.expression.sequence_elements;
+          if (semantic(semantics_, statement).previous_type == ValueType::unknown ||
+              (symbol.sequence_is_list ==
+                   semantic(semantics_, statement.expression).sequence_is_list &&
+               same_metadata(symbol.sequence_elements,
+                             semantic(semantics_, statement.expression).sequence_elements))) {
+            symbol.sequence_is_list = semantic(semantics_, statement.expression).sequence_is_list;
+            symbol.sequence_elements = semantic(semantics_, statement.expression).sequence_elements;
           } else {
             symbol.sequence_elements.clear();
           }
@@ -568,49 +606,57 @@ class Analyzer final {
         return false;
       }
       case StatementKind::multi_assignment: {
-        statement.expression.requested_outputs = statement.target_names.size();
+        semantic(semantics_, statement.expression).requested_outputs =
+            statement.target_names.size();
         analyze_expression(statement.expression);
-        statement.target_types.clear();
-        statement.target_element_types.clear();
-        statement.target_shapes.clear();
-        statement.target_previous_types.clear();
-        statement.target_previous_element_types.clear();
-        statement.target_types.reserve(statement.target_names.size());
-        statement.target_element_types.reserve(statement.target_names.size());
-        statement.target_shapes.reserve(statement.target_names.size());
-        statement.target_previous_types.reserve(statement.target_names.size());
-        statement.target_previous_element_types.reserve(statement.target_names.size());
+        semantic(semantics_, statement).target_types.clear();
+        semantic(semantics_, statement).target_element_types.clear();
+        semantic(semantics_, statement).target_shapes.clear();
+        semantic(semantics_, statement).target_previous_types.clear();
+        semantic(semantics_, statement).target_previous_element_types.clear();
+        semantic(semantics_, statement).target_types.reserve(statement.target_names.size());
+        semantic(semantics_, statement).target_element_types.reserve(statement.target_names.size());
+        semantic(semantics_, statement).target_shapes.reserve(statement.target_names.size());
+        semantic(semantics_, statement)
+            .target_previous_types.reserve(statement.target_names.size());
+        semantic(semantics_, statement)
+            .target_previous_element_types.reserve(statement.target_names.size());
         if (program_.language == SourceLanguage::matlab) {
           if (statement.expression.kind != ExpressionKind::call ||
-              !statement.expression.multi_output_call) {
+              !semantic(semantics_, statement.expression).multi_output_call) {
             diagnose(statement.line, "MPF2034",
                      "Matlab multi-output assignment requires a function with multiple outputs");
             return false;
           }
         } else if (program_.language == SourceLanguage::python) {
-          if (!statement.has_target_pattern || !statement.target_pattern.valid()) {
+          if (!statement.has_target_pattern ||
+              !semantic(semantics_, statement).target_pattern.valid()) {
             diagnose(statement.line, "MPF2042",
                      "Python unpacking requires a structured assignment pattern");
             return false;
           }
-          auto metadata = expression_metadata(statement.expression);
-          if (metadata.elements.empty() && statement.expression.inferred_type == ValueType::tuple &&
-              !statement.expression.tuple_types.empty()) {
+          auto metadata = expression_metadata(statement.expression, semantics_);
+          if (metadata.elements.empty() &&
+              semantic(semantics_, statement.expression).inferred_type == ValueType::tuple &&
+              !semantic(semantics_, statement.expression).tuple_types.empty()) {
             metadata.sequence = true;
             metadata.list_sequence = false;
-            for (std::size_t index = 0; index < statement.expression.tuple_types.size(); ++index) {
+            for (std::size_t index = 0;
+                 index < semantic(semantics_, statement.expression).tuple_types.size(); ++index) {
               ValueMetadata element;
-              element.type = statement.expression.tuple_types[index];
-              element.element_type = index < statement.expression.tuple_element_types.size()
-                                         ? statement.expression.tuple_element_types[index]
-                                         : ValueType::unknown;
-              element.shape = index < statement.expression.tuple_shapes.size()
-                                  ? statement.expression.tuple_shapes[index]
+              element.type = semantic(semantics_, statement.expression).tuple_types[index];
+              element.element_type =
+                  index < semantic(semantics_, statement.expression).tuple_element_types.size()
+                      ? semantic(semantics_, statement.expression).tuple_element_types[index]
+                      : ValueType::unknown;
+              element.shape = index < semantic(semantics_, statement.expression).tuple_shapes.size()
+                                  ? semantic(semantics_, statement.expression).tuple_shapes[index]
                                   : std::vector<std::size_t>{};
               metadata.elements.push_back(std::move(element));
             }
           }
-          if (!associate_assignment_pattern(statement, statement.target_pattern,
+          if (!associate_assignment_pattern(statement,
+                                            semantic(semantics_, statement).target_pattern,
                                             std::move(metadata), {})) {
             return false;
           }
@@ -628,25 +674,27 @@ class Analyzer final {
                      "Matlab multi-output assignment target '" + name + "' is duplicated");
           }
           auto& symbol = current()[name];
-          const auto type = index < statement.expression.tuple_types.size()
-                                ? statement.expression.tuple_types[index]
+          const auto type = index < semantic(semantics_, statement.expression).tuple_types.size()
+                                ? semantic(semantics_, statement.expression).tuple_types[index]
                                 : ValueType::unknown;
-          const auto element_type = index < statement.expression.tuple_element_types.size()
-                                        ? statement.expression.tuple_element_types[index]
-                                        : ValueType::unknown;
-          const auto shape = index < statement.expression.tuple_shapes.size()
-                                 ? statement.expression.tuple_shapes[index]
+          const auto element_type =
+              index < semantic(semantics_, statement.expression).tuple_element_types.size()
+                  ? semantic(semantics_, statement.expression).tuple_element_types[index]
+                  : ValueType::unknown;
+          const auto shape = index < semantic(semantics_, statement.expression).tuple_shapes.size()
+                                 ? semantic(semantics_, statement.expression).tuple_shapes[index]
                                  : std::vector<std::size_t>{};
-          statement.target_previous_types.push_back(symbol.type);
-          statement.target_previous_element_types.push_back(symbol.element_type);
+          semantic(semantics_, statement).target_previous_types.push_back(symbol.type);
+          semantic(semantics_, statement)
+              .target_previous_element_types.push_back(symbol.element_type);
           symbol.binding = BindingKind::variable;
           symbol.type = join_types(symbol.type, type);
           symbol.element_type = join_types(symbol.element_type, element_type);
           if (symbol.shape.empty()) symbol.shape = shape;
           symbol.assigned = true;
-          statement.target_types.push_back(type);
-          statement.target_element_types.push_back(element_type);
-          statement.target_shapes.push_back(shape);
+          semantic(semantics_, statement).target_types.push_back(type);
+          semantic(semantics_, statement).target_element_types.push_back(element_type);
+          semantic(semantics_, statement).target_shapes.push_back(shape);
         }
         return false;
       }
@@ -666,9 +714,10 @@ class Analyzer final {
                    join_types(target_type, value_type) == ValueType::unknown) {
           diagnose(statement.line, "MPF2020", "indexed assignment changes the array element type");
         }
-        statement.element_type = has_direct_slice(statement.target_expression)
-                                     ? statement.target_expression.element_type
-                                     : target_type;
+        semantic(semantics_, statement).element_type =
+            has_direct_slice(statement.target_expression)
+                ? semantic(semantics_, statement.target_expression).element_type
+                : target_type;
         return false;
       }
       case StatementKind::print:
@@ -1040,39 +1089,42 @@ class Analyzer final {
     std::vector<const Expression*> returns;
     collect_value_returns(function.body, returns);
     if (returns.empty() ||
-        std::any_of(returns.begin(), returns.end(), [](const Expression* expression) {
-          return expression->inferred_type != ValueType::tuple || expression->tuple_types.empty();
+        std::any_of(returns.begin(), returns.end(), [&](const Expression* expression) {
+          const auto& facts = semantic(semantics_, *expression);
+          return facts.inferred_type != ValueType::tuple || facts.tuple_types.empty();
         })) {
       return;
     }
-    const auto arity = returns.front()->tuple_types.size();
-    if (std::any_of(returns.begin(), returns.end(), [arity](const Expression* expression) {
-          return expression->tuple_types.size() != arity;
+    const auto& first_return = semantic(semantics_, *returns.front());
+    const auto arity = first_return.tuple_types.size();
+    if (std::any_of(returns.begin(), returns.end(), [&](const Expression* expression) {
+          return semantic(semantics_, *expression).tuple_types.size() != arity;
         })) {
       return;
     }
 
-    function.return_types = returns.front()->tuple_types;
-    function.return_element_types = returns.front()->tuple_element_types;
-    function.return_shapes = returns.front()->tuple_shapes;
-    function.return_element_types.resize(arity, ValueType::unknown);
-    function.return_shapes.resize(arity);
+    semantic(semantics_, function).return_types = first_return.tuple_types;
+    semantic(semantics_, function).return_element_types = first_return.tuple_element_types;
+    semantic(semantics_, function).return_shapes = first_return.tuple_shapes;
+    semantic(semantics_, function).return_element_types.resize(arity, ValueType::unknown);
+    semantic(semantics_, function).return_shapes.resize(arity);
     for (std::size_t index = 0; index < arity; ++index) {
       bool type_conflict = false;
       bool element_conflict = false;
-      auto type = function.return_types[index];
-      auto element = function.return_element_types[index];
-      auto shape = function.return_shapes[index];
+      auto type = semantic(semantics_, function).return_types[index];
+      auto element = semantic(semantics_, function).return_element_types[index];
+      auto shape = semantic(semantics_, function).return_shapes[index];
       for (std::size_t path = 1; path < returns.size(); ++path) {
-        const auto next_type = returns[path]->tuple_types[index];
+        const auto& next = semantic(semantics_, *returns[path]);
+        const auto next_type = next.tuple_types[index];
         const auto joined_type = join_types(type, next_type);
         if (type != ValueType::unknown && next_type != ValueType::unknown &&
             joined_type == ValueType::unknown) {
           type_conflict = true;
         }
         type = joined_type;
-        const auto next_element = index < returns[path]->tuple_element_types.size()
-                                      ? returns[path]->tuple_element_types[index]
+        const auto next_element = index < next.tuple_element_types.size()
+                                      ? next.tuple_element_types[index]
                                       : ValueType::unknown;
         const auto joined_element = join_types(element, next_element);
         if (element != ValueType::unknown && next_element != ValueType::unknown &&
@@ -1080,14 +1132,15 @@ class Analyzer final {
           element_conflict = true;
         }
         element = joined_element;
-        const auto next_shape = index < returns[path]->tuple_shapes.size()
-                                    ? returns[path]->tuple_shapes[index]
-                                    : std::vector<std::size_t>{};
+        const auto next_shape = index < next.tuple_shapes.size() ? next.tuple_shapes[index]
+                                                                 : std::vector<std::size_t>{};
         if (shape != next_shape) shape.clear();
       }
-      function.return_types[index] = type_conflict ? ValueType::unknown : type;
-      function.return_element_types[index] = element_conflict ? ValueType::unknown : element;
-      function.return_shapes[index] = std::move(shape);
+      semantic(semantics_, function).return_types[index] =
+          type_conflict ? ValueType::unknown : type;
+      semantic(semantics_, function).return_element_types[index] =
+          element_conflict ? ValueType::unknown : element;
+      semantic(semantics_, function).return_shapes[index] = std::move(shape);
     }
   }
 
@@ -1095,15 +1148,15 @@ class Analyzer final {
     std::vector<const Expression*> returns;
     collect_value_returns(function.body, returns);
     if (returns.empty()) return;
-    const auto first = expression_metadata(*returns.front());
+    const auto first = expression_metadata(*returns.front(), semantics_);
     if (!first.sequence) return;
     for (std::size_t index = 1; index < returns.size(); ++index) {
-      if (!same_metadata(first, expression_metadata(*returns[index]))) return;
+      if (!same_metadata(first, expression_metadata(*returns[index], semantics_))) return;
     }
-    function.element_type = first.element_type;
-    function.shape = first.shape;
-    function.return_sequence_is_list = first.list_sequence;
-    function.return_sequence_elements = first.elements;
+    semantic(semantics_, function).element_type = first.element_type;
+    semantic(semantics_, function).shape = first.shape;
+    semantic(semantics_, function).return_sequence_is_list = first.list_sequence;
+    semantic(semantics_, function).return_sequence_elements = first.elements;
   }
 
   void analyze_function(Statement& function) {
@@ -1126,10 +1179,11 @@ class Analyzer final {
     }
     scopes_.emplace_back();
     predeclare(function.body);
-    function.parameter_intents.clear();
+    semantic(semantics_, function).parameter_intents.clear();
     if (program_.language == SourceLanguage::fortran) {
-      function.parameter_intents.assign(function.parameters.size(), ParameterIntent::none);
-      function.parameter_optional.assign(function.parameters.size(), false);
+      semantic(semantics_, function)
+          .parameter_intents.assign(function.parameters.size(), ParameterIntent::none);
+      semantic(semantics_, function).parameter_optional.assign(function.parameters.size(), false);
     }
     for (auto& statement : function.body) {
       if (program_.language != SourceLanguage::fortran) break;
@@ -1139,49 +1193,55 @@ class Analyzer final {
       if (parameter == function.parameters.end()) {
         continue;
       }
-      statement.dummy_parameter = true;
+      semantic(semantics_, statement).dummy_parameter = true;
       const auto position =
           static_cast<std::size_t>(std::distance(function.parameters.begin(), parameter));
-      if (statement.optional_parameter) {
-        function.parameter_optional[position] = true;
+      if (semantic(semantics_, statement).optional_parameter) {
+        semantic(semantics_, function).parameter_optional[position] = true;
       }
-      if (statement.parameter_intent != ParameterIntent::none) {
-        if (function.parameter_intents[position] != ParameterIntent::none &&
-            function.parameter_intents[position] != statement.parameter_intent) {
+      if (semantic(semantics_, statement).parameter_intent != ParameterIntent::none) {
+        if (semantic(semantics_, function).parameter_intents[position] != ParameterIntent::none &&
+            semantic(semantics_, function).parameter_intents[position] !=
+                semantic(semantics_, statement).parameter_intent) {
           diagnose(statement.line, "MPF2036",
                    "Fortran dummy argument has conflicting INTENT declarations");
         }
-        function.parameter_intents[position] = statement.parameter_intent;
+        semantic(semantics_, function).parameter_intents[position] =
+            semantic(semantics_, statement).parameter_intent;
       }
     }
     function_parameters_.emplace_back(function.parameters.begin(), function.parameters.end());
     function_parameter_order_.push_back(function.parameters);
     function_parameter_reads_.emplace_back(function.parameters.size(), false);
     function_parameter_writes_.emplace_back(function.parameters.size(), false);
-    function_parameter_intents_.push_back(&function.parameter_intents);
+    function_parameter_intents_.push_back(&semantic(semantics_, function).parameter_intents);
     function_optional_parameters_.emplace_back();
     for (std::size_t index = 0; index < function.parameters.size(); ++index) {
-      if (index < function.parameter_optional.size() && function.parameter_optional[index]) {
+      if (index < semantic(semantics_, function).parameter_optional.size() &&
+          semantic(semantics_, function).parameter_optional[index]) {
         function_optional_parameters_.back().insert(function.parameters[index]);
       }
     }
     for (std::size_t index = 0; index < function.parameters.size(); ++index) {
       const auto& parameter = function.parameters[index];
-      const auto default_type = program_.language == SourceLanguage::python &&
-                                        index < function.parameter_defaults.size() &&
-                                        function.parameter_defaults[index].valid()
-                                    ? function.parameter_defaults[index].inferred_type
-                                    : ValueType::unknown;
-      current()[parameter] = {default_type,
-                              BindingKind::variable,
-                              program_.language != SourceLanguage::fortran ||
-                                  function.parameter_intents[index] != ParameterIntent::out,
-                              ValueType::unknown,
-                              {}};
+      const auto default_type =
+          program_.language == SourceLanguage::python &&
+                  index < function.parameter_defaults.size() &&
+                  function.parameter_defaults[index].valid()
+              ? semantic(semantics_, function.parameter_defaults[index]).inferred_type
+              : ValueType::unknown;
+      current()[parameter] = {
+          default_type,
+          BindingKind::variable,
+          program_.language != SourceLanguage::fortran ||
+              semantic(semantics_, function).parameter_intents[index] != ParameterIntent::out,
+          ValueType::unknown,
+          {}};
     }
     for (std::size_t index = 0; index < function.return_names.size(); ++index) {
-      const auto type =
-          index < function.return_types.size() ? function.return_types[index] : ValueType::unknown;
+      const auto type = index < semantic(semantics_, function).return_types.size()
+                            ? semantic(semantics_, function).return_types[index]
+                            : ValueType::unknown;
       current()[function.return_names[index]] = {
           type, BindingKind::variable, false, ValueType::unknown, {}};
     }
@@ -1192,33 +1252,36 @@ class Analyzer final {
     loop_depth_ = saved_loop_depth;
     --function_depth_;
     annotate_types(function.body, current());
-    function.parameter_types.clear();
-    function.parameter_element_types.clear();
-    function.parameter_shapes.clear();
-    function.parameter_types.reserve(function.parameters.size());
-    function.parameter_element_types.reserve(function.parameters.size());
-    function.parameter_shapes.reserve(function.parameters.size());
+    semantic(semantics_, function).parameter_types.clear();
+    semantic(semantics_, function).parameter_element_types.clear();
+    semantic(semantics_, function).parameter_shapes.clear();
+    semantic(semantics_, function).parameter_types.reserve(function.parameters.size());
+    semantic(semantics_, function).parameter_element_types.reserve(function.parameters.size());
+    semantic(semantics_, function).parameter_shapes.reserve(function.parameters.size());
     for (const auto& parameter : function.parameters) {
       const auto found = current().find(parameter);
-      function.parameter_types.push_back(found == current().end() ? ValueType::unknown
-                                                                  : found->second.type);
-      function.parameter_element_types.push_back(
-          found == current().end() ? ValueType::unknown : found->second.element_type);
-      function.parameter_shapes.push_back(found == current().end() ? std::vector<std::size_t>{}
-                                                                   : found->second.shape);
+      semantic(semantics_, function)
+          .parameter_types.push_back(found == current().end() ? ValueType::unknown
+                                                              : found->second.type);
+      semantic(semantics_, function)
+          .parameter_element_types.push_back(found == current().end() ? ValueType::unknown
+                                                                      : found->second.element_type);
+      semantic(semantics_, function)
+          .parameter_shapes.push_back(found == current().end() ? std::vector<std::size_t>{}
+                                                               : found->second.shape);
     }
     for (std::size_t index = 0;
          program_.language == SourceLanguage::fortran && index < function.parameters.size();
          ++index) {
-      auto& intent = function.parameter_intents[index];
+      auto& intent = semantic(semantics_, function).parameter_intents[index];
       if (intent == ParameterIntent::none) {
         intent = function_parameter_writes_.back()[index]
                      ? (function_parameter_reads_.back()[index] ? ParameterIntent::inout
                                                                 : ParameterIntent::out)
                      : ParameterIntent::in;
       }
-      const bool optional =
-          index < function.parameter_optional.size() && function.parameter_optional[index];
+      const bool optional = index < semantic(semantics_, function).parameter_optional.size() &&
+                            semantic(semantics_, function).parameter_optional[index];
       if (intent == ParameterIntent::out && !optional) {
         const auto found = current().find(function.parameters[index]);
         if (found == current().end() || !found->second.assigned) {
@@ -1231,9 +1294,9 @@ class Analyzer final {
     bool has_value_return = false;
     bool has_empty_return = false;
     bool incompatible_returns = false;
-    function.declared_type = collect_return_type(function.body, has_value_return, has_empty_return,
-                                                 incompatible_returns);
-    function.has_value_return = has_value_return;
+    semantic(semantics_, function).declared_type = collect_return_type(
+        function.body, has_value_return, has_empty_return, incompatible_returns);
+    semantic(semantics_, function).has_value_return = has_value_return;
     (void)body_terminates;
     (void)has_value_return;
     (void)has_empty_return;
@@ -1258,19 +1321,21 @@ class Analyzer final {
         output_shapes.push_back(found->second.shape);
       }
     }
-    function.return_types = output_types;
-    function.return_element_types = output_element_types;
-    function.return_shapes = output_shapes;
+    semantic(semantics_, function).return_types = output_types;
+    semantic(semantics_, function).return_element_types = output_element_types;
+    semantic(semantics_, function).return_shapes = output_shapes;
     if (output_types.size() == 1) {
-      function.declared_type = output_types.front();
+      semantic(semantics_, function).declared_type = output_types.front();
     } else if (output_types.size() > 1) {
-      function.declared_type = ValueType::tuple;
+      semantic(semantics_, function).declared_type = ValueType::tuple;
     }
-    if (program_.language == SourceLanguage::python && function.declared_type == ValueType::tuple) {
+    if (program_.language == SourceLanguage::python &&
+        semantic(semantics_, function).declared_type == ValueType::tuple) {
       infer_python_tuple_returns(function);
     }
     if (program_.language == SourceLanguage::python &&
-        (function.declared_type == ValueType::tuple || function.declared_type == ValueType::list)) {
+        (semantic(semantics_, function).declared_type == ValueType::tuple ||
+         semantic(semantics_, function).declared_type == ValueType::list)) {
       infer_python_sequence_metadata(function);
     }
     function_parameter_intents_.pop_back();
@@ -1292,9 +1357,10 @@ class Analyzer final {
           has_empty = true;
         } else {
           has_value = true;
-          const auto joined = join_types(result, statement.expression.inferred_type);
+          const auto joined =
+              join_types(result, semantic(semantics_, statement.expression).inferred_type);
           if (result != ValueType::unknown &&
-              statement.expression.inferred_type != ValueType::unknown &&
+              semantic(semantics_, statement.expression).inferred_type != ValueType::unknown &&
               joined == ValueType::unknown) {
             incompatible = true;
           }
@@ -1327,12 +1393,12 @@ class Analyzer final {
           statement.kind == StatementKind::range_loop) {
         const auto found = scope.find(statement.name);
         if (found != scope.end()) {
-          statement.declared_type = found->second.type;
-          statement.element_type = found->second.element_type;
-          statement.shape = found->second.shape;
+          semantic(semantics_, statement).declared_type = found->second.type;
+          semantic(semantics_, statement).element_type = found->second.element_type;
+          semantic(semantics_, statement).shape = found->second.shape;
           if (statement.kind == StatementKind::assignment &&
               statement.expression.kind == ExpressionKind::list) {
-            statement.expression.element_type = found->second.element_type;
+            semantic(semantics_, statement.expression).element_type = found->second.element_type;
           }
         }
       }
@@ -1346,16 +1412,18 @@ class Analyzer final {
   void refresh_expression_call_intents(Expression& expression) {
     if (expression.kind == ExpressionKind::call && !expression.children.empty()) {
       const auto& callee = expression.children.front();
-      if (callee.kind == ExpressionKind::identifier && callee.binding == BindingKind::function) {
+      if (callee.kind == ExpressionKind::identifier &&
+          semantic(semantics_, callee).binding == BindingKind::function) {
         const auto function = std::find_if(program_.statements.begin(), program_.statements.end(),
                                            [&](const Statement& statement) {
                                              return statement.kind == StatementKind::function &&
                                                     statement.name == callee.value;
                                            });
         if (function != program_.statements.end()) {
-          expression.argument_intents = function->parameter_intents;
-          expression.procedure_has_result =
-              !function->return_names.empty() || function->has_value_return;
+          semantic(semantics_, expression).argument_intents =
+              semantic(semantics_, *function).parameter_intents;
+          semantic(semantics_, expression).procedure_has_result =
+              !function->return_names.empty() || semantic(semantics_, *function).has_value_return;
         }
       }
     }
@@ -1381,27 +1449,32 @@ class Analyzer final {
 
   ValueType analyze_expression(Expression& expression) {
     switch (expression.kind) {
-      case ExpressionKind::invalid: return expression.inferred_type = ValueType::unknown;
+      case ExpressionKind::invalid:
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
       case ExpressionKind::number_literal:
-        expression.inferred_type = expression.value.find_first_of(".eE") == std::string::npos
-                                       ? ValueType::integer
-                                       : ValueType::real;
-        return expression.inferred_type;
-      case ExpressionKind::string_literal: return expression.inferred_type = ValueType::string;
-      case ExpressionKind::boolean_literal: return expression.inferred_type = ValueType::boolean;
-      case ExpressionKind::null_literal: return expression.inferred_type = ValueType::null_value;
-      case ExpressionKind::omitted_argument: return expression.inferred_type = ValueType::unknown;
+        semantic(semantics_, expression).inferred_type =
+            expression.value.find_first_of(".eE") == std::string::npos ? ValueType::integer
+                                                                       : ValueType::real;
+        return semantic(semantics_, expression).inferred_type;
+      case ExpressionKind::string_literal:
+        return semantic(semantics_, expression).inferred_type = ValueType::string;
+      case ExpressionKind::boolean_literal:
+        return semantic(semantics_, expression).inferred_type = ValueType::boolean;
+      case ExpressionKind::null_literal:
+        return semantic(semantics_, expression).inferred_type = ValueType::null_value;
+      case ExpressionKind::omitted_argument:
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
       case ExpressionKind::identifier: {
         if (auto* symbol = lookup(expression.value)) {
-          expression.binding = symbol->binding;
-          expression.inferred_type = symbol->type;
-          expression.element_type = symbol->element_type;
-          expression.shape = symbol->shape;
-          expression.tuple_types = symbol->tuple_types;
-          expression.tuple_element_types = symbol->tuple_element_types;
-          expression.tuple_shapes = symbol->tuple_shapes;
-          expression.sequence_is_list = symbol->sequence_is_list;
-          expression.sequence_elements = symbol->sequence_elements;
+          semantic(semantics_, expression).binding = symbol->binding;
+          semantic(semantics_, expression).inferred_type = symbol->type;
+          semantic(semantics_, expression).element_type = symbol->element_type;
+          semantic(semantics_, expression).shape = symbol->shape;
+          semantic(semantics_, expression).tuple_types = symbol->tuple_types;
+          semantic(semantics_, expression).tuple_element_types = symbol->tuple_element_types;
+          semantic(semantics_, expression).tuple_shapes = symbol->tuple_shapes;
+          semantic(semantics_, expression).sequence_is_list = symbol->sequence_is_list;
+          semantic(semantics_, expression).sequence_elements = symbol->sequence_elements;
           if (symbol->binding == BindingKind::variable) {
             mark_fortran_parameter_read(expression.value);
           }
@@ -1414,28 +1487,29 @@ class Analyzer final {
                 expression.location.line, "MPF2003",
                 "variable '" + expression.value + "' is used before it is definitely assigned");
           }
-          return expression.inferred_type;
+          return semantic(semantics_, expression).inferred_type;
         }
         const auto intrinsic = find_intrinsic(program_.language, expression.value);
         if (intrinsic != IntrinsicId::none) {
-          expression.binding = BindingKind::builtin;
-          expression.intrinsic = intrinsic;
-          expression.inferred_type =
+          semantic(semantics_, expression).binding = BindingKind::builtin;
+          semantic(semantics_, expression).intrinsic = intrinsic;
+          semantic(semantics_, expression).inferred_type =
               intrinsic == IntrinsicId::not_a_number || intrinsic == IntrinsicId::infinity
                   ? ValueType::real
                   : ValueType::function;
-          return expression.inferred_type;
+          return semantic(semantics_, expression).inferred_type;
         }
         diagnose(expression.location.line, "MPF2001",
                  "undefined identifier '" + expression.value + "'");
-        return expression.inferred_type = ValueType::unknown;
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
       }
       case ExpressionKind::unary: {
         const auto operand = expression.children.empty()
                                  ? ValueType::unknown
                                  : analyze_expression(expression.children.front());
-        expression.inferred_type = expression.value == "!" ? ValueType::boolean : operand;
-        return expression.inferred_type;
+        semantic(semantics_, expression).inferred_type =
+            expression.value == "!" ? ValueType::boolean : operand;
+        return semantic(semantics_, expression).inferred_type;
       }
       case ExpressionKind::binary: return analyze_binary(expression);
       case ExpressionKind::comparison_chain: return analyze_comparison_chain(expression);
@@ -1443,12 +1517,12 @@ class Analyzer final {
       case ExpressionKind::call: return analyze_call(expression);
       case ExpressionKind::member:
         if (!expression.children.empty()) analyze_expression(expression.children.front());
-        return expression.inferred_type = ValueType::unknown;
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
       case ExpressionKind::index: return analyze_index(expression);
       case ExpressionKind::slice:
         diagnose(expression.location.line, "MPF2029",
                  "slice/colon expressions are only valid as array/list subscripts");
-        return expression.inferred_type = ValueType::unknown;
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
       case ExpressionKind::list: {
         ValueType element_type = ValueType::unknown;
         bool incompatible = false;
@@ -1457,16 +1531,18 @@ class Analyzer final {
         std::vector<std::size_t> nested_shape;
         for (auto& child : expression.children) {
           const auto child_type = analyze_expression(child);
+          const auto& child_facts = semantic(semantics_, child);
           nested = nested && child_type == ValueType::list;
           if (child_type == ValueType::list) {
             if (nested_shape.empty())
-              nested_shape = child.shape;
-            else if (nested_shape != child.shape) {
+              nested_shape = child_facts.shape;
+            else if (nested_shape != child_facts.shape) {
               incompatible = true;
               ragged = true;
             }
           }
-          const auto scalar_type = child_type == ValueType::list ? child.element_type : child_type;
+          const auto scalar_type =
+              child_type == ValueType::list ? child_facts.element_type : child_type;
           const auto joined = join_types(element_type, scalar_type);
           if (element_type != ValueType::unknown && child_type != ValueType::unknown &&
               joined == ValueType::unknown)
@@ -1474,54 +1550,64 @@ class Analyzer final {
           element_type = joined;
         }
         const bool mixed_nesting =
-            std::any_of(
-                expression.children.begin(), expression.children.end(),
-                [](const Expression& child) { return child.inferred_type == ValueType::list; }) &&
+            std::any_of(expression.children.begin(), expression.children.end(),
+                        [&](const Expression& child) {
+                          return semantic(semantics_, child).inferred_type == ValueType::list;
+                        }) &&
             !nested;
         incompatible = incompatible || mixed_nesting;
         if (incompatible && program_.language != SourceLanguage::python) {
           diagnose(expression.location.line, "MPF2020",
                    "target array/list requires a homogeneous element type");
         }
-        expression.element_type = element_type;
-        expression.shape = {expression.children.size()};
+        semantic(semantics_, expression).element_type = element_type;
+        semantic(semantics_, expression).shape = {expression.children.size()};
         if (nested && !nested_shape.empty() && !ragged) {
-          expression.shape.insert(expression.shape.end(), nested_shape.begin(), nested_shape.end());
+          semantic(semantics_, expression)
+              .shape.insert(semantic(semantics_, expression).shape.end(), nested_shape.begin(),
+                            nested_shape.end());
         } else if (nested && ragged) {
-          const auto maximum_rank =
+          const auto maximum =
               std::max_element(expression.children.begin(), expression.children.end(),
-                               [](const Expression& left, const Expression& right) {
-                                 return left.shape.size() < right.shape.size();
-                               })
-                  ->shape.size();
-          expression.shape.insert(expression.shape.end(), maximum_rank, dynamic_extent);
+                               [&](const Expression& left, const Expression& right) {
+                                 return semantic(semantics_, left).shape.size() <
+                                        semantic(semantics_, right).shape.size();
+                               });
+          const auto maximum_rank = semantic(semantics_, *maximum).shape.size();
+          semantic(semantics_, expression)
+              .shape.insert(semantic(semantics_, expression).shape.end(), maximum_rank,
+                            dynamic_extent);
         } else if (mixed_nesting) {
-          expression.element_type = ValueType::unknown;
+          semantic(semantics_, expression).element_type = ValueType::unknown;
         }
-        expression.sequence_is_list = true;
-        expression.sequence_elements.clear();
-        expression.sequence_elements.reserve(expression.children.size());
+        semantic(semantics_, expression).sequence_is_list = true;
+        semantic(semantics_, expression).sequence_elements.clear();
+        semantic(semantics_, expression).sequence_elements.reserve(expression.children.size());
         for (const auto& child : expression.children) {
-          expression.sequence_elements.push_back(expression_metadata(child));
+          semantic(semantics_, expression)
+              .sequence_elements.push_back(expression_metadata(child, semantics_));
         }
-        return expression.inferred_type = ValueType::list;
+        return semantic(semantics_, expression).inferred_type = ValueType::list;
       }
       case ExpressionKind::tuple:
-        expression.tuple_types.clear();
-        expression.tuple_element_types.clear();
-        expression.tuple_shapes.clear();
+        semantic(semantics_, expression).tuple_types.clear();
+        semantic(semantics_, expression).tuple_element_types.clear();
+        semantic(semantics_, expression).tuple_shapes.clear();
         for (auto& child : expression.children) {
-          expression.tuple_types.push_back(analyze_expression(child));
-          expression.tuple_element_types.push_back(child.element_type);
-          expression.tuple_shapes.push_back(child.shape);
+          semantic(semantics_, expression).tuple_types.push_back(analyze_expression(child));
+          semantic(semantics_, expression)
+              .tuple_element_types.push_back(semantic(semantics_, child).element_type);
+          semantic(semantics_, expression)
+              .tuple_shapes.push_back(semantic(semantics_, child).shape);
         }
-        expression.sequence_is_list = false;
-        expression.sequence_elements.clear();
-        expression.sequence_elements.reserve(expression.children.size());
+        semantic(semantics_, expression).sequence_is_list = false;
+        semantic(semantics_, expression).sequence_elements.clear();
+        semantic(semantics_, expression).sequence_elements.reserve(expression.children.size());
         for (const auto& child : expression.children) {
-          expression.sequence_elements.push_back(expression_metadata(child));
+          semantic(semantics_, expression)
+              .sequence_elements.push_back(expression_metadata(child, semantics_));
         }
-        return expression.inferred_type = ValueType::tuple;
+        return semantic(semantics_, expression).inferred_type = ValueType::tuple;
     }
     return ValueType::unknown;
   }
@@ -1531,19 +1617,20 @@ class Analyzer final {
     const auto right = analyze_expression(expression.children[1]);
     if (program_.language == SourceLanguage::python &&
         (expression.value == "&&" || expression.value == "||")) {
-      expression.inferred_type = join_types(left, right);
+      semantic(semantics_, expression).inferred_type = join_types(left, right);
       if (left == ValueType::list && right == ValueType::list) {
-        expression.element_type =
-            join_types(expression.children[0].element_type, expression.children[1].element_type);
-        if (expression.children[0].shape == expression.children[1].shape) {
-          expression.shape = expression.children[0].shape;
+        const auto& left_facts = semantic(semantics_, expression.children[0]);
+        const auto& right_facts = semantic(semantics_, expression.children[1]);
+        semantic(semantics_, expression).element_type =
+            join_types(left_facts.element_type, right_facts.element_type);
+        if (left_facts.shape == right_facts.shape) {
+          semantic(semantics_, expression).shape = left_facts.shape;
         } else {
-          const auto rank =
-              std::max(expression.children[0].shape.size(), expression.children[1].shape.size());
-          expression.shape.assign(rank, dynamic_extent);
+          const auto rank = std::max(left_facts.shape.size(), right_facts.shape.size());
+          semantic(semantics_, expression).shape.assign(rank, dynamic_extent);
         }
       }
-      return expression.inferred_type;
+      return semantic(semantics_, expression).inferred_type;
     }
     if (expression.value == "&&" || expression.value == "||" || expression.value == "===" ||
         expression.value == "!==" || expression.value == "<" || expression.value == "<=" ||
@@ -1553,25 +1640,27 @@ class Analyzer final {
            expression.value == ">=")) {
         validate_python_ordering(left, right, expression.location.line);
       }
-      return expression.inferred_type = ValueType::boolean;
+      return semantic(semantics_, expression).inferred_type = ValueType::boolean;
     }
     if (expression.value == "+" && left == ValueType::string && right == ValueType::string) {
-      return expression.inferred_type = ValueType::string;
+      return semantic(semantics_, expression).inferred_type = ValueType::string;
     }
     if ((!numeric(left) || !numeric(right)) && left != ValueType::unknown &&
         right != ValueType::unknown) {
       diagnose(expression.location.line, "MPF2002",
                "operator '" + expression.value + "' cannot be applied to " + to_string(left) +
                    " and " + to_string(right));
-      return expression.inferred_type = ValueType::unknown;
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
-    if (expression.value == "//") return expression.inferred_type = ValueType::integer;
+    if (expression.value == "//")
+      return semantic(semantics_, expression).inferred_type = ValueType::integer;
     if (expression.value == "/" && (program_.language == SourceLanguage::python ||
                                     program_.language == SourceLanguage::matlab)) {
-      return expression.inferred_type = ValueType::real;
+      return semantic(semantics_, expression).inferred_type = ValueType::real;
     }
-    if (expression.value == "**") return expression.inferred_type = ValueType::real;
-    return expression.inferred_type = join_types(left, right);
+    if (expression.value == "**")
+      return semantic(semantics_, expression).inferred_type = ValueType::real;
+    return semantic(semantics_, expression).inferred_type = join_types(left, right);
   }
 
   void validate_python_ordering(const ValueType left, const ValueType right,
@@ -1593,7 +1682,7 @@ class Analyzer final {
     if (expression.children.size() < 3 ||
         expression.operators.size() + 1 != expression.children.size()) {
       diagnose(expression.location.line, "MPF2044", "malformed Python comparison chain IR");
-      return expression.inferred_type = ValueType::unknown;
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
     std::vector<ValueType> operand_types;
     operand_types.reserve(expression.children.size());
@@ -1607,52 +1696,54 @@ class Analyzer final {
                                  expression.location.line);
       }
     }
-    return expression.inferred_type = ValueType::boolean;
+    return semantic(semantics_, expression).inferred_type = ValueType::boolean;
   }
 
   ValueType analyze_conditional(Expression& expression) {
     if (expression.children.size() != 3) {
       diagnose(expression.location.line, "MPF2044", "malformed Python conditional expression IR");
-      return expression.inferred_type = ValueType::unknown;
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
     analyze_expression(expression.children[0]);
     const auto true_type = analyze_expression(expression.children[1]);
     const auto false_type = analyze_expression(expression.children[2]);
-    expression.inferred_type = join_types(true_type, false_type);
+    semantic(semantics_, expression).inferred_type = join_types(true_type, false_type);
+    const auto& true_facts = semantic(semantics_, expression.children[1]);
+    const auto& false_facts = semantic(semantics_, expression.children[2]);
     if (true_type == ValueType::list && false_type == ValueType::list) {
-      expression.element_type =
-          join_types(expression.children[1].element_type, expression.children[2].element_type);
-      if (expression.children[1].shape == expression.children[2].shape) {
-        expression.shape = expression.children[1].shape;
+      semantic(semantics_, expression).element_type =
+          join_types(true_facts.element_type, false_facts.element_type);
+      if (true_facts.shape == false_facts.shape) {
+        semantic(semantics_, expression).shape = true_facts.shape;
       } else {
-        const auto rank =
-            std::max(expression.children[1].shape.size(), expression.children[2].shape.size());
-        expression.shape.assign(rank, dynamic_extent);
+        const auto rank = std::max(true_facts.shape.size(), false_facts.shape.size());
+        semantic(semantics_, expression).shape.assign(rank, dynamic_extent);
       }
     }
     if (true_type == ValueType::tuple && false_type == ValueType::tuple &&
-        expression.children[1].tuple_types == expression.children[2].tuple_types &&
-        expression.children[1].tuple_element_types == expression.children[2].tuple_element_types &&
-        expression.children[1].tuple_shapes == expression.children[2].tuple_shapes) {
-      expression.tuple_types = expression.children[1].tuple_types;
-      expression.tuple_element_types = expression.children[1].tuple_element_types;
-      expression.tuple_shapes = expression.children[1].tuple_shapes;
+        true_facts.tuple_types == false_facts.tuple_types &&
+        true_facts.tuple_element_types == false_facts.tuple_element_types &&
+        true_facts.tuple_shapes == false_facts.tuple_shapes) {
+      semantic(semantics_, expression).tuple_types = true_facts.tuple_types;
+      semantic(semantics_, expression).tuple_element_types = true_facts.tuple_element_types;
+      semantic(semantics_, expression).tuple_shapes = true_facts.tuple_shapes;
     }
     if ((true_type == ValueType::list || true_type == ValueType::tuple) &&
-        true_type == false_type &&
-        expression.children[1].sequence_is_list == expression.children[2].sequence_is_list &&
-        same_metadata(expression.children[1].sequence_elements,
-                      expression.children[2].sequence_elements)) {
-      expression.sequence_is_list = expression.children[1].sequence_is_list;
-      expression.sequence_elements = expression.children[1].sequence_elements;
+        true_type == false_type && true_facts.sequence_is_list == false_facts.sequence_is_list &&
+        same_metadata(true_facts.sequence_elements, false_facts.sequence_elements)) {
+      semantic(semantics_, expression).sequence_is_list = true_facts.sequence_is_list;
+      semantic(semantics_, expression).sequence_elements = true_facts.sequence_elements;
     }
-    return expression.inferred_type;
+    return semantic(semantics_, expression).inferred_type;
   }
 
   void normalize_fortran_arguments(Expression& expression, const Statement& function) {
+    std::vector<HirNodeId> original_children;
+    original_children.reserve(expression.children.size());
+    for (const auto& child : expression.children) original_children.push_back(child.id);
     const auto actual_count = expression.children.size() - 1;
-    if (expression.argument_names.size() < actual_count) {
-      expression.argument_names.resize(actual_count);
+    if (semantic(semantics_, expression).argument_names.size() < actual_count) {
+      semantic(semantics_, expression).argument_names.resize(actual_count);
     }
     std::vector<std::optional<Expression>> associated(function.parameters.size());
     std::vector<bool> used(function.parameters.size(), false);
@@ -1660,7 +1751,7 @@ class Analyzer final {
     bool saw_keyword = false;
     for (std::size_t index = 0; index < actual_count; ++index) {
       auto actual = std::move(expression.children[index + 1]);
-      const auto& keyword = expression.argument_names[index];
+      const auto& keyword = semantic(semantics_, expression).argument_names[index];
       std::size_t formal;
       if (keyword.empty()) {
         if (saw_keyword) {
@@ -1704,8 +1795,8 @@ class Analyzer final {
         normalized.push_back(std::move(*associated[index]));
         continue;
       }
-      const bool optional =
-          index < function.parameter_optional.size() && function.parameter_optional[index];
+      const bool optional = index < semantic(semantics_, function).parameter_optional.size() &&
+                            semantic(semantics_, function).parameter_optional[index];
       if (!optional) {
         diagnose(expression.location.line, "MPF2034",
                  "required dummy argument '" + function.parameters[index] +
@@ -1714,17 +1805,27 @@ class Analyzer final {
       Expression omitted;
       omitted.kind = ExpressionKind::omitted_argument;
       omitted.location = expression.location;
+      register_expression(omitted);
       normalized.push_back(std::move(omitted));
     }
     expression.children = std::move(normalized);
-    expression.argument_names.assign(function.parameters.size(), {});
-    expression.argument_optional_forward.assign(function.parameters.size(), false);
+    structure_changed_ =
+        structure_changed_ || expression.children.size() != original_children.size() ||
+        !std::equal(expression.children.begin(), expression.children.end(),
+                    original_children.begin(), original_children.end(),
+                    [](const Expression& child, const HirNodeId id) { return child.id == id; });
+    semantic(semantics_, expression).argument_names.assign(function.parameters.size(), {});
+    semantic(semantics_, expression)
+        .argument_optional_forward.assign(function.parameters.size(), false);
   }
 
   void normalize_python_arguments(Expression& expression, const Statement& function) {
+    std::vector<HirNodeId> original_children;
+    original_children.reserve(expression.children.size());
+    for (const auto& child : expression.children) original_children.push_back(child.id);
     const auto actual_count = expression.children.size() - 1;
-    if (expression.argument_names.size() < actual_count) {
-      expression.argument_names.resize(actual_count);
+    if (semantic(semantics_, expression).argument_names.size() < actual_count) {
+      semantic(semantics_, expression).argument_names.resize(actual_count);
     }
     std::vector<std::optional<Expression>> associated(function.parameters.size());
     std::vector<bool> used(function.parameters.size(), false);
@@ -1732,7 +1833,7 @@ class Analyzer final {
     bool saw_keyword = false;
     for (std::size_t index = 0; index < actual_count; ++index) {
       auto actual = std::move(expression.children[index + 1]);
-      const auto& keyword = expression.argument_names[index];
+      const auto& keyword = semantic(semantics_, expression).argument_names[index];
       std::size_t formal;
       if (keyword.empty()) {
         if (saw_keyword) {
@@ -1789,7 +1890,7 @@ class Analyzer final {
         normalized.push_back(std::move(*associated[index]));
       } else if (index < function.parameter_defaults.size() &&
                  function.parameter_defaults[index].valid()) {
-        normalized.push_back(function.parameter_defaults[index]);
+        normalized.push_back(clone_expression(function.parameter_defaults[index]));
       } else {
         diagnose(expression.location.line, "MPF2034",
                  "required parameter '" + function.parameters[index] + "' is missing in call to '" +
@@ -1797,36 +1898,48 @@ class Analyzer final {
         Expression omitted;
         omitted.kind = ExpressionKind::omitted_argument;
         omitted.location = expression.location;
+        register_expression(omitted);
         normalized.push_back(std::move(omitted));
       }
     }
     expression.children = std::move(normalized);
-    expression.argument_names.assign(function.parameters.size(), {});
+    structure_changed_ =
+        structure_changed_ || expression.children.size() != original_children.size() ||
+        !std::equal(expression.children.begin(), expression.children.end(),
+                    original_children.begin(), original_children.end(),
+                    [](const Expression& child, const HirNodeId id) { return child.id == id; });
+    semantic(semantics_, expression).argument_names.assign(function.parameters.size(), {});
   }
 
   ValueType analyze_call(Expression& expression) {
-    if (expression.children.empty()) return expression.inferred_type = ValueType::unknown;
+    if (expression.children.empty())
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     auto& callee = expression.children.front();
     analyze_expression(callee);
+    auto& callee_facts = semantic(semantics_, callee);
     if ((program_.language == SourceLanguage::matlab ||
          program_.language == SourceLanguage::fortran) &&
-        callee.kind == ExpressionKind::identifier && callee.binding == BindingKind::variable &&
-        (callee.inferred_type == ValueType::list || callee.inferred_type == ValueType::unknown) &&
+        callee.kind == ExpressionKind::identifier &&
+        callee_facts.binding == BindingKind::variable &&
+        (callee_facts.inferred_type == ValueType::list ||
+         callee_facts.inferred_type == ValueType::unknown) &&
         expression.children.size() >= 2) {
       if (program_.language == SourceLanguage::fortran &&
-          std::any_of(expression.argument_names.begin(), expression.argument_names.end(),
+          std::any_of(semantic(semantics_, expression).argument_names.begin(),
+                      semantic(semantics_, expression).argument_names.end(),
                       [](const std::string& name) { return !name.empty(); })) {
         diagnose(expression.location.line, "MPF2040",
                  "Fortran array subscripts cannot use procedure argument keywords");
       }
       expression.kind = ExpressionKind::index;
-      expression.index_base = 1;
-      expression.allow_negative_index = false;
-      expression.column_major = true;
+      semantic(semantics_, expression).index_base = 1;
+      semantic(semantics_, expression).allow_negative_index = false;
+      semantic(semantics_, expression).column_major = true;
       return analyze_index(expression, true);
     }
     const Statement* called_function = nullptr;
-    if (callee.binding == BindingKind::function && callee.kind == ExpressionKind::identifier) {
+    if (callee_facts.binding == BindingKind::function &&
+        callee.kind == ExpressionKind::identifier) {
       const auto function = std::find_if(
           program_.statements.begin(), program_.statements.end(), [&](const Statement& statement) {
             return statement.kind == StatementKind::function && statement.name == callee.value;
@@ -1838,25 +1951,29 @@ class Analyzer final {
     } else if (program_.language == SourceLanguage::python && called_function != nullptr) {
       normalize_python_arguments(expression, *called_function);
     } else if (program_.language == SourceLanguage::fortran &&
-               std::any_of(expression.argument_names.begin(), expression.argument_names.end(),
+               std::any_of(semantic(semantics_, expression).argument_names.begin(),
+                           semantic(semantics_, expression).argument_names.end(),
                            [](const std::string& name) { return !name.empty(); })) {
       diagnose(expression.location.line, "MPF2040",
                "Fortran keyword actual arguments require a known procedure interface");
     } else if (program_.language == SourceLanguage::python &&
-               std::any_of(expression.argument_names.begin(), expression.argument_names.end(),
+               std::any_of(semantic(semantics_, expression).argument_names.begin(),
+                           semantic(semantics_, expression).argument_names.end(),
                            [](const std::string& name) { return !name.empty(); })) {
       diagnose(expression.location.line, "MPF2041",
                "Python keyword arguments require a known user-function signature");
     }
     const auto& associated_callee = expression.children.front();
+    const auto& associated_callee_facts = semantic(semantics_, associated_callee);
     if (program_.language == SourceLanguage::fortran && called_function != nullptr) {
-      expression.argument_intents = called_function->parameter_intents;
-      expression.procedure_has_result =
-          !called_function->return_names.empty() || called_function->has_value_return;
+      const auto& called_facts = semantic(semantics_, *called_function);
+      semantic(semantics_, expression).argument_intents = called_facts.parameter_intents;
+      semantic(semantics_, expression).procedure_has_result =
+          !called_function->return_names.empty() || called_facts.has_value_return;
     }
     if (associated_callee.kind == ExpressionKind::identifier &&
-        associated_callee.binding == BindingKind::builtin &&
-        associated_callee.intrinsic == IntrinsicId::present) {
+        associated_callee_facts.binding == BindingKind::builtin &&
+        associated_callee_facts.intrinsic == IntrinsicId::present) {
       const bool valid =
           expression.children.size() == 2 &&
           expression.children[1].kind == ExpressionKind::identifier &&
@@ -1865,10 +1982,11 @@ class Analyzer final {
       if (expression.children.size() == 2 &&
           expression.children[1].kind == ExpressionKind::identifier) {
         if (auto* symbol = lookup(expression.children[1].value)) {
-          expression.children[1].binding = symbol->binding;
-          expression.children[1].inferred_type = symbol->type;
-          expression.children[1].element_type = symbol->element_type;
-          expression.children[1].shape = symbol->shape;
+          auto& argument_facts = semantic(semantics_, expression.children[1]);
+          argument_facts.binding = symbol->binding;
+          argument_facts.inferred_type = symbol->type;
+          argument_facts.element_type = symbol->element_type;
+          argument_facts.shape = symbol->shape;
         }
       } else if (expression.children.size() == 2) {
         analyze_expression(expression.children[1]);
@@ -1877,25 +1995,26 @@ class Analyzer final {
         diagnose(expression.location.line, "MPF2040",
                  "Fortran PRESENT requires one OPTIONAL dummy argument");
       }
-      return expression.inferred_type = ValueType::boolean;
+      return semantic(semantics_, expression).inferred_type = ValueType::boolean;
     }
     ValueType argument_type = ValueType::unknown;
     std::unordered_set<std::string> reference_actuals;
     for (std::size_t index = 1; index < expression.children.size(); ++index) {
       auto& argument = expression.children[index];
       const auto intent_index = index - 1;
-      const auto intent = intent_index < expression.argument_intents.size()
-                              ? expression.argument_intents[intent_index]
+      const auto intent = intent_index < semantic(semantics_, expression).argument_intents.size()
+                              ? semantic(semantics_, expression).argument_intents[intent_index]
                               : ParameterIntent::in;
       const bool writes_actual = intent == ParameterIntent::out || intent == ParameterIntent::inout;
       if (argument.kind == ExpressionKind::omitted_argument) continue;
       if (program_.language == SourceLanguage::fortran && called_function != nullptr &&
           argument.kind == ExpressionKind::identifier && !function_optional_parameters_.empty() &&
           function_optional_parameters_.back().count(argument.value) != 0U) {
-        const bool target_optional = intent_index < called_function->parameter_optional.size() &&
-                                     called_function->parameter_optional[intent_index];
+        const auto& called_facts = semantic(semantics_, *called_function);
+        const bool target_optional = intent_index < called_facts.parameter_optional.size() &&
+                                     called_facts.parameter_optional[intent_index];
         if (target_optional) {
-          expression.argument_optional_forward[intent_index] = true;
+          semantic(semantics_, expression).argument_optional_forward[intent_index] = true;
         } else {
           diagnose(argument.location.line, "MPF2040",
                    "an optional dummy actual requires an optional dummy target");
@@ -1930,10 +2049,11 @@ class Analyzer final {
           if (intent == ParameterIntent::inout) {
             argument_type = join_types(argument_type, analyze_expression(argument));
           } else {
-            argument.binding = symbol->binding;
-            argument.inferred_type = symbol->type;
-            argument.element_type = symbol->element_type;
-            argument.shape = symbol->shape;
+            auto& argument_facts = semantic(semantics_, argument);
+            argument_facts.binding = symbol->binding;
+            argument_facts.inferred_type = symbol->type;
+            argument_facts.element_type = symbol->element_type;
+            argument_facts.shape = symbol->shape;
             argument_type = join_types(argument_type, symbol->type);
           }
         }
@@ -1944,111 +2064,118 @@ class Analyzer final {
       }
     }
     if (program_.language == SourceLanguage::fortran && called_function != nullptr) {
+      const auto& called_facts = semantic(semantics_, *called_function);
       const auto comparable =
-          std::min(expression.children.size() - 1, called_function->parameter_types.size());
+          std::min(expression.children.size() - 1, called_facts.parameter_types.size());
       for (std::size_t index = 0; index < comparable; ++index) {
         const auto& argument = expression.children[index + 1];
         if (argument.kind == ExpressionKind::omitted_argument) continue;
-        const auto expected_type = called_function->parameter_types[index];
+        const auto& argument_facts = semantic(semantics_, argument);
+        const auto expected_type = called_facts.parameter_types[index];
         if (expected_type == ValueType::list) {
-          if (argument.inferred_type != ValueType::list &&
-              argument.inferred_type != ValueType::unknown) {
+          if (argument_facts.inferred_type != ValueType::list &&
+              argument_facts.inferred_type != ValueType::unknown) {
             diagnose(argument.location.line, "MPF2039",
                      "Fortran array dummy argument requires an array actual");
             continue;
           }
-          const auto& expected_shape = called_function->parameter_shapes[index];
-          if (!expected_shape.empty() && !argument.shape.empty() &&
-              expected_shape.size() != argument.shape.size()) {
+          const auto& expected_shape = called_facts.parameter_shapes[index];
+          if (!expected_shape.empty() && !argument_facts.shape.empty() &&
+              expected_shape.size() != argument_facts.shape.size()) {
             diagnose(argument.location.line, "MPF2039",
                      "Fortran dummy and actual array ranks do not match");
             continue;
           }
           for (std::size_t dimension = 0;
-               dimension < expected_shape.size() && dimension < argument.shape.size();
+               dimension < expected_shape.size() && dimension < argument_facts.shape.size();
                ++dimension) {
             if (expected_shape[dimension] != dynamic_extent &&
-                argument.shape[dimension] != dynamic_extent &&
-                expected_shape[dimension] != argument.shape[dimension]) {
+                argument_facts.shape[dimension] != dynamic_extent &&
+                expected_shape[dimension] != argument_facts.shape[dimension]) {
               diagnose(argument.location.line, "MPF2039",
                        "Fortran dummy and actual array extents do not match");
               break;
             }
           }
-          const auto expected_element = called_function->parameter_element_types[index];
+          const auto expected_element = called_facts.parameter_element_types[index];
           if (expected_element != ValueType::unknown &&
-              argument.element_type != ValueType::unknown &&
-              join_types(expected_element, argument.element_type) == ValueType::unknown) {
+              argument_facts.element_type != ValueType::unknown &&
+              join_types(expected_element, argument_facts.element_type) == ValueType::unknown) {
             diagnose(argument.location.line, "MPF2039",
                      "Fortran dummy and actual array element types do not match");
           }
         } else if (expected_type != ValueType::unknown &&
-                   argument.inferred_type == ValueType::list) {
+                   argument_facts.inferred_type == ValueType::list) {
           diagnose(argument.location.line, "MPF2039",
                    "Fortran scalar dummy argument cannot receive an array actual");
         }
       }
     }
     if (associated_callee.kind == ExpressionKind::identifier &&
-        associated_callee.binding == BindingKind::builtin) {
-      if (associated_callee.intrinsic == IntrinsicId::python_float) {
+        associated_callee_facts.binding == BindingKind::builtin) {
+      if (associated_callee_facts.intrinsic == IntrinsicId::python_float) {
         if (expression.children.size() != 2) {
           diagnose(expression.location.line, "MPF2033",
                    "Python float requires exactly one argument");
         } else {
-          const auto type = expression.children[1].inferred_type;
+          const auto type = semantic(semantics_, expression.children[1]).inferred_type;
           if (type != ValueType::integer && type != ValueType::real && type != ValueType::boolean &&
               type != ValueType::string && type != ValueType::unknown) {
             diagnose(expression.location.line, "MPF2033",
                      "Python float argument is not convertible in the current subset");
           }
         }
-        return expression.inferred_type = ValueType::real;
+        return semantic(semantics_, expression).inferred_type = ValueType::real;
       }
-      if (associated_callee.intrinsic == IntrinsicId::python_length ||
-          associated_callee.intrinsic == IntrinsicId::matlab_length ||
-          associated_callee.intrinsic == IntrinsicId::element_count) {
+      if (associated_callee_facts.intrinsic == IntrinsicId::python_length ||
+          associated_callee_facts.intrinsic == IntrinsicId::matlab_length ||
+          associated_callee_facts.intrinsic == IntrinsicId::element_count) {
         if (expression.children.size() != 2) {
           diagnose(expression.location.line, "MPF2026",
                    "length/size builtin requires one argument");
-        } else if (expression.children[1].inferred_type != ValueType::list &&
-                   expression.children[1].inferred_type != ValueType::unknown) {
+        } else if (semantic(semantics_, expression.children[1]).inferred_type != ValueType::list &&
+                   semantic(semantics_, expression.children[1]).inferred_type !=
+                       ValueType::unknown) {
           diagnose(expression.location.line, "MPF2022",
                    "length/size argument is not an array/list");
         }
-        return expression.inferred_type = ValueType::integer;
+        return semantic(semantics_, expression).inferred_type = ValueType::integer;
       }
-      if (associated_callee.intrinsic == IntrinsicId::sum && expression.children.size() == 2) {
-        if (expression.children[1].inferred_type != ValueType::list &&
-            expression.children[1].inferred_type != ValueType::unknown) {
+      if (associated_callee_facts.intrinsic == IntrinsicId::sum &&
+          expression.children.size() == 2) {
+        const auto& argument_facts = semantic(semantics_, expression.children[1]);
+        if (argument_facts.inferred_type != ValueType::list &&
+            argument_facts.inferred_type != ValueType::unknown) {
           diagnose(expression.location.line, "MPF2022", "sum argument is not an array/list");
-        } else if (expression.children[1].shape.size() > 1 &&
+        } else if (argument_facts.shape.size() > 1 &&
                    program_.language != SourceLanguage::fortran) {
           diagnose(expression.location.line, "MPF2028",
                    "multidimensional SUM semantics are not supported for this source language");
         }
-        return expression.inferred_type = expression.children[1].element_type;
+        return semantic(semantics_, expression).inferred_type = argument_facts.element_type;
       }
-      if (associated_callee.intrinsic == IntrinsicId::sum && expression.children.size() != 2) {
+      if (associated_callee_facts.intrinsic == IntrinsicId::sum &&
+          expression.children.size() != 2) {
         diagnose(expression.location.line, "MPF2026", "sum builtin requires one argument");
-        return expression.inferred_type = ValueType::unknown;
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
       }
-      if (associated_callee.intrinsic == IntrinsicId::reshape) {
+      if (associated_callee_facts.intrinsic == IntrinsicId::reshape) {
         return analyze_reshape(expression);
       }
-      if (associated_callee.intrinsic == IntrinsicId::absolute ||
-          associated_callee.intrinsic == IntrinsicId::minimum ||
-          associated_callee.intrinsic == IntrinsicId::maximum) {
-        return expression.inferred_type = argument_type;
+      if (associated_callee_facts.intrinsic == IntrinsicId::absolute ||
+          associated_callee_facts.intrinsic == IntrinsicId::minimum ||
+          associated_callee_facts.intrinsic == IntrinsicId::maximum) {
+        return semantic(semantics_, expression).inferred_type = argument_type;
       }
-      return expression.inferred_type = ValueType::real;
+      return semantic(semantics_, expression).inferred_type = ValueType::real;
     }
-    if (associated_callee.binding == BindingKind::variable &&
-        associated_callee.inferred_type == ValueType::list) {
+    if (associated_callee_facts.binding == BindingKind::variable &&
+        associated_callee_facts.inferred_type == ValueType::list) {
       diagnose(expression.location.line, "MPF2025", "array/list indexing syntax is invalid");
     }
     if (called_function != nullptr) {
       const auto* function = called_function;
+      const auto& function_facts = semantic(semantics_, *function);
       const auto argument_count = expression.children.size() - 1;
       if (argument_count != function->parameters.size()) {
         diagnose(expression.location.line, "MPF2034",
@@ -2066,61 +2193,66 @@ class Analyzer final {
         }
       }
       if (program_.language == SourceLanguage::matlab && function->return_names.size() > 1) {
-        expression.multi_output_call = true;
-        expression.tuple_types = function->return_types;
-        expression.tuple_element_types = function->return_element_types;
-        expression.tuple_shapes = function->return_shapes;
-        if (expression.requested_outputs > function->return_names.size()) {
+        semantic(semantics_, expression).multi_output_call = true;
+        semantic(semantics_, expression).tuple_types = function_facts.return_types;
+        semantic(semantics_, expression).tuple_element_types = function_facts.return_element_types;
+        semantic(semantics_, expression).tuple_shapes = function_facts.return_shapes;
+        if (semantic(semantics_, expression).requested_outputs > function->return_names.size()) {
           diagnose(expression.location.line, "MPF2034",
                    "function '" + associated_callee.value + "' provides " +
                        std::to_string(function->return_names.size()) +
                        " outputs but the assignment requests " +
-                       std::to_string(expression.requested_outputs));
+                       std::to_string(semantic(semantics_, expression).requested_outputs));
         }
-        if (expression.requested_outputs == 1 && !function->return_types.empty()) {
-          expression.element_type = function->return_element_types.front();
-          expression.shape = function->return_shapes.front();
-          return expression.inferred_type = function->return_types.front();
+        if (semantic(semantics_, expression).requested_outputs == 1 &&
+            !function_facts.return_types.empty()) {
+          semantic(semantics_, expression).element_type =
+              function_facts.return_element_types.front();
+          semantic(semantics_, expression).shape = function_facts.return_shapes.front();
+          return semantic(semantics_, expression).inferred_type =
+                     function_facts.return_types.front();
         }
-        return expression.inferred_type = ValueType::tuple;
+        return semantic(semantics_, expression).inferred_type = ValueType::tuple;
       }
       if (program_.language == SourceLanguage::python &&
-          function->declared_type == ValueType::tuple) {
-        expression.tuple_types = function->return_types;
-        expression.tuple_element_types = function->return_element_types;
-        expression.tuple_shapes = function->return_shapes;
+          function_facts.declared_type == ValueType::tuple) {
+        semantic(semantics_, expression).tuple_types = function_facts.return_types;
+        semantic(semantics_, expression).tuple_element_types = function_facts.return_element_types;
+        semantic(semantics_, expression).tuple_shapes = function_facts.return_shapes;
       }
       if (program_.language == SourceLanguage::python &&
-          (function->declared_type == ValueType::tuple ||
-           function->declared_type == ValueType::list)) {
-        expression.element_type = function->element_type;
-        expression.shape = function->shape;
-        expression.sequence_is_list = function->return_sequence_is_list;
-        expression.sequence_elements = function->return_sequence_elements;
+          (function_facts.declared_type == ValueType::tuple ||
+           function_facts.declared_type == ValueType::list)) {
+        semantic(semantics_, expression).element_type = function_facts.element_type;
+        semantic(semantics_, expression).shape = function_facts.shape;
+        semantic(semantics_, expression).sequence_is_list = function_facts.return_sequence_is_list;
+        semantic(semantics_, expression).sequence_elements =
+            function_facts.return_sequence_elements;
       }
-      return expression.inferred_type = function->declared_type;
+      return semantic(semantics_, expression).inferred_type = function_facts.declared_type;
     }
-    return expression.inferred_type = ValueType::unknown;
+    return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
 
   ValueType analyze_index(Expression& expression, const bool container_already_analyzed = false) {
     if (expression.children.size() < 2) {
       diagnose(expression.location.line, "MPF2025", "index expression requires at least one index");
-      return expression.inferred_type = ValueType::unknown;
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
     auto& container = expression.children[0];
     if (!container_already_analyzed) analyze_expression(container);
-    if (container.inferred_type != ValueType::list &&
-        container.inferred_type != ValueType::unknown) {
+    const auto& container_facts = semantic(semantics_, container);
+    if (container_facts.inferred_type != ValueType::list &&
+        container_facts.inferred_type != ValueType::unknown) {
       diagnose(expression.location.line, "MPF2022", "indexed expression is not an array/list");
-      return expression.inferred_type = ValueType::unknown;
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
     const auto index_count = expression.children.size() - 1;
-    if (!container.shape.empty() && index_count > container.shape.size()) {
+    if (!container_facts.shape.empty() && index_count > container_facts.shape.size()) {
       diagnose(expression.location.line, "MPF2025", "too many indexes for array/list shape");
     }
-    if (program_.language == SourceLanguage::fortran && !container.shape.empty() &&
-        index_count != container.shape.size()) {
+    if (program_.language == SourceLanguage::fortran && !container_facts.shape.empty() &&
+        index_count != container_facts.shape.size()) {
       diagnose(expression.location.line, "MPF2025",
                "Fortran array reference rank does not match its declared rank");
     }
@@ -2129,9 +2261,10 @@ class Analyzer final {
     for (std::size_t position = 0; position < index_count; ++position) {
       auto& index = expression.children[position + 1];
       std::size_t extent = dynamic_extent;
-      if (expression.column_major && index_count == 1 && container.shape.size() > 1) {
+      if (semantic(semantics_, expression).column_major && index_count == 1 &&
+          container_facts.shape.size() > 1) {
         extent = 1;
-        for (const auto dimension : container.shape) {
+        for (const auto dimension : container_facts.shape) {
           if (dimension == dynamic_extent) {
             extent = dynamic_extent;
             break;
@@ -2143,8 +2276,8 @@ class Analyzer final {
           }
           extent *= dimension;
         }
-      } else if (position < container.shape.size()) {
-        extent = container.shape[position];
+      } else if (position < container_facts.shape.size()) {
+        extent = container_facts.shape[position];
       }
       if (index.kind == ExpressionKind::slice) {
         has_slice = true;
@@ -2155,47 +2288,51 @@ class Analyzer final {
       if (index_type != ValueType::integer && index_type != ValueType::unknown) {
         diagnose(index.location.line, "MPF2023", "array/list index must be an integer");
       }
-      validate_static_index(index.location.line, index, extent, expression.index_base,
-                            expression.allow_negative_index);
+      validate_static_index(index.location.line, index, extent,
+                            semantic(semantics_, expression).index_base,
+                            semantic(semantics_, expression).allow_negative_index);
     }
-    expression.element_type = container.element_type;
-    if (container.shape.empty()) {
+    semantic(semantics_, expression).element_type = container_facts.element_type;
+    if (container_facts.shape.empty()) {
       if (has_slice) {
-        expression.shape = std::move(result_shape);
-        return expression.inferred_type = ValueType::list;
+        semantic(semantics_, expression).shape = std::move(result_shape);
+        return semantic(semantics_, expression).inferred_type = ValueType::list;
       }
-      return expression.inferred_type = ValueType::unknown;
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
-    if (!(expression.column_major && index_count == 1 && container.shape.size() > 1) &&
-        index_count < container.shape.size()) {
+    if (!(semantic(semantics_, expression).column_major && index_count == 1 &&
+          container_facts.shape.size() > 1) &&
+        index_count < container_facts.shape.size()) {
       result_shape.insert(result_shape.end(),
-                          container.shape.begin() + static_cast<std::ptrdiff_t>(index_count),
-                          container.shape.end());
+                          container_facts.shape.begin() + static_cast<std::ptrdiff_t>(index_count),
+                          container_facts.shape.end());
     }
     if (has_slice || !result_shape.empty()) {
-      expression.shape = std::move(result_shape);
-      return expression.inferred_type = ValueType::list;
+      semantic(semantics_, expression).shape = std::move(result_shape);
+      return semantic(semantics_, expression).inferred_type = ValueType::list;
     }
-    return expression.inferred_type = container.element_type;
+    return semantic(semantics_, expression).inferred_type = container_facts.element_type;
   }
 
   void analyze_section_assignment(Statement& statement, const ValueType value_type) {
     auto& target = statement.target_expression;
+    auto& target_facts = semantic(semantics_, target);
     const bool replacement_is_list = value_type == ValueType::list;
     const auto replacement_element =
-        replacement_is_list ? statement.expression.element_type : value_type;
+        replacement_is_list ? semantic(semantics_, statement.expression).element_type : value_type;
     if (program_.language == SourceLanguage::python && !replacement_is_list) {
       diagnose(statement.line, "MPF2031",
                "Python slice assignment requires a list replacement in the current subset");
     }
-    if (target.element_type != ValueType::unknown && replacement_element != ValueType::unknown &&
-        join_types(target.element_type, replacement_element) == ValueType::unknown) {
+    if (target_facts.element_type != ValueType::unknown &&
+        replacement_element != ValueType::unknown &&
+        join_types(target_facts.element_type, replacement_element) == ValueType::unknown) {
       diagnose(statement.line, "MPF2020", "section assignment changes the array element type");
     }
 
     if (replacement_is_list) {
-      const auto normalized_replacement =
-          assignment_shape(statement.expression.shape, target.shape.size());
+      const auto normalized_replacement = assignment_shape(
+          semantic(semantics_, statement.expression).shape, target_facts.shape.size());
       if (program_.language == SourceLanguage::python) {
         bool extended_slice = false;
         for (std::size_t index = 1; index < target.children.size(); ++index) {
@@ -2206,16 +2343,16 @@ class Analyzer final {
           const auto step = numeric_constant(selector.children[2]);
           if (step.has_value() && *step != 1.0) extended_slice = true;
         }
-        if (extended_slice && !target.shape.empty() && !normalized_replacement.empty() &&
-            target.shape.front() != dynamic_extent &&
+        if (extended_slice && !target_facts.shape.empty() && !normalized_replacement.empty() &&
+            target_facts.shape.front() != dynamic_extent &&
             normalized_replacement.front() != dynamic_extent &&
-            target.shape.front() != normalized_replacement.front()) {
+            target_facts.shape.front() != normalized_replacement.front()) {
           diagnose(
               statement.line, "MPF2031",
               "Python extended slice assignment requires the same number of replacement elements");
         }
-      } else if (known_shape(target.shape) && known_shape(normalized_replacement) &&
-                 target.shape != normalized_replacement) {
+      } else if (known_shape(target_facts.shape) && known_shape(normalized_replacement) &&
+                 target_facts.shape != normalized_replacement) {
         diagnose(statement.line, "MPF2031",
                  "section assignment replacement shape is not conformable with the selected shape");
       }
@@ -2230,7 +2367,8 @@ class Analyzer final {
   }
 
   std::size_t analyze_slice(Expression& slice, const std::size_t extent) {
-    slice.inferred_type = ValueType::list;
+    auto& slice_facts = semantic(semantics_, slice);
+    slice_facts.inferred_type = ValueType::list;
     for (auto& bound : slice.children) {
       if (!bound.valid()) continue;
       const auto type = analyze_expression(bound);
@@ -2272,7 +2410,7 @@ class Analyzer final {
     }
     if (extent == 0) return 0;
 
-    if (!slice.slice_stop_inclusive) {
+    if (!slice_facts.slice_stop_inclusive) {
       const auto size = static_cast<long long>(extent);
       auto start = start_value.value_or(step > 0 ? 0 : size - 1);
       auto stop = stop_value.value_or(step > 0 ? size : -1);
@@ -2288,12 +2426,12 @@ class Analyzer final {
       return start > stop ? static_cast<std::size_t>((start - stop - 1) / (-step) + 1) : 0U;
     }
 
-    const auto first =
-        start_value.value_or(step > 0 ? static_cast<long long>(slice.index_base)
-                                      : static_cast<long long>(slice.index_base + extent - 1));
+    const auto first = start_value.value_or(
+        step > 0 ? static_cast<long long>(slice_facts.index_base)
+                 : static_cast<long long>(slice_facts.index_base + extent - 1));
     const auto stop =
-        stop_value.value_or(step > 0 ? static_cast<long long>(slice.index_base + extent - 1)
-                                     : static_cast<long long>(slice.index_base));
+        stop_value.value_or(step > 0 ? static_cast<long long>(slice_facts.index_base + extent - 1)
+                                     : static_cast<long long>(slice_facts.index_base));
     if ((step > 0 && first > stop) || (step < 0 && first < stop)) return 0;
     const auto distance = step > 0 ? stop - first : first - stop;
     const auto count = static_cast<std::size_t>(distance / std::llabs(step) + 1);
@@ -2303,11 +2441,11 @@ class Analyzer final {
     first_expression.location = slice.location;
     Expression last_expression = first_expression;
     last_expression.value = std::to_string(first + static_cast<long long>(count - 1) * step);
-    validate_static_index(slice.location.line, first_expression, extent, slice.index_base,
-                          slice.allow_negative_index);
-    validate_static_index(slice.location.line, last_expression, extent, slice.index_base,
-                          slice.allow_negative_index);
-    slice.shape = {count};
+    validate_static_index(slice.location.line, first_expression, extent, slice_facts.index_base,
+                          slice_facts.allow_negative_index);
+    validate_static_index(slice.location.line, last_expression, extent, slice_facts.index_base,
+                          slice_facts.allow_negative_index);
+    slice_facts.shape = {count};
     return count;
   }
 
@@ -2337,14 +2475,16 @@ class Analyzer final {
     if ((!matlab_dimensions && expression.children.size() != 3) || expression.children.size() < 3) {
       diagnose(expression.location.line, "MPF2026",
                "RESHAPE requires a source and a non-empty shape vector/dimension list");
-      return expression.inferred_type = ValueType::unknown;
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
     auto& source = expression.children[1];
-    if (source.inferred_type != ValueType::list ||
-        (!matlab_dimensions && expression.children[2].inferred_type != ValueType::list)) {
+    const auto& source_facts = semantic(semantics_, source);
+    if (source_facts.inferred_type != ValueType::list ||
+        (!matlab_dimensions &&
+         semantic(semantics_, expression.children[2]).inferred_type != ValueType::list)) {
       diagnose(expression.location.line, "MPF2022",
                "RESHAPE source and shape-vector arguments must be arrays/lists");
-      return expression.inferred_type = ValueType::unknown;
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
     std::vector<std::size_t> dimensions;
     std::vector<const Expression*> dimension_expressions;
@@ -2364,22 +2504,22 @@ class Analyzer final {
           *value != static_cast<double>(static_cast<std::size_t>(*value))) {
         diagnose(dimension->location.line, "MPF2027",
                  "RESHAPE dimensions must be positive integer constants");
-        return expression.inferred_type = ValueType::unknown;
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
       }
       dimensions.push_back(static_cast<std::size_t>(*value));
     }
     if (dimensions.empty()) {
       diagnose(expression.location.line, "MPF2027",
                "RESHAPE requires at least one result dimension");
-      return expression.inferred_type = ValueType::unknown;
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
     std::size_t source_size = 1;
-    bool source_size_known = !source.shape.empty() && known_shape(source.shape);
-    for (const auto dimension : source.shape) {
+    bool source_size_known = !source_facts.shape.empty() && known_shape(source_facts.shape);
+    for (const auto dimension : source_facts.shape) {
       if (!source_size_known) break;
       if (dimension != 0 && source_size > std::numeric_limits<std::size_t>::max() / dimension) {
         diagnose(expression.location.line, "MPF2027", "RESHAPE source exceeds target size limits");
-        return expression.inferred_type = ValueType::unknown;
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
       }
       source_size *= dimension;
     }
@@ -2387,7 +2527,7 @@ class Analyzer final {
     for (const auto dimension : dimensions) {
       if (dimension != 0 && result_size > std::numeric_limits<std::size_t>::max() / dimension) {
         diagnose(expression.location.line, "MPF2027", "RESHAPE result exceeds target size limits");
-        return expression.inferred_type = ValueType::unknown;
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
       }
       result_size *= dimension;
     }
@@ -2395,14 +2535,15 @@ class Analyzer final {
       diagnose(expression.location.line, "MPF2024",
                "RESHAPE source size does not match result shape");
     }
-    expression.inferred_type = ValueType::list;
-    expression.element_type = source.element_type;
-    expression.shape = std::move(dimensions);
-    expression.column_major = true;
-    return expression.inferred_type;
+    semantic(semantics_, expression).inferred_type = ValueType::list;
+    semantic(semantics_, expression).element_type = source_facts.element_type;
+    semantic(semantics_, expression).shape = std::move(dimensions);
+    semantic(semantics_, expression).column_major = true;
+    return semantic(semantics_, expression).inferred_type;
   }
 
   Program& program_;
+  hir::SemanticTable& semantics_;
   std::vector<Scope> scopes_;
   std::vector<Diagnostic> diagnostics_;
   std::size_t loop_depth_{0};
@@ -2414,15 +2555,24 @@ class Analyzer final {
   std::vector<std::vector<ParameterIntent>*> function_parameter_intents_;
   std::vector<std::unordered_set<std::string>> function_optional_parameters_;
   const Expression* fortran_call_expression_{nullptr};
+  bool structure_changed_{false};
 };
 
 }  // namespace
 
 AnalysisResult analyze_program(hir::Program& program) {
   AnalysisResult result;
-  result.diagnostics = Analyzer(program).analyze();
   hir::reindex(program);
-  result.semantics = hir::extract_semantics(program);
+  result.semantics = hir::initialize_semantics(program);
+  Analyzer analyzer(program, result.semantics);
+  result.diagnostics = analyzer.analyze();
+  if (analyzer.structure_changed()) ++program.revision;
+  result.semantics = hir::reindex_semantics(program, std::move(result.semantics));
+  auto flow_result = analyze_flow(program);
+  result.flow = std::move(flow_result.flow);
+  result.diagnostics.insert(result.diagnostics.end(),
+                            std::make_move_iterator(flow_result.diagnostics.begin()),
+                            std::make_move_iterator(flow_result.diagnostics.end()));
   auto verifier_diagnostics = hir::verify_semantics(program, result.semantics, "analysis");
   result.diagnostics.insert(result.diagnostics.end(),
                             std::make_move_iterator(verifier_diagnostics.begin()),

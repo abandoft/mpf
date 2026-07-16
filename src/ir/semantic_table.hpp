@@ -87,9 +87,12 @@ struct SemanticTable {
   [[nodiscard]] StatementFacts* statement(HirNodeId id) noexcept;
 };
 
-// Consumes all Analyzer-owned annotations from HIR. Surface syntax and normalized structure stay
-// in HIR; semantic facts have exactly one owner after this call.
-[[nodiscard]] SemanticTable extract_semantics(Program& program);
+// Preallocates the dense side table and copies normalized semantic inputs from HIR. Analyzer owns
+// and updates this table directly; HIR semantic payload remains immutable throughout analysis.
+[[nodiscard]] SemanticTable initialize_semantics(const Program& program);
+// Rebuilds dense HIR identities and remaps an already analyzed side table after structural
+// normalization (for example, argument association). No semantic fact is read back from HIR.
+[[nodiscard]] SemanticTable reindex_semantics(Program& program, SemanticTable&& table);
 [[nodiscard]] std::vector<Diagnostic> verify_semantics(const Program& program,
                                                        const SemanticTable& table,
                                                        std::string_view stage);

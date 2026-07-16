@@ -159,6 +159,8 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
 TEST_CASE("Analyzer owns complete revision-checked dense semantic side tables") {
   auto lowered = lower_python("values = [[1, 2], [3, 4]]\nprint(values[1][0])\n");
   const auto nodes = lowered.program.node_count;
+  const auto hir_seed_before =
+      mpf::detail::dump_semantics(mpf::detail::hir::initialize_semantics(lowered.program));
   auto analysis = mpf::detail::analyze_program(lowered.program);
   REQUIRE(analysis.empty());
   REQUIRE(analysis.semantics.hir_node_count == nodes);
@@ -175,6 +177,8 @@ TEST_CASE("Analyzer owns complete revision-checked dense semantic side tables") 
   REQUIRE((assignment->shape == std::vector<std::size_t>{2, 2}));
   REQUIRE(lowered.program.statements.front().declared_type == mpf::detail::ValueType::unknown);
   REQUIRE(lowered.program.statements.front().shape.empty());
+  REQUIRE(mpf::detail::dump_semantics(mpf::detail::hir::initialize_semantics(lowered.program)) ==
+          hir_seed_before);
   REQUIRE(mpf::detail::hir::verify_semantics(lowered.program, analysis.semantics, "test").empty());
 
   auto stale = analysis.semantics;
@@ -192,7 +196,80 @@ TEST_CASE("Analyzer owns complete revision-checked dense semantic side tables") 
   REQUIRE(unpack_facts != nullptr);
   REQUIRE(unpack_facts->target_pattern.valid());
   REQUIRE(unpack_facts->target_pattern.children.size() == 2U);
-  REQUIRE(!unpacked.program.statements.front().target_pattern.valid());
+  REQUIRE(unpacked.program.statements.front().target_pattern.valid());
+  REQUIRE(unpacked.program.statements.front().target_pattern.children.front().access_path.empty());
+  REQUIRE(!unpack_facts->target_pattern.children.front().access_path.empty());
+}
+
+TEST_CASE("argument normalization revises HIR and keeps analysis tables dense") {
+  const std::string source =
+      "def combine(left, right=2):\n"
+      "    return left + right\n"
+      "print(combine(40))\n";
+  auto lowered = lower_python(source);
+  const auto initial_nodes = lowered.program.node_count;
+  const auto initial_revision = lowered.program.revision;
+  auto analysis = mpf::detail::analyze_program(lowered.program);
+  REQUIRE(analysis.empty());
+  REQUIRE(lowered.program.revision == initial_revision + 1U);
+  REQUIRE(lowered.program.node_count > initial_nodes);
+  REQUIRE(analysis.semantics.hir_node_count == lowered.program.node_count);
+  REQUIRE(analysis.semantics.nodes.size() == lowered.program.node_count + 1U);
+  REQUIRE(analysis.flow.hir_node_count == lowered.program.node_count);
+  REQUIRE(analysis.flow.nodes.size() == lowered.program.node_count + 1U);
+  REQUIRE(mpf::detail::hir::verify(lowered.program, "normalized-call").empty());
+  REQUIRE(mpf::detail::hir::verify_semantics(lowered.program, analysis.semantics, "normalized-call")
+              .empty());
+  REQUIRE(mpf::detail::verify_flow(lowered.program, analysis.flow, "normalized-call").empty());
+
+  mpf::TranspileOptions options;
+  options.language = mpf::SourceLanguage::python;
+  options.resource_limits.max_hir_nodes = initial_nodes;
+  const auto limited = mpf::Transpiler{}.transpile(source, options);
+  REQUIRE(!limited.success());
+  REQUIRE(std::any_of(limited.diagnostics.begin(), limited.diagnostics.end(),
+                      [](const mpf::Diagnostic& diagnostic) {
+                        return diagnostic.code == "MPF0010" &&
+                               diagnostic.message.find("hir-nodes") != std::string::npos;
+                      }));
+}
+
+TEST_CASE("control flow analysis is independent revision-bound and dense") {
+  auto lowered = lower_python(
+      "def choose(flag):\n"
+      "    if flag:\n"
+      "        return 1\n"
+      "    else:\n"
+      "        return 2\n"
+      "    print(3)\n"
+      "print(choose(True))\n");
+  auto analysis = mpf::detail::analyze_program(lowered.program);
+  REQUIRE(std::any_of(analysis.diagnostics.begin(), analysis.diagnostics.end(),
+                      [](const mpf::Diagnostic& diagnostic) {
+                        return diagnostic.severity == mpf::DiagnosticSeverity::warning &&
+                               diagnostic.code == "MPF2101";
+                      }));
+  REQUIRE(mpf::detail::verify_flow(lowered.program, analysis.flow, "test").empty());
+
+  const auto& function = lowered.program.statements.front();
+  const auto& conditional = function.body.front();
+  const auto& unreachable = function.body.back();
+  const auto* function_flow = analysis.flow.statement(function.id);
+  const auto* conditional_flow = analysis.flow.statement(conditional.id);
+  const auto* unreachable_flow = analysis.flow.statement(unreachable.id);
+  REQUIRE(function_flow != nullptr);
+  REQUIRE(conditional_flow != nullptr);
+  REQUIRE(unreachable_flow != nullptr);
+  REQUIRE(function_flow->body_terminates);
+  REQUIRE(conditional_flow->terminates);
+  REQUIRE(conditional_flow->body_terminates);
+  REQUIRE(conditional_flow->alternative_terminates);
+  REQUIRE(!unreachable_flow->reachable);
+  REQUIRE(unreachable_flow->function_depth == 1U);
+
+  auto stale = analysis.flow;
+  ++lowered.program.revision;
+  REQUIRE(!mpf::detail::verify_flow(lowered.program, stale, "stale").empty());
 }
 
 TEST_CASE("HIR lowers to typed CFG MIR with shape storage and effects") {
