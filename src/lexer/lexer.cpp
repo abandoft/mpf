@@ -8,6 +8,7 @@ LexerResult lex_expression(const std::string_view input, const SourceLanguage la
     case SourceLanguage::python: return lex_python_expression(input, line, column);
     case SourceLanguage::matlab: return lex_matlab_expression(input, line, column);
     case SourceLanguage::fortran: return lex_fortran_expression(input, line, column);
+    case SourceLanguage::typescript: return lex_typescript_expression(input, line, column);
     case SourceLanguage::automatic: break;
   }
   LexerResult result;

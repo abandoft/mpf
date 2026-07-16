@@ -45,6 +45,7 @@ struct StatementFacts {
   ParameterIntent parameter_intent{ParameterIntent::none};
   bool optional_parameter{false};
   bool dummy_parameter{false};
+  bool exported{false};
   std::vector<std::size_t> shape;
   std::size_t index_base{0};
   bool allow_negative_index{false};

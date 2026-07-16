@@ -63,6 +63,10 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
     }
     seen[statement.id.value()] = true;
     const auto parameters = statement.parameters.size();
+    if (facts->exported && statement.kind != StatementKind::function) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "only a function statement may carry the exported semantic fact");
+    }
     if (!compatible_arity(facts->parameter_intents.size(), parameters) ||
         !compatible_arity(facts->parameter_optional.size(), parameters) ||
         !compatible_arity(facts->parameter_types.size(), parameters) ||

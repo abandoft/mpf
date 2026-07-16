@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
   mpf
-  VERSION 0.3.9
-  DESCRIPTION "Matlab, Python and Fortran to JavaScript and C++17 transpiler"
+  VERSION 0.4.0
+  DESCRIPTION "Matlab, Python, Fortran and TypeScript to JavaScript and C++17 transpiler"
   LANGUAGES C CXX)
 
 if(PROJECT_VERSION VERSION_LESS "0.0.1" OR PROJECT_VERSION_PATCH GREATER 9)
@@ -124,6 +124,7 @@ add_library(mpf_core
   src/lexer/python_statement_lexer.cpp
   src/lexer/matlab_statement_lexer.cpp
   src/lexer/fortran_statement_lexer.cpp
+  src/lexer/typescript_statement_lexer.cpp
   src/compiler/expression.cpp
   src/compiler/intrinsic.cpp
   src/compiler/code_binding.cpp
@@ -140,6 +141,7 @@ add_library(mpf_core
   src/lexers/python_lexer.cpp
   src/lexers/matlab_lexer.cpp
   src/lexers/fortran_lexer.cpp
+  src/lexers/typescript_lexer.cpp
   src/frontends/python_logical_source.cpp
   src/frontends/frontend_ast.cpp
   src/frontends/frontend_conformance.cpp
@@ -148,10 +150,12 @@ add_library(mpf_core
   src/frontends/python_statement_parser.cpp
   src/frontends/matlab_statement_parser.cpp
   src/frontends/fortran_statement_parser.cpp
+  src/frontends/typescript_statement_parser.cpp
   src/frontends/python_frontend.cpp
   src/frontends/matlab_frontend.cpp
   src/frontends/fortran_source_form.cpp
-  src/frontends/fortran_frontend.cpp)
+  src/frontends/fortran_frontend.cpp
+  src/frontends/typescript_frontend.cpp)
 add_library(mpf::core ALIAS mpf_core)
 set_target_properties(mpf_core PROPERTIES OUTPUT_NAME mpf-core EXPORT_NAME core)
 mpf_configure_compilation(mpf_core PUBLIC)

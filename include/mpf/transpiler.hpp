@@ -11,7 +11,7 @@
 
 namespace mpf {
 
-enum class SourceLanguage { automatic, matlab, python, fortran };
+enum class SourceLanguage { automatic, matlab, python, fortran, typescript };
 
 enum class TargetLanguage { javascript, cpp };
 

@@ -757,14 +757,24 @@ bool Analyzer::analyze_statement(Statement& statement) {
       }
       return true;
     case StatementKind::if_statement:
-      analyze_expression(statement.expression);
+      if (const auto type = analyze_expression(statement.expression);
+          program_.language == SourceLanguage::typescript && type != ValueType::boolean &&
+          type != ValueType::unknown) {
+        diagnose(statement.line, "MPF2002",
+                 "TypeScript if condition currently requires a boolean value");
+      }
       return analyze_branches(statement.body, statement.alternative);
     case StatementKind::select_case: return analyze_select_case(statement);
     case StatementKind::case_clause:
       diagnose(statement.line, "MPF2043", "CASE clause appears outside SELECT CASE");
       return false;
     case StatementKind::while_loop: {
-      analyze_expression(statement.expression);
+      const auto condition_type = analyze_expression(statement.expression);
+      if (program_.language == SourceLanguage::typescript && condition_type != ValueType::boolean &&
+          condition_type != ValueType::unknown) {
+        diagnose(statement.line, "MPF2002",
+                 "TypeScript while condition currently requires a boolean value");
+      }
       const auto before = current();
       ++loop_depth_;
       analyze_statements(statement.body);
@@ -1159,7 +1169,7 @@ void Analyzer::infer_python_sequence_metadata(Statement& function) const {
 }
 
 void Analyzer::analyze_function(Statement& function) {
-  if (program_.language == SourceLanguage::python) {
+  if (program_.semantics.emit_parameter_defaults) {
     if (function.parameter_kinds.size() < function.parameters.size()) {
       function.parameter_kinds.resize(function.parameters.size(),
                                       ParameterKind::positional_or_keyword);
@@ -1171,7 +1181,7 @@ void Analyzer::analyze_function(Statement& function) {
       if (!default_value.valid()) continue;
       if (!safe_python_default(default_value)) {
         diagnose(default_value.location.line, "MPF2041",
-                 "Python defaults currently require an immutable scalar literal");
+                 "default parameters currently require an immutable scalar literal");
       }
       analyze_expression(default_value);
     }
@@ -1223,18 +1233,26 @@ void Analyzer::analyze_function(Statement& function) {
     }
   }
   for (std::size_t index = 0; index < function.parameters.size(); ++index) {
+    const auto annotated_type = index < semantic(semantics_, function).parameter_types.size()
+                                    ? semantic(semantics_, function).parameter_types[index]
+                                    : ValueType::unknown;
     const auto default_type =
-        program_.language == SourceLanguage::python && index < function.parameter_defaults.size() &&
+        program_.semantics.emit_parameter_defaults && index < function.parameter_defaults.size() &&
                 function.parameter_defaults[index].valid()
             ? semantic(semantics_, function.parameter_defaults[index]).inferred_type
             : ValueType::unknown;
+    const auto type = join_types(annotated_type, default_type);
+    const auto element_type = index < semantic(semantics_, function).parameter_element_types.size()
+                                  ? semantic(semantics_, function).parameter_element_types[index]
+                                  : ValueType::unknown;
+    const auto shape = index < semantic(semantics_, function).parameter_shapes.size()
+                           ? semantic(semantics_, function).parameter_shapes[index]
+                           : std::vector<std::size_t>{};
     definition_state(function, NameRole::parameter, index) = {
-        default_type,
-        BindingKind::variable,
+        type, BindingKind::variable,
         program_.language != SourceLanguage::fortran ||
             semantic(semantics_, function).parameter_intents[index] != ParameterIntent::out,
-        ValueType::unknown,
-        {}};
+        element_type, shape};
   }
   for (std::size_t index = 0; index < function.return_names.size(); ++index) {
     const auto type = index < semantic(semantics_, function).return_types.size()
@@ -1327,11 +1345,11 @@ void Analyzer::analyze_function(Statement& function) {
   } else if (output_types.size() > 1) {
     semantic(semantics_, function).declared_type = ValueType::tuple;
   }
-  if (program_.language == SourceLanguage::python &&
+  if (program_.semantics.emit_parameter_defaults &&
       semantic(semantics_, function).declared_type == ValueType::tuple) {
     infer_python_tuple_returns(function);
   }
-  if (program_.language == SourceLanguage::python &&
+  if (program_.semantics.emit_parameter_defaults &&
       (semantic(semantics_, function).declared_type == ValueType::tuple ||
        semantic(semantics_, function).declared_type == ValueType::list)) {
     infer_python_sequence_metadata(function);

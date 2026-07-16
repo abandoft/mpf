@@ -23,5 +23,7 @@ struct LexerResult {
                                                 std::size_t column);
 [[nodiscard]] LexerResult lex_fortran_expression(std::string_view input, std::size_t line,
                                                  std::size_t column);
+[[nodiscard]] LexerResult lex_typescript_expression(std::string_view input, std::size_t line,
+                                                    std::size_t column);
 
 }  // namespace mpf::detail

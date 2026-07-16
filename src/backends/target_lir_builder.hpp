@@ -178,6 +178,7 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
   result.has_tertiary_expression = source.has_tertiary_expression;
   result.inclusive_stop = attributes.inclusive_stop;
   result.retain_last_loop_value = attributes.retain_last_loop_value;
+  result.source_exported = function != nullptr && function->exported;
   if (storage != nullptr) {
     result.declared_type = mir::value_type(program, storage->type);
     result.element_type = mir::element_type(program, storage->type);
@@ -236,13 +237,12 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
   result.return_names = source.return_names;
   result.has_value_return = function != nullptr && !function->result_types.empty();
   if (function != nullptr) {
-    const auto* python_tuple =
-        program.source_language == SourceLanguage::python && function->result_types.size() == 1U
-            ? mir::type(program, function->result_types.front())
-            : nullptr;
-    if (python_tuple != nullptr && python_tuple->kind == mir::TypeKind::tuple) {
+    const auto* tuple_result = function->result_types.size() == 1U
+                                   ? mir::type(program, function->result_types.front())
+                                   : nullptr;
+    if (tuple_result != nullptr && tuple_result->kind == mir::TypeKind::tuple) {
       result.declared_type = ValueType::tuple;
-      for (const auto element : python_tuple->elements) {
+      for (const auto element : tuple_result->elements) {
         result.return_types.push_back(mir::value_type(program, element));
         result.return_element_types.push_back(mir::element_type(program, element));
         result.return_shapes.push_back({});

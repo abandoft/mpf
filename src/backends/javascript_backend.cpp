@@ -26,7 +26,7 @@ const BackendDescriptor& javascript_backend() noexcept {
       "javascript",
       {aliases, std::size(aliases)},
       {"ECMAScript-2020",
-       "mpf.javascript.lir.v10",
+       "mpf.javascript.lir.v11",
        {1, configuration, std::size(configuration)},
        {"mpf.runtime-supply-chain.v1", runtime_components, std::size(runtime_components)},
        true,

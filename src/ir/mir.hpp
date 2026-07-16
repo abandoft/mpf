@@ -182,6 +182,7 @@ struct Function {
   HirNodeId origin{};
   SymbolId symbol{};
   std::string name;
+  bool exported{false};
   BlockId entry{};
   std::vector<BlockId> blocks;
   std::vector<TypeId> parameter_types;

@@ -90,7 +90,7 @@ SourceComplexity inspect_source(const std::string_view source, const SourceLangu
         }
         if (indentation_width > indentation.back()) indentation.push_back(indentation_width);
         result.depth = std::max(result.depth, indentation.size() - 1U);
-      } else {
+      } else if (language != SourceLanguage::typescript) {
         std::string first;
         for (const char raw_character : content) {
           const auto character = static_cast<unsigned char>(raw_character);
@@ -147,7 +147,8 @@ std::string to_string(const LanguageVersion version, const SourceLanguage langua
   if (language == SourceLanguage::matlab && (version.minor == 1 || version.minor == 2)) {
     return "R" + std::to_string(version.major) + (version.minor == 1 ? "a" : "b");
   }
-  if (language == SourceLanguage::python || version.minor != 0) {
+  if (language == SourceLanguage::python || language == SourceLanguage::typescript ||
+      version.minor != 0) {
     return std::to_string(version.major) + "." + std::to_string(version.minor);
   }
   return std::to_string(version.major);

@@ -59,6 +59,13 @@ bool compatible_type(const Program& program, const TypeId actual, const TypeId e
       expected_data->value_type == ValueType::unknown) {
     return true;
   }
+  const auto numeric = [](const ValueType type) {
+    return type == ValueType::integer || type == ValueType::real;
+  };
+  if (actual_data->kind == TypeKind::scalar && expected_data->kind == TypeKind::scalar &&
+      numeric(actual_data->value_type) && numeric(expected_data->value_type)) {
+    return true;
+  }
   if (actual_data->kind != expected_data->kind ||
       actual_data->value_type != expected_data->value_type) {
     return false;

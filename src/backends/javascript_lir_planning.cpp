@@ -166,7 +166,8 @@ void plan_statement_resources(lir::SemanticProgram& program,
     if (statement.kind == StatementKind::function) {
       statement.function_abi.valid = true;
       statement.function_abi.exported =
-          top_level && program.emission.module == lir::EmissionPlan::ModuleFormat::esm;
+          top_level && program.emission.module == lir::EmissionPlan::ModuleFormat::esm &&
+          (!program.emission.explicit_exports_only || statement.source_exported);
       statement.function_abi.parameters.reserve(statement.parameters.size());
       for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
         const auto intent = index < statement.parameter_intents.size()
@@ -275,7 +276,8 @@ void verify_statement_resources(const lir::SemanticProgram& program,
           !statement.function_scope.declarations.empty())) ||
         (function &&
          statement.function_abi.exported !=
-             (top_level && program.emission.module == lir::EmissionPlan::ModuleFormat::esm)) ||
+             (top_level && program.emission.module == lir::EmissionPlan::ModuleFormat::esm &&
+              (!program.emission.explicit_exports_only || statement.source_exported))) ||
         (function && statement.function_scope.declarations !=
                          expected_scope(statement.body, statement.parameters))) {
       add_error(diagnostics, {statement.line, 1},

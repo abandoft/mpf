@@ -345,6 +345,8 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
       semantic_program.source_semantics.truthiness == mpf::detail::semantic::Truthiness::dynamic;
   lowered->emission.operand_logical_result = semantic_program.source_semantics.logical_result ==
                                              mpf::detail::semantic::LogicalResult::operand;
+  lowered->emission.explicit_exports_only = semantic_program.source_semantics.export_policy ==
+                                            mpf::detail::semantic::ExportPolicy::explicit_only;
   lowered->emission.structural_equality =
       semantic_program.source_semantics.equality == mpf::detail::semantic::Equality::structural;
   lowered->emission.resizable_sections = semantic_program.source_semantics.resizable_sections;
@@ -429,6 +431,7 @@ std::string lir::dump(const SemanticProgram& program) {
   output << "]\n";
   output << "emission dynamic-truthiness=" << program.emission.dynamic_truthiness
          << " operand-logical-result=" << program.emission.operand_logical_result
+         << " explicit-exports-only=" << program.emission.explicit_exports_only
          << " structural-equality=" << program.emission.structural_equality
          << " resizable-sections=" << program.emission.resizable_sections
          << " parameter-defaults=" << program.emission.emit_parameter_defaults

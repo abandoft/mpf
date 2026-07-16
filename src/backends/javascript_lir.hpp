@@ -39,6 +39,7 @@ struct EmissionPlan {
 
   bool dynamic_truthiness{false};
   bool operand_logical_result{false};
+  bool explicit_exports_only{false};
   bool structural_equality{false};
   bool resizable_sections{false};
   bool emit_parameter_defaults{false};
@@ -315,6 +316,7 @@ struct Statement {
   bool has_tertiary_expression{false};
   bool inclusive_stop{false};
   bool retain_last_loop_value{true};
+  bool source_exported{false};
   ValueType declared_type{ValueType::unknown};
   ValueType element_type{ValueType::unknown};
   ValueType previous_type{ValueType::unknown};

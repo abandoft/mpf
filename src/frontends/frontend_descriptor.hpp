@@ -129,5 +129,6 @@ struct FrontendDescriptor {
 [[nodiscard]] const FrontendDescriptor& python_frontend() noexcept;
 [[nodiscard]] const FrontendDescriptor& matlab_frontend() noexcept;
 [[nodiscard]] const FrontendDescriptor& fortran_frontend() noexcept;
+[[nodiscard]] const FrontendDescriptor& typescript_frontend() noexcept;
 
 }  // namespace mpf::detail

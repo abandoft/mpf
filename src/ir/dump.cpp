@@ -162,8 +162,8 @@ std::string dump_semantics(const hir::SemanticTable& table) {
         output << facts.shape[extent];
       }
       output << "] parameters=" << facts.parameter_types.size()
-             << " returns=" << facts.return_types.size()
-             << " targets=" << facts.target_types.size();
+             << " returns=" << facts.return_types.size() << " targets=" << facts.target_types.size()
+             << " exported=" << facts.exported;
     }
     output << '\n';
   }
@@ -268,7 +268,8 @@ std::string dump_mir(const mir::Program& program) {
   for (std::size_t index = 1; index < program.functions.size(); ++index) {
     const auto& function = program.functions[index];
     output << "function @f" << function.id.value() << " name=" << std::quoted(function.name)
-           << " signature=!t" << function.signature.value() << " parameters=";
+           << " exported=" << function.exported << " signature=!t" << function.signature.value()
+           << " parameters=";
     dump_ids(output, function.parameter_types, "!t");
     output << " parameter-shapes=";
     dump_ids(output, function.parameter_shapes, "!s");

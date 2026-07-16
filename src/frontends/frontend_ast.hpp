@@ -80,6 +80,7 @@ struct ArenaStatement {
   bool has_tertiary_expression{false};
   bool inclusive_stop{false};
   bool retain_last_loop_value{true};
+  bool exported{false};
   ValueType declared_type{ValueType::unknown};
   ValueType element_type{ValueType::unknown};
   ValueType previous_type{ValueType::unknown};
@@ -179,8 +180,17 @@ using Program = ArenaProgram<LanguageTag>;
 using ParseResult = ArenaParseResult<LanguageTag>;
 }  // namespace fortran::ast
 
-using FrontendAst =
-    std::variant<std::monostate, python::ast::Program, matlab::ast::Program, fortran::ast::Program>;
+namespace typescript::ast {
+struct LanguageTag;
+using Expression = ArenaExpression<LanguageTag>;
+using Statement = ArenaStatement<LanguageTag>;
+using CaseSelector = ArenaCaseSelector<LanguageTag>;
+using Program = ArenaProgram<LanguageTag>;
+using ParseResult = ArenaParseResult<LanguageTag>;
+}  // namespace typescript::ast
+
+using FrontendAst = std::variant<std::monostate, python::ast::Program, matlab::ast::Program,
+                                 fortran::ast::Program, typescript::ast::Program>;
 
 struct FrontendParseResult {
   FrontendAst ast;
@@ -190,6 +200,7 @@ struct FrontendParseResult {
 [[nodiscard]] hir::LoweringResult lower_python_ast(python::ast::Program&& program);
 [[nodiscard]] hir::LoweringResult lower_matlab_ast(matlab::ast::Program&& program);
 [[nodiscard]] hir::LoweringResult lower_fortran_ast(fortran::ast::Program&& program);
+[[nodiscard]] hir::LoweringResult lower_typescript_ast(typescript::ast::Program&& program);
 
 [[nodiscard]] std::size_t frontend_ast_node_count(const FrontendAst& ast) noexcept;
 [[nodiscard]] std::size_t frontend_ast_arena_bytes(const FrontendAst& ast) noexcept;

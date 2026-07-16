@@ -368,6 +368,7 @@ struct Statement {
   bool has_tertiary_expression{false};
   bool inclusive_stop{false};
   bool retain_last_loop_value{true};
+  bool source_exported{false};
   ValueType declared_type{ValueType::unknown};
   ValueType element_type{ValueType::unknown};
   ValueType previous_type{ValueType::unknown};

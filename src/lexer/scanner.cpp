@@ -66,6 +66,12 @@ std::string portable_string_literal(const std::string_view content, const bool p
 }
 
 TokenKind identifier_kind(const std::string& word, const SourceLanguage language) {
+  if (language == SourceLanguage::typescript) {
+    if (word == "true") return TokenKind::true_keyword;
+    if (word == "false") return TokenKind::false_keyword;
+    if (word == "null") return TokenKind::null_keyword;
+    return TokenKind::identifier;
+  }
   const auto key = lower(word);
   if ((language == SourceLanguage::python && key == "true") ||
       (language == SourceLanguage::matlab && key == "true")) {
@@ -234,8 +240,8 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
       bool closed = false;
       while (index < input.size()) {
         if (input[index] == quote) {
-          if (language != SourceLanguage::python && index + 1 < input.size() &&
-              input[index + 1] == quote) {
+          if (language != SourceLanguage::python && language != SourceLanguage::typescript &&
+              index + 1 < input.size() && input[index + 1] == quote) {
             content.push_back(quote);
             index += 2;
             continue;
@@ -244,7 +250,8 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
           closed = true;
           break;
         }
-        if (input[index] == '\\' && language == SourceLanguage::python &&
+        if (input[index] == '\\' &&
+            (language == SourceLanguage::python || language == SourceLanguage::typescript) &&
             index + 1 < input.size()) {
           content.push_back(input[index++]);
           content.push_back(input[index++]);
@@ -255,12 +262,22 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
       if (!closed) {
         add_error(result, line, token_column, "MPF1002", "unterminated string literal");
       }
-      result.tokens.push_back({TokenKind::string_literal,
-                               portable_string_literal(content, language == SourceLanguage::python),
-                               {line, token_column}});
+      result.tokens.push_back(
+          {TokenKind::string_literal,
+           portable_string_literal(content, language == SourceLanguage::python ||
+                                                language == SourceLanguage::typescript),
+           {line, token_column}});
       continue;
     }
 
+    const auto three = index + 2 < input.size() ? input.substr(index, 3) : std::string_view{};
+    if (language == SourceLanguage::typescript && (three == "===" || three == "!==")) {
+      result.tokens.push_back({three == "===" ? TokenKind::equal_equal : TokenKind::not_equal,
+                               std::string(three),
+                               {line, token_column}});
+      index += 3;
+      continue;
+    }
     const auto two = index + 1 < input.size() ? input.substr(index, 2) : std::string_view{};
     TokenKind kind = TokenKind::end;
     if (language == SourceLanguage::fortran && two == "(/")

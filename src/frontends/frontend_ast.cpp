@@ -27,6 +27,10 @@ semantic::Profile semantic_profile(const SourceLanguage language) noexcept {
     profile.top_level_storage = semantic::TopLevelStorage::entry_function;
   } else if (language == SourceLanguage::fortran) {
     profile.layout = semantic::IndexLayout::column_major;
+  } else if (language == SourceLanguage::typescript) {
+    profile.division = semantic::Division::real_quotient;
+    profile.export_policy = semantic::ExportPolicy::explicit_only;
+    profile.emit_parameter_defaults = true;
   }
   return profile;
 }
@@ -159,6 +163,7 @@ class HirLowerer final {
     facts.parameter_intent = node.parameter_intent;
     facts.optional_parameter = node.optional_parameter;
     facts.dummy_parameter = node.dummy_parameter;
+    facts.exported = node.exported;
     facts.shape = std::move(node.shape);
     facts.index_base = node.index_base;
     facts.allow_negative_index = node.allow_negative_index;
@@ -262,6 +267,9 @@ std::vector<Diagnostic> verify_typed_ast(const ArenaProgram<Tag>& ast,
       return;
     }
     const auto& node = ast.statements[record.index];
+    if (node.exported && node.kind != StatementKind::function) {
+      add_error({node.line, 1}, "only a function AST node may be explicitly exported");
+    }
     const auto optional = [&](const AstNodeId value, const bool present, const char* name) {
       if (present != value.valid()) {
         add_error({node.line, 1}, std::string(name) + " presence flag is inconsistent");
@@ -328,6 +336,10 @@ hir::LoweringResult lower_fortran_ast(fortran::ast::Program&& program) {
   return HirLowerer<fortran::ast::LanguageTag>(program).lower();
 }
 
+hir::LoweringResult lower_typescript_ast(typescript::ast::Program&& program) {
+  return HirLowerer<typescript::ast::LanguageTag>(program).lower();
+}
+
 std::size_t frontend_ast_node_count(const FrontendAst& ast) noexcept {
   return std::visit(
       [](const auto& artifact) -> std::size_t {
@@ -364,6 +376,9 @@ std::string dump_frontend_ast(const FrontendAst& ast) {
   if (const auto* program = std::get_if<fortran::ast::Program>(&ast)) {
     return dump_typed_ast(*program, "fortran");
   }
+  if (const auto* program = std::get_if<typescript::ast::Program>(&ast)) {
+    return dump_typed_ast(*program, "typescript");
+  }
   return "ast <empty> nodes=0\n";
 }
 
@@ -376,6 +391,9 @@ std::vector<Diagnostic> verify_frontend_ast(const FrontendAst& ast,
     return verify_typed_ast(*program, expected_language);
   }
   if (const auto* program = std::get_if<fortran::ast::Program>(&ast)) {
+    return verify_typed_ast(*program, expected_language);
+  }
+  if (const auto* program = std::get_if<typescript::ast::Program>(&ast)) {
     return verify_typed_ast(*program, expected_language);
   }
   return {{DiagnosticSeverity::error, "MPF0005", "frontend produced no AST artifact", {1, 1}}};

@@ -56,7 +56,8 @@ class Builder final {
   Builder(Program& program, const hir::SemanticTable& semantics, const NameTable& names)
       : program_(program), semantics_(semantics), names_(names) {}
 
-  void begin_function(std::string name, const HirNodeId origin, const SymbolId symbol = {}) {
+  void begin_function(std::string name, const HirNodeId origin, const SymbolId symbol = {},
+                      const bool exported = false) {
     storages_.clear();
     storage_values_.clear();
     Function function;
@@ -64,6 +65,7 @@ class Builder final {
     function.origin = origin;
     function.symbol = symbol;
     function.name = std::move(name);
+    function.exported = exported;
     function.entry = make_block();
     function.blocks.push_back(function.entry);
     program_.functions.push_back(std::move(function));
@@ -1153,8 +1155,7 @@ class Builder final {
       signature_parameters.push_back(
           intent == ParameterIntent::none ? type : intern_reference_type(type, intent));
     }
-    if (program_.source_language == SourceLanguage::python && facts != nullptr &&
-        facts->has_value_return) {
+    if (facts != nullptr && facts->has_value_return) {
       if (facts->declared_type == ValueType::tuple && !facts->return_types.empty()) {
         std::vector<TypeId> elements;
         elements.reserve(facts->return_types.size());
@@ -1442,8 +1443,10 @@ LoweringResult lower_from_hir(hir::Program&& source, hir::SemanticTable&& semant
     const auto function_name = statement.name;
     const auto function_origin = statement.id;
     const auto* function_use = names.use(function_origin, NameRole::declaration);
+    const auto* facts = semantics.statement(function_origin);
     builder.begin_function(function_name, function_origin,
-                           function_use == nullptr ? SymbolId{} : function_use->symbol);
+                           function_use == nullptr ? SymbolId{} : function_use->symbol,
+                           facts != nullptr && facts->exported);
     result.program.roots.push_back(builder.lower_statement(std::move(statement)));
     builder.finish_function();
   }

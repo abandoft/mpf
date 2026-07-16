@@ -10,8 +10,8 @@ namespace {
 
 using FrontendFactory = const FrontendDescriptor& (*)() noexcept;
 
-constexpr std::array<FrontendFactory, 3> factories{&matlab_frontend, &python_frontend,
-                                                   &fortran_frontend};
+constexpr std::array<FrontendFactory, 4> factories{&matlab_frontend, &python_frontend,
+                                                   &fortran_frontend, &typescript_frontend};
 
 bool equals_ci(const std::string_view left, const std::string_view right) noexcept {
   if (left.size() != right.size()) return false;

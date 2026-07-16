@@ -69,6 +69,11 @@ ValueType Analyzer::analyze_expression(Expression& expression) {
       const auto operand = expression.children.empty()
                                ? ValueType::unknown
                                : analyze_expression(expression.children.front());
+      if (program_.language == SourceLanguage::typescript && expression.value == "!" &&
+          operand != ValueType::unknown && operand != ValueType::boolean) {
+        diagnose(expression.location.line, "MPF2002",
+                 "TypeScript logical negation currently requires a boolean operand");
+      }
       semantic(semantics_, expression).inferred_type =
           expression.value == "!" ? ValueType::boolean : operand;
       return semantic(semantics_, expression).inferred_type;
@@ -180,10 +185,23 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
     if (program_.language == SourceLanguage::python) {
       validate_python_comparison(expression.comparison, expression.children[0], left,
                                  expression.children[1], right);
+    } else if (program_.language == SourceLanguage::typescript && left != ValueType::unknown &&
+               right != ValueType::unknown) {
+      const auto numeric_type = [](const ValueType type) {
+        return type == ValueType::integer || type == ValueType::real;
+      };
+      const bool compatible = (numeric_type(left) && numeric_type(right)) || left == right;
+      const bool reference_value = left == ValueType::list || left == ValueType::tuple ||
+                                   right == ValueType::list || right == ValueType::tuple;
+      if (!compatible || reference_value ||
+          (comparison_is_ordering(expression.comparison) && left == ValueType::boolean)) {
+        diagnose(expression.location.line, "MPF2044",
+                 "TypeScript comparison operands are outside the portable scalar subset");
+      }
     }
     return semantic(semantics_, expression).inferred_type = ValueType::boolean;
   }
-  if (program_.language == SourceLanguage::python &&
+  if (program_.semantics.logical_result == semantic::LogicalResult::operand &&
       (expression.value == "&&" || expression.value == "||")) {
     semantic(semantics_, expression).inferred_type = join_types(left, right);
     if (left == ValueType::list && right == ValueType::list) {
@@ -201,6 +219,12 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
     return semantic(semantics_, expression).inferred_type;
   }
   if (expression.value == "&&" || expression.value == "||") {
+    if (program_.language == SourceLanguage::typescript &&
+        ((left != ValueType::boolean && left != ValueType::unknown) ||
+         (right != ValueType::boolean && right != ValueType::unknown))) {
+      diagnose(expression.location.line, "MPF2002",
+               "TypeScript logical operators currently require boolean operands");
+    }
     return semantic(semantics_, expression).inferred_type = ValueType::boolean;
   }
   if (expression.value == "+" && left == ValueType::string && right == ValueType::string) {
@@ -215,8 +239,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
   }
   if (expression.value == "//")
     return semantic(semantics_, expression).inferred_type = ValueType::integer;
-  if (expression.value == "/" && (program_.language == SourceLanguage::python ||
-                                  program_.language == SourceLanguage::matlab)) {
+  if (expression.value == "/" && program_.semantics.division == semantic::Division::real_quotient) {
     return semantic(semantics_, expression).inferred_type = ValueType::real;
   }
   if (expression.value == "**")
@@ -537,7 +560,7 @@ ValueType Analyzer::analyze_call(Expression& expression) {
   }
   if (program_.language == SourceLanguage::fortran && called_function != nullptr) {
     normalize_fortran_arguments(expression, *called_function);
-  } else if (program_.language == SourceLanguage::python && called_function != nullptr) {
+  } else if (program_.semantics.emit_parameter_defaults && called_function != nullptr) {
     normalize_python_arguments(expression, *called_function);
   } else if (program_.language == SourceLanguage::fortran &&
              std::any_of(semantic(semantics_, expression).argument_names.begin(),
