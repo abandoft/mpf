@@ -2,7 +2,7 @@
 
 0.3.4 使用对称的 descriptor/registry 架构接入内置源语言和输出目标。核心驱动执行“选择 descriptor → 创建 parser session → parse 语言 AST → AST verifier → AST→HIR → HIR pass → MIR → MIR pass → capability/legalization → 私有 semantic plan/LIR → LIR verifier/dump → printer”，不按具体语言或目标硬编码分派。当前 contract 面向同一源码树中的编译期组件；descriptor 带 API version，但尚不承诺跨动态库的稳定插件 ABI。
 
-本页记录当前可执行的 frontend API v5/backend API v4 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、Analyzer 直写 semantic side table、独立 flow side table、当前控制结构 MIR CFG/alias、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；statement parser 的共享 scratch、尚待拆分的 name/scope 与 alias/effect，以及 HIR/MIR 宽兼容投影不是新扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
+本页记录当前可执行的 frontend API v5/backend API v4 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、Analyzer 直写 semantic side table、独立 name/scope 与 flow side table、当前控制结构 MIR CFG/alias、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；statement parser 的共享 scratch、尚待拆分的 alias/effect，以及 HIR/MIR 宽兼容投影不是新扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
 
 ## 设计约束
 

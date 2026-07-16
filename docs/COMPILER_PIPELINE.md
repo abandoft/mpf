@@ -2,7 +2,7 @@
 
 本文是 MPF 前端、公共中间表示、分析/优化基础设施和后端的权威架构规范，也是重构验收依据。若其他文档与本文的层级职责冲突，以本文和 [TODO](../TODO.md) 的逐项状态为准。
 
-> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 已让 Analyzer 预分配并直接写入按 `HirNodeId` 稠密索引、绑定 revision 的唯一 `SemanticTable`，不再注解或 move-extract HIR 语义字段；reachability/termination 已拆为只读 HIR、revision-bound 的独立 `FlowTable`。参数关联的结构变化会提升 revision、同步紧凑重映射 HIR ID/facts，并重新检查资源上限。MIR 不读取 HIR 语义字段。静态一般 rank 的声明、RESHAPE 和直接 section 已由双后端及三维差分覆盖；tuple/function/reference 驻留类型、函数签名和显式 call-site 表也已落地，跨函数 verifier 检查 call/return、多结果、optional omission 与 OUT/INOUT writable storage。剩余迁移集中在独立 name/scope、alias/effect 分析、HIR/MIR 宽兼容字段、完整官方 grammar、动态 rank/广播、精确 N 维 alias、参数敏感跨函数数据流和插件 ABI；不能把这批架构收尾等同于完整语言兼容。
+> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 已让 Analyzer 预分配并直接写入按 `HirNodeId` 稠密索引、绑定 revision 的唯一 `SemanticTable`，不再注解或 move-extract HIR 语义字段；lexical scope/symbol/builtin 与 reachability/termination 分别拆为只读 HIR、revision-bound 的独立 `NameTable`/`FlowTable`，Analyzer 的确定赋值/类型状态以 `ScopeId`/`SymbolId` 稠密访问并消费 flow termination facts。参数关联的结构变化会提升 revision、同步紧凑重映射 HIR ID/facts、重建两张分析表，并重新检查资源上限。MIR 不读取 HIR 语义字段。静态一般 rank 的声明、RESHAPE 和直接 section 已由双后端及三维差分覆盖；tuple/function/reference 驻留类型、函数签名和显式 call-site 表也已落地，跨函数 verifier 检查 call/return、多结果、optional omission 与 OUT/INOUT writable storage。剩余迁移集中在独立 alias/effect 分析、HIR/MIR 宽兼容字段、完整官方 grammar、动态 rank/广播、精确 N 维 alias、参数敏感跨函数数据流和插件 ABI；不能把这批架构收尾等同于完整语言兼容。
 
 ## 目标与永久约束
 
@@ -47,7 +47,7 @@ SourceManager
 ```text
 FileId / SourceSpan
 AstNodeId
-HirNodeId / SymbolId
+HirNodeId / ScopeId / SymbolId
 MirFunctionId / BlockId / ValueId / TypeId / ShapeId / StorageId
 LirNodeId / RuntimeSymbolId
 ```
@@ -56,7 +56,7 @@ LirNodeId / RuntimeSymbolId
 - 节点放入按阶段分离的 arena/monotonic resource；常用查询通过 ID 索引稠密 `vector` side table。
 - 类型、字符串、shape 和符号名使用 session 级 interning，避免节点重复拥有大对象。
 - 分析结果不反复写回语法节点；dominance、liveness、alias、effect 等结果由带 revision 的 side table 持有。
-- 当前 Analyzer 直接写入 `SemanticTable`；独立 flow pass 只读 HIR 并生成 `FlowTable`。任何规范化 pass 改变 HIR 结构时必须提升 revision，并使已有分析自动失效。
+- 当前 name/flow pass 只读 HIR 并生成 `NameTable`/`FlowTable`，Analyzer 直接写入 `SemanticTable`；任何规范化 pass 改变 HIR 结构时必须提升 revision，并使已有分析自动失效或在继续消费前重建。
 - lowering 消费上层 IR 或借用只读视图；禁止无必要地深拷贝整棵树。
 - 公共 IR 默认只在单个 session 内可变；发布给下一阶段后视为只读。调试构建可用 revision/frozen 标记检测越界修改。
 

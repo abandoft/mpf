@@ -3,8 +3,9 @@
 - MIR 类型系统新增驻留的 tuple、function 与 reference 类型，函数保存独立签名，Python tuple 返回保持单结果、Matlab 多输出保持多结果，Fortran `INTENT(IN/OUT/INOUT)` 参数进入带模式的 reference type。
 - 新增显式 call-site 表，关联 caller/callee、call instruction、argument/result type、optional omission、requested result 和 actual storage；verifier 跨函数检查 call/return、多结果、必需参数及 OUT/INOUT writable storage，确定性 MIR dump 同步输出类型签名和调用边。
 - Analyzer 改为预分配并直接写入 revision-checked 稠密 `SemanticTable`，不再原地注解或 move-extract HIR 语义字段；参数关联引起的默认值克隆、optional omission 和重排会提升 revision，并将 HIR ID 与 facts 同步紧凑重映射。
-- reachability、statement/branch termination 与上下文深度迁入独立、只读 HIR 的稠密 `FlowTable`，表按 revision 可缓存并独立产生不可达诊断；name/scope 与 alias/effect 拆分仍是后续任务。
-- 分析后再次检查 HIR 节点资源上限，防止默认参数物化绕过前置门禁；新增 HIR/semantic/flow dense/revision/stale 和资源负向测试，内部测试增至 148 项；当前生产代码行覆盖率为 88.20%（14484/16421），继续高于 85% 门槛。
+- lexical scope tree、声明/参数/结果/循环变量、遮蔽、引用和 builtin 解析迁入独立、只读 HIR 的稠密 `NameTable`；新增强类型 `ScopeId`，Analyzer 删除字符串符号哈希状态并改为按 `SymbolId` 访问，同时以 `FlowTable` termination facts 驱动确定赋值合流。alias/effect 拆分仍是后续任务。
+- Analyzer 按职责拆为控制/函数分析、表达式/调用/索引分析和内部 contract 三个编译单元，避免继续扩张单体源码；name/flow 表在参数关联改变结构后按新 revision 重建。
+- 分析后再次检查 HIR 节点资源上限，防止默认参数物化绕过前置门禁；新增 HIR/semantic/name/flow dense/revision/stale、scope corruption 和资源负向测试，内部测试增至 149 项；当前生产代码行覆盖率为 88.27%（14864/16839），继续高于 85% 门槛。
 
 ## 0.3.4
 
