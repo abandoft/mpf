@@ -1,0 +1,88 @@
+# 测试与差分执行
+
+MPF 的验证体系分为七层：
+
+1. C++ 单元/集成测试验证公共 API、lexer/parser、AST/HIR/MIR/LIR verifier、pass/analysis、capability/legalization、extension conformance 和 emitter 结构；
+2. declarative differential corpus 验证可执行语言语义；
+3. javascript-only、cpp-only、core-only 隔离测试验证编译、链接、安装和外部消费边界；
+4. Debug、Release、ASan/UBSan 以及 GitHub 多平台矩阵验证构建模式与工具链；
+5. clang-format、零告警 clang-tidy、85% 生产代码行覆盖率、CodeQL 和依赖审查构成工程质量门禁。
+6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖三种前端、两个目标、资源耗尽和确定性重放；
+7. 小文件延迟、吞吐、深 CFG、大 shape、跨函数图、峰值 arena、产物大小和并发 session 进入发布性能门禁。
+
+当前开发分支已覆盖生产 stage/include architecture test、AST/HIR/MIR/双目标 LIR verifier negative、HIR/MIR dump 确定性、analysis revision/preservation、source map v3、编译报告、前后端 conformance、细粒度 resource exhaustion、fuzz smoke/libFuzzer 和性能回归门禁。各层完整 golden、面向人的目标 semantic LIR dump 及更广官方 grammar 仍按 [TODO 0.34](../TODO.md) 独立推进。
+
+## 当前开发分支与发布基线
+
+| 指标 | 数量/结果 |
+|---|---:|
+| C++ 单元与集成测试 | 140 项，零失败 |
+| CTest | 57 项，包含 47 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译和 3 项后端隔离测试 |
+| Differential corpus | Python 20、Fortran 17、Matlab 10，共 47 个 case |
+| 工具完整环境执行路径 | 131 条程序路径，另有每 case 一条 oracle |
+| 生产代码行覆盖率 | 88.14%（12897/14632），门槛 85% |
+
+## Differential corpus
+
+权威清单位于 [`tests/differential/corpus.cmake`](../tests/differential/corpus.cmake)。当前包含：
+
+- 20 个 Python case：CPython 3.14、Node.js、生成 C++17 与 oracle 四路比较；
+- 17 个 Fortran case：gfortran `-std=f2023`、Node.js、生成 C++17 与 oracle 四路比较；
+- 10 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较。
+
+在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 47 个 case 共执行 131 条程序输出路径：47 条 Node.js、47 条生成 C++17，以及 20 条 CPython 和 17 条 gfortran 源语言路径；此外每个 case 都有一条声明式 oracle 基线。runner 不仅分别检查 oracle，还直接比较可用执行路径。Python expression-semantics case 四路覆盖 comparison chain 的中间操作数单次求值与短路、条件表达式的惰性分支和右结合，以及 bool/number 和当前 list equality；既有 SELECT CASE、structured-unpacking、argument association 和 optional writeback cases 继续覆盖原契约。
+
+每个 case 在 `build/<preset>/differential/<case>/` 保存：
+
+- `generated.mjs`；
+- `generated.cpp`；
+- 使用顶层同一 compiler/generator 的嵌套严格 C++ 构建；
+- `differential-result.txt`，记录工具、归一化模式和各路径结果。
+
+CI 固定 Python 3.14 和 Node.js 24，配置时启用 `MPF_REQUIRE_DIFFERENTIAL_RUNTIME=ON`，并在成功或失败时上传差分结果与生成源码。Linux job 还安装 gfortran。Matlab 源执行必须等待授权 Matlab runner 或明确批准的 Octave 兼容策略，不能用 Octave 结果冒充 Matlab 2024 语义。
+
+## 本地运行
+
+```sh
+cmake --preset dev
+cmake --build --preset dev
+ctest --test-dir build/dev -L differential --output-on-failure
+ctest --preset dev
+cmake --build build/dev --target mpf-performance
+```
+
+## Fuzz 与资源耗尽
+
+`mpf-fuzz-smoke` 在每次 CTest 中读取 `tests/fuzz/corpus/`，对输入执行截断、bit flip、超深括号和非法字节 mutation；每个输入都经过三种 frontend 与两个 target，并重复比较代码、source map 和诊断的确定性。公共 `ResourceLimits` 对 source bytes、token、parser depth、arena、AST/HIR/MIR/LIR 节点、生成代码和 source map 分阶段失败关闭。
+
+Clang 环境可运行覆盖引导 fuzz：
+
+```sh
+cmake -S . -B build/fuzz -DMPF_BUILD_FUZZERS=ON -DCMAKE_CXX_COMPILER=clang++
+cmake --build build/fuzz --target mpf-transpiler-fuzzer
+cmake -E copy_directory tests/fuzz/corpus build/fuzz/corpus
+build/fuzz/tests/mpf-transpiler-fuzzer build/fuzz/corpus
+```
+
+崩溃输入可直接交给 smoke runner 重放，或使用 libFuzzer `-minimize_crash=1` 最小化；具体命令见 [`tests/fuzz/README.md`](../tests/fuzz/README.md)。
+
+## 性能发布门禁
+
+`mpf.performance.release-gate` 运行两个目标的五类编译场景和八路并发 session，重复编译还会逐字节比较代码与 source map。结果写入 `build/<preset>/performance-report.json`，并由 [`tests/performance/baseline.json`](../tests/performance/baseline.json) 的版本化上限/下限检查延迟、吞吐、峰值 arena 和最大生成大小。GitHub CI 的 Linux Clang job显式运行 `mpf-performance` 并归档报告。
+
+质量与覆盖率门禁：
+
+```sh
+cmake --preset quality
+cmake --build build/quality --target mpf-format-check
+cmake --build --preset quality
+
+cmake --preset coverage
+cmake --build --preset coverage
+```
+
+coverage preset 使用 Clang source-based coverage，将多进程 `.profraw` 合并后排除 `build/` 与
+`tests/`，只统计生产源码；报告位于 `build/coverage/coverage/`。当前门槛为 85%，本次架构收尾后实测 88.14%（12897/14632）。GitHub CI 还对 C/C++ 运行 CodeQL `security-extended`，并在 pull request 上拒绝
+引入 moderate 及以上已知漏洞的依赖变更。
+
+新增可执行语言能力时，必须在 manifest 增加 case；若输出中的空白属于语义，使用 `lines` 模式，否则数值/list-directed 输出可使用 `tokens` 模式。只有编译不执行的输入应保留为独立 compile-only gate。

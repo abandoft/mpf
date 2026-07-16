@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mpf:diagnostics:v1",
+  "title": "MPF diagnostics document v1",
+  "type": "object",
+  "required": ["schemaVersion", "diagnostics"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    }
+  },
+  "$defs": {
+    "position": {
+      "type": "object",
+      "required": ["line", "column"],
+      "additionalProperties": false,
+      "properties": {
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["severity", "code", "message", "source", "sourceId", "range"],
+      "additionalProperties": false,
+      "properties": {
+        "severity": {
+          "enum": ["note", "warning", "error"]
+        },
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string" },
+        "source": { "type": "string" },
+        "sourceId": { "type": "integer", "minimum": 0 },
+        "range": {
+          "type": "object",
+          "required": ["start", "end"],
+          "additionalProperties": false,
+          "properties": {
+            "start": { "$ref": "#/$defs/position" },
+            "end": { "$ref": "#/$defs/position" }
+          }
+        }
+      }
+    }
+  }
+}

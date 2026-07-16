@@ -1,0 +1,311 @@
+# Changelog
+
+本项目遵循语义化版本；0.x 阶段公共 API 仍可能调整。
+
+## Unreleased
+
+- 生产驱动切换为“语言 AST artifact → HIR → MIR → JavaScript LIR/`cpp` LIR → Emitter”；新增强类型 AST/HIR/MIR/LIR identity、逐层 verifier、opaque backend artifact，删除共享 `Program` 直通 emitter 的路径。
+- 新增 thread-confined `CompilationSession` 基础、HIR/MIR/LIR 强类型 pass manager、revision-aware `AnalysisManager`、preserved-analysis 失效、逐 pass verifier、耗时 instrumentation，以及确定性的 HIR/MIR textual dump。
+- MIR 新增稠密 type/shape/storage/instruction/function/basic-block 表和结构化 effect；当前 if/loop/loop-else/`break`/`continue`/`SELECT CASE` 生成真实 edge、block argument 与 edge actual，shape 保存 canonical stride，storage 保存 view/base/lifetime/intent 和保守 alias relation；统一 `alias_between` 为 pass 提供 fail-safe 查询。verifier 覆盖 ownership、edge arity、定义顺序、dominance 及 type/shape/storage/alias metadata。
+- frontend descriptor 升级到 API v3，增加语言版本/AST schema/determinism/reentrancy manifest、语言 AST verifier 和 AST→HIR lowering；三个内置前端拥有编译期互不兼容的 PMR arena AST、稠密 `AstNodeId`、确定性 dump 和专用 AST→HIR visitor，生产 artifact 不再封装共享 syntax tree。
+- backend descriptor 升级到 API v3，增加目标标准/artifact schema manifest、TargetProfile 与 legalization factory。两个后端逐 MIR instruction 执行稠密 legalization，构建不借用 MIR 生命周期的私有 semantic plan、独立 LIR/pass/verifier，并在 target renderer 中完成 representation/type/shape/ABI、runtime/binding、函数依赖和名称计划；最终 emitter 只执行 `serialize_chunks`。
+- 新增可复用 frontend/backend extension conformance harness；重复执行 parse/lowering/verifier/emission 并逐字节验证确定性。新增编译器分层静态门禁，禁止 frontend/公共 IR/双目标后端出现反向依赖。
+- 新增公开 `ResourceLimits`，对 source bytes、token、parser depth、arena、AST/HIR/MIR/LIR 节点、生成输出和 source map 逐阶段限制，以 `MPF0010` 失败关闭；新增机器可读 `CompilationReport`，记录阶段耗时、节点数和峰值 arena。
+- 新增从最终 LIR chunk origin 构建的确定性 source map v3、CLI `--source-map`、公共 dependency manifest；代码、map 与依赖形成稳定 output bundle。
+- 新增三语言/双目标 corpus mutation fuzz smoke 和可选 Clang libFuzzer target，提供 crash replay/minimize 工作流；新增小文件、吞吐、深 CFG、大 shape、函数图、八路并发、峰值 arena 与产物大小 JSON 性能发布门禁，并由 CI 归档报告。
+- 内部测试增至 140 项，CTest 增至 57 项；既有 47 个差分 case、三种后端隔离构建、格式/静态分析和 sanitizer 继续保留；生产代码行覆盖率实测 88.14%（12897/14632），高于 85% 门槛。
+- 同步架构、扩展、测试、诊断、支持矩阵和 TODO：本轮商业级收尾已完成，完整官方 grammar、Analyzer side table、HIR/MIR 宽投影收敛、一般 N 维对象语义和稳定插件 ABI仍明确保持后续任务。
+
+## 0.33.0
+
+- 新增版本化 `FrontendDescriptor` 与静态 frontend registry；canonical name、alias、扩展名、无分配内容 probe 和 parser callback 归每个前端所有，核心驱动移除语言检测和解析的硬编码分派。
+- 扩展 `BackendDescriptor`，统一 target identity、name/alias、intrinsic binding、capability validator 和 emitter 回调；backend registry 改为数据驱动 catalog，并为禁用目标保留可查询 metadata，生成任一目标继续不依赖另一目标产物。
+- 新增稳定 `IntrinsicId`、可选共享数学表和由各 `FrontendDescriptor` 显式选择的有序 spelling 表；未声明相同全局拼写的新语言不会错误继承现有 builtin。Analyzer 与 emitter 不再用源 builtin 字符串建立隐式协议。JavaScript/`cpp` 使用稠密 O(1) 代码绑定表，区分 `symbol`、`constant`、`custom` 与 `unavailable`。
+- 在目标 capability validator 前新增通用绑定完整性检查；任一已解析 intrinsic 缺少目标 binding 时以 `MPF0004` 失败关闭，不进入 emitter。
+- 公共 API 新增 frontend availability、源/目标名称有效性查询；CLI 名称解析复用 registry，不再维护独立白名单。
+- 新增 descriptor 冲突、扩展名/内容探测、禁用后端 metadata、源 intrinsic 隔离、双目标绑定完整性和缺失绑定拒绝测试；内部测试增至 128 项，既有 47 个差分 case 和 54 项 CTest 保持通过。
+- Clang source-based coverage 实测 88.51%（9550/10790），继续高于 85% 生产代码行门槛。
+- 新增前端、后端和代码绑定扩展指南，并将 TypeScript 6 独立前端纳入后续里程碑；当前 descriptor 是编译期内部 contract，尚不承诺动态插件 ABI。
+
+## 0.32.0
+
+- Python expression lexer/parser 新增专用 `if`/`else` token、显式 comparison-chain AST 和右结合 conditional-expression AST；非 Python 源继续拒绝链式比较。
+- Analyzer 对比较链逐对验证 ordering 类型，并在条件表达式分支间传播 scalar、list shape 和 tuple metadata；不兼容 ordering 或 C++ 无法静态表示的比较/分支组合以 `MPF2044` 失败关闭。
+- JavaScript 使用短路 IIFE 和临时值 lowering 比较链，C++ 使用捕获 lambda 和引用临时值；两者都保证中间操作数单次求值且后续操作数按需执行。JavaScript equality runtime 保留 Python bool/number 和当前同类递归 list 相等规则；条件表达式在两个后端均保持 Python truthiness、右结合与惰性分支。
+- 新增 token/AST、成功/拒绝、双后端结构和 CPython/Node.js/生成 C++/oracle 四路差分；内部测试增至 122 项，语料增至 47 个、131 条实际执行路径。
+- 按实际能力重构 TODO 与状态文档，区分已交付子集、下一交付目标和长期 backlog；明确当前生产实现为 C++17、目标身份为 `cpp`、双后端互不依赖及废弃归档边界。
+
+## 0.31.0
+
+- Fortran statement lexer/parser 新增结构化 `SELECT CASE`、`CASE DEFAULT` 与 `END SELECT`/`ENDSELECT`，支持 integer、character、logical scalar selector，以及单值、闭区间和省略上下界的区间列表。
+- 公共 IR 新增 `select_case`、`case_clause` 和显式 `CaseSelector`；Analyzer 要求受支持的 scalar constant bound，验证 selector 类型、反向区间、integer/character/logical 重叠，并以 `MPF2043` 失败关闭。
+- 控制流分析从两分支扩展到任意 CASE 分支合流；只有包含 default 且所有可达分支均赋值时，变量才被视为确定赋值，所有分支终止时也可形成完整终止流。
+- JavaScript/C++ 后端分别保存 selector 临时值并生成互斥条件链，保证函数 selector 单次求值；character CASE 使用独立 runtime 比较，按 Fortran 规则将较短值在右侧补空格。
+- 新增 token、成功/拒绝、双后端结构和 gfortran/Node.js/生成 C++/oracle 四路差分；内部测试增至 119 项，语料增至 46 个、128 条实际执行路径。
+
+## 0.30.0
+
+- 新增项目级 `.clang-format`、`mpf-format` 与只检查不改写的 `mpf-format-check`，统一公共头、源码、测试和 embedding 示例格式。
+- 新增 curated `.clang-tidy` 与 `quality` preset，对 Clang analyzer、bugprone、performance 和 portability 工程规则执行全目标零告警构建；修复由门禁发现的重复分支和无效状态写入。
+- 新增 Clang source-based coverage、`coverage` preset 和 `mpf-coverage` target：完整运行 52 项 CTest，合并多进程 profile，生成 HTML/JSON，并以 85% 生产代码行覆盖率阻止回退；当前基线为 87.94%（8363/9510）。
+- GitHub CI 新增格式、clang-tidy 和覆盖率 job；新增 C/C++ CodeQL `security-extended` 定期/提交扫描、pull-request 依赖漏洞审查，以及 GitHub Actions Dependabot 更新。
+- 质量工具和所有报告继续严格写入根目录 `build/`；本里程碑不改变 `cpp` 目标身份或 C++17 输出标准。
+
+## 0.29.0
+
+- 新增独立 `AssignmentPattern` IR，递归表示 name、sequence 与 starred-name target；Python parser 支持任意当前可表示深度的圆括号/方括号嵌套、单目标尾随逗号及每层一个 star。
+- 表达式、Symbol 和 function return/call 新增递归 `ValueMetadata`，跨固定 tuple/list literal、静态名称和已知 user-function 传播 sequence kind、逐元素 type/shape 与嵌套结构。
+- Analyzer 递归关联 pattern 与固定 RHS，计算普通叶子访问路径和 star capture 路径；支持 star 位于任意位置、空 capture、嵌套 capture 与重复名称覆盖，并以 `MPF2042` 拒绝动态或不匹配结构。
+- JavaScript 不依赖原生 rest-position 限制，先保存 RHS 后按路径逐叶赋值；C++ 同样单次求值，并以 `std::get`/`.at()` 和 typed vector 构造 star list。异质 star capture 保持 JavaScript 可用，C++ 以 `MPF2020` 失败关闭。
+- 新增 parser 结构、成功/拒绝、双后端 lowering 和 CPython 3.14/Node.js/生成 C++/oracle 四路差分；内部测试增至 116 项，语料增至 45 个、125 条实际执行路径。
+
+## 0.28.0
+
+- 将目标身份统一命名为 `cpp`；C++17 仅表示当前输出语言标准，不再进入代码标识符或组件身份。
+- 公共 API 使用 `TargetLanguage::cpp`，CLI 使用 `--target cpp`，后端入口统一为 `cpp_backend`、`emit_cpp` 与 `validate_cpp_capabilities`。
+- 后端源文件统一为 `cpp_backend.*`、`cpp_emitter.*`、`cpp_validator.*`；CMake 使用 `MPF_ENABLE_CPP_BACKEND`、`mpf_backend_cpp`、`mpf::backend-cpp` 和 `cpp` package component。
+- 生成代码编译门禁、差分结果字段、隔离构建目录/标签与外部消费者宏全部同步为 `cpp`，避免 API、构建系统和测试出现两套身份。
+- 本次为 0.x 公共命名清理，不保留带标准版本号的旧标识符别名；生成 translation unit 仍以 C++17 严格编译。
+
+## 0.27.0
+
+- Python tokenized statement parser 新增平坦名称解包 target，覆盖裸 `a, b`、圆括号、方括号和单目标尾随逗号；nested/starred pattern 在对应 pattern/iterator 模型完成前以 `MPF1200` 失败关闭。
+- Analyzer 将固定 tuple/list literal、带静态首维 extent 的 list 名称和已知 tuple-return user function 规范化为逐 target type/element-type/shape 元数据，并以新增 `MPF2042` 拒绝动态未知长度或数量不匹配。
+- Symbol 与跨函数 return/call 元数据保留 tuple 元素信息，支持 tuple-return forwarding、tuple/list 名称解包、异质 tuple、交换赋值和 Python 合法的重复目标覆盖顺序。
+- JavaScript 使用原生 destructuring；C++17 先保存 RHS 临时值，再分别用 `std::get` 或 bounds-checked `.at()` 赋值，保证函数调用和交换 RHS 单次求值，且两个后端继续直接消费同一目标无关 IR。
+- 新增 parser、成功/拒绝和双后端结构测试，以及 CPython 3.14、Node.js、生成 C++17、oracle 四路 unpacking 差分；语料增至 44 个，实际执行 122 条程序输出路径并逐 case 对照 oracle。
+
+## 0.26.0
+
+- Procedure IR 新增逐参数 `ParameterKind` 与 default expression AST；Python call expression 复用 keyword actual 元数据，前端不拼接目标代码。
+- Python tokenized function parser 支持 immutable scalar defaults、`/` positional-only marker、裸 `*` keyword-only marker、尾随逗号与 required keyword-only parameter，并拒绝重复、顺序错误、annotation 和 variadic 参数。
+- Analyzer 按已知 user-function signature 规范化 positional/keyword actual、补全默认值，以 `MPF2034`/`MPF2041` 拒绝过多、重复、未知、缺失、positional-only-by-keyword 和 keyword-only-by-position。
+- 默认表达式当前只接受无副作用 immutable scalar literal 与一元正负号；list/call/identifier 等在 Python 定义时求值与对象身份模型完成前失败关闭。
+- JavaScript 保留可读 default signature，JavaScript/C++17 的所有 source call 均从同一 formal-order IR 生成；新增 CPython 3.14、Node.js、生成 C++17、oracle 四路 parameter-association 差分，语料增至 43 个、127 条路径。
+
+## 0.25.0
+
+- Fortran optional formal 从标量 IN 扩展到当前一/二维范围内的标量与数组 IN/OUT/INOUT；`PRESENT` 对 OUT dummy 不触发未初始化读取，缺省 optional OUT 不再错误要求无条件确定赋值。
+- JavaScript reference-call lowering 区分 omitted actual、普通 writable actual 和 optional-to-optional 透传，缺省值保持 `undefined`，存在值使用 box 并按 element/section/whole-array 目标有序回写。
+- C++17 runtime 新增 typed `optional_argument<T>`，可保存 absent、外部 lvalue reference 或 owned rvalue，并在复制/移动及跨 procedure 透传时保持引用身份；数组 formal 使用递归 `std::vector` 具体类型。
+- optional writable actual 支持标量名、数组元素、整组一/二维数组和连续/非连续 section；section 继续通过单次调用 lambda 与 typed copy-out 保持语义。
+- 新增双后端结构测试和 gfortran、Node.js、生成 C++17、oracle 四路 optional-writeback 差分；语料增至 42 个、123 条路径。
+
+## 0.24.0
+
+- 表达式 token/AST 新增 Fortran keyword actual 名称；Procedure IR 新增逐 formal optional 元数据，并以目标无关 omitted-argument 节点表示缺省关联。
+- Fortran declaration parser 支持组合及换序的 `INTENT`/`OPTIONAL` attributes；Analyzer 根据已知 interface 规范化 positional/keyword actual，验证未知 keyword、重复 association、缺失 required 和 positional-after-keyword。
+- 支持标量 `OPTIONAL, INTENT(IN)`、`PRESENT`，以及 optional dummy 向 optional dummy 透传；optional array 和 writable optional 当前以 `MPF2040` 失败关闭。
+- JavaScript 独立 lowering 为 `undefined` 与存在性判断；C++17 独立 lowering 为具体类型 `std::optional<T>`、`std::nullopt`、`has_value()`/`value()`，不依赖 JavaScript 生成结果。
+- 新增 lexer/Pratt、成功与拒绝集成测试，以及 gfortran、Node.js、生成 C++17、oracle 四路 argument-association 差分；语料增至 41 个、119 条路径。
+
+## 0.23.0
+
+- 中立调用 IR 新增 procedure-result 标记，并延续逐参数 intent；Analyzer 将可写 actual 扩展为标量名、数组元素和直接一/二维 section，同时以根 storage 为单位保守拒绝潜在写回 alias。
+- 标量元素在 C++17 中直接绑定 element reference；JavaScript reference box 在调用后通过安全 `__mpf_set` 回写。
+- 连续与非连续 section actual 使用显式 copy-in/copy-out：JavaScript 复用 selector-aware `__mpf_set_section`，C++17 生成 typed section 临时值、单次调用 lambda 与 `assign_*` 回写。
+- 带可写 section 的 Fortran function 调用先保存返回结果、执行 copy-out，再返回结果，避免 mutation 与函数值互相丢失；SUBROUTINE 保持 void 调用。
+- 新增成功、潜在 section alias 拒绝与双后端结构测试，以及 gfortran、Node.js、生成 C++17、oracle 四路 section-reference-arguments 差分；语料增至 40 个、115 条路径。
+
+## 0.22.0
+
+- Procedure IR 增加逐参数 type、element type 与 shape 元数据；Fortran parser 支持一/二维 assumed-shape dummy `(:)`/`(:,:)`，并标记 dummy declaration 避免后端错误分配 dynamic extent。
+- Analyzer 验证 dummy/actual 的 scalar-array 分类、rank、静态 extent 与 element type；非 dummy assumed-shape 以新增 `MPF2039` 失败关闭。
+- C++17 使用 const/reference 模板参数共享一/二维递归 vector storage；JavaScript OUT 数组 box 保留 actual container，并通过 `.value` 执行 indexed mutation 和写回。
+- 非连续 section actual 在 copy-in/copy-out lowering 完成前继续以 `MPF2038` 拒绝，避免把临时 section 当作可写整数组。
+- 新增成功、rank/extent/section 拒绝测试，以及 gfortran、Node.js、生成 C++17、oracle 四路 array-reference-arguments 差分；语料增至 39 个、111 条路径。
+
+## 0.21.0
+
+- 中立 IR 新增 `ParameterIntent`、procedure parameter intents 与调用表达式 argument intents，前端/Analyzer 不包含目标后端策略。
+- Fortran declaration parser 支持 `INTENT(OUT/INOUT)`；Analyzer 从 dummy 声明和实际读写推导 IN/OUT/INOUT，保留 OUT 入参未定义状态并验证所有退出路径确定赋值。
+- 调用分析要求 OUT/INOUT actual 为可定义名称，允许未初始化 OUT、要求 INOUT 已赋值，拒绝多写回参数绑定同一 actual，并把调用后的 actual 标记为已赋值。
+- C++17 生成 `const T&`/`T&` procedure 参数；JavaScript 生成独立 reference box、单次调用 IIFE、函数结果保存及有序 actual 写回，支持跨 procedure 透传。
+- 新增 `MPF2038`、成功/拒绝集成测试，以及 gfortran、Node.js、生成 C++17、oracle 四路 reference-arguments 差分；语料增至 38 个、107 条路径。
+
+## 0.20.0
+
+- Fortran statement lexer 新增 `FUNCTION`、`SUBROUTINE`、`RESULT`、`RETURN`、`RECURSIVE` token，同时在实体名位置保持关键字上下文化。
+- Fortran recursive parser 支持 program 内部/外部 typed/untyped function、result variable、subroutine、dummy parameter list、`INTENT(IN)`、`CALL`（含无参数形式）、提前 `RETURN` 与具名 `END` 校验。
+- Analyzer 保留 typed function result seed、dummy declaration 的确定赋值状态，并把 procedure 接入共享函数调用图；递归标量 function 与递归 void subroutine 均可生成。
+- 对 dummy argument 初始化、标量写入、indexed/section 写入和作为 DO variable 的修改新增 `MPF2036`，在 reference-argument lowering 完成前禁止错误的按值降级。
+- IR 显式记录 Fortran CALL statement 上下文；Analyzer 以 `MPF2037` 拒绝 CALL function 或在表达式中引用 subroutine，并要求显式 `RECURSIVE FUNCTION` 使用 `RESULT` 消除结果名歧义。
+- 新增 procedure token、成功/拒绝/contextual-name 测试，以及 gfortran 2023、Node.js、生成 C++17、oracle 四路 procedure 差分；语料增至 37 个、103 条路径。
+
+## 0.19.0
+
+- 新增目标无关 `FunctionDependencyGraph`，从结构化表达式/statement IR 收集调用边，排除参数、结果和局部绑定造成的伪依赖，并稳定识别直接/互递归分量。
+- Analyzer 改为 callee-first 分析顶层函数，使后定义函数的返回类型、元素类型、shape 与 Matlab 多输出元数据可跨调用链传播。
+- C++17 emitter 按同一依赖顺序定义无环函数；对静态标量或 tuple 返回的递归函数生成显式返回类型和模板前置声明，支持直接及互递归。
+- C++17 capability validator 新增 `MPF2035`，对未知、容器或参数依赖且无法建立合法 C++17 声明的递归返回失败关闭；JavaScript 后端保持独立可用。
+- 新增局部遮蔽调用图单元测试、前向/直接/互递归集成测试、Matlab 多输出跨函数转发测试，以及 Python/Matlab function-graph 差分语料；语料增至 36 个、99 条路径。
+
+## 0.18.0
+
+- 中立 IR 新增多目标赋值、调用方请求输出数及逐输出 type/element-type/shape 元数据；该语义不引用 JavaScript 或 C++17 后端。
+- Matlab parser 支持 `[a,b] = f(...)`，Analyzer 先完成顶层/local function 元数据，再分析脚本调用，并验证输入数量、输出数量、重复目标及非多输出 RHS。
+- Matlab 多输出函数在普通标量上下文按语言规则选择第一个输出；JavaScript 独立 lowering 为 Array 首元素或解构，C++17 独立 lowering 为 `std::tuple/std::get`。
+- 多目标赋值在两个后端都保证 RHS 只求值一次；C++17 capability validator 同时检查各绑定的静态类型变化。
+- 新增成功、拒绝与严格生成代码测试，以及 Matlab multi-output 双目标差分；语料增至 34 个、93 条路径。
+
+## 0.17.0
+
+- 新增 Fortran statement lexer，基于共享 token/span 载体分类 program、声明、IF/DO、I/O、delimiter、`::`、legacy constructor 和 dotted operator 边界。
+- 新增递归下降 Fortran statement parser，覆盖当前 program scaffolding、类型声明、常量一/二维 shape、`IF/ELSE IF/ELSE`、`DO/DO WHILE`、EXIT/CYCLE、PRINT/WRITE、CALL 与赋值子集。
+- Fortran frontend 改为 source-form normalizer → statement lexer → statement parser 三阶段管线；三语言 statement 路径现均不再依赖 regex/prefix 行解析。
+- Fortran 名称按上下文解释，修复 `block` 等合法实体名被全局关键字表误拒绝；未建模 declaration attributes 现在显式失败关闭。
+- 修复标准无逗号 `WRITE(*,*) value` 产生式，同时兼容常见带逗号形式。
+- 新增 `MPF1801`/`MPF1802`、lexer/parser 恢复与拒绝测试，以及 gfortran 四路 statement-token 差分；语料增至 33 个、91 条路径。
+
+## 0.16.0
+
+- 抽取共享 `BasicStatementToken<Kind>`，统一 Python/Matlab statement token 的文本、byte span 与源位置布局。
+- 新增 Matlab statement lexer，分类函数/控制流关键字、delimiter、赋值与运算符，并区分字符向量、共轭转置和非共轭转置边界。
+- 新增递归下降 Matlab statement parser，覆盖当前函数/多输出签名、`if/elseif/else`、`while/for`、循环控制、display、赋值、索引赋值和表达式语句子集。
+- Matlab frontend 改为 logical-source normalizer → statement lexer → statement parser 三阶段管线，移除 regex/prefix parsing 和独立 colon 字符扫描。
+- Analyzer 将 Matlab 单输出变量类型传播到函数返回类型，多输出函数标记为 tuple，修复 C++17 全局调用结果错误回退到声明前 `decltype(call)`。
+- 新增 `MPF1701`/`MPF1702`、parser 恢复/拒绝测试和 Matlab statement-token 双目标差分；语料增至 32 个、88 条路径。
+
+## 0.15.0
+
+- 新增独立 Python statement token/span 模型和 lexer，保留关键字、delimiter、赋值与运算符边界及源位置。
+- 新增递归下降 Python statement parser，覆盖当前 `def`、`if/elif/else`、`while/for-else`、return、循环控制、赋值、索引赋值、print 与表达式语句子集。
+- Python frontend 现为 logical-source normalizer → statement lexer → statement parser 三阶段管线；移除全部 regex/prefix statement parsing。
+- statement parser 通过 token byte span 把表达式交给共享 Pratt parser，避免维护第二套表达式语法。
+- 增加非法链式赋值、参数形态、孤立 clause 恢复测试，以及 `MPF1601`/`MPF1602` statement lexer 诊断。
+- 新增 CPython 3.14、Node.js、生成 C++17 的 statement-token differential case；语料增至 31 个、86 条路径。
+
+## 0.14.0
+
+- 新增独立 Python/Matlab logical-source normalization 层，两个 statement parser 不再直接消费物理行。
+- Python 支持括号内隐式续行、反斜杠显式续行、字符串安全行内注释、tab-stop 缩进及顶层分号 simple statements。
+- Matlab 支持 `...` continuation、跨物理行矩阵、字符串安全 `%` 注释、`%{`/`%}` block comment 及顶层分号/逗号 statements。
+- 为 Python 增加 `MPF1401`—`MPF1405`，为 Matlab 增加 `MPF1501`—`MPF1505`，对未闭合 delimiter/string/comment 和错误 continuation 失败关闭。
+- 移除 Matlab statement parser 中重复的注释/尾分号字符扫描，物理源码规则统一位于前端规范化边界。
+- 新增 Python 四路与 Matlab 双目标 logical-lines differential case；语料总数增至 30 个、83 条执行路径。
+
+## 0.13.0
+
+- Python `if`/`while`/`not` 增加数字、字符串、list、`None` truthiness runtime；NaN 按 Python 规则为真。
+- Python `and/or` 不再错误推导为 bool，现保留操作数返回、短路顺序和左操作数单次求值。
+- JavaScript backend 使用 lazy thunk lowering；C++17 backend 使用 typed lambda 与 `std::common_type` runtime。
+- C++17 capability validator 解析已知函数返回类型；无法静态统一逻辑结果时以 `MPF2032` 提前失败。
+- 增加 Python `float` 的数字/布尔/字符串基础转换、NaN/Infinity 解析和 `MPF2033` 参数诊断。
+- C++17 list 变量优先使用语义 element/rank 声明，避免在 namespace `decltype` 中生成 C++17 禁止的 lambda。
+- 新增四路 truthiness differential case，覆盖空/非空容器和字符串、NaN、`not`、list/string 返回及短路副作用。
+
+## 0.12.0
+
+- 用单一 declarative corpus manifest 替换分散的源 Python/Fortran、Node.js 和生成 C++17 CTest 注册。
+- 新增跨平台 differential runner；每个 case 直接比较所有可用执行路径，并再次校验 oracle。
+- 27 个 case 覆盖 12 个 Python、9 个 Fortran、6 个 Matlab 程序，共执行 75 条源/目标路径。
+- 生成 C++17 使用与顶层构建相同的 compiler、generator、platform 和 toolset，避免 Clang job 实际回退到默认 GCC。
+- 每个 case 保存生成 JS/C++、嵌套严格构建和包含工具/结果的 `differential-result.txt`。
+- CI 固定 Python 3.14 与 Node.js 24，强制 differential runtime 存在，并始终上传差分制品。
+- 保留 Matlab function translation unit 的独立 C++17 compile-only gate；删除三个重复旧 runner。
+
+## 0.11.0
+
+- 新增独立 Fortran source-form normalization 层，statement parser 和两个 emitter 不再处理物理续行细节。
+- free form 支持尾部/前导 `&`、continuation 间注释、续行字符常量和分号 logical statements。
+- fixed form 支持列 1–5 label field、列 6 continuation、列 7–72 statement field及传统整行注释。
+- 通过 `.f`/`.for`/`.ftn`/`.f77` 与现代扩展名自动选择 source form；公共 API 增加 `FortranSourceForm`。
+- CLI 增加 `--fortran-form auto|free|fixed`，显式 source form 可令 stdin 自动识别为 Fortran。
+- 增加 `MPF1301`—`MPF1307` 稳定诊断，拒绝孤立/未完成 continuation、预处理、错误字符续行和不安全 fixed-form 布局。
+- 新增 free/fixed corpus，并由 gfortran、Node.js 和真实生成 C++17 三方执行验证。
+
+## 0.10.0
+
+- 增加拥有稳定 `SourceId`、文件名查找和稳定源码引用的多文件 SourceManager，并接入每次转译会话。
+- 公共 `Diagnostic` 增加 source identity 与结束位置；所有 parser、semantic 和 backend 诊断统一附着源文件。
+- 公共 API 增加确定性的源码片段文本渲染与 JSON diagnostics v1 序列化。
+- `mpfc` 增加 `--diagnostics-format text|json`；JSON 模式每次调用恰好产生一个 schema 文档。
+- 固定 CLI 退出状态：0 成功、1 编译错误、2 参数错误、3 输入错误、4 输出错误，并增加 `MPFCLI0001`—`MPFCLI0003` 驱动诊断。
+- 新增跨平台 CLI 契约测试，覆盖文本片段、JSON 编译/驱动错误、成功空数组及输出失败事务。
+- 安装 diagnostics v1 JSON Schema，并新增诊断与工具集成文档。
+
+## 0.9.0
+
+- Python 增加一维 list 普通切片可变长度替换及 extended slice 等长赋值；动态长度不相容由运行时拒绝。
+- Matlab 增加行、列、矩形 block 与列主序线性 colon section 赋值，并支持标量扩展。
+- Fortran 增加一/二维 array section 赋值、shape conformability 验证和标量扩展。
+- 目标无关语义层增加 section replacement shape/元素类型分析和稳定诊断 `MPF2031`，并拒绝经临时 section 写入。
+- JavaScript backend 增加原位 selector mutation runtime；C++17 backend 增加 typed slice、column、block 与列主序 mutation runtime。
+- C++17 capability validator 独立拒绝 Python 容器嵌套 rank 或元素类型变化，保持 JavaScript 动态语义不受影响。
+- 新增三语言赋值语料，覆盖源 Python/Fortran、Node.js 与真实生成 C++17 编译执行。
+
+## 0.8.0
+
+- 将单体 `libmpf` 拆分为 `mpf-core`、`backend-common`、JavaScript backend、C++17 backend 与统一 facade。
+- 增加 JavaScript/C++ 后端独立开关，禁用后端不会参与编译或链接。
+- 引入 backend descriptor/registry；facade 不再直接包含或调用具体 emitter。
+- 通用语义分析移除 `TargetLanguage`，C++17 动态类型、同质容器和返回路径限制迁入独立 capability validator。
+- 增加 JavaScript capability validator 边界，为后续目标特定规则提供独立扩展点。
+- 公共 API 增加 `backend_available`；请求未构建后端返回 `MPF0003`。
+- CMake 包增加 `core`、`javascript`、`cpp` 组件和独立导出目标。
+- 新增 javascript-only、cpp-only、core-only 的编译数据库隔离、CLI、安装包和外部消费者测试。
+- 修复 Python ragged list 在目标无关分析中丢失 rank 的问题，以动态 extent 保留安全索引信息。
+
+## 0.7.0
+
+- 增加结构化 slice AST，统一 Python `start:stop:step`、Matlab colon 与 Fortran subscript triplet。
+- 语义层增加静态/动态 slice extent、正负 step、空 extent、逐维 bounds 与固定 shape assignment 验证。
+- Python 增加默认/负步长读取切片，并将矩形嵌套 list shape 推导扩展到任意深度。
+- Matlab 增加整行、整列、二维 block、步长 colon 与 `A(:)` 列主序线性选取。
+- Fortran 增加一/二维 array section、默认 bound 和正负 stride。
+- JavaScript 增加通用 selector section runtime；C++17 增加 typed slice/column/columns/column-major flatten runtime。
+- C++17 推导声明使用 `std::decay_t`，避免子数组索引结果泄漏引用类型。
+- 新增三语言 section 和 Python tensor corpus，覆盖 Node.js、真实 C++17、CPython 与 gfortran 执行路径。
+
+## 0.6.0
+
+- 表达式与语义 IR 增加矩形二维 shape、多下标目标和列主序元数据。
+- Python 增加矩形嵌套 list 与链式二维索引读写；C++17 对 ragged list 安全拒绝。
+- Matlab 增加分号分行矩阵字面量、`(row, column)` 访问和列主序线性索引。
+- Fortran 增加二维常量 extent、rank 检查及一/二维 `RESHAPE`。
+- JavaScript runtime 增加多下标读写、递归 `sum`/`numel`、二维 `length` 和列主序 reshape。
+- C++17 后端增加递归 `std::vector` 类型/分配、深度聚合、二维安全索引和列主序 reshape。
+- 新增 Python、Matlab、Fortran 二维语料，并在 Node.js、真实 C++17、CPython 与 gfortran 路径执行验证。
+
+## 0.5.0
+
+- 增加结构化 index AST、indexed assignment IR、element type 与一维 shape。
+- 增加 Python list 索引读写、负下标、`len` 和 `sum`。
+- 增加 Matlab 逗号/空格行向量、1-based 索引、`length`/`numel` 和 `sum`。
+- 增加 Fortran 一维定长数组、现代/旧式构造器、1-based 索引、`SIZE` 和 `SUM`。
+- 增加静态 extent 匹配、同质元素约束、常量越界和索引类型诊断。
+- JavaScript 与 C++17 后端增加 bounds/base/negative-index runtime；C++17 使用类型化 `std::vector`。
+- 数组 corpus 纳入 Python 3.14、`gfortran -std=f2023`、Node.js 与真实 C++17 编译执行测试。
+
+## 0.4.0
+
+- 增加 Python `elif`、Matlab `elseif` 与 Fortran `ELSE IF` 分支链。
+- 增加 Python/Matlab `break`/`continue` 与 Fortran `EXIT`/`CYCLE`。
+- 增加 Python `for/while ... else`，通过每层独立完成标志保持嵌套 break 语义。
+- 增加循环/函数上下文验证、不可达代码 warning 和基础终止流摘要。
+- C++17 后端拒绝不兼容返回类型及值返回与隐式空返回混用。
+- 增加源 Python/Fortran、Node.js、生成 C++17 的结构化控制流三方执行语料。
+
+## 0.3.0
+
+- 增加名称绑定、builtin 遮蔽、未定义标识符和确定赋值分析。
+- 增加整数、实数、布尔、字符串等基础类型推导和 C++17 动态重赋值诊断。
+- 增加 Python `range`/`while`、Matlab colon `for`/`while`、Fortran counted `DO`/`DO WHILE`。
+- 保持 Python、Matlab、Fortran 各自不同的循环结束变量语义并支持负 step。
+- 增加 JavaScript/C++17 共享的确定性保留字与冲突安全名称改写。
+- C++17 生成代码隔离到 `mpf_generated` namespace，并支持函数捕获已初始化全局值。
+- 将三语言循环、名称改写和全局绑定纳入 Node.js 与真实 C++17 编译执行测试。
+
+## 0.2.0
+
+- 增加 JavaScript/C++17 双目标公共 API 与 `mpfc --target`。
+- 增加独立 C++17 后端、基础 runtime、函数模板与可执行入口生成。
+- 增加 SourceManager、UTF-8 列映射、源码跨度和 CRLF 处理。
+- 增加公共 token 模型及 Python、Matlab、Fortran 表达式词法规则。
+- 用 Pratt parser 和结构化表达式 AST 替换字符串表达式改写。
+- JavaScript 后端增加优先级安全输出、Python floor division 和 list/tuple lowering。
+- 增加生成 JavaScript 的 Node.js 验证，以及生成 C++17 的真实编译/执行测试。
+
+## 0.1.0
+
+- 建立公共 API、CLI、统一初始 IR、三语言标量纵切面、JavaScript 后端、测试和 CI/CD 基础。
