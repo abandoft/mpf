@@ -51,6 +51,12 @@ foreach(lowering IN ITEMS
      NOT lowering_contents MATCHES "plan_lir_representation")
     message(FATAL_ERROR "target lowering does not materialize an independent serialized LIR: ${lowering}")
   endif()
+  string(FIND "${lowering_contents}" "plan_lir_resources(*lowered" resource_plan_index)
+  string(FIND "${lowering_contents}" "plan_lir_representation(*lowered" representation_plan_index)
+  if(resource_plan_index LESS 0 OR representation_plan_index LESS 0 OR
+     representation_plan_index LESS resource_plan_index)
+    message(FATAL_ERROR "target representation must run after ABI/resource planning: ${lowering}")
+  endif()
 endforeach()
 
 foreach(representation IN ITEMS
@@ -62,9 +68,12 @@ foreach(representation IN ITEMS
   file(READ "${SOURCE_DIR}/${representation}" representation_contents)
   if(NOT representation_contents MATCHES "plan_lir_representation" OR
      NOT representation_contents MATCHES "verify_lir_representation" OR
-     NOT representation_contents MATCHES "expected_plan" OR
-     NOT representation_contents MATCHES "CallArgumentForm")
-    message(FATAL_ERROR "target LIR representation layer does not own expression plans: ${representation}")
+     NOT representation_contents MATCHES "expected_expression_plan" OR
+     NOT representation_contents MATCHES "expected_statement_plan" OR
+     NOT representation_contents MATCHES "CallArgumentForm" OR
+     NOT representation_contents MATCHES "AssignmentLeafPlan" OR
+     NOT representation_contents MATCHES "function_context")
+    message(FATAL_ERROR "target LIR representation layer does not own expression/statement plans: ${representation}")
   endif()
 endforeach()
 
@@ -115,6 +124,11 @@ foreach(target_lir IN ITEMS src/backends/javascript_lir.hpp src/backends/cpp_lir
      NOT target_lir_contract MATCHES "RuntimeFragment" OR
      NOT target_lir_contract MATCHES "ExpressionPlan" OR
      NOT target_lir_contract MATCHES "ExpressionForm" OR
+     NOT target_lir_contract MATCHES "StatementPlan" OR
+     NOT target_lir_contract MATCHES "StatementForm" OR
+     NOT target_lir_contract MATCHES "ConditionForm" OR
+     NOT target_lir_contract MATCHES "VariableAccess" OR
+     NOT target_lir_contract MATCHES "AssignmentLeafPlan" OR
      NOT target_lir_contract MATCHES "CallForm" OR
      NOT target_lir_contract MATCHES "CallArgumentForm" OR
      NOT target_lir_contract MATCHES "IndexForm" OR
@@ -130,10 +144,13 @@ foreach(renderer IN ITEMS src/backends/javascript_renderer.cpp src/backends/cpp_
   if(NOT renderer_contract MATCHES "plan\\.call_arguments" OR
      NOT renderer_contract MATCHES "plan\\.form" OR
      NOT renderer_contract MATCHES "plan\\.token" OR
-     NOT renderer_contract MATCHES "plan\\.index")
-    message(FATAL_ERROR "target renderer ignores the lowered expression representation plan: ${renderer}")
+     NOT renderer_contract MATCHES "plan\\.index" OR
+     NOT renderer_contract MATCHES "statement\\.plan\\.form" OR
+     NOT renderer_contract MATCHES "statement\\.plan\\.condition" OR
+     NOT renderer_contract MATCHES "statement\\.plan\\.target_access")
+    message(FATAL_ERROR "target renderer ignores the lowered expression/statement representation plan: ${renderer}")
   endif()
-  if(renderer_contract MATCHES "mangler_->temporary|parameter_intents|parameter_optional|TranspileOptions|options_|program\\.runtime|program\\.function_graph|has_executable_statements|MPF_VERSION|collect_(assignments|declarations)|ExpressionKind::|IntrinsicId::|BindingKind::|argument_transfer_" OR
+  if(renderer_contract MATCHES "mangler_->temporary|parameter_intents|parameter_optional|TranspileOptions|options_|program\\.runtime|program\\.function_graph|program\\.emission|emission_|has_executable_statements|MPF_VERSION|collect_(assignments|declarations)|StatementKind|ExpressionKind::|IntrinsicId::|BindingKind::|ValueType|AssignmentPattern|argument_transfer_|active_(reference|optional)_parameters" OR
      NOT renderer_contract MATCHES "temporaries_->find" OR
      NOT renderer_contract MATCHES "function_abi" OR
      NOT renderer_contract MATCHES "program_scope" OR

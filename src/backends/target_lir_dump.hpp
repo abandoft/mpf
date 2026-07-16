@@ -21,6 +21,20 @@ auto dump_target_representation_details(std::ostream& output, const Plan& plan, 
     output << ']';
   }
   if (plan.flatten_base) output << " flatten-base 1";
+  if (plan.has_result) output << " has-result 1";
+  if (!plan.input_shape.empty()) {
+    output << " input-shape [";
+    for (std::size_t index = 0; index < plan.input_shape.size(); ++index) {
+      if (index != 0) output << ',';
+      output << plan.input_shape[index];
+    }
+    output << "] result-shape [";
+    for (std::size_t index = 0; index < plan.result_shape.size(); ++index) {
+      if (index != 0) output << ',';
+      output << plan.result_shape[index];
+    }
+    output << ']';
+  }
 }
 
 template <typename Plan>
@@ -44,7 +58,11 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
          << expression.plan.precedence << " token " << std::quoted(expression.plan.token)
          << " call " << static_cast<int>(expression.plan.call) << " index "
          << static_cast<int>(expression.plan.index) << " first-result "
-         << expression.plan.first_result << " string-value " << expression.plan.string_value;
+         << expression.plan.first_result << " string-value " << expression.plan.string_value
+         << " variable-access " << static_cast<int>(expression.plan.variable_access)
+         << " index-base " << expression.plan.index_base << " negative-index "
+         << expression.plan.allow_negative_index << " column-major " << expression.plan.column_major
+         << " inclusive-slice " << expression.plan.inclusive_slice_stop;
   if (!expression.plan.call_arguments.empty()) {
     output << " call-arguments [";
     for (std::size_t index = 0; index < expression.plan.call_arguments.size(); ++index) {
@@ -91,7 +109,18 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
   for (const auto& statement : statements) {
     output << std::string(depth * 2U, ' ') << "stmt %l" << statement.id.value() << " origin %h"
            << statement.origin.value() << " kind " << static_cast<int>(statement.kind) << " line "
-           << statement.line << " name " << std::quoted(statement.name) << '\n';
+           << statement.line << " name " << std::quoted(statement.name) << " plan "
+           << static_cast<int>(statement.plan.form) << " condition "
+           << static_cast<int>(statement.plan.condition) << " target-access "
+           << static_cast<int>(statement.plan.target_access) << " alternative "
+           << statement.plan.has_alternative << " range-step " << statement.plan.range_has_step
+           << " retain-loop " << statement.plan.retain_loop_value << " inclusive-stop "
+           << statement.plan.inclusive_stop << " resizable-section "
+           << statement.plan.resizable_section << " character-selector "
+           << statement.plan.character_selector << " targets " << statement.plan.targets.size()
+           << " assignment-leaves " << statement.plan.assignment_leaves.size() << " selectors "
+           << statement.plan.selectors.size() << " returns " << statement.plan.return_names.size()
+           << '\n';
     dump_target_expression(output, statement.expression, depth + 1U);
     dump_target_expression(output, statement.secondary_expression, depth + 1U);
     dump_target_expression(output, statement.tertiary_expression, depth + 1U);
@@ -111,7 +140,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v7 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v8 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

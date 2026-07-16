@@ -7,9 +7,18 @@
 namespace mpf::detail::javascript {
 namespace {
 
+using AccessContext = std::vector<std::pair<std::string, lir::VariableAccess>>;
+
 void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation location,
                std::string message) {
   diagnostics.push_back({DiagnosticSeverity::error, "MPF0007", std::move(message), location});
+}
+
+lir::VariableAccess variable_access(const AccessContext& context,
+                                    const std::string& name) noexcept {
+  const auto found = std::find_if(context.rbegin(), context.rend(),
+                                  [&](const auto& entry) { return entry.first == name; });
+  return found == context.rend() ? lir::VariableAccess::direct : found->second;
 }
 
 int binary_precedence(const std::string& token) noexcept {
@@ -66,8 +75,9 @@ lir::CallForm call_form(const lir::Expression& expression) noexcept {
   return lir::CallForm::direct;
 }
 
-lir::ExpressionPlan expected_plan(const lir::Expression& expression,
-                                  const lir::EmissionPlan& emission) {
+lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
+                                             const lir::EmissionPlan& emission,
+                                             const AccessContext& context) {
   lir::ExpressionPlan result;
   if (!expression.valid()) return result;
   result.valid = true;
@@ -84,6 +94,9 @@ lir::ExpressionPlan expected_plan(const lir::Expression& expression,
       result.token = expression.binding == BindingKind::builtin
                          ? std::string(expression.target_binding.code)
                          : expression.value;
+      if (result.form == lir::ExpressionForm::variable) {
+        result.variable_access = variable_access(context, expression.value);
+      }
       break;
     case ExpressionKind::number_literal:
     case ExpressionKind::string_literal:
@@ -162,8 +175,16 @@ lir::ExpressionPlan expected_plan(const lir::Expression& expression,
                                  [](const bool slice) { return slice; })
                          ? lir::IndexForm::section
                          : lir::IndexForm::element;
+      result.index_base = expression.index_base;
+      result.allow_negative_index = expression.allow_negative_index;
+      result.column_major = expression.column_major;
       break;
-    case ExpressionKind::slice: result.form = lir::ExpressionForm::slice; break;
+    case ExpressionKind::slice:
+      result.form = lir::ExpressionForm::slice;
+      result.index_base = expression.index_base;
+      result.allow_negative_index = expression.allow_negative_index;
+      result.inclusive_slice_stop = expression.slice_stop_inclusive;
+      break;
     case ExpressionKind::member:
       result.form = lir::ExpressionForm::member;
       result.precedence = 9;
@@ -184,6 +205,10 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.token != right.token || left.comparisons.size() != right.comparisons.size() ||
       left.call != right.call || left.call_arguments != right.call_arguments ||
       left.index != right.index || left.selector_slices != right.selector_slices ||
+      left.variable_access != right.variable_access || left.index_base != right.index_base ||
+      left.allow_negative_index != right.allow_negative_index ||
+      left.column_major != right.column_major ||
+      left.inclusive_slice_stop != right.inclusive_slice_stop ||
       left.first_result != right.first_result || left.string_value != right.string_value) {
     return false;
   }
@@ -193,71 +218,276 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
   return true;
 }
 
-void plan_expression(lir::Expression& expression, const lir::EmissionPlan& emission) {
+void plan_expression(lir::Expression& expression, const lir::EmissionPlan& emission,
+                     const AccessContext& context) {
   if (!expression.valid()) return;
-  expression.plan = expected_plan(expression, emission);
-  for (auto& child : expression.children) plan_expression(child, emission);
+  expression.plan = expected_expression_plan(expression, emission, context);
+  for (auto& child : expression.children) plan_expression(child, emission, context);
 }
 
 void verify_expression(const lir::Expression& expression, const lir::EmissionPlan& emission,
-                       std::vector<Diagnostic>& diagnostics) {
+                       const AccessContext& context, std::vector<Diagnostic>& diagnostics) {
   if (!expression.valid()) return;
-  if (!same_plan(expression.plan, expected_plan(expression, emission))) {
+  if (!same_plan(expression.plan, expected_expression_plan(expression, emission, context))) {
     add_error(diagnostics, expression.location,
               "JavaScript LIR expression representation plan is inconsistent");
   }
-  for (const auto& child : expression.children) verify_expression(child, emission, diagnostics);
-}
-
-template <typename Function>
-void visit_statement_expressions(std::vector<lir::Statement>& statements,
-                                 const Function& function) {
-  for (auto& statement : statements) {
-    function(statement.expression);
-    function(statement.secondary_expression);
-    function(statement.tertiary_expression);
-    function(statement.target_expression);
-    for (auto& expression : statement.parameter_defaults) function(expression);
-    for (auto& selector : statement.case_selectors) {
-      function(selector.lower);
-      function(selector.upper);
-    }
-    visit_statement_expressions(statement.body, function);
-    visit_statement_expressions(statement.alternative, function);
+  for (const auto& child : expression.children) {
+    verify_expression(child, emission, context, diagnostics);
   }
 }
 
-template <typename Function>
-void visit_statement_expressions(const std::vector<lir::Statement>& statements,
-                                 const Function& function) {
-  for (const auto& statement : statements) {
-    function(statement.expression);
-    function(statement.secondary_expression);
-    function(statement.tertiary_expression);
-    function(statement.target_expression);
-    for (const auto& expression : statement.parameter_defaults) function(expression);
-    for (const auto& selector : statement.case_selectors) {
-      function(selector.lower);
-      function(selector.upper);
+lir::SelectorForm selector_form(const lir::CaseSelector& selector) noexcept {
+  if (!selector.range) return lir::SelectorForm::value;
+  if (selector.has_lower && selector.has_upper) return lir::SelectorForm::closed_range;
+  return selector.has_lower ? lir::SelectorForm::lower_bound : lir::SelectorForm::upper_bound;
+}
+
+std::vector<lir::AssignmentLeafPlan> assignment_leaves(const AssignmentPattern& pattern,
+                                                       const AccessContext& context) {
+  std::vector<const AssignmentPattern*> leaves;
+  collect_assignment_leaves(pattern, leaves);
+  std::vector<lir::AssignmentLeafPlan> result;
+  result.reserve(leaves.size());
+  for (const auto* leaf : leaves) {
+    lir::AssignmentLeafPlan plan;
+    plan.name = leaf->name;
+    plan.access = variable_access(context, leaf->name);
+    plan.captured_sequence = leaf->kind != AssignmentPatternKind::name;
+    plan.access_path = leaf->access_path;
+    plan.captured_paths = leaf->captured_paths;
+    result.push_back(std::move(plan));
+  }
+  return result;
+}
+
+lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
+                                           const lir::EmissionPlan& emission,
+                                           const AccessContext& context) {
+  lir::StatementPlan result;
+  result.valid = true;
+  switch (statement.kind) {
+    case StatementKind::declaration:
+      result.target_access = variable_access(context, statement.name);
+      if (statement.dummy_parameter) {
+        result.form = lir::StatementForm::discard;
+      } else if (statement.has_expression) {
+        result.form = lir::StatementForm::declaration_initializer;
+      } else if (statement.declared_type == ValueType::list && !statement.shape.empty()) {
+        result.form = lir::StatementForm::declaration_array;
+        result.array_shape = statement.shape;
+        result.array_default = statement.element_type == ValueType::boolean  ? "false"
+                               : statement.element_type == ValueType::string ? "\"\""
+                                                                             : "0";
+      }
+      break;
+    case StatementKind::assignment:
+      result.form = lir::StatementForm::assignment;
+      result.target_access = variable_access(context, statement.name);
+      break;
+    case StatementKind::multi_assignment:
+      if (statement.has_target_pattern) {
+        result.form = lir::StatementForm::multi_pattern;
+        result.assignment_leaves = assignment_leaves(statement.target_pattern, context);
+      } else {
+        result.form = lir::StatementForm::multi_destructure;
+        result.targets = statement.target_names;
+        result.target_accesses.reserve(result.targets.size());
+        for (const auto& name : result.targets) {
+          result.target_accesses.push_back(variable_access(context, name));
+        }
+      }
+      break;
+    case StatementKind::indexed_assignment:
+      result.form = statement.target_expression.plan.index == lir::IndexForm::section
+                        ? lir::StatementForm::indexed_section_assignment
+                        : lir::StatementForm::indexed_element_assignment;
+      result.resizable_section = result.form == lir::StatementForm::indexed_section_assignment &&
+                                 emission.resizable_sections;
+      break;
+    case StatementKind::print:
+      result.form = !statement.has_expression ? lir::StatementForm::print_empty
+                    : statement.expression.plan.form == lir::ExpressionForm::tuple
+                        ? lir::StatementForm::print_tuple
+                        : lir::StatementForm::print_value;
+      break;
+    case StatementKind::return_statement:
+      result.form = statement.has_expression ? lir::StatementForm::return_value
+                                             : lir::StatementForm::return_void;
+      break;
+    case StatementKind::break_statement: result.form = lir::StatementForm::break_loop; break;
+    case StatementKind::continue_statement: result.form = lir::StatementForm::continue_loop; break;
+    case StatementKind::expression: result.form = lir::StatementForm::expression; break;
+    case StatementKind::if_statement:
+      result.form = lir::StatementForm::conditional;
+      result.condition = emission.dynamic_truthiness ? lir::ConditionForm::runtime_truthy
+                                                     : lir::ConditionForm::direct;
+      result.has_alternative = !statement.alternative.empty();
+      break;
+    case StatementKind::select_case:
+      result.form = lir::StatementForm::selection;
+      result.character_selector = statement.expression.plan.string_value;
+      break;
+    case StatementKind::case_clause:
+      result.form = lir::StatementForm::case_clause;
+      if (!statement.default_case) {
+        result.selectors.reserve(statement.case_selectors.size());
+        for (const auto& selector : statement.case_selectors) {
+          result.selectors.push_back(selector_form(selector));
+        }
+      }
+      break;
+    case StatementKind::while_loop:
+      result.form = lir::StatementForm::while_loop;
+      result.condition = emission.dynamic_truthiness ? lir::ConditionForm::runtime_truthy
+                                                     : lir::ConditionForm::direct;
+      result.has_alternative = !statement.alternative.empty();
+      break;
+    case StatementKind::range_loop:
+      result.form = lir::StatementForm::range_loop;
+      result.target_access = variable_access(context, statement.name);
+      result.has_alternative = !statement.alternative.empty();
+      result.range_has_step = statement.has_tertiary_expression;
+      result.retain_loop_value = statement.retain_last_loop_value;
+      result.inclusive_stop = statement.inclusive_stop;
+      break;
+    case StatementKind::function:
+      result.form = lir::StatementForm::function;
+      result.parameter_defaults.reserve(statement.parameter_defaults.size());
+      for (const auto& default_value : statement.parameter_defaults) {
+        result.parameter_defaults.push_back(emission.emit_parameter_defaults &&
+                                            default_value.valid());
+      }
+      result.return_names = statement.return_names;
+      break;
+  }
+  return result;
+}
+
+bool same_access_path(const std::vector<AssignmentAccess>& left,
+                      const std::vector<AssignmentAccess>& right) noexcept {
+  if (left.size() != right.size()) return false;
+  for (std::size_t index = 0; index < left.size(); ++index) {
+    if (left[index].index != right[index].index || left[index].list != right[index].list) {
+      return false;
     }
-    visit_statement_expressions(statement.body, function);
-    visit_statement_expressions(statement.alternative, function);
+  }
+  return true;
+}
+
+bool same_assignment_leaf(const lir::AssignmentLeafPlan& left,
+                          const lir::AssignmentLeafPlan& right) noexcept {
+  if (left.name != right.name || left.access != right.access ||
+      left.captured_sequence != right.captured_sequence ||
+      !same_access_path(left.access_path, right.access_path) ||
+      left.captured_paths.size() != right.captured_paths.size()) {
+    return false;
+  }
+  for (std::size_t index = 0; index < left.captured_paths.size(); ++index) {
+    if (!same_access_path(left.captured_paths[index], right.captured_paths[index])) return false;
+  }
+  return true;
+}
+
+bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPlan& right) noexcept {
+  if (left.valid != right.valid || left.form != right.form || left.condition != right.condition ||
+      left.target_access != right.target_access || left.has_alternative != right.has_alternative ||
+      left.range_has_step != right.range_has_step ||
+      left.retain_loop_value != right.retain_loop_value ||
+      left.inclusive_stop != right.inclusive_stop ||
+      left.resizable_section != right.resizable_section ||
+      left.character_selector != right.character_selector ||
+      left.array_default != right.array_default || left.array_shape != right.array_shape ||
+      left.targets != right.targets || left.target_accesses != right.target_accesses ||
+      left.assignment_leaves.size() != right.assignment_leaves.size() ||
+      left.selectors != right.selectors || left.parameter_defaults != right.parameter_defaults ||
+      left.return_names != right.return_names) {
+    return false;
+  }
+  for (std::size_t index = 0; index < left.assignment_leaves.size(); ++index) {
+    if (!same_assignment_leaf(left.assignment_leaves[index], right.assignment_leaves[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+AccessContext function_context(const lir::Statement& statement) {
+  AccessContext result;
+  result.reserve(statement.parameters.size());
+  for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
+    const auto access =
+        index < statement.function_abi.parameters.size() &&
+                statement.function_abi.parameters[index] == lir::ParameterPassing::reference_box
+            ? lir::VariableAccess::reference_box_value
+            : lir::VariableAccess::direct;
+    result.emplace_back(statement.parameters[index], access);
+  }
+  return result;
+}
+
+void plan_statements(std::vector<lir::Statement>& statements, const lir::EmissionPlan& emission,
+                     const AccessContext& context) {
+  for (auto& statement : statements) {
+    const auto nested_context =
+        statement.kind == StatementKind::function ? function_context(statement) : context;
+    const auto& expression_context =
+        statement.kind == StatementKind::function ? nested_context : context;
+    plan_expression(statement.expression, emission, expression_context);
+    plan_expression(statement.secondary_expression, emission, expression_context);
+    plan_expression(statement.tertiary_expression, emission, expression_context);
+    plan_expression(statement.target_expression, emission, expression_context);
+    for (auto& expression : statement.parameter_defaults) {
+      plan_expression(expression, emission, expression_context);
+    }
+    for (auto& selector : statement.case_selectors) {
+      plan_expression(selector.lower, emission, expression_context);
+      plan_expression(selector.upper, emission, expression_context);
+    }
+    statement.plan = expected_statement_plan(statement, emission, context);
+    plan_statements(statement.body, emission, nested_context);
+    plan_statements(statement.alternative, emission, nested_context);
+  }
+}
+
+void verify_statements(const std::vector<lir::Statement>& statements,
+                       const lir::EmissionPlan& emission, const AccessContext& context,
+                       std::vector<Diagnostic>& diagnostics) {
+  for (const auto& statement : statements) {
+    const auto nested_context =
+        statement.kind == StatementKind::function ? function_context(statement) : context;
+    const auto& expression_context =
+        statement.kind == StatementKind::function ? nested_context : context;
+    verify_expression(statement.expression, emission, expression_context, diagnostics);
+    verify_expression(statement.secondary_expression, emission, expression_context, diagnostics);
+    verify_expression(statement.tertiary_expression, emission, expression_context, diagnostics);
+    verify_expression(statement.target_expression, emission, expression_context, diagnostics);
+    for (const auto& expression : statement.parameter_defaults) {
+      verify_expression(expression, emission, expression_context, diagnostics);
+    }
+    for (const auto& selector : statement.case_selectors) {
+      verify_expression(selector.lower, emission, expression_context, diagnostics);
+      verify_expression(selector.upper, emission, expression_context, diagnostics);
+    }
+    if (!same_statement_plan(statement.plan,
+                             expected_statement_plan(statement, emission, context))) {
+      add_error(diagnostics, {statement.line, 1},
+                "JavaScript LIR statement representation plan is inconsistent");
+    }
+    verify_statements(statement.body, emission, nested_context, diagnostics);
+    verify_statements(statement.alternative, emission, nested_context, diagnostics);
   }
 }
 
 }  // namespace
 
 void plan_lir_representation(lir::SemanticProgram& program) {
-  visit_statement_expressions(program.statements, [&](lir::Expression& expression) {
-    plan_expression(expression, program.emission);
-  });
+  plan_statements(program.statements, program.emission, {});
 }
 
 void verify_lir_representation(const lir::SemanticProgram& program,
                                std::vector<Diagnostic>& diagnostics) {
-  visit_statement_expressions(program.statements, [&](const lir::Expression& expression) {
-    verify_expression(expression, program.emission, diagnostics);
-  });
+  verify_statements(program.statements, program.emission, {}, diagnostics);
 }
 
 }  // namespace mpf::detail::javascript

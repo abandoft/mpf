@@ -174,6 +174,8 @@ enum class IndexForm : std::uint8_t {
   section_nd
 };
 
+enum class VariableAccess : std::uint8_t { direct, optional_value };
+
 struct ComparisonPlan {
   ComparisonForm form{ComparisonForm::infix};
   std::string token;
@@ -189,11 +191,76 @@ struct ExpressionPlan {
   std::vector<CallArgumentForm> call_arguments;
   IndexForm index{IndexForm::none};
   std::vector<bool> selector_slices;
+  VariableAccess variable_access{VariableAccess::direct};
+  std::size_t index_base{0};
+  bool allow_negative_index{false};
+  bool column_major{false};
+  bool inclusive_slice_stop{false};
   bool flatten_base{false};
   bool first_result{false};
+  bool has_result{false};
   bool string_value{false};
   std::string concrete_type;
   std::vector<bool> widen_children;
+  std::vector<std::size_t> input_shape;
+  std::vector<std::size_t> result_shape;
+};
+
+enum class ConditionForm : std::uint8_t { direct, runtime_truthy };
+
+enum class StatementForm : std::uint8_t {
+  discard,
+  declaration_initializer,
+  assignment,
+  multi_pattern,
+  multi_tuple,
+  indexed_element_assignment,
+  indexed_section_assignment,
+  print_empty,
+  print_value,
+  print_tuple,
+  return_void,
+  return_value,
+  break_loop,
+  continue_loop,
+  expression,
+  conditional,
+  selection,
+  case_clause,
+  while_loop,
+  range_loop,
+  function
+};
+
+enum class SelectorForm : std::uint8_t { value, closed_range, lower_bound, upper_bound };
+
+struct AssignmentLeafPlan {
+  std::string name;
+  VariableAccess access{VariableAccess::direct};
+  bool captured_sequence{false};
+  std::string concrete_type;
+  bool widen_elements{false};
+  std::vector<AssignmentAccess> access_path;
+  std::vector<std::vector<AssignmentAccess>> captured_paths;
+};
+
+struct StatementPlan {
+  bool valid{false};
+  StatementForm form{StatementForm::discard};
+  ConditionForm condition{ConditionForm::direct};
+  VariableAccess target_access{VariableAccess::direct};
+  bool has_alternative{false};
+  bool range_has_step{false};
+  bool retain_loop_value{false};
+  bool inclusive_stop{false};
+  bool resizable_section{false};
+  bool flatten_replacement{false};
+  bool character_selector{false};
+  std::vector<std::string> targets;
+  std::vector<VariableAccess> target_accesses;
+  std::vector<AssignmentLeafPlan> assignment_leaves;
+  std::vector<SelectorForm> selectors;
+  std::vector<std::string> return_names;
 };
 
 enum class RuntimeFragment : std::uint8_t { core, dynamic_values };
@@ -310,6 +377,7 @@ struct Statement {
   bool default_case{false};
   FunctionAbi function_abi;
   ScopePlan function_scope;
+  StatementPlan plan;
   std::vector<Statement> body;
   std::vector<Statement> alternative;
 };

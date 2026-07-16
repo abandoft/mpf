@@ -25,7 +25,6 @@ bool expression_has_direct_slice(const Expression& expression) {
 class Renderer final {
  public:
   RenderedOutput render(const Program& program) {
-    emission_ = program.emission;
     temporaries_ = &program.temporaries;
     mangler_ = std::make_unique<IdentifierMangler>(program.identifiers);
     output_ << program.module.banner;
@@ -189,7 +188,7 @@ class Renderer final {
       case javascript::lir::ExpressionForm::invalid:
       case javascript::lir::ExpressionForm::omitted: output_ << expression.plan.token; break;
       case javascript::lir::ExpressionForm::variable:
-        emit_variable_name(expression.plan.token);
+        emit_variable_name(expression.plan.token, expression.plan.variable_access);
         break;
       case javascript::lir::ExpressionForm::target_symbol:
       case javascript::lir::ExpressionForm::literal: output_ << expression.plan.token; break;
@@ -279,9 +278,9 @@ class Renderer final {
               output_ << " }";
             }
           }
-          output_ << "], " << expression.index_base << ", "
-                  << (expression.allow_negative_index ? "true" : "false") << ", "
-                  << (expression.column_major ? "true" : "false") << ')';
+          output_ << "], " << expression.plan.index_base << ", "
+                  << (expression.plan.allow_negative_index ? "true" : "false") << ", "
+                  << (expression.plan.column_major ? "true" : "false") << ')';
         } else {
           output_ << "__mpf_get(";
           emit_expression(expression.children[0]);
@@ -290,9 +289,9 @@ class Renderer final {
             if (index != 1) output_ << ", ";
             emit_expression(expression.children[index]);
           }
-          output_ << "], " << expression.index_base << ", "
-                  << (expression.allow_negative_index ? "true" : "false") << ", "
-                  << (expression.column_major ? "true" : "false") << ')';
+          output_ << "], " << expression.plan.index_base << ", "
+                  << (expression.plan.allow_negative_index ? "true" : "false") << ", "
+                  << (expression.plan.column_major ? "true" : "false") << ')';
         }
         break;
       case javascript::lir::ExpressionForm::slice: output_ << "undefined"; break;
@@ -312,9 +311,10 @@ class Renderer final {
     }
     if (parenthesize) output_ << ')';
   }
-  void emit_variable_name(const std::string& name) {
+  void emit_variable_name(const std::string& name, const javascript::lir::VariableAccess access =
+                                                       javascript::lir::VariableAccess::direct) {
     output_ << mangler_->name(name);
-    if (active_reference_parameters_.count(name) != 0U) output_ << ".value";
+    if (access == javascript::lir::VariableAccess::reference_box_value) output_ << ".value";
   }
 
   void emit_pattern_access(const std::string& temporary,
@@ -323,21 +323,20 @@ class Renderer final {
     for (const auto& access : path) output_ << '[' << access.index << ']';
   }
 
-  void emit_python_assignment_pattern(const AssignmentPattern& pattern,
-                                      const std::string& temporary) {
-    std::vector<const AssignmentPattern*> leaves;
-    collect_assignment_leaves(pattern, leaves);
-    for (const auto* leaf : leaves) {
+  void emit_python_assignment_pattern(
+      const std::vector<javascript::lir::AssignmentLeafPlan>& leaves,
+      const std::string& temporary) {
+    for (const auto& leaf : leaves) {
       indentation();
-      emit_variable_name(leaf->name);
+      emit_variable_name(leaf.name, leaf.access);
       output_ << " = ";
-      if (leaf->kind == AssignmentPatternKind::name) {
-        emit_pattern_access(temporary, leaf->access_path);
+      if (!leaf.captured_sequence) {
+        emit_pattern_access(temporary, leaf.access_path);
       } else {
         output_ << '[';
-        for (std::size_t index = 0; index < leaf->captured_paths.size(); ++index) {
+        for (std::size_t index = 0; index < leaf.captured_paths.size(); ++index) {
           if (index != 0) output_ << ", ";
-          emit_pattern_access(temporary, leaf->captured_paths[index]);
+          emit_pattern_access(temporary, leaf.captured_paths[index]);
         }
         output_ << ']';
       }
@@ -394,9 +393,9 @@ class Renderer final {
           output_ << " }";
         }
       }
-      output_ << "], " << reference << ".value, " << target.index_base << ", "
-              << (target.allow_negative_index ? "true" : "false") << ", "
-              << (target.column_major ? "true" : "false") << ", false)";
+      output_ << "], " << reference << ".value, " << target.plan.index_base << ", "
+              << (target.plan.allow_negative_index ? "true" : "false") << ", "
+              << (target.plan.column_major ? "true" : "false") << ", false)";
       return;
     }
     if (target.plan.form == javascript::lir::ExpressionForm::index) {
@@ -407,9 +406,9 @@ class Renderer final {
         if (index != 1) output_ << ", ";
         emit_expression(target.children[index]);
       }
-      output_ << "], " << reference << ".value, " << target.index_base << ", "
-              << (target.allow_negative_index ? "true" : "false") << ", "
-              << (target.column_major ? "true" : "false") << ')';
+      output_ << "], " << reference << ".value, " << target.plan.index_base << ", "
+              << (target.plan.allow_negative_index ? "true" : "false") << ", "
+              << (target.plan.column_major ? "true" : "false") << ')';
       return;
     }
     emit_expression(target);
@@ -432,7 +431,7 @@ class Renderer final {
       emit_expression(slice.children[2]);
     else
       output_ << "null";
-    output_ << ", inclusive: " << (slice.slice_stop_inclusive ? "true" : "false") << " }";
+    output_ << ", inclusive: " << (slice.plan.inclusive_slice_stop ? "true" : "false") << " }";
   }
 
   void indentation() {
@@ -465,11 +464,12 @@ class Renderer final {
 
   void emit_case_condition(const Statement& clause, const std::string& selector,
                            const bool character) {
-    for (std::size_t index = 0; index < clause.case_selectors.size(); ++index) {
+    for (std::size_t index = 0; index < clause.plan.selectors.size(); ++index) {
       if (index != 0) output_ << " || ";
       const auto& value = clause.case_selectors[index];
+      const auto form = clause.plan.selectors[index];
       output_ << '(';
-      if (!value.range) {
+      if (form == javascript::lir::SelectorForm::value) {
         if (character) {
           output_ << "__mpf_fortran_compare(" << selector << ", ";
           emit_expression(value.lower);
@@ -479,7 +479,11 @@ class Renderer final {
           emit_expression(value.lower);
         }
       } else {
-        if (value.has_lower) {
+        const bool has_lower = form == javascript::lir::SelectorForm::closed_range ||
+                               form == javascript::lir::SelectorForm::lower_bound;
+        const bool has_upper = form == javascript::lir::SelectorForm::closed_range ||
+                               form == javascript::lir::SelectorForm::upper_bound;
+        if (has_lower) {
           if (character) {
             output_ << "__mpf_fortran_compare(" << selector << ", ";
             emit_expression(value.lower);
@@ -489,8 +493,8 @@ class Renderer final {
             emit_expression(value.lower);
           }
         }
-        if (value.has_lower && value.has_upper) output_ << " && ";
-        if (value.has_upper) {
+        if (has_lower && has_upper) output_ << " && ";
+        if (has_upper) {
           if (character) {
             output_ << "__mpf_fortran_compare(" << selector << ", ";
             emit_expression(value.upper);
@@ -518,13 +522,13 @@ class Renderer final {
     const Statement* default_clause = nullptr;
     bool emitted_condition = false;
     for (const auto& clause : statement.body) {
-      if (clause.default_case) {
+      if (clause.plan.selectors.empty()) {
         default_clause = &clause;
         continue;
       }
       indentation();
       output_ << (emitted_condition ? "else if (" : "if (");
-      emit_case_condition(clause, selector, statement.expression.plan.string_value);
+      emit_case_condition(clause, selector, statement.plan.character_selector);
       output_ << ") {\n";
       ++indent_;
       emit_statements(clause.body);
@@ -551,66 +555,67 @@ class Renderer final {
     output_ << "}\n";
   }
 
+  void emit_array_initializer(const std::vector<std::size_t>& shape, const std::string& value,
+                              const std::size_t dimension = 0) {
+    if (dimension + 1U == shape.size()) {
+      output_ << "new Array(" << shape[dimension] << ").fill(" << value << ')';
+      return;
+    }
+    output_ << "Array.from({ length: " << shape[dimension] << " }, () => ";
+    emit_array_initializer(shape, value, dimension + 1U);
+    output_ << ')';
+  }
+
   void emit_statement(const Statement& statement) {
     mark({statement.line, 1}, statement.origin);
-    switch (statement.kind) {
-      case StatementKind::declaration:
-        if (statement.dummy_parameter) break;
-        if (statement.has_expression ||
-            (statement.declared_type == ValueType::list && !statement.shape.empty())) {
-          indentation();
-          emit_variable_name(statement.name);
-          output_ << " = ";
-          if (statement.has_expression) {
-            emit_expression(statement.expression);
-          } else {
-            const char* default_value = "0";
-            switch (statement.element_type) {
-              case ValueType::boolean: default_value = "false"; break;
-              case ValueType::string: default_value = "\"\""; break;
-              default: break;
-            }
-            if (statement.shape.size() == 1) {
-              output_ << "new Array(" << statement.shape[0] << ").fill(" << default_value << ')';
-            } else {
-              output_ << "Array.from({ length: " << statement.shape[0] << " }, () => new Array("
-                      << statement.shape[1] << ").fill(" << default_value << "))";
-            }
-          }
-          output_ << ";\n";
-        }
-        break;
-      case StatementKind::assignment:
+    switch (statement.plan.form) {
+      case javascript::lir::StatementForm::discard: break;
+      case javascript::lir::StatementForm::declaration_initializer:
         indentation();
-        emit_variable_name(statement.name);
+        emit_variable_name(statement.name, statement.plan.target_access);
         output_ << " = ";
         emit_expression(statement.expression);
         output_ << ";\n";
         break;
-      case StatementKind::multi_assignment:
-        if (statement.has_target_pattern) {
-          const auto temporary =
-              this->temporary(statement.id, javascript::lir::TemporaryRole::assignment_value);
-          indentation();
-          output_ << "const " << temporary << " = ";
-          emit_expression(statement.expression);
-          output_ << ";\n";
-          emit_python_assignment_pattern(statement.target_pattern, temporary);
-        } else {
-          indentation();
-          output_ << '[';
-          for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
-            if (index != 0) output_ << ", ";
-            emit_variable_name(statement.target_names[index]);
-          }
-          output_ << "] = ";
-          emit_expression(statement.expression);
-          output_ << ";\n";
-        }
-        break;
-      case StatementKind::indexed_assignment:
+      case javascript::lir::StatementForm::declaration_array:
         indentation();
-        if (expression_has_direct_slice(statement.target_expression)) {
+        emit_variable_name(statement.name, statement.plan.target_access);
+        output_ << " = ";
+        emit_array_initializer(statement.plan.array_shape, statement.plan.array_default);
+        output_ << ";\n";
+        break;
+      case javascript::lir::StatementForm::assignment:
+        indentation();
+        emit_variable_name(statement.name, statement.plan.target_access);
+        output_ << " = ";
+        emit_expression(statement.expression);
+        output_ << ";\n";
+        break;
+      case javascript::lir::StatementForm::multi_pattern: {
+        const auto temporary =
+            this->temporary(statement.id, javascript::lir::TemporaryRole::assignment_value);
+        indentation();
+        output_ << "const " << temporary << " = ";
+        emit_expression(statement.expression);
+        output_ << ";\n";
+        emit_python_assignment_pattern(statement.plan.assignment_leaves, temporary);
+        break;
+      }
+      case javascript::lir::StatementForm::multi_destructure:
+        indentation();
+        output_ << '[';
+        for (std::size_t index = 0; index < statement.plan.targets.size(); ++index) {
+          if (index != 0) output_ << ", ";
+          emit_variable_name(statement.plan.targets[index], statement.plan.target_accesses[index]);
+        }
+        output_ << "] = ";
+        emit_expression(statement.expression);
+        output_ << ";\n";
+        break;
+      case javascript::lir::StatementForm::indexed_element_assignment:
+      case javascript::lir::StatementForm::indexed_section_assignment:
+        indentation();
+        if (statement.plan.form == javascript::lir::StatementForm::indexed_section_assignment) {
           output_ << "__mpf_set_section(";
           emit_expression(statement.target_expression.children[0]);
           output_ << ", [";
@@ -627,10 +632,10 @@ class Renderer final {
           }
           output_ << "], ";
           emit_expression(statement.expression);
-          output_ << ", " << statement.target_expression.index_base << ", "
-                  << (statement.target_expression.allow_negative_index ? "true" : "false") << ", "
-                  << (statement.target_expression.column_major ? "true" : "false") << ", "
-                  << (emission_.resizable_sections ? "true" : "false") << ");\n";
+          output_ << ", " << statement.target_expression.plan.index_base << ", "
+                  << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
+                  << ", " << (statement.target_expression.plan.column_major ? "true" : "false")
+                  << ", " << (statement.plan.resizable_section ? "true" : "false") << ");\n";
         } else {
           output_ << "__mpf_set(";
           emit_expression(statement.target_expression.children[0]);
@@ -642,35 +647,38 @@ class Renderer final {
           }
           output_ << "], ";
           emit_expression(statement.expression);
-          output_ << ", " << statement.target_expression.index_base << ", "
-                  << (statement.target_expression.allow_negative_index ? "true" : "false") << ", "
-                  << (statement.target_expression.column_major ? "true" : "false") << ");\n";
+          output_ << ", " << statement.target_expression.plan.index_base << ", "
+                  << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
+                  << ", " << (statement.target_expression.plan.column_major ? "true" : "false")
+                  << ");\n";
         }
         break;
-      case StatementKind::print:
+      case javascript::lir::StatementForm::print_empty:
+      case javascript::lir::StatementForm::print_value:
+      case javascript::lir::StatementForm::print_tuple:
         indentation();
         output_ << "console.log(";
-        if (statement.has_expression &&
-            statement.expression.plan.form == javascript::lir::ExpressionForm::tuple) {
+        if (statement.plan.form == javascript::lir::StatementForm::print_tuple) {
           for (std::size_t index = 0; index < statement.expression.children.size(); ++index) {
             if (index != 0) output_ << ", ";
             emit_expression(statement.expression.children[index]);
           }
-        } else if (statement.has_expression) {
+        } else if (statement.plan.form == javascript::lir::StatementForm::print_value) {
           emit_expression(statement.expression);
         }
         output_ << ");\n";
         break;
-      case StatementKind::return_statement:
+      case javascript::lir::StatementForm::return_void:
+      case javascript::lir::StatementForm::return_value:
         indentation();
         output_ << "return";
-        if (statement.has_expression) {
+        if (statement.plan.form == javascript::lir::StatementForm::return_value) {
           output_ << ' ';
           emit_expression(statement.expression);
         }
         output_ << ";\n";
         break;
-      case StatementKind::break_statement:
+      case javascript::lir::StatementForm::break_loop:
         indentation();
         if (!loop_completion_flags_.empty() && !loop_completion_flags_.back().empty()) {
           output_ << loop_completion_flags_.back() << " = false;\n";
@@ -678,26 +686,26 @@ class Renderer final {
         }
         output_ << "break;\n";
         break;
-      case StatementKind::continue_statement:
+      case javascript::lir::StatementForm::continue_loop:
         indentation();
         output_ << "continue;\n";
         break;
-      case StatementKind::expression:
+      case javascript::lir::StatementForm::expression:
         indentation();
         emit_expression(statement.expression);
         output_ << ";\n";
         break;
-      case StatementKind::if_statement:
+      case javascript::lir::StatementForm::conditional:
         indentation();
         output_ << "if (";
-        emit_condition(statement.expression);
+        emit_condition(statement.expression, statement.plan.condition);
         output_ << ") {\n";
         ++indent_;
         emit_statements(statement.body);
         --indent_;
         indentation();
         output_ << '}';
-        if (!statement.alternative.empty()) {
+        if (statement.plan.has_alternative) {
           output_ << " else {\n";
           ++indent_;
           emit_statements(statement.alternative);
@@ -707,20 +715,20 @@ class Renderer final {
         }
         output_ << "\n";
         break;
-      case StatementKind::select_case: emit_select_case(statement); break;
-      case StatementKind::case_clause: break;
-      case StatementKind::while_loop: {
+      case javascript::lir::StatementForm::selection: emit_select_case(statement); break;
+      case javascript::lir::StatementForm::case_clause: break;
+      case javascript::lir::StatementForm::while_loop: {
         const auto completion =
-            statement.alternative.empty()
-                ? std::string{}
-                : temporary(statement.id, javascript::lir::TemporaryRole::loop_completed);
+            statement.plan.has_alternative
+                ? temporary(statement.id, javascript::lir::TemporaryRole::loop_completed)
+                : std::string{};
         if (!completion.empty()) {
           indentation();
           output_ << "let " << completion << " = true;\n";
         }
         indentation();
         output_ << "while (";
-        emit_condition(statement.expression);
+        emit_condition(statement.expression, statement.plan.condition);
         output_ << ") {\n";
         ++indent_;
         loop_completion_flags_.push_back(completion);
@@ -740,14 +748,16 @@ class Renderer final {
         }
         break;
       }
-      case StatementKind::range_loop: {
+      case javascript::lir::StatementForm::range_loop: {
         const auto start = temporary(statement.id, javascript::lir::TemporaryRole::range_start);
         const auto stop = temporary(statement.id, javascript::lir::TemporaryRole::range_stop);
         const auto step = temporary(statement.id, javascript::lir::TemporaryRole::range_step);
         auto variable = mangler_->name(statement.name);
-        if (active_reference_parameters_.count(statement.name) != 0U) variable += ".value";
+        if (statement.plan.target_access == javascript::lir::VariableAccess::reference_box_value) {
+          variable += ".value";
+        }
         const auto cursor =
-            statement.retain_last_loop_value
+            statement.plan.retain_loop_value
                 ? temporary(statement.id, javascript::lir::TemporaryRole::range_cursor)
                 : variable;
         indentation();
@@ -763,7 +773,7 @@ class Renderer final {
         output_ << ";\n";
         indentation();
         output_ << "const " << step << " = ";
-        if (statement.has_tertiary_expression)
+        if (statement.plan.range_has_step)
           emit_expression(statement.tertiary_expression);
         else
           output_ << '1';
@@ -772,24 +782,24 @@ class Renderer final {
         output_ << "if (" << step
                 << " === 0) throw new RangeError(\"MPF range step cannot be zero\");\n";
         const auto completion =
-            statement.alternative.empty()
-                ? std::string{}
-                : temporary(statement.id, javascript::lir::TemporaryRole::loop_completed);
+            statement.plan.has_alternative
+                ? temporary(statement.id, javascript::lir::TemporaryRole::loop_completed)
+                : std::string{};
         if (!completion.empty()) {
           indentation();
           output_ << "let " << completion << " = true;\n";
         }
         indentation();
         output_ << "for (";
-        if (statement.retain_last_loop_value) output_ << "let ";
+        if (statement.plan.retain_loop_value) output_ << "let ";
         output_ << cursor << " = " << start;
         output_ << "; " << step << " >= 0 ? " << cursor
-                << (statement.inclusive_stop ? " <= " : " < ") << stop << " : " << cursor
-                << (statement.inclusive_stop ? " >= " : " > ") << stop << "; " << cursor
+                << (statement.plan.inclusive_stop ? " <= " : " < ") << stop << " : " << cursor
+                << (statement.plan.inclusive_stop ? " >= " : " > ") << stop << "; " << cursor
                 << " += " << step << ") {\n";
         ++indent_;
         loop_completion_flags_.push_back(completion);
-        if (statement.retain_last_loop_value) {
+        if (statement.plan.retain_loop_value) {
           indentation();
           output_ << variable << " = " << cursor << ";\n";
         }
@@ -812,16 +822,7 @@ class Renderer final {
         output_ << "}\n";
         break;
       }
-      case StatementKind::function: {
-        const auto saved_reference_parameters = active_reference_parameters_;
-        active_reference_parameters_.clear();
-        for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
-          if (index < statement.function_abi.parameters.size() &&
-              statement.function_abi.parameters[index] ==
-                  javascript::lir::ParameterPassing::reference_box) {
-            active_reference_parameters_.insert(statement.parameters[index]);
-          }
-        }
+      case javascript::lir::StatementForm::function: {
         indentation();
         if (statement.function_abi.exported) {
           output_ << "export ";
@@ -832,8 +833,8 @@ class Renderer final {
             output_ << ", ";
           }
           output_ << mangler_->name(statement.parameters[index]);
-          if (emission_.emit_parameter_defaults && index < statement.parameter_defaults.size() &&
-              statement.parameter_defaults[index].valid()) {
+          if (index < statement.plan.parameter_defaults.size() &&
+              statement.plan.parameter_defaults[index]) {
             output_ << " = ";
             emit_expression(statement.parameter_defaults[index]);
           }
@@ -842,17 +843,17 @@ class Renderer final {
         ++indent_;
         emit_scope_declarations(statement.function_scope);
         emit_statements(statement.body);
-        if (!statement.return_names.empty()) {
+        if (!statement.plan.return_names.empty()) {
           indentation();
-          if (statement.return_names.size() == 1) {
-            output_ << "return " << mangler_->name(statement.return_names.front()) << ";\n";
+          if (statement.plan.return_names.size() == 1) {
+            output_ << "return " << mangler_->name(statement.plan.return_names.front()) << ";\n";
           } else {
             output_ << "return [";
-            for (std::size_t index = 0; index < statement.return_names.size(); ++index) {
+            for (std::size_t index = 0; index < statement.plan.return_names.size(); ++index) {
               if (index != 0) {
                 output_ << ", ";
               }
-              output_ << mangler_->name(statement.return_names[index]);
+              output_ << mangler_->name(statement.plan.return_names[index]);
             }
             output_ << "];\n";
           }
@@ -860,14 +861,14 @@ class Renderer final {
         --indent_;
         indentation();
         output_ << "}\n";
-        active_reference_parameters_ = saved_reference_parameters;
         break;
       }
     }
   }
 
-  void emit_condition(const Expression& expression) {
-    if (emission_.dynamic_truthiness) {
+  void emit_condition(const Expression& expression,
+                      const javascript::lir::ConditionForm condition) {
+    if (condition == javascript::lir::ConditionForm::runtime_truthy) {
       output_ << "__mpf_truthy(";
       emit_expression(expression);
       output_ << ')';
@@ -892,11 +893,9 @@ class Renderer final {
 
   std::ostringstream output_;
   std::size_t indent_{0};
-  javascript::lir::EmissionPlan emission_{};
   const javascript::lir::TemporaryPlan* temporaries_{nullptr};
   std::unique_ptr<IdentifierMangler> mangler_;
   std::vector<std::string> loop_completion_flags_;
-  std::set<std::string> active_reference_parameters_;
   std::vector<RenderMarker> markers_;
 };
 

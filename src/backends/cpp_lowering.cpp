@@ -349,8 +349,8 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
   lowered->dependencies = semantic_program.dependencies;
   lowered->function_graph =
       build_function_dependency_graph_generic<lir::Expression, lir::Statement>(lowered->statements);
-  plan_lir_representation(*lowered);
   plan_lir_resources(*lowered, options);
+  plan_lir_representation(*lowered);
   PassManager<lir::SemanticProgram> passes(&verify_lir_stage);
   passes.add({"cpp-lir-canonicalization", &canonicalize_lir, true});
   auto lir_diagnostics = passes.run(*lowered);

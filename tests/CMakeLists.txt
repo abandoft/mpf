@@ -42,16 +42,18 @@ if(MSVC)
 else()
   target_compile_options(mpf-benchmark PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 endif()
-add_test(NAME mpf.performance.release-gate
-  COMMAND ${CMAKE_COMMAND}
-    -DBENCHMARK=$<TARGET_FILE:mpf-benchmark>
-    -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/performance/baseline.json
-    -DREPORT=${CMAKE_BINARY_DIR}/performance-report.json
-    -DPROJECT_VERSION=${PROJECT_VERSION}
-    -P ${PROJECT_SOURCE_DIR}/cmake/verify_performance.cmake)
-set_tests_properties(mpf.performance.release-gate PROPERTIES
-  LABELS "performance;coverage-excluded"
-  TIMEOUT 180)
+if(NOT MPF_ENABLE_SANITIZERS)
+  add_test(NAME mpf.performance.release-gate
+    COMMAND ${CMAKE_COMMAND}
+      -DBENCHMARK=$<TARGET_FILE:mpf-benchmark>
+      -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/performance/baseline.json
+      -DREPORT=${CMAKE_BINARY_DIR}/performance-report.json
+      -DPROJECT_VERSION=${PROJECT_VERSION}
+      -P ${PROJECT_SOURCE_DIR}/cmake/verify_performance.cmake)
+  set_tests_properties(mpf.performance.release-gate PROPERTIES
+    LABELS "performance;coverage-excluded"
+    TIMEOUT 180)
+endif()
 add_custom_target(mpf-performance
   COMMAND ${CMAKE_COMMAND}
     -DBENCHMARK=$<TARGET_FILE:mpf-benchmark>

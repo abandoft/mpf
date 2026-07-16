@@ -758,9 +758,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v7") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v8") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v7") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v8") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -821,8 +821,8 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   javascript.identifiers = mpf::detail::allocate_identifiers(
       mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_names(javascript));
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
-  mpf::detail::javascript::plan_lir_representation(javascript);
   mpf::detail::javascript::plan_lir_resources(javascript, mpf::TranspileOptions{});
+  mpf::detail::javascript::plan_lir_representation(javascript);
   REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript).empty());
   javascript.program_scope.declarations.clear();
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
@@ -842,8 +842,8 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   javascript_function.statements.push_back(std::move(javascript_abi));
   javascript_function.identifiers = mpf::detail::allocate_identifiers(
       mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_names(javascript_function));
-  mpf::detail::javascript::plan_lir_representation(javascript_function);
   mpf::detail::javascript::plan_lir_resources(javascript_function, mpf::TranspileOptions{});
+  mpf::detail::javascript::plan_lir_representation(javascript_function);
   REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript_function).empty());
   javascript_function.statements.front().function_abi.parameters.front() =
       mpf::detail::javascript::lir::ParameterPassing::value;
@@ -869,8 +869,8 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   cpp.identifiers = mpf::detail::allocate_identifiers(mpf::TargetLanguage::cpp,
                                                       mpf::detail::collect_identifier_names(cpp));
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
-  mpf::detail::cpp::plan_lir_representation(cpp);
   mpf::detail::cpp::plan_lir_resources(cpp, mpf::TranspileOptions{});
+  mpf::detail::cpp::plan_lir_representation(cpp);
   REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp).empty());
   mpf::detail::cpp::lir::DeclarationPlan unexpected;
   unexpected.name = "unexpected";
@@ -900,8 +900,8 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
       mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_names(javascript));
   mpf::TranspileOptions options;
   options.emit_source_banner = false;
-  mpf::detail::javascript::plan_lir_representation(javascript);
   mpf::detail::javascript::plan_lir_resources(javascript, options);
+  mpf::detail::javascript::plan_lir_representation(javascript);
   REQUIRE(!javascript.module.emit_banner);
   REQUIRE(javascript.module.banner.empty());
   REQUIRE((javascript.module.directives == std::vector<std::string>{"\"use strict\";"}));
@@ -924,8 +924,8 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   cpp.statements.push_back(std::move(cpp_statement));
   cpp.identifiers = mpf::detail::allocate_identifiers(mpf::TargetLanguage::cpp,
                                                       mpf::detail::collect_identifier_names(cpp));
-  mpf::detail::cpp::plan_lir_representation(cpp);
   mpf::detail::cpp::plan_lir_resources(cpp, options);
+  mpf::detail::cpp::plan_lir_representation(cpp);
   REQUIRE(!cpp.translation_unit.emit_banner);
   REQUIRE(cpp.translation_unit.banner.empty());
   REQUIRE((cpp.translation_unit.runtime_fragments ==
@@ -1036,6 +1036,96 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(diagnostics.empty());
   cpp.statements.front().expression.plan.concrete_type = "std::vector<float>";
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+}
+
+TEST_CASE("target LIR statement plans own control assignment and parameter access") {
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.emission.dynamic_truthiness = true;
+  javascript.emission.resizable_sections = true;
+  javascript.emission.emit_parameter_defaults = true;
+
+  mpf::detail::javascript::lir::Statement javascript_function;
+  javascript_function.kind = mpf::detail::StatementKind::function;
+  javascript_function.name = "update";
+  javascript_function.parameters = {"value"};
+  javascript_function.function_abi.valid = true;
+  javascript_function.function_abi.parameters = {
+      mpf::detail::javascript::lir::ParameterPassing::reference_box};
+  mpf::detail::javascript::lir::Statement javascript_assignment;
+  javascript_assignment.kind = mpf::detail::StatementKind::assignment;
+  javascript_assignment.name = "value";
+  javascript_assignment.expression.kind = mpf::detail::ExpressionKind::identifier;
+  javascript_assignment.expression.value = "value";
+  javascript_function.body.push_back(std::move(javascript_assignment));
+  javascript.statements.push_back(std::move(javascript_function));
+
+  mpf::detail::javascript::lir::Statement javascript_array;
+  javascript_array.kind = mpf::detail::StatementKind::declaration;
+  javascript_array.name = "cube";
+  javascript_array.declared_type = mpf::detail::ValueType::list;
+  javascript_array.element_type = mpf::detail::ValueType::boolean;
+  javascript_array.shape = {2, 3, 4};
+  javascript.statements.push_back(std::move(javascript_array));
+
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  const auto& javascript_body = javascript.statements.front().body.front();
+  REQUIRE(javascript.statements.front().plan.form ==
+          mpf::detail::javascript::lir::StatementForm::function);
+  REQUIRE(javascript_body.plan.form == mpf::detail::javascript::lir::StatementForm::assignment);
+  REQUIRE(javascript_body.plan.target_access ==
+          mpf::detail::javascript::lir::VariableAccess::reference_box_value);
+  REQUIRE(javascript_body.expression.plan.variable_access ==
+          mpf::detail::javascript::lir::VariableAccess::reference_box_value);
+  REQUIRE(javascript.statements[1].plan.form ==
+          mpf::detail::javascript::lir::StatementForm::declaration_array);
+  REQUIRE((javascript.statements[1].plan.array_shape == std::vector<std::size_t>{2, 3, 4}));
+  REQUIRE(javascript.statements[1].plan.array_default == "false");
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript.statements.front().body.front().plan.target_access =
+      mpf::detail::javascript::lir::VariableAccess::direct;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.emission.dynamic_truthiness = true;
+  mpf::detail::cpp::lir::Statement cpp_function;
+  cpp_function.kind = mpf::detail::StatementKind::function;
+  cpp_function.name = "maybe_update";
+  cpp_function.parameters = {"value"};
+  cpp_function.function_abi.valid = true;
+  mpf::detail::cpp::lir::ParameterAbi optional_parameter;
+  optional_parameter.passing = mpf::detail::cpp::lir::ParameterPassing::optional_reference;
+  optional_parameter.concrete_type = "std::int64_t";
+  cpp_function.function_abi.parameters.push_back(std::move(optional_parameter));
+  mpf::detail::cpp::lir::Statement cpp_conditional;
+  cpp_conditional.kind = mpf::detail::StatementKind::if_statement;
+  cpp_conditional.expression.kind = mpf::detail::ExpressionKind::identifier;
+  cpp_conditional.expression.value = "value";
+  mpf::detail::cpp::lir::Statement cpp_assignment;
+  cpp_assignment.kind = mpf::detail::StatementKind::assignment;
+  cpp_assignment.name = "value";
+  cpp_assignment.expression.kind = mpf::detail::ExpressionKind::identifier;
+  cpp_assignment.expression.value = "value";
+  cpp_conditional.body.push_back(std::move(cpp_assignment));
+  cpp_function.body.push_back(std::move(cpp_conditional));
+  cpp.statements.push_back(std::move(cpp_function));
+
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  const auto& cpp_if = cpp.statements.front().body.front();
+  REQUIRE(cpp_if.plan.form == mpf::detail::cpp::lir::StatementForm::conditional);
+  REQUIRE(cpp_if.plan.condition == mpf::detail::cpp::lir::ConditionForm::runtime_truthy);
+  REQUIRE(cpp_if.expression.plan.variable_access ==
+          mpf::detail::cpp::lir::VariableAccess::optional_value);
+  REQUIRE(cpp_if.body.front().plan.target_access ==
+          mpf::detail::cpp::lir::VariableAccess::optional_value);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp.statements.front().body.front().plan.condition = mpf::detail::cpp::lir::ConditionForm::direct;
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
 }

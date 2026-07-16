@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -20,18 +19,9 @@ using Expression = cpp::lir::Expression;
 using Statement = cpp::lir::Statement;
 using Program = cpp::lir::SemanticProgram;
 
-bool expression_has_direct_slice(const Expression& expression) {
-  return expression.plan.index == cpp::lir::IndexForm::slice ||
-         expression.plan.index == cpp::lir::IndexForm::row_slice ||
-         expression.plan.index == cpp::lir::IndexForm::column ||
-         expression.plan.index == cpp::lir::IndexForm::block ||
-         expression.plan.index == cpp::lir::IndexForm::section_nd;
-}
-
 class Renderer final {
  public:
   RenderedOutput render(const Program& program) {
-    emission_ = program.emission;
     temporaries_ = &program.temporaries;
     expressions_.assign(program.node_count + 1U, nullptr);
     index_statements(program.statements);
@@ -173,8 +163,9 @@ class Renderer final {
 
   void emit_slice_parameters(const Expression& slice) {
     emit_slice_bounds(slice);
-    output_ << ", " << slice.index_base << ", " << (slice.allow_negative_index ? "true" : "false")
-            << ", " << (slice.slice_stop_inclusive ? "true" : "false");
+    output_ << ", " << slice.plan.index_base << ", "
+            << (slice.plan.allow_negative_index ? "true" : "false") << ", "
+            << (slice.plan.inclusive_slice_stop ? "true" : "false");
   }
 
   void emit_shape_array(const std::vector<std::size_t>& shape) {
@@ -194,9 +185,9 @@ class Renderer final {
       if (expression.plan.selector_slices[index - 1U]) {
         output_ << "mpf_runtime::slice_selector{";
         emit_slice_bounds(selector);
-        output_ << ", " << expression.index_base << ", "
-                << (expression.allow_negative_index ? "true" : "false") << ", "
-                << (selector.slice_stop_inclusive ? "true" : "false") << '}';
+        output_ << ", " << expression.plan.index_base << ", "
+                << (expression.plan.allow_negative_index ? "true" : "false") << ", "
+                << (selector.plan.inclusive_slice_stop ? "true" : "false") << '}';
       } else {
         output_ << "mpf_runtime::scalar_selector{static_cast<std::int64_t>(";
         emit_expression(selector);
@@ -212,8 +203,8 @@ class Renderer final {
     emit_expression(container);
     output_ << ", static_cast<std::int64_t>(";
     emit_expression(index_expression);
-    output_ << "), " << index_metadata.index_base << ", "
-            << (index_metadata.allow_negative_index ? "true" : "false") << ')';
+    output_ << "), " << index_metadata.plan.index_base << ", "
+            << (index_metadata.plan.allow_negative_index ? "true" : "false") << ')';
   }
 
   void emit_row_slice(const Expression& index_expression, const Expression& slice) {
@@ -224,9 +215,8 @@ class Renderer final {
     output_ << ')';
   }
 
-  void emit_section_replacement(const Expression& target, const Expression& replacement) {
-    if (target.column_major && target.shape.size() == 1 && replacement.shape.size() == 2 &&
-        (replacement.shape[0] == 1 || replacement.shape[1] == 1)) {
+  void emit_section_replacement(const Expression& replacement, const bool flatten) {
+    if (flatten) {
       output_ << "mpf_runtime::flatten_column_major(";
       emit_expression(replacement);
       output_ << ')';
@@ -235,15 +225,17 @@ class Renderer final {
     }
   }
 
-  void emit_section_assignment(const Expression& target, const Expression& replacement) {
+  void emit_section_assignment(const Expression& target, const Expression& replacement,
+                               const bool flatten_replacement = false,
+                               const bool resizable_section = false) {
     if (target.plan.index == cpp::lir::IndexForm::section_nd) {
       output_ << "mpf_runtime::assign_section_nd(";
       emit_expression(target.children[0]);
       output_ << ", ";
       emit_selector_tuple(target);
-      output_ << ", " << target.index_base << ", "
-              << (target.allow_negative_index ? "true" : "false") << ", ";
-      emit_section_replacement(target, replacement);
+      output_ << ", " << target.plan.index_base << ", "
+              << (target.plan.allow_negative_index ? "true" : "false") << ", ";
+      emit_section_replacement(replacement, flatten_replacement);
       output_ << ')';
       return;
     }
@@ -254,9 +246,9 @@ class Renderer final {
         emit_expression(target.children[0]);
         output_ << ", ";
         emit_slice_bounds(slice);
-        output_ << ", " << target.index_base << ", "
-                << (slice.slice_stop_inclusive ? "true" : "false") << ", ";
-        emit_section_replacement(target, replacement);
+        output_ << ", " << target.plan.index_base << ", "
+                << (slice.plan.inclusive_slice_stop ? "true" : "false") << ", ";
+        emit_section_replacement(replacement, flatten_replacement);
         output_ << ')';
       } else {
         output_ << "mpf_runtime::assign_slice(";
@@ -264,8 +256,8 @@ class Renderer final {
         output_ << ", ";
         emit_slice_parameters(slice);
         output_ << ", ";
-        emit_section_replacement(target, replacement);
-        output_ << ", " << (emission_.resizable_sections ? "true" : "false") << ')';
+        emit_section_replacement(replacement, flatten_replacement);
+        output_ << ", " << (resizable_section ? "true" : "false") << ')';
       }
       return;
     }
@@ -277,7 +269,7 @@ class Renderer final {
       output_ << ", ";
       emit_slice_parameters(column);
       output_ << ", ";
-      emit_section_replacement(target, replacement);
+      emit_section_replacement(replacement, flatten_replacement);
       output_ << ", false)";
     } else if (target.plan.index == cpp::lir::IndexForm::column) {
       output_ << "mpf_runtime::assign_column(";
@@ -286,10 +278,10 @@ class Renderer final {
       emit_slice_bounds(row);
       output_ << ", static_cast<std::int64_t>(";
       emit_expression(column);
-      output_ << "), " << target.index_base << ", "
-              << (target.allow_negative_index ? "true" : "false") << ", "
-              << (row.slice_stop_inclusive ? "true" : "false") << ", ";
-      emit_section_replacement(target, replacement);
+      output_ << "), " << target.plan.index_base << ", "
+              << (target.plan.allow_negative_index ? "true" : "false") << ", "
+              << (row.plan.inclusive_slice_stop ? "true" : "false") << ", ";
+      emit_section_replacement(replacement, flatten_replacement);
       output_ << ')';
     } else {
       output_ << "mpf_runtime::assign_block(";
@@ -298,10 +290,10 @@ class Renderer final {
       emit_slice_bounds(row);
       output_ << ", ";
       emit_slice_bounds(column);
-      output_ << ", " << target.index_base << ", "
-              << (target.allow_negative_index ? "true" : "false") << ", "
-              << (row.slice_stop_inclusive ? "true" : "false") << ", ";
-      emit_section_replacement(target, replacement);
+      output_ << ", " << target.plan.index_base << ", "
+              << (target.plan.allow_negative_index ? "true" : "false") << ", "
+              << (row.plan.inclusive_slice_stop ? "true" : "false") << ", ";
+      emit_section_replacement(replacement, flatten_replacement);
       output_ << ')';
     }
   }
@@ -349,9 +341,9 @@ class Renderer final {
         output_ << "mpf_runtime::reshape_column_major_nd(";
         emit_expression(expression.children[1]);
         output_ << ", ";
-        emit_shape_array(expression.children[1].shape);
+        emit_shape_array(expression.plan.input_shape);
         output_ << ", ";
-        emit_shape_array(expression.shape);
+        emit_shape_array(expression.plan.result_shape);
         output_ << ')';
         return;
       case cpp::lir::CallForm::none:
@@ -401,7 +393,7 @@ class Renderer final {
       output_ << "; ";
     }
     std::string result;
-    if (expression.procedure_has_result) {
+    if (expression.plan.has_result) {
       result = temporary(expression.id, cpp::lir::TemporaryRole::call_result);
       output_ << "auto " << result << " = ";
     }
@@ -442,7 +434,7 @@ class Renderer final {
       case cpp::lir::ExpressionForm::null_literal: output_ << expression.plan.token; break;
       case cpp::lir::ExpressionForm::variable:
         output_ << mangler_->name(expression.plan.token);
-        if (active_optional_parameters_.count(expression.plan.token) != 0U) {
+        if (expression.plan.variable_access == cpp::lir::VariableAccess::optional_value) {
           output_ << ".value()";
         }
         break;
@@ -540,8 +532,8 @@ class Renderer final {
             emit_row_slice(expression, expression.children[1]);
             output_ << ", static_cast<std::int64_t>(";
             emit_expression(expression.children[2]);
-            output_ << "), " << expression.index_base << ", "
-                    << (expression.allow_negative_index ? "true" : "false") << ')';
+            output_ << "), " << expression.plan.index_base << ", "
+                    << (expression.plan.allow_negative_index ? "true" : "false") << ')';
             break;
           case cpp::lir::IndexForm::block:
             output_ << "mpf_runtime::columns(";
@@ -555,15 +547,15 @@ class Renderer final {
             emit_expression(expression.children[0]);
             output_ << ", ";
             emit_selector_tuple(expression);
-            output_ << ", " << expression.index_base << ", "
-                    << (expression.allow_negative_index ? "true" : "false") << ')';
+            output_ << ", " << expression.plan.index_base << ", "
+                    << (expression.plan.allow_negative_index ? "true" : "false") << ')';
             break;
           case cpp::lir::IndexForm::matrix_linear:
             output_ << "mpf_runtime::matrix_linear_index(";
             emit_expression(expression.children[0]);
             output_ << ", static_cast<std::int64_t>(";
             emit_expression(expression.children[1]);
-            output_ << "), " << expression.index_base << ')';
+            output_ << "), " << expression.plan.index_base << ')';
             break;
           case cpp::lir::IndexForm::nested:
             for (std::size_t index = 1; index < expression.children.size(); ++index) {
@@ -573,8 +565,8 @@ class Renderer final {
             for (std::size_t index = 1; index < expression.children.size(); ++index) {
               output_ << ", static_cast<std::int64_t>(";
               emit_expression(expression.children[index]);
-              output_ << "), " << expression.index_base << ", "
-                      << (expression.allow_negative_index ? "true" : "false") << ')';
+              output_ << "), " << expression.plan.index_base << ", "
+                      << (expression.plan.allow_negative_index ? "true" : "false") << ')';
             }
             break;
           case cpp::lir::IndexForm::none: output_ << '0'; break;
@@ -685,34 +677,6 @@ class Renderer final {
     emit_expression(probe);
   }
 
-  static const char* cpp_type(const ValueType type) noexcept {
-    switch (type) {
-      case ValueType::integer: return "std::int64_t";
-      case ValueType::real: return "double";
-      case ValueType::boolean: return "bool";
-      case ValueType::string: return "std::string";
-      case ValueType::null_value: return "std::nullptr_t";
-      case ValueType::unknown:
-      case ValueType::list:
-      case ValueType::tuple:
-      case ValueType::function: return "double";
-    }
-    return "double";
-  }
-
-  static std::string cpp_container_type(const ValueType element_type,
-                                        const std::size_t dimensions) {
-    const std::string element = cpp_type(element_type);
-    std::string result;
-    result.reserve(element.size() + dimensions * std::string_view("std::vector<>").size());
-    for (std::size_t dimension = 0; dimension < dimensions; ++dimension) {
-      result += "std::vector<";
-    }
-    result += element;
-    result.append(dimensions, '>');
-    return result;
-  }
-
   void emit_function_signature(const Statement& statement) {
     std::size_t templated_parameters = 0;
     for (const auto& parameter : statement.function_abi.parameters) {
@@ -761,27 +725,18 @@ class Renderer final {
     const auto function_indent = indent_;
     emit_function_signature(statement);
     output_ << " {\n";
-    const auto saved_optional_parameters = active_optional_parameters_;
-    active_optional_parameters_.clear();
-    for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
-      if (index < statement.function_abi.parameters.size() &&
-          statement.function_abi.parameters[index].passing ==
-              cpp::lir::ParameterPassing::optional_reference) {
-        active_optional_parameters_.insert(statement.parameters[index]);
-      }
-    }
     indent_ = function_indent + 1;
     emit_scope_declarations(statement.function_scope);
     for (const auto& child : statement.body) emit_statement(child);
-    if (!statement.return_names.empty()) {
+    if (!statement.plan.return_names.empty()) {
       indentation();
-      if (statement.return_names.size() == 1) {
-        output_ << "return " << mangler_->name(statement.return_names.front()) << ";\n";
+      if (statement.plan.return_names.size() == 1) {
+        output_ << "return " << mangler_->name(statement.plan.return_names.front()) << ";\n";
       } else {
         output_ << "return std::make_tuple(";
-        for (std::size_t index = 0; index < statement.return_names.size(); ++index) {
+        for (std::size_t index = 0; index < statement.plan.return_names.size(); ++index) {
           if (index != 0) output_ << ", ";
-          output_ << mangler_->name(statement.return_names[index]);
+          output_ << mangler_->name(statement.plan.return_names[index]);
         }
         output_ << ");\n";
       }
@@ -789,45 +744,44 @@ class Renderer final {
     indent_ = function_indent;
     indentation();
     output_ << "}\n";
-    active_optional_parameters_ = saved_optional_parameters;
   }
 
-  void emit_pattern_leaf_value(const AssignmentPattern& leaf, const std::string& temporary) {
-    if (leaf.kind == AssignmentPatternKind::name) {
+  void emit_pattern_leaf_value(const cpp::lir::AssignmentLeafPlan& leaf,
+                               const std::string& temporary) {
+    if (!leaf.captured_sequence) {
       emit_pattern_access(leaf.access_path, [&] { output_ << temporary; });
       return;
     }
-    const auto dimensions = std::max<std::size_t>(1, leaf.shape.size());
-    output_ << cpp_container_type(leaf.element_type, dimensions) << '{';
+    output_ << leaf.concrete_type << '{';
     for (std::size_t index = 0; index < leaf.captured_paths.size(); ++index) {
       if (index != 0) output_ << ", ";
-      const bool widen = leaf.element_type == ValueType::real && dimensions == 1;
-      if (widen) output_ << "static_cast<double>(";
+      if (leaf.widen_elements) output_ << "static_cast<double>(";
       emit_pattern_access(leaf.captured_paths[index], [&] { output_ << temporary; });
-      if (widen) output_ << ')';
+      if (leaf.widen_elements) output_ << ')';
     }
     output_ << '}';
   }
 
-  void emit_python_assignment_pattern(const AssignmentPattern& pattern,
+  void emit_python_assignment_pattern(const std::vector<cpp::lir::AssignmentLeafPlan>& leaves,
                                       const std::string& temporary) {
-    std::vector<const AssignmentPattern*> leaves;
-    collect_assignment_leaves(pattern, leaves);
-    for (const auto* leaf : leaves) {
+    for (const auto& leaf : leaves) {
       indentation();
-      output_ << mangler_->name(leaf->name) << " = ";
-      emit_pattern_leaf_value(*leaf, temporary);
+      output_ << mangler_->name(leaf.name);
+      if (leaf.access == cpp::lir::VariableAccess::optional_value) output_ << ".value()";
+      output_ << " = ";
+      emit_pattern_leaf_value(leaf, temporary);
       output_ << ";\n";
     }
   }
 
   void emit_case_condition(const Statement& clause, const std::string& selector,
                            const bool character) {
-    for (std::size_t index = 0; index < clause.case_selectors.size(); ++index) {
+    for (std::size_t index = 0; index < clause.plan.selectors.size(); ++index) {
       if (index != 0) output_ << " || ";
       const auto& value = clause.case_selectors[index];
+      const auto form = clause.plan.selectors[index];
       output_ << '(';
-      if (!value.range) {
+      if (form == cpp::lir::SelectorForm::value) {
         if (character) {
           output_ << "mpf_runtime::fortran_compare(" << selector << ", ";
           emit_expression(value.lower);
@@ -837,7 +791,11 @@ class Renderer final {
           emit_expression(value.lower);
         }
       } else {
-        if (value.has_lower) {
+        const bool has_lower = form == cpp::lir::SelectorForm::closed_range ||
+                               form == cpp::lir::SelectorForm::lower_bound;
+        const bool has_upper = form == cpp::lir::SelectorForm::closed_range ||
+                               form == cpp::lir::SelectorForm::upper_bound;
+        if (has_lower) {
           if (character) {
             output_ << "mpf_runtime::fortran_compare(" << selector << ", ";
             emit_expression(value.lower);
@@ -847,8 +805,8 @@ class Renderer final {
             emit_expression(value.lower);
           }
         }
-        if (value.has_lower && value.has_upper) output_ << " && ";
-        if (value.has_upper) {
+        if (has_lower && has_upper) output_ << " && ";
+        if (has_upper) {
           if (character) {
             output_ << "mpf_runtime::fortran_compare(" << selector << ", ";
             emit_expression(value.upper);
@@ -876,13 +834,13 @@ class Renderer final {
     const Statement* default_clause = nullptr;
     bool emitted_condition = false;
     for (const auto& clause : statement.body) {
-      if (clause.default_case) {
+      if (clause.plan.selectors.empty()) {
         default_clause = &clause;
         continue;
       }
       indentation();
       output_ << (emitted_condition ? "else if (" : "if (");
-      emit_case_condition(clause, selector, statement.expression.plan.string_value);
+      emit_case_condition(clause, selector, statement.plan.character_selector);
       output_ << ") {\n";
       ++indent_;
       for (const auto& child : clause.body) emit_statement(child);
@@ -911,47 +869,54 @@ class Renderer final {
 
   void emit_statement(const Statement& statement) {
     mark({statement.line, 1}, statement.origin);
-    switch (statement.kind) {
-      case StatementKind::declaration:
-        if (statement.has_expression) {
-          indentation();
-          output_ << mangler_->name(statement.name) << " = ";
-          emit_expression(statement.expression);
-          output_ << ";\n";
-        }
+    switch (statement.plan.form) {
+      case cpp::lir::StatementForm::discard: break;
+      case cpp::lir::StatementForm::declaration_initializer:
+        indentation();
+        output_ << mangler_->name(statement.name) << " = ";
+        emit_expression(statement.expression);
+        output_ << ";\n";
         break;
-      case StatementKind::assignment:
+      case cpp::lir::StatementForm::assignment:
         indentation();
         output_ << mangler_->name(statement.name);
-        if (active_optional_parameters_.count(statement.name) != 0U) {
+        if (statement.plan.target_access == cpp::lir::VariableAccess::optional_value) {
           output_ << ".value()";
         }
         output_ << " = ";
         emit_expression(statement.expression);
         output_ << ";\n";
         break;
-      case StatementKind::multi_assignment: {
+      case cpp::lir::StatementForm::multi_pattern:
+      case cpp::lir::StatementForm::multi_tuple: {
         const auto temporary =
             this->temporary(statement.id, cpp::lir::TemporaryRole::assignment_value);
         indentation();
         output_ << "const auto " << temporary << " = ";
         emit_expression(statement.expression);
         output_ << ";\n";
-        if (statement.has_target_pattern) {
-          emit_python_assignment_pattern(statement.target_pattern, temporary);
+        if (statement.plan.form == cpp::lir::StatementForm::multi_pattern) {
+          emit_python_assignment_pattern(statement.plan.assignment_leaves, temporary);
         } else {
-          for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
+          for (std::size_t index = 0; index < statement.plan.targets.size(); ++index) {
             indentation();
-            output_ << mangler_->name(statement.target_names[index]) << " = ";
+            output_ << mangler_->name(statement.plan.targets[index]);
+            if (statement.plan.target_accesses[index] == cpp::lir::VariableAccess::optional_value) {
+              output_ << ".value()";
+            }
+            output_ << " = ";
             output_ << "std::get<" << index << ">(" << temporary << ");\n";
           }
         }
         break;
       }
-      case StatementKind::indexed_assignment:
+      case cpp::lir::StatementForm::indexed_element_assignment:
+      case cpp::lir::StatementForm::indexed_section_assignment:
         indentation();
-        if (expression_has_direct_slice(statement.target_expression)) {
-          emit_section_assignment(statement.target_expression, statement.expression);
+        if (statement.plan.form == cpp::lir::StatementForm::indexed_section_assignment) {
+          emit_section_assignment(statement.target_expression, statement.expression,
+                                  statement.plan.flatten_replacement,
+                                  statement.plan.resizable_section);
         } else {
           emit_expression(statement.target_expression);
           output_ << " = ";
@@ -959,30 +924,32 @@ class Renderer final {
         }
         output_ << ";\n";
         break;
-      case StatementKind::print:
+      case cpp::lir::StatementForm::print_empty:
+      case cpp::lir::StatementForm::print_value:
+      case cpp::lir::StatementForm::print_tuple:
         indentation();
         output_ << "mpf_runtime::print(";
-        if (statement.has_expression &&
-            statement.expression.plan.form == cpp::lir::ExpressionForm::tuple) {
+        if (statement.plan.form == cpp::lir::StatementForm::print_tuple) {
           for (std::size_t index = 0; index < statement.expression.children.size(); ++index) {
             if (index != 0) output_ << ", ";
             emit_expression(statement.expression.children[index]);
           }
-        } else if (statement.has_expression) {
+        } else if (statement.plan.form == cpp::lir::StatementForm::print_value) {
           emit_expression(statement.expression);
         }
         output_ << ");\n";
         break;
-      case StatementKind::return_statement:
+      case cpp::lir::StatementForm::return_void:
+      case cpp::lir::StatementForm::return_value:
         indentation();
         output_ << "return";
-        if (statement.has_expression) {
+        if (statement.plan.form == cpp::lir::StatementForm::return_value) {
           output_ << ' ';
           emit_expression(statement.expression);
         }
         output_ << ";\n";
         break;
-      case StatementKind::break_statement:
+      case cpp::lir::StatementForm::break_loop:
         indentation();
         if (!loop_completion_flags_.empty() && !loop_completion_flags_.back().empty()) {
           output_ << loop_completion_flags_.back() << " = false;\n";
@@ -990,26 +957,26 @@ class Renderer final {
         }
         output_ << "break;\n";
         break;
-      case StatementKind::continue_statement:
+      case cpp::lir::StatementForm::continue_loop:
         indentation();
         output_ << "continue;\n";
         break;
-      case StatementKind::expression:
+      case cpp::lir::StatementForm::expression:
         indentation();
         emit_expression(statement.expression);
         output_ << ";\n";
         break;
-      case StatementKind::if_statement:
+      case cpp::lir::StatementForm::conditional:
         indentation();
         output_ << "if (";
-        emit_condition(statement.expression);
+        emit_condition(statement.expression, statement.plan.condition);
         output_ << ") {\n";
         ++indent_;
         for (const auto& child : statement.body) emit_statement(child);
         --indent_;
         indentation();
         output_ << '}';
-        if (!statement.alternative.empty()) {
+        if (statement.plan.has_alternative) {
           output_ << " else {\n";
           ++indent_;
           for (const auto& child : statement.alternative) emit_statement(child);
@@ -1019,20 +986,20 @@ class Renderer final {
         }
         output_ << '\n';
         break;
-      case StatementKind::select_case: emit_select_case(statement); break;
-      case StatementKind::case_clause: break;
-      case StatementKind::while_loop: {
+      case cpp::lir::StatementForm::selection: emit_select_case(statement); break;
+      case cpp::lir::StatementForm::case_clause: break;
+      case cpp::lir::StatementForm::while_loop: {
         const auto completion =
-            statement.alternative.empty()
-                ? std::string{}
-                : temporary(statement.id, cpp::lir::TemporaryRole::loop_completed);
+            statement.plan.has_alternative
+                ? temporary(statement.id, cpp::lir::TemporaryRole::loop_completed)
+                : std::string{};
         if (!completion.empty()) {
           indentation();
           output_ << "bool " << completion << " = true;\n";
         }
         indentation();
         output_ << "while (";
-        emit_condition(statement.expression);
+        emit_condition(statement.expression, statement.plan.condition);
         output_ << ") {\n";
         ++indent_;
         loop_completion_flags_.push_back(completion);
@@ -1052,16 +1019,16 @@ class Renderer final {
         }
         break;
       }
-      case StatementKind::range_loop: {
+      case cpp::lir::StatementForm::range_loop: {
         const auto start = temporary(statement.id, cpp::lir::TemporaryRole::range_start);
         const auto stop = temporary(statement.id, cpp::lir::TemporaryRole::range_stop);
         const auto step = temporary(statement.id, cpp::lir::TemporaryRole::range_step);
         const auto first = temporary(statement.id, cpp::lir::TemporaryRole::range_first);
         auto variable = mangler_->name(statement.name);
-        if (active_optional_parameters_.count(statement.name) != 0U) {
+        if (statement.plan.target_access == cpp::lir::VariableAccess::optional_value) {
           variable += ".value()";
         }
-        const auto cursor = statement.retain_last_loop_value
+        const auto cursor = statement.plan.retain_loop_value
                                 ? temporary(statement.id, cpp::lir::TemporaryRole::range_cursor)
                                 : variable;
         indentation();
@@ -1077,7 +1044,7 @@ class Renderer final {
         output_ << ";\n";
         indentation();
         output_ << "const auto " << step << " = ";
-        if (statement.has_tertiary_expression)
+        if (statement.plan.range_has_step)
           emit_expression(statement.tertiary_expression);
         else
           output_ << '1';
@@ -1086,25 +1053,25 @@ class Renderer final {
         output_ << "if (" << step
                 << " == 0) throw std::invalid_argument(\"MPF range step cannot be zero\");\n";
         const auto completion =
-            statement.alternative.empty()
-                ? std::string{}
-                : temporary(statement.id, cpp::lir::TemporaryRole::loop_completed);
+            statement.plan.has_alternative
+                ? temporary(statement.id, cpp::lir::TemporaryRole::loop_completed)
+                : std::string{};
         if (!completion.empty()) {
           indentation();
           output_ << "bool " << completion << " = true;\n";
         }
         indentation();
-        if (statement.retain_last_loop_value) output_ << "auto ";
+        if (statement.plan.retain_loop_value) output_ << "auto ";
         output_ << cursor << " = " << start << ";\n";
         indentation();
         output_ << "bool " << first << " = true;\n";
         indentation();
         output_ << "while (mpf_runtime::range_next(" << cursor << ", " << stop << ", " << step
-                << ", " << (statement.inclusive_stop ? "true" : "false") << ", " << first
+                << ", " << (statement.plan.inclusive_stop ? "true" : "false") << ", " << first
                 << ")) {\n";
         ++indent_;
         loop_completion_flags_.push_back(completion);
-        if (statement.retain_last_loop_value) {
+        if (statement.plan.retain_loop_value) {
           indentation();
           output_ << variable << " = " << cursor << ";\n";
         }
@@ -1127,12 +1094,12 @@ class Renderer final {
         output_ << "}\n";
         break;
       }
-      case StatementKind::function: break;
+      case cpp::lir::StatementForm::function: break;
     }
   }
 
-  void emit_condition(const Expression& expression) {
-    if (emission_.dynamic_truthiness) {
+  void emit_condition(const Expression& expression, const cpp::lir::ConditionForm condition) {
+    if (condition == cpp::lir::ConditionForm::runtime_truthy) {
       output_ << "mpf_runtime::truthy(";
       emit_expression(expression);
       output_ << ')';
@@ -1157,12 +1124,10 @@ class Renderer final {
 
   std::ostringstream output_;
   std::size_t indent_{0};
-  cpp::lir::EmissionPlan emission_{};
   const cpp::lir::TemporaryPlan* temporaries_{nullptr};
   std::vector<const Expression*> expressions_;
   std::unique_ptr<IdentifierMangler> mangler_;
   std::vector<std::string> loop_completion_flags_;
-  std::set<std::string> active_optional_parameters_;
   std::vector<RenderMarker> markers_;
 };
 

@@ -338,8 +338,8 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
   lowered->identifiers =
       allocate_identifiers(TargetLanguage::javascript, collect_identifier_names(*lowered));
   lowered->dependencies = semantic_program.dependencies;
-  plan_lir_representation(*lowered);
   plan_lir_resources(*lowered, options);
+  plan_lir_representation(*lowered);
   PassManager<lir::SemanticProgram> passes(&verify_lir_stage);
   passes.add({"javascript-lir-canonicalization", &canonicalize_lir, true});
   auto lir_diagnostics = passes.run(*lowered);
