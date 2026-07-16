@@ -131,6 +131,7 @@ add_library(mpf_core
   src/compiler/function_graph.cpp
   src/ir/dump.cpp
   src/ir/hir.cpp
+  src/ir/alias_effect_analysis.cpp
   src/ir/semantic_table.cpp
   src/ir/mir.cpp
   src/semantic/analyzer.cpp

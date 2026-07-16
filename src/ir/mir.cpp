@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include "../semantic/name_analysis.hpp"
+
 namespace mpf::detail::mir {
 namespace {
 
@@ -83,49 +85,24 @@ Opcode statement_opcode(const StatementKind kind) noexcept {
   return Opcode::invalid;
 }
 
-Effect intrinsic_effects(const IntrinsicId intrinsic) noexcept {
-  switch (intrinsic) {
-    case IntrinsicId::none: return Effect::external_unknown | Effect::may_fail;
-    case IntrinsicId::absolute:
-    case IntrinsicId::arc_cosine:
-    case IntrinsicId::arc_sine:
-    case IntrinsicId::arc_tangent:
-    case IntrinsicId::square_root:
-    case IntrinsicId::sine:
-    case IntrinsicId::cosine:
-    case IntrinsicId::tangent:
-    case IntrinsicId::exponential:
-    case IntrinsicId::logarithm:
-    case IntrinsicId::maximum:
-    case IntrinsicId::minimum:
-    case IntrinsicId::round:
-    case IntrinsicId::floor:
-    case IntrinsicId::ceiling:
-    case IntrinsicId::not_a_number:
-    case IntrinsicId::infinity: return Effect::none;
-    case IntrinsicId::python_float:
-    case IntrinsicId::python_length:
-    case IntrinsicId::matlab_length:
-    case IntrinsicId::element_count:
-    case IntrinsicId::sum:
-    case IntrinsicId::reshape:
-    case IntrinsicId::present: return Effect::may_fail;
-    case IntrinsicId::count: break;
-  }
-  return Effect::external_unknown | Effect::may_fail;
+bool contains_slice(const Expression& expression) {
+  if (expression.kind == ExpressionKind::slice) return true;
+  return std::any_of(expression.children.begin(), expression.children.end(),
+                     [](const Expression& child) { return contains_slice(child); });
 }
 
 class Builder final {
  public:
-  Builder(Program& program, const hir::SemanticTable& semantics)
-      : program_(program), semantics_(semantics) {}
+  Builder(Program& program, const hir::SemanticTable& semantics, const NameTable& names)
+      : program_(program), semantics_(semantics), names_(names) {}
 
-  void begin_function(std::string name, const HirNodeId origin) {
+  void begin_function(std::string name, const HirNodeId origin, const SymbolId symbol = {}) {
     storages_.clear();
     storage_values_.clear();
     Function function;
     function.id = function_ids_.next();
     function.origin = origin;
+    function.symbol = symbol;
     function.name = std::move(name);
     function.entry = make_block();
     function.blocks.push_back(function.entry);
@@ -147,9 +124,11 @@ class Builder final {
   }
 
   void link_calls() {
-    std::unordered_map<std::string, MirFunctionId> functions;
+    std::unordered_map<SymbolId, MirFunctionId> functions;
     for (std::size_t index = 1; index < program_.functions.size(); ++index) {
-      functions.emplace(program_.functions[index].name, program_.functions[index].id);
+      if (program_.functions[index].symbol.valid()) {
+        functions.emplace(program_.functions[index].symbol, program_.functions[index].id);
+      }
     }
     program_.calls.reserve(unresolved_calls_.size());
     for (auto& unresolved : unresolved_calls_) {
@@ -157,7 +136,7 @@ class Builder final {
       call.instruction = unresolved.instruction;
       call.origin = unresolved.origin;
       call.caller = unresolved.caller;
-      const auto found = functions.find(unresolved.callee_name);
+      const auto found = functions.find(unresolved.callee_symbol);
       if (found != functions.end()) {
         call.callee = found->second;
         program_.instructions[call.instruction.value()].callee = call.callee;
@@ -179,6 +158,30 @@ class Builder final {
     result.kind = source.kind;
     result.line = source.line;
     result.name = std::move(source.name);
+    const auto definition_role = [&]() {
+      switch (result.kind) {
+        case StatementKind::function:
+        case StatementKind::declaration: return NameRole::declaration;
+        case StatementKind::assignment:
+        case StatementKind::multi_assignment: return NameRole::assignment;
+        case StatementKind::range_loop: return NameRole::loop_variable;
+        case StatementKind::indexed_assignment:
+        case StatementKind::print:
+        case StatementKind::return_statement:
+        case StatementKind::break_statement:
+        case StatementKind::continue_statement:
+        case StatementKind::expression:
+        case StatementKind::if_statement:
+        case StatementKind::select_case:
+        case StatementKind::case_clause:
+        case StatementKind::while_loop: return NameRole::reference;
+      }
+      return NameRole::reference;
+    }();
+    if (definition_role != NameRole::reference) {
+      const auto* use = names_.use(source.id, definition_role);
+      result.symbol_id = use == nullptr ? SymbolId{} : use->symbol;
+    }
 
     const bool loop =
         source.kind == StatementKind::while_loop || source.kind == StatementKind::range_loop;
@@ -223,6 +226,11 @@ class Builder final {
     result.target_expression = lower_expression(std::move(source.target_expression));
     result.has_target_expression = source.has_target_expression;
     result.parameters = std::move(source.parameters);
+    result.parameter_symbols.reserve(result.parameters.size());
+    for (std::size_t index = 0; index < result.parameters.size(); ++index) {
+      const auto* use = names_.use(source.id, NameRole::parameter, index);
+      result.parameter_symbols.push_back(use == nullptr ? SymbolId{} : use->symbol);
+    }
     result.parameter_kinds = std::move(source.parameter_kinds);
     result.parameter_defaults.reserve(source.parameter_defaults.size());
     for (auto& expression : source.parameter_defaults) {
@@ -262,12 +270,6 @@ class Builder final {
 
     if (result.kind == StatementKind::function) initialize_function_signature(result);
 
-    auto effects = statement_effects(result.kind);
-    effects |= result.expression.effects;
-    effects |= result.secondary_expression.effects;
-    effects |= result.tertiary_expression.effects;
-    effects |= result.target_expression.effects;
-    result.effects = effects;
     emit_statement_instruction(result);
 
     if (source.kind == StatementKind::if_statement) {
@@ -533,7 +535,7 @@ class Builder final {
     InstructionId instruction{};
     HirNodeId origin{};
     MirFunctionId caller{};
-    std::string callee_name;
+    SymbolId callee_symbol{};
     std::vector<TypeId> argument_types;
     std::vector<StorageId> argument_storages;
     std::vector<bool> argument_omitted;
@@ -562,11 +564,9 @@ class Builder final {
     result.children.reserve(source.children.size());
     std::vector<ValueId> operands;
     operands.reserve(source.children.size());
-    Effect child_effects = Effect::none;
     for (auto& child : source.children) {
       auto lowered = lower_expression(std::move(child));
       if (lowered.value_id.valid()) operands.push_back(lowered.value_id);
-      child_effects |= lowered.effects;
       result.children.push_back(std::move(lowered));
     }
     if (semantic_facts != nullptr) {
@@ -593,29 +593,35 @@ class Builder final {
     }
     if (!result.valid()) return result;
 
+    if (result.kind == ExpressionKind::identifier) {
+      const auto* use = names_.reference(result.origin);
+      result.symbol_id = use == nullptr ? SymbolId{} : use->symbol;
+    }
+
     result.type_id = intern_expression_type(result);
     result.shape_id = intern_shape(result.shape, result.column_major);
-    result.effects = expression_effects(result);
-    result.effects |= child_effects;
     if (result.kind == ExpressionKind::identifier && result.binding == BindingKind::variable) {
-      result.storage_id = storage_for(result.value, result.type_id, result.shape_id);
+      result.storage_id = storage_for(result.symbol_id, result.value, result.origin, result.type_id,
+                                      result.shape_id);
     } else if ((result.kind == ExpressionKind::index || result.kind == ExpressionKind::slice) &&
                !result.children.empty() && result.children.front().storage_id.valid()) {
-      result.storage_id =
-          make_view_storage(result.children.front().storage_id, result.type_id, result.shape_id,
-                            result.origin, result.kind == ExpressionKind::slice);
+      result.storage_id = make_view_storage(result.children.front().storage_id, result.type_id,
+                                            result.shape_id, result.origin, contains_slice(result));
     }
     result.value_id = value_ids_.next();
     Instruction instruction;
     instruction.id = instruction_ids_.next();
     instruction.opcode = expression_opcode(result.kind);
     instruction.origin = result.origin;
+    if (result.kind == ExpressionKind::call && !result.children.empty() &&
+        result.children.front().binding == BindingKind::builtin) {
+      instruction.intrinsic = result.children.front().intrinsic;
+    }
     instruction.location = result.location;
     instruction.result = result.value_id;
     instruction.type = result.type_id;
     instruction.shape = result.shape_id;
     instruction.storage = result.storage_id;
-    instruction.effects = result.effects;
     instruction.operands = std::move(operands);
     if (result.kind == ExpressionKind::call && !result.children.empty() &&
         result.children.front().binding == BindingKind::function) {
@@ -623,7 +629,7 @@ class Builder final {
       call.instruction = instruction.id;
       call.origin = result.origin;
       call.caller = current_function_;
-      call.callee_name = result.children.front().value;
+      call.callee_symbol = result.children.front().symbol_id;
       call.result_type = result.type_id;
       call.requested_results =
           program_.source_language == SourceLanguage::matlab ? result.requested_outputs : 1U;
@@ -659,7 +665,6 @@ class Builder final {
     instruction.location = {clause.line, 1};
     instruction.type = intern_type(ValueType::boolean, ValueType::unknown);
     instruction.shape = intern_shape({}, false);
-    instruction.effects = Effect::control;
     if (selector.valid()) instruction.operands.push_back(selector);
     for (const auto& source_selector : clause.case_selectors) {
       if (source_selector.has_lower) {
@@ -687,59 +692,12 @@ class Builder final {
     }
   }
 
-  Effect expression_effects(const Expression& expression) const noexcept {
-    if (expression.kind == ExpressionKind::identifier &&
-        expression.binding == BindingKind::variable) {
-      return Effect::read;
-    }
-    if (expression.kind == ExpressionKind::call) {
-      if (!expression.children.empty() &&
-          expression.children.front().binding == BindingKind::builtin) {
-        return intrinsic_effects(expression.children.front().intrinsic);
-      }
-      return Effect::external_unknown | Effect::may_fail;
-    }
-    if (expression.kind == ExpressionKind::index || expression.kind == ExpressionKind::slice) {
-      return Effect::read | Effect::may_fail;
-    }
-    if (expression.kind == ExpressionKind::list || expression.kind == ExpressionKind::tuple) {
-      return Effect::allocate;
-    }
-    if (expression.kind == ExpressionKind::conditional ||
-        expression.kind == ExpressionKind::comparison_chain) {
-      return Effect::control;
-    }
-    return Effect::none;
-  }
-
-  static Effect statement_effects(const StatementKind kind) noexcept {
-    switch (kind) {
-      case StatementKind::declaration:
-      case StatementKind::assignment:
-      case StatementKind::multi_assignment:
-      case StatementKind::indexed_assignment: return Effect::write;
-      case StatementKind::print: return Effect::io;
-      case StatementKind::return_statement:
-      case StatementKind::break_statement:
-      case StatementKind::continue_statement:
-      case StatementKind::if_statement:
-      case StatementKind::select_case:
-      case StatementKind::case_clause:
-      case StatementKind::while_loop:
-      case StatementKind::range_loop: return Effect::control;
-      case StatementKind::expression:
-      case StatementKind::function: return Effect::none;
-    }
-    return Effect::none;
-  }
-
   void emit_statement_instruction(const Statement& statement) {
     Instruction instruction;
     instruction.id = instruction_ids_.next();
     instruction.opcode = statement_opcode(statement.kind);
     instruction.origin = statement.origin;
     instruction.location = {statement.line, 1};
-    instruction.effects = statement.effects;
     if (statement.expression.value_id.valid()) {
       instruction.operands.push_back(statement.expression.value_id);
     }
@@ -757,7 +715,8 @@ class Builder final {
          statement.kind == StatementKind::range_loop) &&
         !statement.name.empty()) {
       instruction.storage =
-          storage_for(statement.name, intern_type(statement.declared_type, statement.element_type),
+          storage_for(statement.symbol_id, statement.name, statement.origin,
+                      intern_type(statement.declared_type, statement.element_type),
                       intern_shape(statement.shape, false));
     } else if (statement.kind == StatementKind::indexed_assignment &&
                statement.target_expression.storage_id.valid()) {
@@ -775,35 +734,48 @@ class Builder final {
     append_instruction(std::move(instruction));
   }
 
-  StorageId storage_for(const std::string& name, const TypeId type, const ShapeId shape,
+  StorageId storage_for(const SymbolId symbol, const std::string& name, const HirNodeId origin,
+                        const TypeId type, const ShapeId shape,
                         const StorageKind kind = StorageKind::local,
                         const ParameterIntent intent = ParameterIntent::none) {
-    const auto found = storages_.find(name);
-    if (found != storages_.end()) return found->second;
+    auto storage_kind = kind;
+    if (kind == StorageKind::local) {
+      const auto* name_symbol = names_.symbol(symbol);
+      if (name_symbol != nullptr && name_symbol->scope == names_.global_scope) {
+        storage_kind = StorageKind::global;
+      }
+    }
+    auto& inventory = storage_kind == StorageKind::global ? global_storages_ : storages_;
+    const auto found = inventory.find(symbol);
+    if (found != inventory.end()) return found->second;
     const auto id = StorageId{static_cast<StorageId::value_type>(program_.storages.size())};
-    const auto parameter = kind == StorageKind::parameter;
+    const auto parameter = storage_kind == StorageKind::parameter;
+    const auto module = storage_kind == StorageKind::global;
     program_.storages.push_back({name,
+                                 symbol,
+                                 origin,
                                  type,
                                  shape,
-                                 parameter ? AliasClass::may_alias : AliasClass::no_alias,
                                  intent != ParameterIntent::in,
-                                 kind,
-                                 parameter ? StorageLifetime::borrowed : StorageLifetime::function,
+                                 storage_kind,
+                                 parameter ? StorageLifetime::borrowed
+                                 : module  ? StorageLifetime::module
+                                           : StorageLifetime::function,
                                  {},
+                                 StorageViewKind::none,
                                  intent});
-    storages_.emplace(name, id);
+    inventory.emplace(symbol, id);
     return id;
   }
 
   StorageId make_view_storage(const StorageId base, const TypeId type, const ShapeId shape,
                               const HirNodeId origin, const bool section) {
     const auto id = StorageId{static_cast<StorageId::value_type>(program_.storages.size())};
-    program_.storages.push_back({"$view" + std::to_string(id.value()), type, shape,
-                                 section ? AliasClass::may_alias : AliasClass::must_alias,
-                                 program_.storages[base.value()].writable, StorageKind::view,
-                                 StorageLifetime::expression, base, ParameterIntent::none});
-    program_.aliases.push_back(
-        {base, id, section ? AliasClass::may_alias : AliasClass::must_alias, origin});
+    program_.storages.push_back(
+        {"$view" + std::to_string(id.value()), program_.storages[base.value()].symbol, origin, type,
+         shape, program_.storages[base.value()].writable, StorageKind::view,
+         StorageLifetime::expression, base,
+         section ? StorageViewKind::section : StorageViewKind::element, ParameterIntent::none});
     return id;
   }
 
@@ -827,8 +799,11 @@ class Builder final {
       const auto intent = index < statement.parameter_intents.size()
                               ? statement.parameter_intents[index]
                               : ParameterIntent::none;
-      const auto storage =
-          storage_for(statement.parameters[index], type, shape, StorageKind::parameter, intent);
+      const auto storage = storage_for(index < statement.parameter_symbols.size()
+                                           ? statement.parameter_symbols[index]
+                                           : SymbolId{},
+                                       statement.parameters[index], statement.origin, type, shape,
+                                       StorageKind::parameter, intent);
       const auto value = value_ids_.next();
       current_block().arguments.push_back({value, type, shape, storage});
       storage_values_[storage] = value;
@@ -983,6 +958,7 @@ class Builder final {
 
   Program& program_;
   const hir::SemanticTable& semantics_;
+  const NameTable& names_;
   IrIdAllocator<MirFunctionId> function_ids_;
   IrIdAllocator<BlockId> block_ids_;
   IrIdAllocator<InstructionId> instruction_ids_;
@@ -992,7 +968,8 @@ class Builder final {
   std::unordered_map<std::uint32_t, TypeId> types_;
   std::unordered_map<std::string, TypeId> composite_types_;
   std::unordered_map<std::string, ShapeId> shapes_;
-  std::unordered_map<std::string, StorageId> storages_;
+  std::unordered_map<SymbolId, StorageId> storages_;
+  std::unordered_map<SymbolId, StorageId> global_storages_;
   StorageVersions storage_values_;
   std::vector<LoopContext> loops_;
   std::vector<UnresolvedCall> unresolved_calls_;
@@ -1378,13 +1355,14 @@ void verify_function_types_and_calls(const Program& program, std::vector<Diagnos
                                      const std::string_view stage) {
   std::vector<MirFunctionId> instruction_callers(program.instructions.size());
   std::unordered_map<ValueId, TypeId> value_types;
-  std::unordered_map<std::string, MirFunctionId> function_names;
+  std::unordered_map<SymbolId, MirFunctionId> function_symbols;
 
   for (std::size_t function_index = 1; function_index < program.functions.size();
        ++function_index) {
     const auto& function = program.functions[function_index];
-    if (!function_names.emplace(function.name, function.id).second) {
-      add_error(diagnostics, {1, 1}, stage, "function name is not unique in MIR");
+    if (function_index > 1U && (!function.symbol.valid() || !function.origin.valid() ||
+                                !function_symbols.emplace(function.symbol, function.id).second)) {
+      add_error(diagnostics, {1, 1}, stage, "function has an invalid or duplicate symbol identity");
     }
     const auto* signature = type_data(program, function.signature);
     if (signature == nullptr || signature->kind != TypeKind::function ||
@@ -1566,7 +1544,8 @@ void verify_function_types_and_calls(const Program& program, std::vector<Diagnos
 
 }  // namespace
 
-LoweringResult lower_from_hir(hir::Program&& source, hir::SemanticTable&& semantics) {
+LoweringResult lower_from_hir(hir::Program&& source, hir::SemanticTable&& semantics,
+                              const NameTable& names) {
   LoweringResult result;
   result.program.source_language = source.language;
   result.program.semantics = source.semantics;
@@ -1579,9 +1558,13 @@ LoweringResult lower_from_hir(hir::Program&& source, hir::SemanticTable&& semant
   result.program.functions.push_back({});
 
   result.diagnostics = hir::verify_semantics(source, semantics, "hir-to-mir");
+  auto name_diagnostics = verify_names(source, names, "hir-to-mir");
+  result.diagnostics.insert(result.diagnostics.end(),
+                            std::make_move_iterator(name_diagnostics.begin()),
+                            std::make_move_iterator(name_diagnostics.end()));
   if (!result.diagnostics.empty()) return result;
 
-  Builder builder(result.program, semantics);
+  Builder builder(result.program, semantics, names);
   builder.begin_function("<module>", {});
   result.program.statements.reserve(source.statements.size());
   for (auto& statement : source.statements) {
@@ -1594,68 +1577,15 @@ LoweringResult lower_from_hir(hir::Program&& source, hir::SemanticTable&& semant
     if (statement.kind != StatementKind::function) continue;
     const auto function_name = statement.name;
     const auto function_origin = statement.id;
-    builder.begin_function(function_name, function_origin);
+    const auto* function_use = names.use(function_origin, NameRole::declaration);
+    builder.begin_function(function_name, function_origin,
+                           function_use == nullptr ? SymbolId{} : function_use->symbol);
     result.program.statements.push_back(builder.lower_statement(std::move(statement)));
     builder.finish_function();
   }
   builder.link_calls();
   result.diagnostics = verify(result.program, "hir-to-mir");
   return result;
-}
-
-AliasClass alias_between(const Program& program, const StorageId left,
-                         const StorageId right) noexcept {
-  if (!valid_index(left, program.storages) || !valid_index(right, program.storages)) {
-    return AliasClass::may_alias;
-  }
-  if (left == right) return AliasClass::must_alias;
-  for (const auto& relation : program.aliases) {
-    if ((relation.left == left && relation.right == right) ||
-        (relation.left == right && relation.right == left)) {
-      return relation.relation;
-    }
-  }
-
-  const auto root = [&](StorageId storage) {
-    for (std::size_t depth = 0; depth < program.storages.size(); ++depth) {
-      const auto& metadata = program.storages[storage.value()];
-      if (metadata.kind != StorageKind::view) return storage;
-      if (!valid_index(metadata.base, program.storages)) return StorageId{};
-      storage = metadata.base;
-    }
-    return StorageId{};
-  };
-  const auto left_root = root(left);
-  const auto right_root = root(right);
-  if (!left_root.valid() || !right_root.valid()) return AliasClass::may_alias;
-  if (left_root == right_root) return AliasClass::may_alias;
-
-  const auto left_kind = program.storages[left_root.value()].kind;
-  const auto right_kind = program.storages[right_root.value()].kind;
-  if (left_kind == StorageKind::global || right_kind == StorageKind::global ||
-      (left_kind == StorageKind::parameter && right_kind == StorageKind::parameter)) {
-    return AliasClass::may_alias;
-  }
-  return AliasClass::no_alias;
-}
-
-std::vector<Diagnostic> validate_effects(Program& program) {
-  std::vector<Diagnostic> diagnostics;
-  for (std::size_t index = 1; index < program.instructions.size(); ++index) {
-    const auto& instruction = program.instructions[index];
-    const bool invalid_external = has_effect(instruction.effects, Effect::external_unknown) &&
-                                  !has_effect(instruction.effects, Effect::may_fail);
-    const bool invalid_output =
-        instruction.opcode == Opcode::output && !has_effect(instruction.effects, Effect::io);
-    const bool invalid_store = (instruction.opcode == Opcode::assignment ||
-                                instruction.opcode == Opcode::indexed_assignment) &&
-                               !has_effect(instruction.effects, Effect::write);
-    if (invalid_external || invalid_output || invalid_store) {
-      add_error(diagnostics, instruction.location, "effect-validation",
-                "instruction effect set is weaker than its operation requires");
-    }
-  }
-  return diagnostics;
 }
 
 std::vector<Diagnostic> verify(const Program& program, const std::string_view stage) {
@@ -1729,34 +1659,21 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
   }
   for (std::size_t index = 1; index < program.storages.size(); ++index) {
     const auto& storage = program.storages[index];
-    if (storage.name.empty() || !valid_index(storage.type, program.types) ||
-        !valid_index(storage.shape, program.shapes)) {
-      add_error(diagnostics, {1, 1}, stage, "storage has invalid name, type, or shape metadata");
+    if (storage.name.empty() || !storage.symbol.valid() || !storage.origin.valid() ||
+        !valid_index(storage.type, program.types) || !valid_index(storage.shape, program.shapes)) {
+      add_error(diagnostics, {1, 1}, stage,
+                "storage has invalid name, symbol, origin, type, or shape metadata");
     }
     if (storage.kind == StorageKind::view) {
-      if (!valid_index(storage.base, program.storages) || storage.base.value() == index) {
+      if (!valid_index(storage.base, program.storages) || storage.base.value() == index ||
+          storage.view == StorageViewKind::none) {
         add_error(diagnostics, {1, 1}, stage, "view storage has an invalid base storage");
       }
-    } else if (storage.base.valid()) {
-      add_error(diagnostics, {1, 1}, stage, "non-view storage unexpectedly has a base storage");
+    } else if (storage.base.valid() || storage.view != StorageViewKind::none) {
+      add_error(diagnostics, {1, 1}, stage, "non-view storage unexpectedly has view metadata");
     }
     if (storage.intent == ParameterIntent::in && storage.writable) {
       add_error(diagnostics, {1, 1}, stage, "intent-in storage must not be writable");
-    }
-  }
-  std::unordered_map<std::uint64_t, AliasClass> alias_pairs;
-  for (const auto& relation : program.aliases) {
-    if (!valid_index(relation.left, program.storages) ||
-        !valid_index(relation.right, program.storages) || relation.left == relation.right ||
-        relation.relation == AliasClass::no_alias) {
-      add_error(diagnostics, {1, 1}, stage, "alias relation is invalid or redundant");
-      continue;
-    }
-    const auto low = std::min(relation.left.value(), relation.right.value());
-    const auto high = std::max(relation.left.value(), relation.right.value());
-    const auto key = (static_cast<std::uint64_t>(low) << 32U) | high;
-    if (!alias_pairs.emplace(key, relation.relation).second) {
-      add_error(diagnostics, {1, 1}, stage, "alias relation pair is duplicated");
     }
   }
   for (std::size_t index = 1; index < program.instructions.size(); ++index) {

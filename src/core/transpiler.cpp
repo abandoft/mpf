@@ -318,8 +318,8 @@ TranspileResult Transpiler::transpile(const std::string_view source,
   detail::mir::LoweringResult mir_result;
   if (result.success()) {
     const auto mir_started = session.begin_stage();
-    mir_result = detail::mir::lower_from_hir(std::move(hir_result.program),
-                                             std::move(analysis_result.semantics));
+    mir_result = detail::mir::lower_from_hir(
+        std::move(hir_result.program), std::move(analysis_result.semantics), analysis_result.names);
     session.record("mir", mir_result.program.instructions.size() - 1U, mir_started);
     const auto instructions = mir_result.program.instructions.size() - 1U;
     if (instructions > session.limits().max_mir_instructions) {
@@ -329,11 +329,14 @@ TranspileResult Transpiler::transpile(const std::string_view source,
                               std::make_move_iterator(mir_result.diagnostics.begin()),
                               std::make_move_iterator(mir_result.diagnostics.end()));
   }
+  detail::AnalysisManager<detail::mir::Program> mir_analyses;
+  const detail::mir::AliasEffectTable* alias_effects = nullptr;
   if (result.success()) {
     const auto pass_started = session.begin_stage();
-    detail::PassManager<detail::mir::Program> passes(&detail::mir::verify);
-    passes.add({"effect-validation", &detail::mir::validate_effects, false});
-    auto mir_diagnostics = passes.run(mir_result.program);
+    alias_effects = &mir_analyses.get<detail::mir::AliasEffectTable>(
+        mir_result.program, "alias-effect", &detail::mir::analyze_alias_effects);
+    auto mir_diagnostics =
+        detail::mir::verify_alias_effects(mir_result.program, *alias_effects, "mir-passes");
     result.diagnostics.insert(result.diagnostics.end(),
                               std::make_move_iterator(mir_diagnostics.begin()),
                               std::make_move_iterator(mir_diagnostics.end()));
@@ -347,7 +350,7 @@ TranspileResult Transpiler::transpile(const std::string_view source,
                               std::make_move_iterator(binding_diagnostics.end()));
   }
   if (result.success()) {
-    auto capability_diagnostics = backend->validate(mir_result.program);
+    auto capability_diagnostics = backend->validate(mir_result.program, *alias_effects);
     result.diagnostics.insert(result.diagnostics.end(),
                               std::make_move_iterator(capability_diagnostics.begin()),
                               std::make_move_iterator(capability_diagnostics.end()));
@@ -355,7 +358,7 @@ TranspileResult Transpiler::transpile(const std::string_view source,
   detail::BackendLoweringResult target_result;
   if (result.success()) {
     const auto target_started = session.begin_stage();
-    target_result = backend->lower(mir_result.program, options);
+    target_result = backend->lower(mir_result.program, *alias_effects, options);
     if (target_result.artifact != nullptr) {
       const auto nodes = target_result.artifact->node_count_hint();
       session.record("target-lir", nodes, target_started);

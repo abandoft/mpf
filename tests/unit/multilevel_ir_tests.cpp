@@ -170,14 +170,83 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
   REQUIRE(first_semantics.find("semantic-v1") != std::string::npos);
 
-  auto mir =
-      mpf::detail::mir::lower_from_hir(std::move(lowered.program), std::move(analysis.semantics));
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
   REQUIRE(mir.diagnostics.empty());
-  const auto first_mir = mpf::detail::dump_mir(mir.program);
-  REQUIRE(first_mir == mpf::detail::dump_mir(mir.program));
+  const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
+  REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
   REQUIRE(first_mir.find("mir-v1") != std::string::npos);
+  REQUIRE(first_mir.find("alias-effect-v1") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
   REQUIRE(first_mir.find("terminator op") != std::string::npos);
+}
+
+TEST_CASE("MIR alias and effect analysis is independent revision-bound and cacheable") {
+  auto lowered = lower_python(
+      "base = 40\n"
+      "def bump(value):\n"
+      "    local = value + 1\n"
+      "    return base + local\n"
+      "result = bump(1)\n"
+      "print(result)\n");
+  auto analysis = mpf::detail::analyze_program(lowered.program);
+  REQUIRE(analysis.empty());
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+
+  mpf::detail::AnalysisManager<mpf::detail::mir::Program> analyses;
+  std::size_t computations = 0;
+  const auto compute = [&](const mpf::detail::mir::Program& program) {
+    ++computations;
+    return mpf::detail::mir::analyze_alias_effects(program);
+  };
+  const auto& first =
+      analyses.get<mpf::detail::mir::AliasEffectTable>(mir.program, "alias-effect", compute);
+  const auto& second =
+      analyses.get<mpf::detail::mir::AliasEffectTable>(mir.program, "alias-effect", compute);
+  REQUIRE(&first == &second);
+  REQUIRE(computations == 1U);
+  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, first, "cache").empty());
+  const auto global = std::find_if(
+      mir.program.storages.begin() + 1, mir.program.storages.end(),
+      [](const mpf::detail::mir::StorageData& storage) { return storage.name == "base"; });
+  REQUIRE(global != mir.program.storages.end());
+  REQUIRE(global->kind == mpf::detail::mir::StorageKind::global);
+  REQUIRE(global->lifetime == mpf::detail::mir::StorageLifetime::module);
+  REQUIRE(std::count_if(mir.program.storages.begin() + 1, mir.program.storages.end(),
+                        [](const mpf::detail::mir::StorageData& storage) {
+                          return storage.name == "base";
+                        }) == 1);
+  const auto bump = std::find_if(
+      mir.program.functions.begin() + 1, mir.program.functions.end(),
+      [](const mpf::detail::mir::Function& function) { return function.name == "bump"; });
+  REQUIRE(bump != mir.program.functions.end());
+  const auto* bump_effects = first.function(bump->id);
+  REQUIRE(bump_effects != nullptr);
+  REQUIRE(bump_effects->parameter_reads.front());
+  REQUIRE(!bump_effects->parameter_writes.front());
+  REQUIRE(mpf::detail::mir::has_effect(bump_effects->effects, mpf::detail::mir::Effect::read));
+  REQUIRE(!mpf::detail::mir::has_effect(bump_effects->effects, mpf::detail::mir::Effect::write));
+  REQUIRE(first.calls.size() == 1U);
+  REQUIRE(first.calls.front().writes.empty());
+
+  auto stale = first;
+  ++mir.program.revision;
+  REQUIRE(!mpf::detail::mir::verify_alias_effects(mir.program, stale, "stale").empty());
+  const auto& refreshed =
+      analyses.get<mpf::detail::mir::AliasEffectTable>(mir.program, "alias-effect", compute);
+  REQUIRE(computations == 2U);
+  REQUIRE(refreshed.mir_revision == mir.program.revision);
+
+  auto weakened = refreshed;
+  const auto write = std::find_if(
+      weakened.instructions.begin() + 1, weakened.instructions.end(),
+      [](const mpf::detail::mir::InstructionEffectFacts& facts) { return !facts.writes.empty(); });
+  REQUIRE(write != weakened.instructions.end());
+  write->effects = mpf::detail::mir::Effect::none;
+  REQUIRE(!mpf::detail::mir::verify_alias_effects(mir.program, weakened, "weakened").empty());
 }
 
 TEST_CASE("Analyzer owns complete revision-checked dense semantic side tables") {
@@ -206,9 +275,11 @@ TEST_CASE("Analyzer owns complete revision-checked dense semantic side tables") 
   REQUIRE(mpf::detail::hir::verify_semantics(lowered.program, analysis.semantics, "test").empty());
 
   auto stale = analysis.semantics;
+  auto stale_names = analysis.names;
   ++lowered.program.revision;
   REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, stale, "stale").empty());
-  auto failed = mpf::detail::mir::lower_from_hir(std::move(lowered.program), std::move(stale));
+  auto failed =
+      mpf::detail::mir::lower_from_hir(std::move(lowered.program), std::move(stale), stale_names);
   REQUIRE(!failed.diagnostics.empty());
   REQUIRE(failed.program.instructions.size() == 1U);
 
@@ -383,16 +454,17 @@ TEST_CASE("HIR lowers to typed CFG MIR with shape storage and effects") {
       "print(counter)\n");
   auto analysis = mpf::detail::analyze_program(lowered.program);
   REQUIRE(analysis.empty());
-  auto mir =
-      mpf::detail::mir::lower_from_hir(std::move(lowered.program), std::move(analysis.semantics));
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
   REQUIRE(mir.diagnostics.empty());
+  const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   REQUIRE(mir.program.functions.size() > 1);
   REQUIRE(mir.program.blocks.size() > 2);
   REQUIRE(mir.program.instructions.size() > 1);
   REQUIRE(mir.program.types.size() > 1);
   REQUIRE(mir.program.shapes.size() > 1);
   REQUIRE(mir.program.storages.size() > 1);
-  REQUIRE(!mir.program.aliases.empty());
+  REQUIRE(!alias_effects.aliases.empty());
   REQUIRE(std::any_of(mir.program.storages.begin() + 1, mir.program.storages.end(),
                       [](const mpf::detail::mir::StorageData& storage) {
                         return storage.kind == mpf::detail::mir::StorageKind::view &&
@@ -406,8 +478,9 @@ TEST_CASE("HIR lowers to typed CFG MIR with shape storage and effects") {
   REQUIRE(view != mir.program.storages.end());
   const auto view_id = mpf::detail::StorageId{
       static_cast<mpf::detail::StorageId::value_type>(view - mir.program.storages.begin())};
-  REQUIRE(mpf::detail::mir::alias_between(mir.program, view->base, view_id) == view->alias);
-  REQUIRE(mpf::detail::mir::alias_between(mir.program, view_id, view_id) ==
+  REQUIRE(mpf::detail::mir::alias_between(alias_effects, view->base, view_id) ==
+          mpf::detail::mir::AliasClass::may_alias);
+  REQUIRE(mpf::detail::mir::alias_between(alias_effects, view_id, view_id) ==
           mpf::detail::mir::AliasClass::must_alias);
   const auto value = std::find_if(
       mir.program.storages.begin() + 1, mir.program.storages.end(),
@@ -421,7 +494,7 @@ TEST_CASE("HIR lowers to typed CFG MIR with shape storage and effects") {
       static_cast<mpf::detail::StorageId::value_type>(value - mir.program.storages.begin())};
   const auto counter_id = mpf::detail::StorageId{
       static_cast<mpf::detail::StorageId::value_type>(counter - mir.program.storages.begin())};
-  REQUIRE(mpf::detail::mir::alias_between(mir.program, value_id, counter_id) ==
+  REQUIRE(mpf::detail::mir::alias_between(alias_effects, value_id, counter_id) ==
           mpf::detail::mir::AliasClass::no_alias);
   REQUIRE(std::any_of(
       mir.program.blocks.begin() + 1, mir.program.blocks.end(),
@@ -435,25 +508,29 @@ TEST_CASE("HIR lowers to typed CFG MIR with shape storage and effects") {
               mir.program.blocks[target.value()].arguments.size());
     }
   }
-  REQUIRE(std::any_of(mir.program.instructions.begin() + 1, mir.program.instructions.end(),
-                      [](const mpf::detail::mir::Instruction& instruction) {
+  REQUIRE(std::any_of(alias_effects.instructions.begin() + 1, alias_effects.instructions.end(),
+                      [](const mpf::detail::mir::InstructionEffectFacts& instruction) {
                         return mpf::detail::mir::has_effect(instruction.effects,
                                                             mpf::detail::mir::Effect::io);
                       }));
   REQUIRE(mpf::detail::mir::verify(mir.program, "test").empty());
+  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, alias_effects, "test").empty());
 }
 
 TEST_CASE("MIR interns tuple function and reference signatures across call sites") {
   auto python = lower_python(
       "def pair(value):\n"
-      "    return value, value + 1\n"
-      "left, right = pair(20)\n"
+      "    next_value = value + 1\n"
+      "    return value, next_value\n"
+      "seed = 20\n"
+      "left, right = pair(seed)\n"
       "print(left + right)\n");
   auto python_analysis = mpf::detail::analyze_program(python.program);
   REQUIRE(python_analysis.empty());
-  auto python_mir = mpf::detail::mir::lower_from_hir(std::move(python.program),
-                                                     std::move(python_analysis.semantics));
+  auto python_mir = mpf::detail::mir::lower_from_hir(
+      std::move(python.program), std::move(python_analysis.semantics), python_analysis.names);
   REQUIRE(python_mir.diagnostics.empty());
+  const auto python_effects = mpf::detail::mir::analyze_alias_effects(python_mir.program);
   const auto pair = std::find_if(
       python_mir.program.functions.begin() + 1, python_mir.program.functions.end(),
       [](const mpf::detail::mir::Function& function) { return function.name == "pair"; });
@@ -469,6 +546,17 @@ TEST_CASE("MIR interns tuple function and reference signatures across call sites
   REQUIRE(python_mir.program.calls.size() == 1U);
   REQUIRE(python_mir.program.calls.front().callee == pair->id);
   REQUIRE(python_mir.program.calls.front().requested_results == 1U);
+  const auto* pair_effects = python_effects.function(pair->id);
+  REQUIRE(pair_effects != nullptr);
+  REQUIRE(pair_effects->parameter_reads.size() == 1U);
+  REQUIRE(pair_effects->parameter_reads.front());
+  REQUIRE(!pair_effects->parameter_writes.front());
+  REQUIRE(python_effects.calls.size() == 1U);
+  REQUIRE(python_effects.call(python_mir.program.calls.front().instruction) != nullptr);
+  REQUIRE(!mpf::detail::mir::has_effect(python_effects.calls.front().effects,
+                                        mpf::detail::mir::Effect::external_unknown));
+  REQUIRE(!python_effects.calls.front().reads.empty());
+  REQUIRE(python_effects.calls.front().writes.empty());
   REQUIRE(mpf::detail::dump_mir(python_mir.program).find("call !i") != std::string::npos);
 
   auto fortran = lower_source(mpf::SourceLanguage::fortran,
@@ -484,9 +572,10 @@ TEST_CASE("MIR interns tuple function and reference signatures across call sites
                               "reference_contract.f90");
   auto fortran_analysis = mpf::detail::analyze_program(fortran.program);
   REQUIRE(fortran_analysis.empty());
-  auto fortran_mir = mpf::detail::mir::lower_from_hir(std::move(fortran.program),
-                                                      std::move(fortran_analysis.semantics));
+  auto fortran_mir = mpf::detail::mir::lower_from_hir(
+      std::move(fortran.program), std::move(fortran_analysis.semantics), fortran_analysis.names);
   REQUIRE(fortran_mir.diagnostics.empty());
+  const auto fortran_effects = mpf::detail::mir::analyze_alias_effects(fortran_mir.program);
   const auto bump = std::find_if(
       fortran_mir.program.functions.begin() + 1, fortran_mir.program.functions.end(),
       [](const mpf::detail::mir::Function& function) { return function.name == "bump"; });
@@ -499,6 +588,13 @@ TEST_CASE("MIR interns tuple function and reference signatures across call sites
   REQUIRE(reference.referent == bump->parameter_types.front());
   REQUIRE(fortran_mir.program.calls.size() == 1U);
   REQUIRE(fortran_mir.program.calls.front().argument_storages.front().valid());
+  const auto* bump_effects = fortran_effects.function(bump->id);
+  REQUIRE(bump_effects != nullptr);
+  REQUIRE(bump_effects->parameter_reads.front());
+  REQUIRE(bump_effects->parameter_writes.front());
+  REQUIRE(fortran_effects.calls.size() == 1U);
+  REQUIRE(!fortran_effects.calls.front().reads.empty());
+  REQUIRE(!fortran_effects.calls.front().writes.empty());
 
   auto invalid_signature = fortran_mir.program;
   invalid_signature.functions[bump->id.value()].signature = bump->parameter_types.front();
@@ -522,12 +618,13 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   auto lowered = lower_python("print(abs(-2))\n");
   auto analysis = mpf::detail::analyze_program(lowered.program);
   REQUIRE(analysis.empty());
-  auto mir =
-      mpf::detail::mir::lower_from_hir(std::move(lowered.program), std::move(analysis.semantics));
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
   REQUIRE(mir.diagnostics.empty());
+  const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   mpf::TranspileOptions options;
-  auto javascript = mpf::detail::javascript::lower(mir.program, options);
-  auto cpp = mpf::detail::cpp::lower(mir.program, options);
+  auto javascript = mpf::detail::javascript::lower(mir.program, alias_effects, options);
+  auto cpp = mpf::detail::cpp::lower(mir.program, alias_effects, options);
   REQUIRE(javascript.diagnostics.empty());
   REQUIRE(cpp.diagnostics.empty());
   REQUIRE(javascript.artifact != nullptr);
@@ -536,6 +633,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(cpp.artifact->target() == mpf::TargetLanguage::cpp);
   REQUIRE(mpf::detail::javascript::verify_artifact(*javascript.artifact).empty());
   REQUIRE(mpf::detail::cpp::verify_artifact(*cpp.artifact).empty());
+  auto stale_effects = alias_effects;
+  ++stale_effects.mir_revision;
+  REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
   REQUIRE(javascript_dump.find("javascript-semantic-lir-v1") != std::string::npos);
@@ -569,15 +669,16 @@ TEST_CASE("frontend and backend extension conformance harnesses are reusable") {
   REQUIRE(hir.diagnostics.empty());
   auto analysis = mpf::detail::analyze_program(hir.program);
   REQUIRE(analysis.empty());
-  auto mir =
-      mpf::detail::mir::lower_from_hir(std::move(hir.program), std::move(analysis.semantics));
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(hir.program), std::move(analysis.semantics),
+                                              analysis.names);
   REQUIRE(mir.diagnostics.empty());
+  const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto* javascript = mpf::detail::find_backend(mpf::TargetLanguage::javascript);
   const auto* cpp = mpf::detail::find_backend(mpf::TargetLanguage::cpp);
   REQUIRE(javascript != nullptr);
   REQUIRE(cpp != nullptr);
-  REQUIRE(mpf::detail::run_backend_conformance(*javascript, mir.program).empty());
-  REQUIRE(mpf::detail::run_backend_conformance(*cpp, mir.program).empty());
+  REQUIRE(mpf::detail::run_backend_conformance(*javascript, mir.program, alias_effects).empty());
+  REQUIRE(mpf::detail::run_backend_conformance(*cpp, mir.program, alias_effects).empty());
 }
 
 TEST_CASE("target LIR verifiers reject missing identities and cross-target artifacts") {
@@ -596,8 +697,8 @@ TEST_CASE("MIR verifier rejects ownership control-flow and dominance corruption"
       "print(choose(1))\n");
   auto analysis = mpf::detail::analyze_program(lowered.program);
   REQUIRE(analysis.empty());
-  auto lowered_mir =
-      mpf::detail::mir::lower_from_hir(std::move(lowered.program), std::move(analysis.semantics));
+  auto lowered_mir = mpf::detail::mir::lower_from_hir(
+      std::move(lowered.program), std::move(analysis.semantics), analysis.names);
   REQUIRE(lowered_mir.diagnostics.empty());
 
   auto missing_definition = lowered_mir.program;
@@ -633,9 +734,10 @@ TEST_CASE("MIR verifier rejects ownership control-flow and dominance corruption"
       "print(value)\n");
   auto phi_analysis = mpf::detail::analyze_program(lowered_with_phi.program);
   REQUIRE(phi_analysis.empty());
-  auto bad_edge_arguments = mpf::detail::mir::lower_from_hir(std::move(lowered_with_phi.program),
-                                                             std::move(phi_analysis.semantics))
-                                .program;
+  auto bad_edge_arguments =
+      mpf::detail::mir::lower_from_hir(std::move(lowered_with_phi.program),
+                                       std::move(phi_analysis.semantics), phi_analysis.names)
+          .program;
   const auto argument_edge =
       std::find_if(bad_edge_arguments.blocks.begin() + 1, bad_edge_arguments.blocks.end(),
                    [](const mpf::detail::mir::BasicBlock& candidate) {

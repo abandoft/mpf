@@ -18,6 +18,10 @@ struct Program {
   mpf::detail::semantic::Profile source_semantics{};
   SourceLanguage source_language{SourceLanguage::automatic};
   std::size_t hir_node_count{0};
+  mir::Effect effects{};
+  bool reads_unknown{false};
+  bool writes_unknown{false};
+  std::size_t function_summary_count{0};
   std::vector<CodeBinding> bindings;
   lir::RuntimeRequirements runtime;
   std::vector<std::string_view> dependencies;
@@ -28,6 +32,7 @@ struct Program {
 [[nodiscard]] const TargetProfile& target_profile() noexcept;
 [[nodiscard]] const LegalizationTable& legalization_table() noexcept;
 [[nodiscard]] BackendLoweringResult lower(const mir::Program& program,
+                                          const mir::AliasEffectTable& alias_effects,
                                           const TranspileOptions& options);
 [[nodiscard]] std::vector<Diagnostic> verify_artifact(const BackendArtifact& artifact);
 

@@ -30,6 +30,7 @@ void conformance_error(std::vector<Diagnostic>& diagnostics, std::string message
 
 std::vector<Diagnostic> run_backend_conformance(const BackendDescriptor& descriptor,
                                                 const mir::Program& program,
+                                                const mir::AliasEffectTable& alias_effects,
                                                 const TranspileOptions& options) {
   std::vector<Diagnostic> diagnostics;
   const BackendDescriptor* catalog[]{&descriptor};
@@ -38,12 +39,13 @@ std::vector<Diagnostic> run_backend_conformance(const BackendDescriptor& descrip
     return diagnostics;
   }
   append(diagnostics, mir::verify(program, "backend-conformance"));
+  append(diagnostics, mir::verify_alias_effects(program, alias_effects, "backend-conformance"));
   append(diagnostics, validate_code_bindings(program, descriptor.binding, descriptor.name));
-  append(diagnostics, descriptor.validate(program));
+  append(diagnostics, descriptor.validate(program, alias_effects));
   if (has_error(diagnostics)) return diagnostics;
 
-  auto first = descriptor.lower(program, options);
-  auto second = descriptor.lower(program, options);
+  auto first = descriptor.lower(program, alias_effects, options);
+  auto second = descriptor.lower(program, alias_effects, options);
   append(diagnostics, std::move(first.diagnostics));
   append(diagnostics, std::move(second.diagnostics));
   if (has_error(diagnostics)) return diagnostics;

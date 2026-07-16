@@ -101,6 +101,15 @@ void dump_ids(std::ostringstream& output, const std::vector<Id>& ids, const char
   output << ']';
 }
 
+void dump_flags(std::ostringstream& output, const std::vector<bool>& flags) {
+  output << '[';
+  for (std::size_t index = 0; index < flags.size(); ++index) {
+    if (index != 0) output << ',';
+    output << flags[index];
+  }
+  output << ']';
+}
+
 }  // namespace
 
 std::string dump_hir(const hir::Program& program) {
@@ -195,16 +204,12 @@ std::string dump_mir(const mir::Program& program) {
   }
   for (std::size_t index = 1; index < program.storages.size(); ++index) {
     const auto& storage = program.storages[index];
-    output << "storage !m" << index << " name=" << std::quoted(storage.name) << " type=!t"
-           << storage.type.value() << " shape=!s" << storage.shape.value()
-           << " alias=" << enum_value(storage.alias) << " writable=" << storage.writable
+    output << "storage !m" << index << " name=" << std::quoted(storage.name) << " symbol=$s"
+           << storage.symbol.value() << " type=!t" << storage.type.value() << " shape=!s"
+           << storage.shape.value() << " writable=" << storage.writable
            << " kind=" << enum_value(storage.kind) << " lifetime=" << enum_value(storage.lifetime)
-           << " base=!m" << storage.base.value() << '\n';
-  }
-  for (const auto& relation : program.aliases) {
-    output << "alias !m" << relation.left.value() << " !m" << relation.right.value()
-           << " relation=" << enum_value(relation.relation) << " origin=%h"
-           << relation.origin.value() << '\n';
+           << " base=!m" << storage.base.value() << " view=" << enum_value(storage.view)
+           << " origin=%h" << storage.origin.value() << '\n';
   }
   for (std::size_t index = 1; index < program.functions.size(); ++index) {
     const auto& function = program.functions[index];
@@ -239,7 +244,7 @@ std::string dump_mir(const mir::Program& program) {
         dump_ids(output, instruction.operands, "%v");
         output << " type=!t" << instruction.type.value() << " shape=!s" << instruction.shape.value()
                << " storage=!m" << instruction.storage.value() << " callee=@f"
-               << instruction.callee.value() << " effects=" << instruction.effects.bits()
+               << instruction.callee.value() << " intrinsic=" << enum_value(instruction.intrinsic)
                << " origin=%h" << instruction.origin.value() << '\n';
       }
       output << "    terminator op" << enum_value(block.terminator.kind) << " operands=";
@@ -262,6 +267,55 @@ std::string dump_mir(const mir::Program& program) {
     dump_ids(output, call.argument_types, "!t");
     output << " result=!t" << call.result_type.value() << " requested=" << call.requested_results
            << " origin=%h" << call.origin.value() << '\n';
+  }
+  return output.str();
+}
+
+std::string dump_mir(const mir::Program& program, const mir::AliasEffectTable& analysis) {
+  std::ostringstream output;
+  output << dump_mir(program);
+  output << "alias-effect-v1 revision=" << analysis.mir_revision << '\n';
+  for (std::size_t index = 1; index < analysis.storages.size(); ++index) {
+    const auto& facts = analysis.storages[index];
+    output << "storage-alias !m" << facts.origin.value() << " root=!m" << facts.root.value()
+           << " root-kind=" << enum_value(facts.root_kind) << " escapes=" << facts.escapes << '\n';
+  }
+  for (const auto& relation : analysis.aliases) {
+    output << "alias !m" << relation.left.value() << " !m" << relation.right.value()
+           << " relation=" << enum_value(relation.relation) << " origin=%h"
+           << relation.origin.value() << '\n';
+  }
+  for (std::size_t index = 1; index < analysis.instructions.size(); ++index) {
+    const auto& facts = analysis.instructions[index];
+    output << "effect !i" << facts.origin.value() << " local=" << facts.local.bits()
+           << " transitive=" << facts.effects.bits() << " reads=";
+    dump_ids(output, facts.reads, "!m");
+    output << " writes=";
+    dump_ids(output, facts.writes, "!m");
+    output << " unknown-read=" << facts.reads_unknown << " unknown-write=" << facts.writes_unknown
+           << '\n';
+  }
+  for (std::size_t index = 1; index < analysis.functions.size(); ++index) {
+    const auto& facts = analysis.functions[index];
+    output << "function-effect @f" << facts.origin.value() << " effects=" << facts.effects.bits()
+           << " parameter-reads=";
+    dump_flags(output, facts.parameter_reads);
+    output << " parameter-writes=";
+    dump_flags(output, facts.parameter_writes);
+    output << " parameter-escapes=";
+    dump_flags(output, facts.parameter_escapes);
+    output << " unknown-read=" << facts.reads_unknown << " unknown-write=" << facts.writes_unknown
+           << '\n';
+  }
+  for (const auto& facts : analysis.calls) {
+    output << "call-effect !i" << facts.instruction.value() << " caller=@f" << facts.caller.value()
+           << " callee=@f" << facts.callee.value() << " effects=" << facts.effects.bits()
+           << " reads=";
+    dump_ids(output, facts.reads, "!m");
+    output << " writes=";
+    dump_ids(output, facts.writes, "!m");
+    output << " unknown-read=" << facts.reads_unknown << " unknown-write=" << facts.writes_unknown
+           << '\n';
   }
   return output.str();
 }

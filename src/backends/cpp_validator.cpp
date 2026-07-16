@@ -366,8 +366,12 @@ void validate_statements(const std::vector<Statement>& statements,
 
 }  // namespace
 
-std::vector<Diagnostic> validate_cpp_capabilities(const mir::Program& program) {
-  std::vector<Diagnostic> diagnostics;
+std::vector<Diagnostic> validate_cpp_capabilities(const mir::Program& program,
+                                                  const mir::AliasEffectTable& alias_effects) {
+  auto diagnostics = mir::alias_effects_current(program, alias_effects)
+                         ? std::vector<Diagnostic>{}
+                         : mir::verify_alias_effects(program, alias_effects, "cpp-capabilities");
+  if (!diagnostics.empty()) return diagnostics;
   const auto function_graph =
       build_function_dependency_graph_generic<mir::Expression, mir::Statement>(program.statements);
   for (const auto index : function_graph.definition_order) {

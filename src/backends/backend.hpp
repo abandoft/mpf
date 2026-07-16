@@ -13,7 +13,7 @@
 
 namespace mpf::detail {
 
-inline constexpr std::uint32_t backend_descriptor_api_version = 4;
+inline constexpr std::uint32_t backend_descriptor_api_version = 5;
 
 enum class BackendOptionKind : std::uint8_t { boolean, enumeration, string };
 
@@ -65,8 +65,10 @@ struct BackendDescriptor {
   const TargetProfile& (*profile)() noexcept {nullptr};
   const LegalizationTable& (*legalizations)() noexcept {nullptr};
   CodeBindingLookup binding{nullptr};
-  std::vector<Diagnostic> (*validate)(const mir::Program& program){nullptr};
+  std::vector<Diagnostic> (*validate)(const mir::Program& program,
+                                      const mir::AliasEffectTable& alias_effects){nullptr};
   BackendLoweringResult (*lower)(const mir::Program& program,
+                                 const mir::AliasEffectTable& alias_effects,
                                  const TranspileOptions& options){nullptr};
   std::vector<Diagnostic> (*verify)(const BackendArtifact& artifact){nullptr};
   std::string (*dump)(const BackendArtifact& artifact){nullptr};

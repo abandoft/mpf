@@ -11,6 +11,10 @@
 #include "ids.hpp"
 #include "semantic_table.hpp"
 
+namespace mpf::detail {
+struct NameTable;
+}
+
 namespace mpf::detail::mir {
 
 class Effect final {
@@ -83,6 +87,7 @@ enum class TerminatorKind { none, branch, conditional_branch, return_value, unre
 enum class AliasClass { no_alias, may_alias, must_alias };
 enum class StorageKind { local, parameter, global, temporary, view };
 enum class StorageLifetime { function, module, borrowed, expression };
+enum class StorageViewKind { none, element, section };
 enum class TypeKind { scalar, sequence, tuple, function, reference };
 
 struct TypeData {
@@ -105,13 +110,15 @@ struct ShapeData {
 
 struct StorageData {
   std::string name;
+  SymbolId symbol{};
+  HirNodeId origin{};
   TypeId type{};
   ShapeId shape{};
-  AliasClass alias{AliasClass::may_alias};
   bool writable{true};
   StorageKind kind{StorageKind::local};
   StorageLifetime lifetime{StorageLifetime::function};
   StorageId base{};
+  StorageViewKind view{StorageViewKind::none};
   ParameterIntent intent{ParameterIntent::none};
 };
 
@@ -127,12 +134,12 @@ struct Instruction {
   Opcode opcode{Opcode::invalid};
   HirNodeId origin{};
   MirFunctionId callee{};
+  IntrinsicId intrinsic{IntrinsicId::none};
   SourceLocation location{};
   ValueId result{};
   TypeId type{};
   ShapeId shape{};
   StorageId storage{};
-  Effect effects{Effect::none};
   std::vector<ValueId> operands;
 };
 
@@ -161,6 +168,7 @@ struct BasicBlock {
 struct Function {
   MirFunctionId id{};
   HirNodeId origin{};
+  SymbolId symbol{};
   std::string name;
   BlockId entry{};
   std::vector<BlockId> blocks;
@@ -213,7 +221,7 @@ struct Expression {
   TypeId type_id{};
   ShapeId shape_id{};
   StorageId storage_id{};
-  Effect effects{Effect::none};
+  SymbolId symbol_id{};
 
   [[nodiscard]] bool valid() const noexcept { return kind != ExpressionKind::invalid; }
 };
@@ -231,6 +239,7 @@ struct Statement {
   StatementKind kind{StatementKind::expression};
   std::size_t line{1};
   std::string name;
+  SymbolId symbol_id{};
   Expression expression;
   bool has_expression{false};
   bool procedure_call{false};
@@ -253,6 +262,7 @@ struct Statement {
   Expression target_expression;
   bool has_target_expression{false};
   std::vector<std::string> parameters;
+  std::vector<SymbolId> parameter_symbols;
   std::vector<ParameterKind> parameter_kinds;
   std::vector<Expression> parameter_defaults;
   std::vector<ParameterIntent> parameter_intents;
@@ -279,7 +289,6 @@ struct Statement {
   bool default_case{false};
   std::vector<Statement> body;
   std::vector<Statement> alternative;
-  Effect effects{Effect::none};
 };
 
 struct Program {
@@ -289,7 +298,6 @@ struct Program {
   std::vector<TypeData> types;
   std::vector<ShapeData> shapes;
   std::vector<StorageData> storages;
-  std::vector<AliasRelation> aliases;
   std::vector<Instruction> instructions;
   std::vector<BasicBlock> blocks;
   std::vector<Function> functions;
@@ -298,15 +306,77 @@ struct Program {
   std::uint64_t revision{0};
 };
 
+struct StorageAliasFacts {
+  StorageId origin{};
+  StorageId root{};
+  StorageKind root_kind{StorageKind::temporary};
+  bool escapes{false};
+};
+
+struct InstructionEffectFacts {
+  InstructionId origin{};
+  Effect local{Effect::none};
+  Effect effects{Effect::none};
+  std::vector<StorageId> reads;
+  std::vector<StorageId> writes;
+  bool reads_unknown{false};
+  bool writes_unknown{false};
+};
+
+struct FunctionEffectFacts {
+  MirFunctionId origin{};
+  Effect effects{Effect::none};
+  std::vector<bool> parameter_reads;
+  std::vector<bool> parameter_writes;
+  std::vector<bool> parameter_escapes;
+  bool reads_unknown{false};
+  bool writes_unknown{false};
+};
+
+struct CallEffectFacts {
+  InstructionId instruction{};
+  MirFunctionId caller{};
+  MirFunctionId callee{};
+  Effect effects{Effect::none};
+  std::vector<StorageId> reads;
+  std::vector<StorageId> writes;
+  bool reads_unknown{false};
+  bool writes_unknown{false};
+};
+
+struct AliasEffectTable {
+  std::uint64_t mir_revision{0};
+  std::size_t storage_count{0};
+  std::size_t instruction_count{0};
+  std::size_t function_count{0};
+  std::size_t call_count{0};
+  std::vector<StorageAliasFacts> storages;
+  std::vector<AliasRelation> aliases;
+  std::vector<InstructionEffectFacts> instructions;
+  std::vector<FunctionEffectFacts> functions;
+  std::vector<CallEffectFacts> calls;
+
+  [[nodiscard]] const StorageAliasFacts* storage(StorageId id) const noexcept;
+  [[nodiscard]] const InstructionEffectFacts* instruction(InstructionId id) const noexcept;
+  [[nodiscard]] const FunctionEffectFacts* function(MirFunctionId id) const noexcept;
+  [[nodiscard]] const CallEffectFacts* call(InstructionId instruction) const noexcept;
+};
+
 struct LoweringResult {
   Program program;
   std::vector<Diagnostic> diagnostics;
 };
 
-[[nodiscard]] LoweringResult lower_from_hir(hir::Program&& program, hir::SemanticTable&& semantics);
-[[nodiscard]] AliasClass alias_between(const Program& program, StorageId left,
+[[nodiscard]] LoweringResult lower_from_hir(hir::Program&& program, hir::SemanticTable&& semantics,
+                                            const NameTable& names);
+[[nodiscard]] AliasEffectTable analyze_alias_effects(const Program& program);
+[[nodiscard]] bool alias_effects_current(const Program& program,
+                                         const AliasEffectTable& analysis) noexcept;
+[[nodiscard]] std::vector<Diagnostic> verify_alias_effects(const Program& program,
+                                                           const AliasEffectTable& analysis,
+                                                           std::string_view stage);
+[[nodiscard]] AliasClass alias_between(const AliasEffectTable& analysis, StorageId left,
                                        StorageId right) noexcept;
-[[nodiscard]] std::vector<Diagnostic> validate_effects(Program& program);
 [[nodiscard]] std::vector<Diagnostic> verify(const Program& program, std::string_view stage);
 
 }  // namespace mpf::detail::mir

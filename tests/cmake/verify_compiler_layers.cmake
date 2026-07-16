@@ -50,11 +50,20 @@ foreach(lowering IN ITEMS
 endforeach()
 
 file(READ "${SOURCE_DIR}/src/ir/mir.hpp" mir_contract)
-foreach(required IN ITEMS "successor_arguments" "BlockArgument" "AliasRelation" "StorageLifetime")
+foreach(required IN ITEMS
+    "successor_arguments"
+    "BlockArgument"
+    "AliasEffectTable"
+    "StorageLifetime"
+    "StorageViewKind")
   if(NOT mir_contract MATCHES "${required}")
     message(FATAL_ERROR "MIR contract is missing commercial CFG/alias field: ${required}")
   endif()
 endforeach()
+if(mir_contract MATCHES "struct LoweringResult[^{]*\\{[^}]*AliasEffectTable" OR
+   mir_contract MATCHES "struct Instruction[^{]*\\{[^}]*Effect[ \t]+effects")
+  message(FATAL_ERROR "alias/effect analysis is coupled back into MIR lowering or instructions")
+endif()
 
 foreach(required_file IN ITEMS
     include/mpf/source_map.hpp
@@ -123,6 +132,8 @@ foreach(required IN ITEMS
     "frontend->verify"
     "frontend->lower"
     "mir::lower_from_hir"
+    "mir::analyze_alias_effects"
+    "mir::verify_alias_effects"
     "backend->lower"
     "backend->verify"
     "backend->emit"

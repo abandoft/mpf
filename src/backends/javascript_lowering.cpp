@@ -126,7 +126,10 @@ std::vector<Diagnostic> verify_semantic(const semantic::Program& program) {
   if (program.source_language == SourceLanguage::automatic ||
       program.profile.target != TargetLanguage::javascript ||
       !legalization_table_complete(program.legalizations) ||
-      program.bindings.size() != program.hir_node_count + 1) {
+      program.bindings.size() != program.hir_node_count + 1 ||
+      program.function_summary_count == 0 ||
+      (program.reads_unknown && !mir::has_effect(program.effects, mir::Effect::read)) ||
+      (program.writes_unknown && !mir::has_effect(program.effects, mir::Effect::write))) {
     add_error(diagnostics, {1, 1}, "invalid JavaScript semantic lowering program");
   }
   return diagnostics;
@@ -231,8 +234,13 @@ const LegalizationTable& legalization_table() noexcept {
   return legalizations;
 }
 
-BackendLoweringResult lower(const mir::Program& program, const TranspileOptions& options) {
+BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectTable& alias_effects,
+                            const TranspileOptions& options) {
   BackendLoweringResult result;
+  if (!mir::alias_effects_current(program, alias_effects)) {
+    result.diagnostics = mir::verify_alias_effects(program, alias_effects, "javascript-lowering");
+    return result;
+  }
   result.diagnostics = validate_legalizations(program, legalizations, "javascript");
   if (!result.diagnostics.empty()) return result;
   semantic::Program semantic_program;
@@ -241,6 +249,13 @@ BackendLoweringResult lower(const mir::Program& program, const TranspileOptions&
   semantic_program.source_semantics = program.semantics;
   semantic_program.source_language = program.source_language;
   semantic_program.hir_node_count = program.hir_node_count;
+  semantic_program.function_summary_count = alias_effects.function_count;
+  for (std::size_t index = 1; index < alias_effects.functions.size(); ++index) {
+    const auto& facts = alias_effects.functions[index];
+    semantic_program.effects |= facts.effects;
+    semantic_program.reads_unknown = semantic_program.reads_unknown || facts.reads_unknown;
+    semantic_program.writes_unknown = semantic_program.writes_unknown || facts.writes_unknown;
+  }
   semantic_program.bindings.resize(program.hir_node_count + 1);
   analyze_statements(program.statements, semantic_program, result.diagnostics);
   auto semantic_diagnostics = verify_semantic(semantic_program);
