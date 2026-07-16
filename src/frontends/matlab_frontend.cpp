@@ -36,6 +36,7 @@ hir::LoweringResult lower_matlab_ast(FrontendAst&& artifact) {
   auto* ast = std::get_if<matlab::ast::Program>(&artifact);
   if (ast == nullptr) {
     return {{},
+            {},
             {{DiagnosticSeverity::error,
               "MPF0005",
               "Matlab lowering received another frontend's AST",

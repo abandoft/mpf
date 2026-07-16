@@ -1,6 +1,5 @@
 #include "semantic_table.hpp"
 
-#include <limits>
 #include <string>
 #include <utility>
 
@@ -17,87 +16,6 @@ void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation locati
   diagnostics.push_back(
       {DiagnosticSeverity::error, "MPF0005",
        "invalid semantic table at '" + std::string(stage) + "': " + std::move(message), location});
-}
-
-void add_expression(const Expression& expression, SemanticTable& result) {
-  if (!expression.valid()) return;
-  const auto offset = result.expressions.size();
-  if (offset > std::numeric_limits<std::uint32_t>::max()) return;
-  result.nodes[expression.id.value()] = {SemanticNodeKind::expression,
-                                         static_cast<std::uint32_t>(offset)};
-  ExpressionFacts facts;
-  facts.origin = expression.id;
-  facts.inferred_type = expression.inferred_type;
-  facts.binding = expression.binding;
-  facts.intrinsic = expression.intrinsic;
-  facts.element_type = expression.element_type;
-  facts.shape = expression.shape;
-  facts.tuple_types = expression.tuple_types;
-  facts.tuple_element_types = expression.tuple_element_types;
-  facts.tuple_shapes = expression.tuple_shapes;
-  facts.sequence_is_list = expression.sequence_is_list;
-  facts.sequence_elements = expression.sequence_elements;
-  facts.requested_outputs = expression.requested_outputs;
-  facts.multi_output_call = expression.multi_output_call;
-  facts.argument_intents = expression.argument_intents;
-  facts.argument_names = expression.argument_names;
-  facts.argument_optional_forward = expression.argument_optional_forward;
-  facts.procedure_has_result = expression.procedure_has_result;
-  facts.index_base = expression.index_base;
-  facts.allow_negative_index = expression.allow_negative_index;
-  facts.column_major = expression.column_major;
-  facts.slice_stop_inclusive = expression.slice_stop_inclusive;
-  result.expressions.push_back(std::move(facts));
-  for (const auto& child : expression.children) add_expression(child, result);
-}
-
-void add_statement(const Statement& statement, SemanticTable& result) {
-  const auto offset = result.statements.size();
-  if (offset > std::numeric_limits<std::uint32_t>::max()) return;
-  result.nodes[statement.id.value()] = {SemanticNodeKind::statement,
-                                        static_cast<std::uint32_t>(offset)};
-  StatementFacts facts;
-  facts.origin = statement.id;
-  facts.declared_type = statement.declared_type;
-  facts.element_type = statement.element_type;
-  facts.previous_type = statement.previous_type;
-  facts.previous_element_type = statement.previous_element_type;
-  facts.parameter_intent = statement.parameter_intent;
-  facts.optional_parameter = statement.optional_parameter;
-  facts.dummy_parameter = statement.dummy_parameter;
-  facts.shape = statement.shape;
-  facts.index_base = statement.index_base;
-  facts.allow_negative_index = statement.allow_negative_index;
-  facts.parameter_intents = statement.parameter_intents;
-  facts.parameter_optional = statement.parameter_optional;
-  facts.parameter_types = statement.parameter_types;
-  facts.parameter_element_types = statement.parameter_element_types;
-  facts.parameter_shapes = statement.parameter_shapes;
-  facts.has_value_return = statement.has_value_return;
-  facts.return_types = statement.return_types;
-  facts.return_element_types = statement.return_element_types;
-  facts.return_shapes = statement.return_shapes;
-  facts.return_sequence_is_list = statement.return_sequence_is_list;
-  facts.return_sequence_elements = statement.return_sequence_elements;
-  facts.target_pattern = statement.target_pattern;
-  facts.target_types = statement.target_types;
-  facts.target_element_types = statement.target_element_types;
-  facts.target_shapes = statement.target_shapes;
-  facts.target_previous_types = statement.target_previous_types;
-  facts.target_previous_element_types = statement.target_previous_element_types;
-  result.statements.push_back(std::move(facts));
-
-  add_expression(statement.expression, result);
-  add_expression(statement.secondary_expression, result);
-  add_expression(statement.tertiary_expression, result);
-  add_expression(statement.target_expression, result);
-  for (const auto& expression : statement.parameter_defaults) add_expression(expression, result);
-  for (const auto& selector : statement.case_selectors) {
-    add_expression(selector.lower, result);
-    add_expression(selector.upper, result);
-  }
-  for (const auto& child : statement.body) add_statement(child, result);
-  for (const auto& child : statement.alternative) add_statement(child, result);
 }
 
 void verify_expression(const Expression& expression, const SemanticTable& table,
@@ -261,17 +179,6 @@ StatementFacts* SemanticTable::statement(const HirNodeId id) noexcept {
   return const_cast<StatementFacts*>(std::as_const(*this).statement(id));
 }
 
-SemanticTable initialize_semantics(const Program& program) {
-  SemanticTable result;
-  result.hir_revision = program.revision;
-  result.hir_node_count = program.node_count;
-  result.nodes.resize(program.node_count + 1U);
-  result.expressions.reserve(program.node_count);
-  result.statements.reserve(program.statements.size());
-  for (const auto& statement : program.statements) add_statement(statement, result);
-  return result;
-}
-
 SemanticTable reindex_semantics(Program& program, SemanticTable&& table) {
   SemanticTable result;
   result.hir_revision = program.revision;
@@ -297,6 +204,35 @@ std::vector<Diagnostic> verify_semantics(const Program& program, const SemanticT
   }
   if (!table.nodes.empty() && table.nodes.front().kind != SemanticNodeKind::absent) {
     add_error(diagnostics, {1, 1}, stage, "node ID zero is not the required sentinel");
+  }
+  if (table.expressions.size() + table.statements.size() != program.node_count) {
+    add_error(diagnostics, {1, 1}, stage,
+              "expression and statement fact inventories do not match HIR node count");
+  }
+  std::vector<bool> expression_offsets(table.expressions.size(), false);
+  std::vector<bool> statement_offsets(table.statements.size(), false);
+  for (std::size_t index = 1; index < table.nodes.size(); ++index) {
+    const auto slot = table.nodes[index];
+    const auto origin = HirNodeId{static_cast<HirNodeId::value_type>(index)};
+    if (slot.kind == SemanticNodeKind::expression) {
+      if (!valid_offset(slot.offset, table.expressions) || expression_offsets[slot.offset] ||
+          table.expressions[slot.offset].origin != origin) {
+        add_error(diagnostics, {1, 1}, stage,
+                  "expression fact offset is invalid, duplicated, or has the wrong origin");
+      } else {
+        expression_offsets[slot.offset] = true;
+      }
+    } else if (slot.kind == SemanticNodeKind::statement) {
+      if (!valid_offset(slot.offset, table.statements) || statement_offsets[slot.offset] ||
+          table.statements[slot.offset].origin != origin) {
+        add_error(diagnostics, {1, 1}, stage,
+                  "statement fact offset is invalid, duplicated, or has the wrong origin");
+      } else {
+        statement_offsets[slot.offset] = true;
+      }
+    } else {
+      add_error(diagnostics, {1, 1}, stage, "nonzero HIR node has no semantic fact kind");
+    }
   }
   std::vector<bool> seen(program.node_count + 1U, false);
   verify_statements(program.statements, table, seen, stage, diagnostics);

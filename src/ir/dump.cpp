@@ -16,11 +16,8 @@ void dump_hir_expression(std::ostringstream& output, const hir::Expression& expr
                          const std::size_t depth) {
   if (!expression.valid()) return;
   output << std::string(depth * 2U, ' ') << "expr %h" << expression.id.value()
-         << " kind=" << enum_value(expression.kind)
-         << " type=" << enum_value(expression.inferred_type)
-         << " intrinsic=" << enum_value(expression.intrinsic)
-         << " value=" << std::quoted(expression.value) << " @" << expression.location.line << ':'
-         << expression.location.column << '\n';
+         << " kind=" << enum_value(expression.kind) << " value=" << std::quoted(expression.value)
+         << " @" << expression.location.line << ':' << expression.location.column << '\n';
   for (const auto& child : expression.children) {
     dump_hir_expression(output, child, depth + 1U);
   }

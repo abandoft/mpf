@@ -36,6 +36,7 @@ hir::LoweringResult lower_fortran_ast(FrontendAst&& artifact) {
   auto* ast = std::get_if<fortran::ast::Program>(&artifact);
   if (ast == nullptr) {
     return {{},
+            {},
             {{DiagnosticSeverity::error,
               "MPF0005",
               "Fortran lowering received another frontend's AST",

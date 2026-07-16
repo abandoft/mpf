@@ -5,7 +5,8 @@
 #include <string>
 #include <utility>
 
-#include "../ir/hir_dump.hpp"
+#include "../ir/dump.hpp"
+#include "../ir/semantic_table.hpp"
 #include "frontend_registry.hpp"
 
 namespace mpf::detail {
@@ -52,10 +53,15 @@ std::vector<Diagnostic> run_frontend_conformance(const FrontendDescriptor& descr
   append(diagnostics, std::move(first_hir.diagnostics));
   append(diagnostics, std::move(second_hir.diagnostics));
   if (has_error(diagnostics)) return diagnostics;
+  append(diagnostics, hir::verify_semantics(first_hir.program, first_hir.semantics, "conformance"));
+  append(diagnostics,
+         hir::verify_semantics(second_hir.program, second_hir.semantics, "conformance"));
+  if (has_error(diagnostics)) return diagnostics;
   if (first_hir.program.language != descriptor.language ||
       second_hir.program.language != descriptor.language) {
     conformance_error(diagnostics, "frontend lowering changed the language identity");
-  } else if (dump_hir(first_hir.program) != dump_hir(second_hir.program)) {
+  } else if (dump_hir(first_hir.program) != dump_hir(second_hir.program) ||
+             dump_semantics(first_hir.semantics) != dump_semantics(second_hir.semantics)) {
     conformance_error(diagnostics, "frontend parse and AST-to-HIR lowering are not deterministic");
   }
   return diagnostics;

@@ -1449,10 +1449,11 @@ void Analyzer::refresh_call_intents(std::vector<Statement>& statements) {
 
 namespace mpf::detail {
 
-AnalysisResult analyze_program(hir::Program& program) {
+AnalysisResult analyze_program(hir::Program& program, hir::SemanticTable semantic_seed) {
   AnalysisResult result;
-  hir::reindex(program);
-  result.semantics = hir::initialize_semantics(program);
+  result.semantics = std::move(semantic_seed);
+  result.diagnostics = hir::verify_semantics(program, result.semantics, "frontend-seed");
+  if (!result.diagnostics.empty()) return result;
   auto name_result = analyze_names(program);
   result.diagnostics = std::move(name_result.diagnostics);
   auto flow_result = analyze_flow(program);

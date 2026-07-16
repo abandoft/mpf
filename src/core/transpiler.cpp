@@ -306,7 +306,7 @@ TranspileResult Transpiler::transpile(const std::string_view source,
   detail::AnalysisResult analysis_result;
   if (result.success()) {
     const auto analysis_started = session.begin_stage();
-    analysis_result = detail::analyze_program(hir_result.program);
+    analysis_result = detail::analyze_program(hir_result.program, std::move(hir_result.semantics));
     result.diagnostics.insert(result.diagnostics.end(),
                               std::make_move_iterator(analysis_result.diagnostics.begin()),
                               std::make_move_iterator(analysis_result.diagnostics.end()));

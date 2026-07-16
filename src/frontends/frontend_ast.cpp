@@ -1,10 +1,13 @@
 #include "frontend_ast.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <type_traits>
 #include <utility>
+
+#include "../ir/semantic_table.hpp"
 
 namespace mpf::detail {
 namespace {
@@ -167,7 +170,9 @@ semantic::Profile semantic_profile(const SourceLanguage language) noexcept {
 template <typename Tag>
 class HirLowerer final {
  public:
-  explicit HirLowerer(ArenaProgram<Tag>& program) : source_(program) {}
+  explicit HirLowerer(ArenaProgram<Tag>& program) : source_(program) {
+    semantics_.nodes.push_back({});
+  }
 
   hir::LoweringResult lower() {
     hir::LoweringResult result;
@@ -176,7 +181,15 @@ class HirLowerer final {
     result.program.statements.reserve(source_.roots.size());
     for (const auto root : source_.roots) result.program.statements.push_back(statement(root));
     result.program.node_count = ids_.count();
+    semantics_.hir_revision = result.program.revision;
+    semantics_.hir_node_count = result.program.node_count;
+    result.semantics = std::move(semantics_);
     result.diagnostics = hir::verify(result.program, "ast-to-hir");
+    auto semantic_diagnostics =
+        hir::verify_semantics(result.program, result.semantics, "ast-to-hir");
+    result.diagnostics.insert(result.diagnostics.end(),
+                              std::make_move_iterator(semantic_diagnostics.begin()),
+                              std::make_move_iterator(semantic_diagnostics.end()));
     return result;
   }
 
@@ -200,26 +213,29 @@ class HirLowerer final {
     result.operators = std::move(node.operators);
     result.children.reserve(node.children.size());
     for (const auto child : node.children) result.children.push_back(expression(child));
-    result.inferred_type = node.inferred_type;
-    result.binding = node.binding;
-    result.intrinsic = node.intrinsic;
-    result.element_type = node.element_type;
-    result.shape = std::move(node.shape);
-    result.tuple_types = std::move(node.tuple_types);
-    result.tuple_element_types = std::move(node.tuple_element_types);
-    result.tuple_shapes = std::move(node.tuple_shapes);
-    result.sequence_is_list = node.sequence_is_list;
-    result.sequence_elements = std::move(node.sequence_elements);
-    result.requested_outputs = node.requested_outputs;
-    result.multi_output_call = node.multi_output_call;
-    result.argument_intents = std::move(node.argument_intents);
-    result.argument_names = std::move(node.argument_names);
-    result.argument_optional_forward = std::move(node.argument_optional_forward);
-    result.procedure_has_result = node.procedure_has_result;
-    result.index_base = node.index_base;
-    result.allow_negative_index = node.allow_negative_index;
-    result.column_major = node.column_major;
-    result.slice_stop_inclusive = node.slice_stop_inclusive;
+    hir::ExpressionFacts facts;
+    facts.origin = result.id;
+    facts.inferred_type = node.inferred_type;
+    facts.binding = node.binding;
+    facts.intrinsic = node.intrinsic;
+    facts.element_type = node.element_type;
+    facts.shape = std::move(node.shape);
+    facts.tuple_types = std::move(node.tuple_types);
+    facts.tuple_element_types = std::move(node.tuple_element_types);
+    facts.tuple_shapes = std::move(node.tuple_shapes);
+    facts.sequence_is_list = node.sequence_is_list;
+    facts.sequence_elements = std::move(node.sequence_elements);
+    facts.requested_outputs = node.requested_outputs;
+    facts.multi_output_call = node.multi_output_call;
+    facts.argument_intents = std::move(node.argument_intents);
+    facts.argument_names = std::move(node.argument_names);
+    facts.argument_optional_forward = std::move(node.argument_optional_forward);
+    facts.procedure_has_result = node.procedure_has_result;
+    facts.index_base = node.index_base;
+    facts.allow_negative_index = node.allow_negative_index;
+    facts.column_major = node.column_major;
+    facts.slice_stop_inclusive = node.slice_stop_inclusive;
+    append_expression_facts(std::move(facts));
     return result;
   }
 
@@ -251,16 +267,6 @@ class HirLowerer final {
     result.has_tertiary_expression = node.has_tertiary_expression;
     result.inclusive_stop = node.inclusive_stop;
     result.retain_last_loop_value = node.retain_last_loop_value;
-    result.declared_type = node.declared_type;
-    result.element_type = node.element_type;
-    result.previous_type = node.previous_type;
-    result.previous_element_type = node.previous_element_type;
-    result.parameter_intent = node.parameter_intent;
-    result.optional_parameter = node.optional_parameter;
-    result.dummy_parameter = node.dummy_parameter;
-    result.shape = std::move(node.shape);
-    result.index_base = node.index_base;
-    result.allow_negative_index = node.allow_negative_index;
     result.target_expression = expression(node.target_expression);
     result.has_target_expression = node.has_target_expression;
     result.parameters = std::move(node.parameters);
@@ -269,26 +275,9 @@ class HirLowerer final {
     for (const auto value : node.parameter_defaults) {
       result.parameter_defaults.push_back(expression(value));
     }
-    result.parameter_intents = std::move(node.parameter_intents);
-    result.parameter_optional = std::move(node.parameter_optional);
-    result.parameter_types = std::move(node.parameter_types);
-    result.parameter_element_types = std::move(node.parameter_element_types);
-    result.parameter_shapes = std::move(node.parameter_shapes);
     result.return_names = std::move(node.return_names);
-    result.has_value_return = node.has_value_return;
-    result.return_types = std::move(node.return_types);
-    result.return_element_types = std::move(node.return_element_types);
-    result.return_shapes = std::move(node.return_shapes);
-    result.return_sequence_is_list = node.return_sequence_is_list;
-    result.return_sequence_elements = std::move(node.return_sequence_elements);
     result.target_names = std::move(node.target_names);
-    result.target_pattern = std::move(node.target_pattern);
     result.has_target_pattern = node.has_target_pattern;
-    result.target_types = std::move(node.target_types);
-    result.target_element_types = std::move(node.target_element_types);
-    result.target_shapes = std::move(node.target_shapes);
-    result.target_previous_types = std::move(node.target_previous_types);
-    result.target_previous_element_types = std::move(node.target_previous_element_types);
     result.case_selectors.reserve(node.case_selectors.size());
     for (auto& value : node.case_selectors) result.case_selectors.push_back(selector(value));
     result.default_case = node.default_case;
@@ -296,11 +285,58 @@ class HirLowerer final {
     for (const auto value : node.body) result.body.push_back(statement(value));
     result.alternative.reserve(node.alternative.size());
     for (const auto value : node.alternative) result.alternative.push_back(statement(value));
+    hir::StatementFacts facts;
+    facts.origin = result.id;
+    facts.declared_type = node.declared_type;
+    facts.element_type = node.element_type;
+    facts.previous_type = node.previous_type;
+    facts.previous_element_type = node.previous_element_type;
+    facts.parameter_intent = node.parameter_intent;
+    facts.optional_parameter = node.optional_parameter;
+    facts.dummy_parameter = node.dummy_parameter;
+    facts.shape = std::move(node.shape);
+    facts.index_base = node.index_base;
+    facts.allow_negative_index = node.allow_negative_index;
+    facts.parameter_intents = std::move(node.parameter_intents);
+    facts.parameter_optional = std::move(node.parameter_optional);
+    facts.parameter_types = std::move(node.parameter_types);
+    facts.parameter_element_types = std::move(node.parameter_element_types);
+    facts.parameter_shapes = std::move(node.parameter_shapes);
+    facts.has_value_return = node.has_value_return;
+    facts.return_types = std::move(node.return_types);
+    facts.return_element_types = std::move(node.return_element_types);
+    facts.return_shapes = std::move(node.return_shapes);
+    facts.return_sequence_is_list = node.return_sequence_is_list;
+    facts.return_sequence_elements = std::move(node.return_sequence_elements);
+    facts.target_pattern = std::move(node.target_pattern);
+    facts.target_types = std::move(node.target_types);
+    facts.target_element_types = std::move(node.target_element_types);
+    facts.target_shapes = std::move(node.target_shapes);
+    facts.target_previous_types = std::move(node.target_previous_types);
+    facts.target_previous_element_types = std::move(node.target_previous_element_types);
+    append_statement_facts(std::move(facts));
     return result;
+  }
+
+  void append_expression_facts(hir::ExpressionFacts facts) {
+    const auto id = facts.origin;
+    if (semantics_.nodes.size() <= id.value()) semantics_.nodes.resize(id.value() + 1U);
+    semantics_.nodes[id.value()] = {hir::SemanticNodeKind::expression,
+                                    static_cast<std::uint32_t>(semantics_.expressions.size())};
+    semantics_.expressions.push_back(std::move(facts));
+  }
+
+  void append_statement_facts(hir::StatementFacts facts) {
+    const auto id = facts.origin;
+    if (semantics_.nodes.size() <= id.value()) semantics_.nodes.resize(id.value() + 1U);
+    semantics_.nodes[id.value()] = {hir::SemanticNodeKind::statement,
+                                    static_cast<std::uint32_t>(semantics_.statements.size())};
+    semantics_.statements.push_back(std::move(facts));
   }
 
   ArenaProgram<Tag>& source_;
   IrIdAllocator<HirNodeId> ids_;
+  hir::SemanticTable semantics_;
 };
 
 template <typename Tag>

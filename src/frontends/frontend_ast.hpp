@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "../compiler/ir.hpp"
-#include "../ir/hir.hpp"
+#include "../ir/hir_lowering.hpp"
 #include "../ir/ids.hpp"
 
 namespace mpf::detail {

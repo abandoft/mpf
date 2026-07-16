@@ -36,6 +36,7 @@ hir::LoweringResult lower_python_ast(FrontendAst&& artifact) {
   auto* ast = std::get_if<python::ast::Program>(&artifact);
   if (ast == nullptr) {
     return {{},
+            {},
             {{DiagnosticSeverity::error,
               "MPF0005",
               "Python lowering received another frontend's AST",

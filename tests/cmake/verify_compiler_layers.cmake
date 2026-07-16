@@ -39,6 +39,38 @@ endforeach()
 mpf_assert_file_excludes("src/frontends/frontend_ast.hpp" "Program syntax|AstInventory"
   "language AST artifact still embeds the transitional shared syntax program")
 
+file(READ "${SOURCE_DIR}/src/ir/hir.hpp" hir_contract)
+foreach(forbidden IN ITEMS
+    "inferred_type"
+    "declared_type"
+    "element_type"
+    "previous_type"
+    "tuple_types"
+    "sequence_elements"
+    "argument_intents"
+    "parameter_intents"
+    "return_types"
+    "target_types"
+    "requested_outputs"
+    "multi_output_call"
+    "procedure_has_result"
+    "column_major"
+    "slice_stop_inclusive")
+  if(hir_contract MATCHES "${forbidden}")
+    message(FATAL_ERROR "HIR contract regained semantic payload: ${forbidden}")
+  endif()
+endforeach()
+if(hir_contract MATCHES "AssignmentPattern[ \t]+target_pattern")
+  message(FATAL_ERROR "HIR contract regained the semantic assignment pattern payload")
+endif()
+file(READ "${SOURCE_DIR}/src/ir/hir_lowering.hpp" hir_lowering_contract)
+if(NOT hir_lowering_contract MATCHES "struct LoweringResult" OR
+   NOT hir_lowering_contract MATCHES "SemanticTable semantics")
+  message(FATAL_ERROR "AST-to-HIR result does not carry its dense semantic seed")
+endif()
+mpf_assert_file_excludes("src/ir/hir.cpp" "lower_from_syntax|lower_expression|lower_statement"
+  "shared syntax-to-HIR compatibility lowering was restored")
+
 foreach(lowering IN ITEMS
     src/backends/javascript_lowering.cpp
     src/backends/cpp_lowering.cpp)
