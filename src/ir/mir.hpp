@@ -281,8 +281,7 @@ struct LoweringResult {
   std::vector<Diagnostic> diagnostics;
 };
 
-[[nodiscard]] LoweringResult lower_from_hir(hir::Program&& program,
-                                            hir::SemanticTable&& semantics);
+[[nodiscard]] LoweringResult lower_from_hir(hir::Program&& program, hir::SemanticTable&& semantics);
 [[nodiscard]] AliasClass alias_between(const Program& program, StorageId left,
                                        StorageId right) noexcept;
 [[nodiscard]] std::vector<Diagnostic> validate_effects(Program& program);

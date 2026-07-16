@@ -82,8 +82,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
     const auto slot = table.nodes[id];
     output << "%h" << id << " kind=" << enum_value(slot.kind) << " offset=" << slot.offset;
-    if (slot.kind == hir::SemanticNodeKind::expression &&
-        slot.offset < table.expressions.size()) {
+    if (slot.kind == hir::SemanticNodeKind::expression && slot.offset < table.expressions.size()) {
       const auto& facts = table.expressions[slot.offset];
       output << " type=" << enum_value(facts.inferred_type)
              << " element=" << enum_value(facts.element_type)

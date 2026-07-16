@@ -2334,8 +2334,7 @@ class Analyzer final {
   ValueType analyze_reshape(Expression& expression) {
     const bool matlab_dimensions =
         program_.language == SourceLanguage::matlab && expression.children.size() > 3;
-    if ((!matlab_dimensions && expression.children.size() != 3) ||
-        expression.children.size() < 3) {
+    if ((!matlab_dimensions && expression.children.size() != 3) || expression.children.size() < 3) {
       diagnose(expression.location.line, "MPF2026",
                "RESHAPE requires a source and a non-empty shape vector/dimension list");
       return expression.inferred_type = ValueType::unknown;

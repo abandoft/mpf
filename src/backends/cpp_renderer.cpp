@@ -1122,8 +1122,7 @@ class Renderer final {
               break;
             }
             if (callee.binding == BindingKind::builtin &&
-                callee.intrinsic == IntrinsicId::reshape &&
-                expression.children.size() >= 3) {
+                callee.intrinsic == IntrinsicId::reshape && expression.children.size() >= 3) {
               output_ << "mpf_runtime::reshape_column_major_nd(";
               emit_expression(expression.children[1]);
               output_ << ", ";
