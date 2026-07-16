@@ -7,14 +7,14 @@
 生产驱动已经切换为五层路径，旧的共享 `Program`→emitter 直通入口不存在：
 
 - 三个 frontend descriptor 产生编译期互不兼容的语言 AST artifact；节点以稠密 `AstNodeId` 存入 session PMR arena，并显式运行 AST verifier 与 AST→HIR visitor；
-- Analyzer 和 HIR pass 只处理 HIR；独立的只读 name/flow pass 分别生成 revision-bound 稠密 `NameTable` 与 `FlowTable`，负责 lexical scope/symbol/builtin、reachability/termination 和不可达诊断；Analyzer 以 `ScopeId`/`SymbolId` 稠密状态消费两表，并直接写入 `SemanticTable`，不再执行字符串名称查找、注解或 move-extract HIR 语义字段；HIR→MIR 只从 semantic side table 读取类型、shape、binding、call association 与 assignment-pattern facts；
-- MIR lowering 为当前 if/loop/loop-else/`break`/`continue`/`SELECT CASE` 建立真实 CFG、block argument 和 edge actual，并显式记录 shape stride、storage view/lifetime/intent 与 alias relation；
-- MIR verifier 检查表密度、唯一所有权、terminator/edge arity、定义顺序、dominance、type/shape/storage metadata、view/lifetime/intent、alias relation，以及 tuple/function/reference 签名、call/return、多结果和 writable actual；
-- JavaScript 与 `cpp` 分别执行 TargetProfile、逐 opcode legalization、capability、私有 semantic plan、独立 LIR/pass/verifier；
+- Analyzer 和 HIR pass 只处理 HIR；独立的只读 name/flow pass 分别生成 revision-bound 稠密 `NameTable` 与 `FlowTable`，负责 lexical scope/symbol/builtin、reachability/termination 和不可达诊断；Analyzer 以 `ScopeId`/`SymbolId` 稠密状态消费两表，并直接写入 `SemanticTable`，不再执行字符串名称查找、注解或 move-extract HIR 语义字段；HIR→MIR 从 semantic side table 读取类型、shape、binding、call association 与 assignment-pattern facts，并从 name table 固化 storage/function 的 `SymbolId` identity；
+- MIR lowering 为当前 if/loop/loop-else/`break`/`continue`/`SELECT CASE` 建立真实 CFG、block argument 和 edge actual，并显式记录 shape stride 与 storage view/lifetime/intent；全局 storage 以 NameTable 派生的 `SymbolId` 跨函数共享身份；alias relation 和 instruction/function/call effect 不再内嵌 MIR，而由 revision-bound、可缓存的 `AliasEffectTable` 计算；
+- MIR verifier 检查表密度、唯一所有权、terminator/edge arity、定义顺序、dominance、type/shape/storage metadata、view/lifetime/intent，以及 tuple/function/reference 签名、call/return、多结果和 writable actual；alias/effect verifier 独立检查 storage root、稀疏 alias、read/write set、跨函数 fixed point 和 call-site 参数实例化；
+- JavaScript 与 `cpp` 通过 backend descriptor API v5 显式接收并验证 MIR 与 alias/effect facts，再分别执行 TargetProfile、逐 opcode legalization、capability、私有 semantic plan、独立 LIR/pass/verifier；
 - representation/type/shape/ABI/name/runtime 决策在目标 lowering/renderer 完成，形成带 source origin 的 serialized chunks；核心只持有 opaque target artifact，两个 emitter 只调用 `serialize_chunks`。
 - facade 从最终 LIR origin 构建 source map v3，并公开 dependency manifest 和包含阶段耗时/节点/峰值 arena 的编译报告。
 
-0.3.4 已完成语言 AST artifact、当前支持语义的 CFG/alias、纯 emitter、source map、资源防护、fuzz、版本化性能发布门禁、Analyzer 输出 side table、静态一般 rank 的 reshape/direct-section 主链路、parser-session contract 和双目标 semantic LIR dump/golden。0.3.5 开发线进一步加入驻留的 tuple/function/reference 类型、函数签名、显式 call-site 表、跨函数 verifier、Analyzer 直写 semantic side table，以及独立、可按 HIR revision 缓存的 name/scope 和 flow side table。参数关联若改变结构，会提升 revision、同步紧凑重映射 HIR ID/facts、重建 name/flow 表并重新执行资源门禁；Analyzer 的控制/函数与表达式/调用实现也已分成独立编译单元。后续仍需把 alias/effect 拆为独立分析并删除 HIR 宽兼容字段；MIR 也仍为当前 target lowering 保留结构化语义投影。完整官方 grammar、动态 rank/广播、精确 N 维 storage overlap、参数敏感跨函数数据流和稳定插件 ABI 尚未完成。所有边界逐项记录在 [TODO 0.3.5/P0—P7](../TODO.md)。
+0.3.4 已完成语言 AST artifact、当前支持语义的 CFG/alias、纯 emitter、source map、资源防护、fuzz、版本化性能发布门禁、Analyzer 输出 side table、静态一般 rank 的 reshape/direct-section 主链路、parser-session contract 和双目标 semantic LIR dump/golden。0.3.5 开发线进一步加入驻留的 tuple/function/reference 类型、函数签名、显式 call-site 表、跨函数 verifier、Analyzer 直写 semantic side table，以及独立、可按 revision 缓存的 name/scope、flow 和 MIR alias/effect side table。参数关联若改变结构，会提升 revision、同步紧凑重映射 HIR ID/facts、重建 name/flow 表并重新执行资源门禁；Analyzer 的控制/函数与表达式/调用实现也已分成独立编译单元。alias/effect pass 对 storage view root、instruction read/write、函数参数读写/escape 和 call graph 做保守 fixed point，并由两个后端显式消费。后续仍需删除 HIR 宽兼容字段；MIR 也仍为当前 target lowering 保留结构化语义投影。完整官方 grammar、动态 rank/广播、精确 N 维 storage overlap、完整 copy-in/copy-out 与稳定插件 ABI 尚未完成。所有边界逐项记录在 [TODO 0.3.5/P0—P7](../TODO.md)。
 
 ## 设计原则
 
@@ -60,7 +60,7 @@ HIR verifier/pass → independent NameTable/FlowTable → direct SemanticTable a
 source intrinsic spelling ─► stable IntrinsicId
       │
       ▼
-HIR→MIR → MIR verifier/pass
+HIR→MIR → MIR verifier → alias/effect analysis + verifier
       │
       ▼
 Backend Registry ─► BackendDescriptor
@@ -75,7 +75,7 @@ Backend Registry ─► BackendDescriptor
 ```text
 language AST
   → HIR：消除语言表面差异
-  → MIR：类型化 CFG、值、shape、storage、alias 与 effect
+  → MIR：类型化 CFG、值、shape、storage；alias/effect 位于独立分析表
   → JavaScript LIR / cpp LIR：目标专属 capability、binding 与 lowering
   → emitter：确定性序列化
 ```
@@ -86,7 +86,7 @@ language AST
 
 0.3.2 的 Python comparison-chain 节点直接保存操作数序列和操作符序列，conditional 节点保存 condition/true/false 三个子节点。Analyzer 分析这些节点的 type/element/shape/tuple metadata，但不选择目标 lowering；JavaScript IIFE 与 C++ lambda 分别由自己的 target renderer materialize，最终 emitter 不再处理这些语义。
 
-0.3.4 把 frontend descriptor 升级到 API v5、backend descriptor 升级到 API v4。前端 manifest 声明 minimum/maximum language version、feature bitset、resource contract、AST schema、确定性和 reentrancy，并通过工厂创建独立 parser session；后端 manifest 声明目标标准、artifact/configuration schema、runtime license/supply-chain、TargetProfile 和 legalization factory。catalog 保持静态只读、无全局构造器自注册，conformance harness 会重复 lowering/dump/emit 并比较确定性。当前 contract 用于编译期内置组件，不是稳定动态插件 ABI；接入步骤见 [扩展指南](EXTENDING.md)。
+0.3.4 把 frontend descriptor 升级到 API v5、backend descriptor 升级到 API v4；0.3.5 将 backend descriptor 升级到 API v5，使 capability 与 lowering 同时接收 revision-checked alias/effect facts。前端 manifest 声明 minimum/maximum language version、feature bitset、resource contract、AST schema、确定性和 reentrancy，并通过工厂创建独立 parser session；后端 manifest 声明目标标准、artifact/configuration schema、runtime license/supply-chain、TargetProfile 和 legalization factory。catalog 保持静态只读、无全局构造器自注册，conformance harness 会重复 lowering/dump/emit 并比较确定性。当前 contract 用于编译期内置组件，不是稳定动态插件 ABI；接入步骤见 [扩展指南](EXTENDING.md)。
 
 ## 构建与链接边界
 
@@ -116,7 +116,7 @@ mpf facade
 - `ir`：强类型 ID、semantic profile、HIR、MIR、pass/analysis manager、verifier 与确定性 dump。
 - `semantic`：目标无关的作用域、名称绑定、builtin 遮蔽、确定赋值、循环上下文、不可达代码、表达式分支类型、标量/元素类型、矩形 shape、动态 extent、slice 长度、section conformability、逐维静态越界和 rank。
 - `frontends`：统一 descriptor/registry，以及每种语言独立 logical-source normalizer 与递归下降 statement parser；parser 只消费 statement token/span，并把表达式跨度交给 Pratt parser。当前迁移覆盖已支持子集，完整官方 grammar 仍按各语言里程碑扩展。
-- `backends`：descriptor v4、TargetProfile/legalization、目标 intrinsic binding、独立 capability/semantic plan/LIR/pass/verifier、target renderer 与纯 serialized-chunk emitter，以及仅供后端使用的保留字/冲突安全名称计划。Python loop-else 使用每层独立完成标志；数组访问通过带 shape/bounds/base/negative-index/column-major 策略的 runtime lowering。生成 C++ 放入 `mpf_generated` namespace，runtime 放入独立 `mpf_runtime` namespace。
+- `backends`：descriptor v5、revision-checked alias/effect 输入、TargetProfile/legalization、目标 intrinsic binding、独立 capability/semantic plan/LIR/pass/verifier、target renderer 与纯 serialized-chunk emitter，以及仅供后端使用的保留字/冲突安全名称计划。Python loop-else 使用每层独立完成标志；数组访问通过带 shape/bounds/base/negative-index/column-major 策略的 runtime lowering。生成 C++ 放入 `mpf_generated` namespace，runtime 放入独立 `mpf_runtime` namespace。
 - `cli`：文件和参数 I/O，不包含编译语义。
 
 ## 正确性策略

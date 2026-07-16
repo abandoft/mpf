@@ -3,9 +3,11 @@
 - MIR 类型系统新增驻留的 tuple、function 与 reference 类型，函数保存独立签名，Python tuple 返回保持单结果、Matlab 多输出保持多结果，Fortran `INTENT(IN/OUT/INOUT)` 参数进入带模式的 reference type。
 - 新增显式 call-site 表，关联 caller/callee、call instruction、argument/result type、optional omission、requested result 和 actual storage；verifier 跨函数检查 call/return、多结果、必需参数及 OUT/INOUT writable storage，确定性 MIR dump 同步输出类型签名和调用边。
 - Analyzer 改为预分配并直接写入 revision-checked 稠密 `SemanticTable`，不再原地注解或 move-extract HIR 语义字段；参数关联引起的默认值克隆、optional omission 和重排会提升 revision，并将 HIR ID 与 facts 同步紧凑重映射。
-- lexical scope tree、声明/参数/结果/循环变量、遮蔽、引用和 builtin 解析迁入独立、只读 HIR 的稠密 `NameTable`；新增强类型 `ScopeId`，Analyzer 删除字符串符号哈希状态并改为按 `SymbolId` 访问，同时以 `FlowTable` termination facts 驱动确定赋值合流。alias/effect 拆分仍是后续任务。
+- lexical scope tree、声明/参数/结果/循环变量、遮蔽、引用和 builtin 解析迁入独立、只读 HIR 的稠密 `NameTable`；新增强类型 `ScopeId`，Analyzer 删除字符串符号哈希状态并改为按 `SymbolId` 访问，同时以 `FlowTable` termination facts 驱动确定赋值合流。
+- alias/effect 从 MIR storage/instruction 和 lowering builder 中移出，形成 revision-bound、可由 `AnalysisManager` 缓存的 `AliasEffectTable`；稠密保存 storage root/escape、instruction local/transitive effect 与 read/write set、函数参数读写/escape fixed point，稀疏保存 alias relation 和 call-site 实参实例化。NameTable 派生的 `SymbolId` 让跨函数全局 storage 共享身份，调用摘要不会把纯局部写入误报为调用者可见写入；未知外部调用保守读写 unknown storage 并 may-fail。独立 verifier/dump 拒绝 stale、inventory 不符、弱化事实和非 fixed-point 摘要。
+- backend descriptor 升级到 API v5，capability、lowering 与 conformance harness 必须同时接收 MIR 和已验证 alias/effect facts；JavaScript/`cpp` semantic plan 汇总函数 effect/unknown-memory 信息，两个后端均拒绝陈旧分析输入。
 - Analyzer 按职责拆为控制/函数分析、表达式/调用/索引分析和内部 contract 三个编译单元，避免继续扩张单体源码；name/flow 表在参数关联改变结构后按新 revision 重建。
-- 分析后再次检查 HIR 节点资源上限，防止默认参数物化绕过前置门禁；新增 HIR/semantic/name/flow dense/revision/stale、scope corruption 和资源负向测试，内部测试增至 149 项；当前生产代码行覆盖率为 88.27%（14864/16839），继续高于 85% 门槛。
+- 分析后再次检查 HIR 节点资源上限，防止默认参数物化绕过前置门禁；新增 HIR/semantic/name/flow/alias-effect dense/revision/stale、scope corruption、弱化 effect、跨函数摘要和资源负向测试，内部测试增至 150 项；当前生产代码行覆盖率为 88.32%（15364/17396），继续高于 85% 门槛。
 
 ## 0.3.4
 

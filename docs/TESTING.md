@@ -10,7 +10,7 @@ MPF 的验证体系分为七层：
 6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖三种前端、两个目标、资源耗尽和确定性重放；
 7. 小文件延迟、吞吐、深 CFG、大 shape、跨函数图、峰值 arena、产物大小和并发 session 进入发布性能门禁。
 
-0.3.4 已覆盖生产 stage/include architecture test、AST/HIR/MIR/双目标 LIR verifier negative、normalized HIR 与双目标 semantic LIR golden、人类可读目标 LIR dump、analysis revision/preservation、source map v3、编译报告、前后端 conformance、安装后 consumer、细粒度 resource exhaustion、fuzz smoke/libFuzzer 和绑定项目版本的性能回归门禁。0.3.5 新增 tuple/function/reference 类型签名、跨函数 call-site/return、缺失 call edge、writable-reference corruption、Analyzer 不写回 HIR、结构规范化 revision/dense remap、post-analysis HIR resource gate，独立 flow table 的 dense/stale negative case，以及 name table 的 scope/symbol/shadowing/builtin/dense/revision corruption case；内部测试现为 149 项，当前生产代码行覆盖率为 88.27%（14864/16839）。更广官方 grammar、alias/effect 拆分及宽 IR 收敛继续按 [TODO 0.3.5](../TODO.md) 推进。
+0.3.4 已覆盖生产 stage/include architecture test、AST/HIR/MIR/双目标 LIR verifier negative、normalized HIR 与双目标 semantic LIR golden、人类可读目标 LIR dump、analysis revision/preservation、source map v3、编译报告、前后端 conformance、安装后 consumer、细粒度 resource exhaustion、fuzz smoke/libFuzzer 和绑定项目版本的性能回归门禁。0.3.5 新增 tuple/function/reference 类型签名、跨函数 call-site/return、缺失 call edge、writable-reference corruption、Analyzer 不写回 HIR、结构规范化 revision/dense remap、post-analysis HIR resource gate，独立 flow/name table 的 dense/stale/corruption case，以及 alias/effect table 的 revision cache、弱化事实拒绝、跨函数参数摘要、call-site 实例化和后端 stale-input case；内部测试现为 150 项，当前生产代码行覆盖率为 88.32%（15364/17396）。更广官方 grammar、精确 N 维 overlap/copy-in/copy-out 及宽 IR 收敛继续按 [TODO 0.3.5](../TODO.md) 推进。
 
 ## 当前开发分支与发布基线
 

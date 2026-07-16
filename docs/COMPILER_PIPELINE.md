@@ -2,7 +2,7 @@
 
 本文是 MPF 前端、公共中间表示、分析/优化基础设施和后端的权威架构规范，也是重构验收依据。若其他文档与本文的层级职责冲突，以本文和 [TODO](../TODO.md) 的逐项状态为准。
 
-> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 已让 Analyzer 预分配并直接写入按 `HirNodeId` 稠密索引、绑定 revision 的唯一 `SemanticTable`，不再注解或 move-extract HIR 语义字段；lexical scope/symbol/builtin 与 reachability/termination 分别拆为只读 HIR、revision-bound 的独立 `NameTable`/`FlowTable`，Analyzer 的确定赋值/类型状态以 `ScopeId`/`SymbolId` 稠密访问并消费 flow termination facts。参数关联的结构变化会提升 revision、同步紧凑重映射 HIR ID/facts、重建两张分析表，并重新检查资源上限。MIR 不读取 HIR 语义字段。静态一般 rank 的声明、RESHAPE 和直接 section 已由双后端及三维差分覆盖；tuple/function/reference 驻留类型、函数签名和显式 call-site 表也已落地，跨函数 verifier 检查 call/return、多结果、optional omission 与 OUT/INOUT writable storage。剩余迁移集中在独立 alias/effect 分析、HIR/MIR 宽兼容字段、完整官方 grammar、动态 rank/广播、精确 N 维 alias、参数敏感跨函数数据流和插件 ABI；不能把这批架构收尾等同于完整语言兼容。
+> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 已让 Analyzer 预分配并直接写入按 `HirNodeId` 稠密索引、绑定 revision 的唯一 `SemanticTable`，不再注解或 move-extract HIR 语义字段；lexical scope/symbol/builtin 与 reachability/termination 分别拆为只读 HIR、revision-bound 的独立 `NameTable`/`FlowTable`，Analyzer 的确定赋值/类型状态以 `ScopeId`/`SymbolId` 稠密访问并消费 flow termination facts。参数关联的结构变化会提升 revision、同步紧凑重映射 HIR ID/facts、重建两张分析表，并重新检查资源上限。HIR→MIR 从 semantic/name facts 固化类型、shape、binding 与 symbol identity，不读取 HIR 宽语义字段。MIR alias/effect 已拆为 revision-bound、可缓存、带独立 verifier/dump 的 `AliasEffectTable`，对 storage roots、instruction read/write、函数参数摘要和 call graph 计算保守 fixed point；backend descriptor API v5 强制 capability/lowering 接收该表。静态一般 rank 的声明、RESHAPE 和直接 section 已由双后端及三维差分覆盖；tuple/function/reference 驻留类型、函数签名和显式 call-site 表也已落地，跨函数 verifier 检查 call/return、多结果、optional omission 与 OUT/INOUT writable storage。剩余迁移集中在 HIR/MIR 宽兼容字段、完整官方 grammar、动态 rank/广播、精确 N 维 overlap/copy-in/copy-out 和插件 ABI；不能把这批架构收尾等同于完整语言兼容。
 
 ## 目标与永久约束
 
@@ -113,7 +113,7 @@ HIR verifier 至少检查 ID 唯一性、所有权、节点 arity、类型引用
 
 ## 第三层：MIR
 
-MIR 是真正独立的一层，不是带更多注解的 HIR。它以函数和控制流图为单位，显式表达类型化值、执行顺序、shape、storage、alias 和副作用，是公共优化与所有后端的唯一输入。
+MIR 是真正独立的一层，不是带更多注解的 HIR。它以函数和控制流图为单位，显式表达类型化值、执行顺序、shape 与 storage operation；alias 和副作用由与 MIR revision 绑定的独立分析表表达。MIR 与其已验证分析事实共同构成公共优化和所有后端的输入。
 
 ### MIR 数据模型
 
@@ -149,12 +149,12 @@ BasicBlock
 - `TypeId` 描述标量、tuple、sequence、array、function/reference 等逻辑类型。
 - `ShapeId` 独立描述 rank、静态/动态 extent、stride、layout 和 section view。
 - `StorageId` 表示可能共享或重叠的存储区域；view、copy-in/copy-out 和 writable actual 必须显式关联。
-- alias 结果使用 `no_alias`、`may_alias`、`must_alias` 等保守格；未知时不能假设不重叠。
+- alias 结果不内嵌 `StorageData`，而在稀疏 side table 中使用 `no_alias`、`may_alias`、`must_alias` 等保守格；未知时不能假设不重叠。
 - mutable aggregate 不强行伪装为纯 SSA 值；通过 value SSA 加显式 memory/storage effect 表达，后续可演进 memory SSA。
 
 ### 副作用模型
 
-每条 MIR instruction 具有结构化 `EffectSet`，至少能区分：
+独立分析表按 `InstructionId` 稠密保存 local/transitive `EffectSet` 和 storage read/write set，按 `MirFunctionId` 保存参数读写/escape 与 unknown-memory fixed point，并按 call-site 保存实参实例化结果。`EffectSet` 至少能区分：
 
 ```text
 pure
@@ -167,11 +167,13 @@ control
 external_unknown
 ```
 
+函数摘要只把 global/unknown memory 与非 memory effect 直接传播到调用点；参数读写通过 call-site actual storage 实例化，纯函数局部 storage 访问不得伪装成调用者可见写入。全局 storage 由 name analysis 的 `SymbolId` 统一身份，参数 storage 与潜在实参之间保持保守 `may_alias`。
+
 公共优化只有在 effect、alias 和 evaluation-order 证明允许时才能重排或删除指令。外部未知调用默认读写未知存储并可能失败，除非 binding manifest 提供更强保证。
 
 ### MIR pass 与 verifier
 
-HIR→MIR lowering 必须显式生成 CFG 和 evaluation order。MIR verifier 至少检查：
+HIR→MIR lowering 必须显式生成 CFG 和 evaluation order。结构 verifier 与 alias/effect verifier 分责，合计至少检查：
 
 - block/edge、entry、terminator 和可达性结构；
 - definition dominates use，block argument/前驱参数数量和类型一致；
