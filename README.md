@@ -95,7 +95,7 @@ target_link_libraries(my_application PRIVATE mpf::mpf)
 
 ## 验证体系
 
-CTest 同时运行公共 API/语义测试、`mpfc` CLI/JSON/source-map 契约、48 个 declarative differential case、生成 C++17 的真实严格编译、fuzz corpus mutation、性能基线和后端隔离安装测试。差分 runner 在同一 case 内直接比较所有可用路径；CI 固定 CPython 3.14、Node.js 24，并以 gfortran 当前可用的严格 `-std=f2018` 模式执行 Fortran oracle（可通过 CMake cache 切换到未来工具链支持的 `f2023`）。GitHub Actions 已按快速反馈、跨平台/差分、质量、Sanitizer、覆盖率、性能、安全和发布拆分失败域；详见 [workflow 职责矩阵](.github/workflows/README.md)、[测试与差分执行](docs/TESTING.md) 和 [诊断与 CLI 契约](docs/DIAGNOSTICS.md)。
+CTest 同时运行公共 API/语义测试、`mpfc` CLI/JSON/source-map 契约、48 个 declarative differential case、生成 C++17 的真实严格编译、fuzz corpus mutation、性能基线和后端隔离安装测试。差分 runner 在同一 case 内直接比较所有可用路径；CI 固定 CPython 3.14、Node.js 24，并以 gfortran 当前可用的严格 `-std=f2018` 模式执行 Fortran oracle（可通过 CMake cache 切换到未来工具链支持的 `f2023`）。GitHub Actions 定义已按快速反馈、跨平台/差分、质量、Sanitizer、覆盖率、性能、安全和发布拆分失败域，目前通过非标准目录名临时停用；详见 [停用的 workflow 职责矩阵](.github/workflows-disabled/README.md)、[测试与差分执行](docs/TESTING.md) 和 [诊断与 CLI 契约](docs/DIAGNOSTICS.md)。
 
 ## 工程结构
 

@@ -1,5 +1,8 @@
 # GitHub Actions 职责矩阵
 
+> 当前流水线已临时停用。GitHub 只会发现 `.github/workflows/` 中的 workflow；需要恢复时，
+> 将本目录整体改回 `.github/workflows/`，不要单独复制某个 YAML 文件。
+
 每个 workflow 只拥有一个失败域。分支保护应按下表的 workflow/job 名称配置 required
 checks，不再依赖历史上责任混杂的 `ci.yml`。
 
