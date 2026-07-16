@@ -52,7 +52,7 @@ jobs:
       - name: Verify release tag and project version
         if: startsWith(github.ref, 'refs/tags/v')
         run: >-
-          cmake -DBUILD_DIR=build/release -DTAG=${{ github.ref_name }}
+          cmake "-DBUILD_DIR=build/release" "-DTAG=${{ github.ref_name }}"
           -P cmake/verify_release_version.cmake
       - name: Build
         run: cmake --build build/release --config Release --parallel
