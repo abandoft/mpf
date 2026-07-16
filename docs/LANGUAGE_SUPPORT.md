@@ -4,7 +4,7 @@
 
 TypeScript 6 已纳入产品目标，但当前尚未注册 TypeScript frontend descriptor，也没有可声明支持的 TypeScript 语法子集；其接入计划见路线图 M5。
 
-本表只描述语言行为覆盖，不以内部架构工作代替语言兼容声明。三个 statement parser 已直接构造编译期互不兼容的语言专属 PMR arena AST，不再经过共享 syntax tree；MIR 也以强类型 ID 连接 flat expression/operation arena，每个节点绑定 resident instruction，而不驻留递归 HIR 兼容树。后续生产路径经过独立 alias/effect analysis→目标 semantic/rendered LIR→纯 emitter，并有 source map、fuzz/resource 和性能门禁。TypeScript 等新前端仍必须遵守独立 AST→HIR contract。静态一般 rank 的声明、RESHAPE、直接 section 和保守 borrow/copy/writeback contract 已完成，但尚未覆盖的官方 grammar、动态 rank/广播、精确 N 维 storage overlap/alias 与跨函数语义仍见 [商业级编译器管线方案](COMPILER_PIPELINE.md) 和 [TODO](../TODO.md)。
+本表只描述语言行为覆盖，不以内部架构工作代替语言兼容声明。三个 statement parser 已直接构造编译期互不兼容的语言专属 PMR arena AST，不再经过共享 syntax tree；MIR 以强类型 ID 连接 flat expression/operation arena，每个节点绑定 resident instruction，非结构事实进入 revision-bound attribute table。conditional/短路/comparison chain 已由 MIR lazy CFG 固定求值顺序，变量与 writable section call 使用显式 load/store/copy/writeback；后续生产路径经过独立 alias/effect analysis→目标 semantic/rendered LIR→纯 emitter，并有 source map、fuzz/resource 和性能门禁。TypeScript 等新前端仍必须遵守独立 AST→HIR contract。静态一般 rank 的声明、RESHAPE、直接 section 和保守 borrow/copy/writeback contract 已完成，但尚未覆盖的官方 grammar、动态 rank/广播、精确 N 维 storage overlap/alias 与跨函数语义仍见 [商业级编译器管线方案](COMPILER_PIPELINE.md) 和 [TODO](../TODO.md)。
 
 表中的“支持”表示当前子集已经进入语义/后端测试；可执行能力还应进入差分 corpus。只在某个目标可表示的结构必须由另一个目标的 capability validator 明确拒绝，不能静默改变语义。
 

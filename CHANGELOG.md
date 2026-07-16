@@ -1,3 +1,16 @@
+## 0.3.9
+
+- MIR 新增与 `Program::revision` 绑定的稠密 `OperationAttributeTable`，expression/statement arena 节点只保留结构边、resident instruction 和强类型 ID；spelling、强类型 comparison/binding/intrinsic、调用结果策略、索引规则及语句 operation 属性由独立行按 `MirExpressionId`/`MirStatementId` O(1) 查询。
+- type、element type、shape、layout、tuple element 与赋值目标事实统一以驻留 `TypeId`/`ShapeId` 表达；`Function` 同时持有 parameter/result type 与 shape 签名，删除 flat MIR 对 HIR `ValueType`/extent/intent/return/assignment metadata 的宽字段镜像。
+- HIR→MIR lowering 原子地把递归 sequence metadata 和 assignment pattern 转换为强类型 MIR 属性，把参数 intent/optional 和函数结果落到 storage/function contract；属性表 verifier 拒绝 stale revision、非稠密 inventory、错误 origin、非法强类型 ID、tuple arity、target arity 和 pattern 不变量。
+- 公共 target LIR builder、code-binding 验证、JavaScript/`cpp` semantic lowering 和 `cpp` capability validator 全部迁移到窄 MIR + 属性表合约；两个后端只从 type/shape/storage/function/call-site 强事实重建自己的私有 LIR，不再读取已删除的源语义字段。
+- conditional、Python `and/or` 和 comparison chain 在 MIR 自身建立显式 lazy CFG：条件先产生 `truthiness` operation，分支表达式只驻留在对应 successor，比较链逐项产生强类型 `compare` 并在失败边短路，最终通过 typed block argument/edge actual 合并结果和 storage SSA version。
+- MIR opcode 删除含义宽泛的 assignment/indexed-assignment 身份，新增 `load`、`allocate`、`store` 与 `store_indexed`；变量读取、未初始化声明、单目标和多目标写入分别形成可验证的 runtime-independent memory operation，多目标 store 携带稳定 result ordinal 和独立 storage。
+- writable section actual 在 user call 前后显式生成 `copy`/`writeback` 指令；copy-out 与 copy-in/out 具有不同 operand contract、expression-lifetime temporary storage 和强类型 transfer mode，call-site 仍保存原始 root/view/lifetime/writability 供目标 ABI 与 overlap 分析消费。
+- alias/effect analysis 识别 load/store/copy/writeback 的真实 read/write/allocate 集合；MIR verifier 新增 lazy merge、truthiness/compare、allocate/store、copy/writeback、函数 shape 签名与动态 extent edge compatibility 检查，并通过一次构建的稠密 call/value/block-argument 索引保持线性验证成本；opcode contract 与 1100 余行 verifier 分别拆入专属组件，lowering 主文件不再混入验证实现。
+- 确定性 MIR textual dump 升级为 v3，公开 operation attribute revision、binding/comparison/lazy 标记、函数 parameter/result shape、transfer/comparison/truthiness/result-index 及显式内存操作；架构门禁禁止宽语义字段或旧 assignment opcode 回流 flat 节点。
+- 新增 lazy CFG、typed merge、load/store、copy-in/out、copy-out、temporary/writeback effect 与 operation-table stale/corruption 负向测试，内部测试增至 161 项；49 个差分 case、60 项 CTest、双后端隔离、fuzz、质量、Sanitizer 和性能门禁通过，生产代码行覆盖率实测 89.68%（18785/20946）。
+
 ## 0.3.8
 
 - MIR 新增强类型 `MirExpressionId`/`MirStatementId`，把原递归 `Expression`/`Statement` 兼容树改为带零号哨兵的稠密 arena；expression child、statement body/alternative 与 program root 只保存 ID，不再按 HIR 形状递归拥有节点。

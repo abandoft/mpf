@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "projectVersion": "0.3.8",
+  "projectVersion": "0.3.9",
   "maxLatencyNanoseconds": 1000000000,
   "minThroughputBytesPerSecond": 10000,
   "maxPeakArenaBytes": 67108864,

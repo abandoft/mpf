@@ -1,6 +1,6 @@
 # MPF 持续建设路线图
 
-本路线图同时记录 **0.3.8 已发布基线** 与下一轮 **0.3.9 交付目标** 的真实状态。历史交付细节见
+本路线图同时记录 **0.3.9 已发布基线** 与下一轮 **0.4.0 交付目标** 的真实状态。历史交付细节见
 [CHANGELOG.md](CHANGELOG.md)，当前可依赖的语言子集见
 [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 前端当前尚未实现。
 
@@ -14,10 +14,10 @@
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；`cpp` 当前生成严格 C++17 translation unit |
 | 前后端边界 | 三语言 parser session 直接构造并发布各自 arena AST artifact，不经过共享递归 syntax tree 或整树复制；生产驱动随后固定经过 HIR→MIR→目标私有 semantic plan/LIR→emitter，两个目标不读取彼此产物 |
 | 扩展架构 | frontend descriptor API v5、backend descriptor API v5；parser session/feature/resource contract、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
-| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有；MIR 使用 `MirExpressionId`/`MirStatementId` 稠密 arena 与 resident instruction 对应关系，不再拥有递归 HIR 兼容树，并已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime、驻留 tuple/function/reference 签名及单对象 call argument region/transfer；alias/effect 由独立 `AliasEffectTable` 持有；双目标 LIR v10 显式保存 ABI、scope/declaration、临时值、顶层拓扑、expression/statement、强类型比较、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
+| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有；MIR 使用 `MirExpressionId`/`MirStatementId` 稠密 arena 与 revision-bound `OperationAttributeTable`，结构节点不再镜像宽语义 payload；conditional/短路/comparison chain 已产生 lazy CFG、typed edge merge 和 `truthiness`/`compare`，变量与 writable call 使用显式 load/allocate/store/copy/writeback；tuple/function/reference type/shape 签名、stride/view/lifetime 和单对象 call argument region/transfer 可验证；alias/effect 由独立 `AliasEffectTable` 持有；双目标 LIR v10 显式保存 ABI、scope/declaration、临时值、顶层拓扑、expression/statement、强类型比较、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
 | Python 最新能力 | relational/equality/identity/membership 比较链、右结合条件表达式、短路/惰性/单次求值；list/tuple 种类相等规则、singleton/reference identity、string/list/tuple membership；基础参数关联和递归固定序列解包 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流 |
-| 工程门禁 | 160 项内部测试；49 个差分 case、137 条工具完整环境执行路径；60 项 CTest；fuzz smoke、可选 libFuzzer、版本化性能发布阈值、阶段报告；生产代码行覆盖率实测 89.65%（17987/20063），硬门槛 85% |
+| 工程门禁 | 161 项内部测试；49 个差分 case、137 条工具完整环境执行路径；60 项 CTest；fuzz smoke、可选 libFuzzer、版本化性能发布阈值、阶段报告；生产代码行覆盖率实测 89.68%（18785/20946），硬门槛 85% |
 | 发布状态 | 0.x；没有长期 API/ABI 或完整语言兼容承诺 |
 
 ## 本轮商业级收尾验收（完成）
@@ -35,7 +35,7 @@
 
 ### 0.3.5：商业级前后端与五层编译器管线继续收敛（已发布）
 
-0.3.5 以 16 条独立更新完成封版，交付窄 HIR + semantic seed、独立 name/flow/alias-effect side table、跨函数 MIR call contract 和双目标 LIR v9。下列已勾选项是该版本及此前版本的实际能力；未勾选项继续作为 0.3.9 及后续版本的架构 backlog。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
+0.3.5 以 16 条独立更新完成封版，交付窄 HIR + semantic seed、独立 name/flow/alias-effect side table、跨函数 MIR call contract 和双目标 LIR v9。下列已勾选项是该版本及此前版本的实际能力；未勾选项继续作为 0.4.0 及后续版本的架构 backlog。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
 
 #### P0：基线、指标与依赖规则
 
@@ -77,7 +77,7 @@
 - [x] 建立 `StorageId` 和 `no_alias`/`may_alias`/`must_alias` 基础模型
 - [x] 显式建模 view、optional parameter storage、copy-in/copy-out、writable actual、保守 overlap 与 storage lifetime；`CallSite` 使用单一参数对象而非并行数组，参数保存 type/storage/root/intent/transfer/view/lifetime/writability，精确 N 维 region overlap 仍由后续条目跟踪
 - [x] 建立结构化 `EffectSet`：read、write、allocate、io、may-fail、control、external-unknown
-- [ ] HIR→MIR 显式固定 evaluation order、短路、循环/选择 CFG、多结果、load/store 和 runtime-independent semantic operation
+- [x] HIR→MIR 显式固定左到右 evaluation order、conditional/逻辑/比较链短路、循环/选择 CFG、多结果，以及 load/allocate/store/copy/writeback runtime-independent semantic operation
 - [x] MIR verifier 检查稠密表、函数/块/指令唯一所有权、函数内 edge、terminator arity、值唯一定义及 definition-dominates-use
 - [x] MIR verifier 补齐 block argument/edge actual arity、定义顺序与 dominance、type/shape/storage metadata、view/lifetime/intent、函数签名、call/return、多结果与 writable reference 相容性；expression/operation arena 额外检查稠密 ID、resident instruction 对应、根可达性和唯一 ownership；独立 alias/effect verifier 检查稠密 inventory、storage root、稀疏 alias、instruction read/write/effect、函数 fixed point 与 call-site 实例化
 - [x] AST→HIR visitor 同步构建按 `HirNodeId` 稠密索引、绑定 HIR revision 的 `SemanticTable` seed；Analyzer 在任何 pass 前校验并接管该表，全部输出经直接 accessor 写表，不注解或复制 HIR 语义；HIR→MIR 对缺失/陈旧 semantic/name side table 失败关闭
@@ -151,7 +151,7 @@
 - [x] 删除共享 `Program` 直通 emitter 的生产路径；两个 emitter 只能接收对应 opaque LIR artifact
 - [x] 删除 statement parser 的共享 syntax scratch、parser facade、整树 AST 转换器及只服务兼容树的 function-graph/code-binding 路径；架构门禁阻止恢复
 - [x] 删除 MIR 递归 `Expression`/`Statement` 宽结构 ownership 投影；改为 `MirExpressionId`/`MirStatementId` 稠密 arena，双目标只按 ID 构建私有 LIR
-- [ ] 删除 flat MIR 节点中尚存的源语义 payload 镜像，并把 lazy evaluation、load/store 与 runtime-independent operation 完整固化到 instruction/CFG
+- [x] 删除 flat MIR 节点中尚存的源语义 payload 镜像，以 revision-bound 强类型 operation attribute table 保存非结构事实，并把 lazy evaluation、load/allocate/store/copy/writeback 固化到 instruction/CFG
 
 完成定义：P0—P7 全部完成，且两个 emitter 的公共入口只能接收各自 LIR，才可宣称“商业级多层 IR 与易扩展前后端”已交付。
 
@@ -188,12 +188,18 @@
 - [x] `cpp` capability 从 MIR function/call graph 判断递归；binding validator 扫描唯一 expression inventory
 - [x] MIR dump 升至 v2，架构门禁和 160 项测试固定 flat arena contract
 
-### 0.3.9：MIR operation payload 与求值语义继续收敛
+### 0.3.9：MIR operation payload 与求值语义收敛（已发布）
 
-- [ ] 将 flat MIR 节点内仍镜像的 source-semantic payload 拆为强类型 operation attribute/side table，并以 TypeId/ShapeId/StorageId 为唯一事实
-- [ ] 为 conditional、短路逻辑和 comparison chain 建立显式 lazy CFG/value merge，保证 MIR 自身表达求值顺序
-- [ ] 将 assignment/indexed assignment/return/call 的 load/store/copy/writeback 固化为 runtime-independent opcode contract
-- [ ] 按三个官方 grammar 选择下一批可独立验收的纵切面；每累计 8—20 条独立更新形成下一版本
+- [x] 将 flat MIR 节点内仍镜像的 source-semantic payload 拆为 revision-bound 强类型 operation attribute table，并以 `TypeId`/`ShapeId`/`StorageId` 为唯一事实
+- [x] 为 conditional、短路逻辑和 comparison chain 建立显式 lazy CFG、`truthiness`/`compare` 与 typed value/storage merge，保证 MIR 自身表达求值顺序
+- [x] 将变量读取、未初始化声明、assignment/indexed assignment 和 writable call 的 load/allocate/store/copy/writeback 固化为 runtime-independent opcode contract
+- [x] 双后端、binding/capability、alias/effect、MIR v3 dump、稠密 verifier、架构门禁及正负测试全部迁移到新合约
+
+### 0.4.0：官方 grammar 纵切面与对象语义继续扩展
+
+- [ ] 按 Matlab/Python/Fortran 官方 grammar 选择下一批可独立验收的纵切面；每累计 8—20 条独立更新形成下一版本
+- [ ] 建立 TypeScript 6 独立 descriptor、语言专属 arena AST、lexer/parser 与 AST→HIR semantic seed 首个端到端纵切面
+- [ ] 继续完成动态 rank/extent、广播、精确 N 维 selector region overlap 和目标 typed-array/ownership 策略
 
 ## M0：工程与端到端基础（完成）
 

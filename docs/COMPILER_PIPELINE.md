@@ -2,7 +2,7 @@
 
 本文是 MPF 前端、公共中间表示、分析/优化基础设施和后端的权威架构规范，也是重构验收依据。若其他文档与本文的层级职责冲突，以本文和 [TODO](../TODO.md) 的逐项状态为准。
 
-> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 原子产出窄 HIR 与 revision-bound `SemanticTable` seed；0.3.6 的双目标 LIR v10 固化 call ownership/writeback、目标求值、强类型比较和 source segment；0.3.7 让三个 statement parser 直接构造语言专属 arena。0.3.8 删除 MIR 的递归 HIR 兼容 ownership，改为 `MirExpressionId`/`MirStatementId` 稠密 arena，并让每个节点绑定 resident instruction；目标只按 ID 查询后构造各自私有 LIR。0.3.9 及后续迁移集中在 flat MIR 剩余源语义 payload、显式 lazy CFG/load/store operation、完整独立 target AST、一般 RAII/copy-move/runtime ABI node、结构化 import/export/chunk、完整官方 grammar、动态 rank/广播、精确 N 维 overlap 和插件 ABI；不能把已交付的架构收尾等同于完整语言兼容。
+> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 原子产出窄 HIR 与 revision-bound `SemanticTable` seed；0.3.6 的双目标 LIR v10 固化 call ownership/writeback、目标求值、强类型比较和 source segment；0.3.7 让三个 statement parser 直接构造语言专属 arena；0.3.8 删除 MIR 的递归 HIR 兼容 ownership，改为 `MirExpressionId`/`MirStatementId` 稠密 arena。0.3.9 进一步删除 flat MIR 宽语义 payload，以 revision-bound `OperationAttributeTable` 和驻留 type/shape/storage 作为唯一事实，并让 conditional/逻辑/比较链形成 lazy CFG，让 load/allocate/store/copy/writeback 成为显式 operation。0.4.0 及后续迁移集中在完整独立 target AST、一般 RAII/copy-move/runtime ABI node、结构化 import/export/chunk、完整官方 grammar、TypeScript 前端、动态 rank/广播、精确 N 维 overlap 和插件 ABI；不能把已交付的架构收尾等同于完整语言兼容。
 
 ## 目标与永久约束
 
@@ -121,6 +121,7 @@ MIR 是真正独立的一层，不是带更多注解的 HIR。它以函数和控
 MirModule
 ├── expression inventory: dense arena<MirExpressionId, resident InstructionId>
 ├── operation inventory: dense arena<MirStatementId, resident InstructionId>
+├── revision-bound dense OperationAttributeTable
 ├── operation roots/body/alternative: strong-ID ownership edges
 └── MirFunction
     ├── signature + calling convention semantics
@@ -135,7 +136,7 @@ BasicBlock
 └── exactly one terminator
 ```
 
-0.3.8 的 arena 只通过强类型 ID 连接，目标后端必须 O(1) lookup 后构造自己的 LIR，不能恢复递归 MIR ownership。每个 expression/operation 节点都与真实 instruction 核对 origin/opcode/operand/SSA/type/shape/storage；roots 与 body edge 必须形成无重复、无环且覆盖全部 operation 的 ownership graph。flat 节点中仍镜像的源语义 payload 只是迁移中的内部输入，后续必须拆成强类型 operation attribute/side table；conditional、短路逻辑与 comparison chain 也仍需从目标 `EvaluationForm` 进一步上移为 MIR 自身的 lazy CFG/value merge。
+arena 只通过强类型 ID 连接，目标后端必须 O(1) lookup 后构造自己的 LIR，不能恢复递归 MIR ownership。每个 expression/operation 节点都与真实 instruction 核对 origin/opcode/operand/SSA/type/shape/storage；roots 与 body edge 必须形成无重复、无环且覆盖全部 operation 的 ownership graph。`OperationAttributeTable` 与 MIR revision、expression/statement inventory 一一对应，只保存无法由驻留 `TypeId`/`ShapeId`/`StorageId`/`Function` 推导的 operation 属性；stale、缺行、错误 origin、无效强类型 ID 或 arity 分歧必须失败关闭。conditional、短路逻辑与 comparison chain 在 MIR 中生成 condition terminator、分支专属求值块和 typed block-argument merge；目标 `EvaluationForm` 只选择 JavaScript IIFE 或 `cpp` lambda 等目标表示，不再独占 lazy 语义。
 
 核心 instruction family 至少覆盖：
 
@@ -167,7 +168,7 @@ CallArgument
               | copy-out | copy-in/out | optional forward | omitted
 ```
 
-section writable actual 的 copy transfer 在 MIR 中确定；目标 lowering 只能选择 box、reference、temporary 或 runtime ABI 等表示，不能重新根据 AST 形状判断是否 copy-out。精确 N 维 selector region 与部分重叠证明仍是独立的后续 alias 精化，不影响当前未知重叠必须保守处理的规则。
+section writable actual 的 copy transfer 在 MIR 中确定，并在 call 前后生成带 expression-lifetime temporary 的 `copy`/`writeback`；copy-out 没有输入值，copy-in/out 读取原 section，两者都以 transfer mode、type/shape 和目标 storage 接受 verifier 与 alias/effect 检查。目标 lowering 只能选择 box、reference、temporary 或 runtime ABI 等表示，不能重新根据 AST 形状判断是否 copy-out。精确 N 维 selector region 与部分重叠证明仍是独立的后续 alias 精化，不影响当前未知重叠必须保守处理的规则。
 
 ### 副作用模型
 
@@ -195,7 +196,8 @@ HIR→MIR lowering 必须显式生成 CFG 和 evaluation order。结构 verifier
 - block/edge、entry、terminator 和可达性结构；
 - definition dominates use，block argument/前驱参数数量和类型一致；
 - `ValueId`/`TypeId`/`ShapeId`/`StorageId` 引用有效；
-- load/store 的类型、shape、writability 和 storage 规则；
+- operation attribute revision、密度、origin、tuple/pattern/target arity 与强类型引用有效；
+- lazy truthiness/compare、merge edge、load/allocate/store/store-indexed 和 copy/writeback 的 operand、type、shape、transfer、writability 与 storage 规则；
 - effect 与 instruction kind 的最低约束；
 - return/call signature、多结果和异常/失败边一致性。
 
