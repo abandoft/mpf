@@ -1,0 +1,82 @@
+name: Compatibility
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  platform-and-differential:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux GCC
+            compiler: -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+            fortran: true
+          - os: ubuntu-latest
+            name: Linux Clang
+            compiler: -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+            fortran: true
+          - os: macos-latest
+            name: macOS Clang
+            compiler: -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+            fortran: false
+          - os: windows-latest
+            name: Windows MSVC
+            compiler: ""
+            fortran: false
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install Fortran reference compiler
+        if: matrix.fortran
+        run: sudo apt-get update && sudo apt-get install --yes gfortran
+      - name: Configure
+        run: >-
+          cmake -S . -B build/compatibility
+          -DCMAKE_BUILD_TYPE=Release
+          -DMPF_ENABLE_WERROR=ON
+          -DMPF_BUILD_TESTS=ON
+          -DMPF_REQUIRE_DIFFERENTIAL_RUNTIME=ON
+          -DMPF_FORTRAN_REFERENCE_STANDARD=f2018
+          ${{ matrix.compiler }}
+      - name: Build
+        run: cmake --build build/compatibility --config Release --parallel
+      - name: Test complete platform contract
+        run: >-
+          ctest --test-dir build/compatibility -C Release --output-on-failure
+          --label-exclude performance
+      - name: Verify install layout
+        run: >-
+          cmake --install build/compatibility --config Release
+          --prefix build/stage
+      - name: Preserve differential diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-${{ matrix.os }}-${{ strategy.job-index }}
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            build/compatibility/Testing/Temporary/LastTest.log
+            build/compatibility/differential/*/differential-result.txt
+            build/compatibility/differential/*/generated.mjs
+            build/compatibility/differential/*/generated.cpp

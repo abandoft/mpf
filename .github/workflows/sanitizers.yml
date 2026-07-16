@@ -1,0 +1,45 @@
+name: Sanitizers
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "29 2 * * 3"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  asan-ubsan:
+    name: ASan / UBSan
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ASAN_OPTIONS: abort_on_error=1:detect_leaks=1:strict_string_checks=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install --yes clang
+      - name: Configure
+        run: cmake --preset sanitizers
+      - name: Build
+        run: cmake --build --preset sanitizers --parallel
+      - name: Test instrumented compiler paths
+        run: >-
+          ctest --test-dir build/sanitizers --output-on-failure
+          --exclude-regex "mpf\\.(differential|generated|backend-isolation|performance)"
+      - name: Preserve sanitizer diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanitizer-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+          path: build/sanitizers/Testing/Temporary/LastTest.log

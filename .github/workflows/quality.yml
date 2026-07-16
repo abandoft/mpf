@@ -1,0 +1,54 @@
+name: Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-contracts:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - name: Validate GitHub Actions contracts
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+
+  formatting:
+    name: clang-format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install --yes clang-format
+      - name: Configure
+        run: cmake --preset dev
+      - name: Check formatting
+        run: cmake --build build/dev --target mpf-format-check
+
+  static-analysis:
+    name: clang-tidy / warnings-as-errors
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install analysis tools
+        run: sudo apt-get update && sudo apt-get install --yes clang clang-tidy
+      - name: Configure
+        run: cmake --preset quality
+      - name: Analyze while building
+        run: cmake --build --preset quality --parallel

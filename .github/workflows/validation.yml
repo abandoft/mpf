@@ -1,0 +1,48 @@
+name: Validation / Fast
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-install:
+    name: Linux GCC / core contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Configure
+        run: >-
+          cmake -S . -B build/validation
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=gcc
+          -DCMAKE_CXX_COMPILER=g++
+          -DMPF_ENABLE_WERROR=ON
+          -DMPF_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build/validation --parallel
+      - name: Test fast contract
+        run: >-
+          ctest --test-dir build/validation --output-on-failure
+          --exclude-regex "mpf\\.(differential|backend-isolation|performance)"
+      - name: Verify install layout
+        run: cmake --install build/validation --prefix build/stage
+      - name: Preserve failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            build/validation/Testing/Temporary/LastTest.log
+            build/validation/generated-cpp-*/generated.cpp

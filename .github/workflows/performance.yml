@@ -1,0 +1,44 @@
+name: Performance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "41 2 * * 4"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  release-gate:
+    name: Release performance baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Configure release benchmark
+        run: >-
+          cmake -S . -B build/performance
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_CXX_COMPILER=clang++
+          -DMPF_BUILD_TESTS=ON
+          -DMPF_ENABLE_WERROR=ON
+      - name: Build benchmark
+        run: cmake --build build/performance --target mpf-benchmark --parallel
+      - name: Enforce versioned baseline
+        run: cmake --build build/performance --target mpf-performance
+      - name: Preserve machine-readable report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-report
+          if-no-files-found: warn
+          retention-days: 30
+          path: build/performance/performance-report.json

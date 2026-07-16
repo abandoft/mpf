@@ -5,49 +5,85 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   package:
+    name: Package / ${{ matrix.artifact }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             artifact: mpf-linux-x64
+            fortran: true
           - os: macos-latest
             artifact: mpf-macos
+            fortran: false
           - os: windows-latest
             artifact: mpf-windows-x64
-    runs-on: ${{ matrix.os }}
+            fortran: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+      - name: Install Fortran reference compiler
+        if: matrix.fortran
+        run: sudo apt-get update && sudo apt-get install --yes gfortran
       - name: Configure
-        run: cmake -S . -B build/release -DCMAKE_BUILD_TYPE=Release -DMPF_BUILD_TESTS=ON -DMPF_REQUIRE_DIFFERENTIAL_RUNTIME=ON
+        run: >-
+          cmake -S . -B build/release
+          -DCMAKE_BUILD_TYPE=Release
+          -DMPF_BUILD_TESTS=ON
+          -DMPF_ENABLE_WERROR=ON
+          -DMPF_REQUIRE_DIFFERENTIAL_RUNTIME=ON
+          -DMPF_FORTRAN_REFERENCE_STANDARD=f2018
       - name: Build
         run: cmake --build build/release --config Release --parallel
-      - name: Test
+      - name: Test release candidate
         run: ctest --test-dir build/release -C Release --output-on-failure
       - name: Install
-        run: cmake --install build/release --config Release --prefix build/package/${{ matrix.artifact }}
+        run: >-
+          cmake --install build/release --config Release
+          --prefix build/package/${{ matrix.artifact }}
       - name: Archive
-        run: cmake -E tar czf build/package/${{ matrix.artifact }}.tar.gz --format=gnutar build/package/${{ matrix.artifact }}
+        working-directory: build/package
+        run: >-
+          cmake -E tar czf ${{ matrix.artifact }}.tar.gz
+          --format=gnutar ${{ matrix.artifact }}
+      - name: Checksum
+        working-directory: build/package
+        run: >-
+          cmake -E sha256sum ${{ matrix.artifact }}.tar.gz
+          > ${{ matrix.artifact }}.tar.gz.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: build/package/${{ matrix.artifact }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            build/package/${{ matrix.artifact }}.tar.gz
+            build/package/${{ matrix.artifact }}.tar.gz.sha256
 
   publish:
-    if: github.event_name == 'push'
+    name: Publish GitHub Release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: package
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -56,4 +92,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: build/artifacts/*.tar.gz
+          fail_on_unmatched_files: true
+          files: |
+            build/artifacts/*.tar.gz
+            build/artifacts/*.sha256
