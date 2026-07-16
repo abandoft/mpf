@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <fstream>
+#include <sstream>
 #include <type_traits>
 
 #include "backends/backend_conformance.hpp"
@@ -23,9 +25,29 @@ mpf::detail::hir::LoweringResult lower_python(const std::string_view source) {
   mpf::detail::SourceManager sources;
   const auto id = sources.add(source, "pipeline.py");
   const auto& descriptor = mpf::detail::python_frontend();
-  auto parsed = descriptor.parse(sources.source(id), {});
+  auto parsed = mpf::detail::parse_with_frontend(descriptor, sources.source(id));
   REQUIRE(parsed.diagnostics.empty());
   return descriptor.lower(std::move(parsed.ast));
+}
+
+mpf::detail::hir::LoweringResult lower_source(const mpf::SourceLanguage language,
+                                              const std::string_view source,
+                                              const std::string& filename) {
+  mpf::detail::SourceManager sources;
+  const auto id = sources.add(source, filename);
+  const auto* descriptor = mpf::detail::find_frontend(language);
+  REQUIRE(descriptor != nullptr);
+  auto parsed = mpf::detail::parse_with_frontend(*descriptor, sources.source(id));
+  REQUIRE(parsed.diagnostics.empty());
+  return descriptor->lower(std::move(parsed.ast));
+}
+
+std::string read_golden(const std::string& relative) {
+  std::ifstream input(std::string(MPF_TEST_SOURCE_DIR) + "/golden/" + relative);
+  REQUIRE(input.good());
+  std::ostringstream contents;
+  contents << input.rdbuf();
+  return contents.str();
 }
 
 std::vector<mpf::Diagnostic> observe_hir(mpf::detail::hir::Program&) {
@@ -46,7 +68,7 @@ TEST_CASE("frontends lower language-owned AST artifacts into verified HIR") {
   mpf::detail::SourceManager sources;
   const auto source_id = sources.add("value = 1\n", "inventory.py");
   const auto& frontend = mpf::detail::python_frontend();
-  auto parsed = frontend.parse(sources.source(source_id), {});
+  auto parsed = mpf::detail::parse_with_frontend(frontend, sources.source(source_id));
   REQUIRE(parsed.diagnostics.empty());
   const auto* ast = std::get_if<mpf::detail::python::ast::Program>(&parsed.ast);
   REQUIRE(ast != nullptr);
@@ -70,6 +92,18 @@ TEST_CASE("HIR pass manager verifies revisions and records instrumentation") {
   REQUIRE(lowered.program.revision == 0);
   REQUIRE(passes.instrumentation().size() == 1);
   REQUIRE(passes.instrumentation().front().name == "observation");
+}
+
+TEST_CASE("equivalent Python and Matlab sources share normalized HIR golden") {
+  auto python =
+      lower_source(mpf::SourceLanguage::python, "value = 1\nprint(value)\n", "normalized.py");
+  auto matlab =
+      lower_source(mpf::SourceLanguage::matlab, "value = 1;\ndisp(value);\n", "normalized.m");
+  REQUIRE(python.diagnostics.empty());
+  REQUIRE(matlab.diagnostics.empty());
+  const auto expected = read_golden("hir/scalar_assignment.hir");
+  REQUIRE(mpf::detail::dump_normalized_hir(python.program) == expected);
+  REQUIRE(mpf::detail::dump_normalized_hir(matlab.program) == expected);
 }
 
 TEST_CASE("analysis manager caches by revision and honors precise preservation") {
@@ -258,6 +292,14 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(cpp.artifact->target() == mpf::TargetLanguage::cpp);
   REQUIRE(mpf::detail::javascript::verify_artifact(*javascript.artifact).empty());
   REQUIRE(mpf::detail::cpp::verify_artifact(*cpp.artifact).empty());
+  const auto javascript_dump = javascript.artifact->debug_dump();
+  const auto cpp_dump = cpp.artifact->debug_dump();
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v1") != std::string::npos);
+  REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v1") != std::string::npos);
+  REQUIRE(cpp_dump.find("function-order") != std::string::npos);
+  REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
+  REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
   REQUIRE(mpf::detail::legalization_table_complete(mpf::detail::javascript::legalization_table()));
   REQUIRE(mpf::detail::legalization_table_complete(mpf::detail::cpp::legalization_table()));
 
@@ -276,7 +318,7 @@ TEST_CASE("frontend and backend extension conformance harnesses are reusable") {
   const auto& frontend = mpf::detail::python_frontend();
   REQUIRE(mpf::detail::run_frontend_conformance(frontend, source).empty());
 
-  auto parsed = frontend.parse(source, {});
+  auto parsed = mpf::detail::parse_with_frontend(frontend, source);
   REQUIRE(parsed.diagnostics.empty());
   REQUIRE(frontend.verify(parsed.ast).empty());
   auto hir = frontend.lower(std::move(parsed.ast));

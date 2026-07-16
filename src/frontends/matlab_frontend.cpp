@@ -11,13 +11,25 @@
 namespace mpf::detail {
 namespace {
 
-FrontendParseResult parse_matlab_descriptor(const SourceText& source,
-                                            const FrontendParseOptions& options) {
-  const auto version =
-      options.language_version.automatic() ? LanguageVersion{2024, 2} : options.language_version;
-  auto parsed = parse_matlab(source, version);
-  auto ast = make_matlab_ast(std::move(parsed.program), options.memory_resource);
-  return {FrontendAst{std::move(ast)}, std::move(parsed.diagnostics)};
+class MatlabParserSession final : public FrontendParserSession {
+ public:
+  explicit MatlabParserSession(const FrontendParseOptions options) : options_(options) {}
+
+  FrontendParseResult parse(const SourceText& source) override {
+    const auto version = options_.language_version.automatic() ? LanguageVersion{2024, 2}
+                                                               : options_.language_version;
+    auto parsed = parse_matlab(source, version);
+    auto ast = make_matlab_ast(std::move(parsed.program), options_.memory_resource);
+    return {FrontendAst{std::move(ast)}, std::move(parsed.diagnostics)};
+  }
+
+ private:
+  FrontendParseOptions options_;
+};
+
+std::unique_ptr<FrontendParserSession> create_matlab_parser_session(
+    const FrontendParseOptions& options) {
+  return std::make_unique<MatlabParserSession>(options);
 }
 
 hir::LoweringResult lower_matlab_ast(FrontendAst&& artifact) {
@@ -48,6 +60,12 @@ constexpr std::string_view extensions[]{".m"};
 constexpr SourceIntrinsicBinding intrinsic_bindings[]{{"length", IntrinsicId::matlab_length},
                                                       {"numel", IntrinsicId::element_count},
                                                       {"reshape", IntrinsicId::reshape}};
+constexpr FrontendFeatureSet features{
+    static_cast<std::uint64_t>(FrontendFeature::language_versioning) |
+    static_cast<std::uint64_t>(FrontendFeature::structured_control_flow) |
+    static_cast<std::uint64_t>(FrontendFeature::functions) |
+    static_cast<std::uint64_t>(FrontendFeature::multiple_results) |
+    static_cast<std::uint64_t>(FrontendFeature::array_sections)};
 
 }  // namespace
 
@@ -63,19 +81,25 @@ ParseResult parse_matlab(const SourceText& source, const LanguageVersion version
 const FrontendDescriptor& matlab_frontend() noexcept {
   static const SourceIntrinsicTable intrinsic_tables[]{
       mathematical_intrinsic_table(), {intrinsic_bindings, std::size(intrinsic_bindings)}};
-  static const FrontendDescriptor descriptor{
-      frontend_descriptor_api_version,
-      SourceLanguage::matlab,
-      "matlab",
-      {aliases, std::size(aliases)},
-      {extensions, std::size(extensions)},
-      {"Matlab-2024-versioned-subset", "mpf.matlab.ast.v2", {1, 0}, {2024, 2}, true, true},
-      intrinsic_tables,
-      std::size(intrinsic_tables),
-      &parse_matlab_descriptor,
-      &verify_matlab_ast,
-      &lower_matlab_ast,
-      &probe_matlab};
+  static const FrontendDescriptor descriptor{frontend_descriptor_api_version,
+                                             SourceLanguage::matlab,
+                                             "matlab",
+                                             {aliases, std::size(aliases)},
+                                             {extensions, std::size(extensions)},
+                                             {"Matlab-2024-versioned-subset",
+                                              "mpf.matlab.ast.v2",
+                                              {1, 0},
+                                              {2024, 2},
+                                              features,
+                                              standard_frontend_resource_contract,
+                                              true,
+                                              true},
+                                             intrinsic_tables,
+                                             std::size(intrinsic_tables),
+                                             &create_matlab_parser_session,
+                                             &verify_matlab_ast,
+                                             &lower_matlab_ast,
+                                             &probe_matlab};
   return descriptor;
 }
 

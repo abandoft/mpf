@@ -8,6 +8,7 @@
 #include "compiler/intrinsic.hpp"
 #include "core/backend_registry.hpp"
 #include "frontends/frontend_registry.hpp"
+#include "source/source_manager.hpp"
 #include "test_framework.hpp"
 
 namespace {
@@ -46,6 +47,10 @@ TEST_CASE("frontend catalog rejects duplicate registrations") {
   const mpf::detail::FrontendDescriptor* missing_lowering[]{&malformed};
   REQUIRE(!mpf::detail::validate_frontend_catalog(missing_lowering, std::size(missing_lowering)));
   malformed = mpf::detail::python_frontend();
+  malformed.create_parser_session = nullptr;
+  const mpf::detail::FrontendDescriptor* missing_session[]{&malformed};
+  REQUIRE(!mpf::detail::validate_frontend_catalog(missing_session, std::size(missing_session)));
+  malformed = mpf::detail::python_frontend();
   malformed.verify = nullptr;
   const mpf::detail::FrontendDescriptor* missing_verifier[]{&malformed};
   REQUIRE(!mpf::detail::validate_frontend_catalog(missing_verifier, std::size(missing_verifier)));
@@ -57,6 +62,15 @@ TEST_CASE("frontend catalog rejects duplicate registrations") {
   malformed.manifest.minimum_version = {3, 15};
   const mpf::detail::FrontendDescriptor* invalid_versions[]{&malformed};
   REQUIRE(!mpf::detail::validate_frontend_catalog(invalid_versions, std::size(invalid_versions)));
+  malformed = mpf::detail::python_frontend();
+  malformed.manifest.resource_contract = {};
+  const mpf::detail::FrontendDescriptor* missing_resource_contract[]{&malformed};
+  REQUIRE(!mpf::detail::validate_frontend_catalog(missing_resource_contract,
+                                                  std::size(missing_resource_contract)));
+  REQUIRE(mpf::detail::python_frontend().manifest.features.contains(
+      mpf::detail::FrontendFeature::keyword_arguments));
+  REQUIRE(mpf::detail::fortran_frontend().manifest.features.contains(
+      mpf::detail::FrontendFeature::fixed_source_form));
   malformed = mpf::detail::python_frontend();
   const mpf::detail::SourceIntrinsicBinding unsorted[]{
       {"len", mpf::detail::IntrinsicId::python_length},
@@ -75,11 +89,32 @@ TEST_CASE("frontend catalog rejects duplicate registrations") {
   REQUIRE(!mpf::detail::validate_frontend_catalog(malformed_catalog, std::size(malformed_catalog)));
 }
 
+TEST_CASE("frontend parser sessions negotiate features and resource contracts") {
+  mpf::detail::SourceManager sources;
+  const auto source_id = sources.add("value = 1\n", "contract.py");
+  auto options = mpf::detail::FrontendParseOptions{};
+  options.requested_features.add(mpf::detail::FrontendFeature::fixed_source_form);
+  auto unsupported = mpf::detail::parse_with_frontend(mpf::detail::python_frontend(),
+                                                      sources.source(source_id), options);
+  REQUIRE(unsupported.diagnostics.size() == 1);
+  REQUIRE(unsupported.diagnostics.front().code == "MPF0009");
+
+  options.requested_features = {};
+  options.resource_limits.max_source_bytes = 1;
+  auto exhausted = mpf::detail::parse_with_frontend(mpf::detail::python_frontend(),
+                                                    sources.source(source_id), options);
+  REQUIRE(exhausted.diagnostics.size() == 1);
+  REQUIRE(exhausted.diagnostics.front().code == "MPF0010");
+}
+
 TEST_CASE("backend registry owns target aliases availability and callback contracts") {
   const mpf::detail::BackendDescriptor* descriptors[]{
       mpf::detail::find_backend(mpf::TargetLanguage::javascript),
       mpf::detail::find_backend(mpf::TargetLanguage::cpp)};
   REQUIRE(mpf::detail::validate_backend_catalog(descriptors, std::size(descriptors)));
+  REQUIRE(descriptors[0]->manifest.configuration.field_count == 2);
+  REQUIRE(descriptors[0]->manifest.runtime.component_count == 1);
+  REQUIRE(descriptors[0]->dump != nullptr);
   REQUIRE(mpf::detail::find_backend_descriptor("JS")->target == mpf::TargetLanguage::javascript);
   REQUIRE(mpf::detail::find_backend_descriptor("c++")->target == mpf::TargetLanguage::cpp);
   const mpf::detail::BackendDescriptor* duplicate[]{descriptors[0], descriptors[0]};
@@ -93,6 +128,18 @@ TEST_CASE("backend registry owns target aliases availability and callback contra
   malformed.manifest.reentrant = false;
   const mpf::detail::BackendDescriptor* nonreentrant[]{&malformed};
   REQUIRE(!mpf::detail::validate_backend_catalog(nonreentrant, std::size(nonreentrant)));
+  malformed = *descriptors[0];
+  malformed.manifest.configuration = {};
+  const mpf::detail::BackendDescriptor* missing_configuration[]{&malformed};
+  REQUIRE(!mpf::detail::validate_backend_catalog(missing_configuration,
+                                                 std::size(missing_configuration)));
+  malformed = *descriptors[0];
+  auto runtime = malformed.manifest.runtime.components[0];
+  runtime.license_spdx = nullptr;
+  const mpf::detail::RuntimeComponent invalid_runtime[]{runtime};
+  malformed.manifest.runtime.components = invalid_runtime;
+  const mpf::detail::BackendDescriptor* missing_license[]{&malformed};
+  REQUIRE(!mpf::detail::validate_backend_catalog(missing_license, std::size(missing_license)));
 }
 
 TEST_CASE("source intrinsic catalog is language scoped and uses stable identities") {

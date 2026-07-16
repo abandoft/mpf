@@ -11,13 +11,25 @@
 namespace mpf::detail {
 namespace {
 
-FrontendParseResult parse_fortran_descriptor(const SourceText& source,
-                                             const FrontendParseOptions& options) {
-  const auto version =
-      options.language_version.automatic() ? LanguageVersion{2023, 0} : options.language_version;
-  auto parsed = parse_fortran(source, options.fortran_source_form, version);
-  auto ast = make_fortran_ast(std::move(parsed.program), options.memory_resource);
-  return {FrontendAst{std::move(ast)}, std::move(parsed.diagnostics)};
+class FortranParserSession final : public FrontendParserSession {
+ public:
+  explicit FortranParserSession(const FrontendParseOptions options) : options_(options) {}
+
+  FrontendParseResult parse(const SourceText& source) override {
+    const auto version = options_.language_version.automatic() ? LanguageVersion{2023, 0}
+                                                               : options_.language_version;
+    auto parsed = parse_fortran(source, options_.fortran_source_form, version);
+    auto ast = make_fortran_ast(std::move(parsed.program), options_.memory_resource);
+    return {FrontendAst{std::move(ast)}, std::move(parsed.diagnostics)};
+  }
+
+ private:
+  FrontendParseOptions options_;
+};
+
+std::unique_ptr<FrontendParserSession> create_fortran_parser_session(
+    const FrontendParseOptions& options) {
+  return std::make_unique<FortranParserSession>(options);
 }
 
 hir::LoweringResult lower_fortran_ast(FrontendAst&& artifact) {
@@ -49,6 +61,15 @@ constexpr std::string_view extensions[]{".f",   ".for", ".ftn", ".f77", ".f90",
 constexpr SourceIntrinsicBinding intrinsic_bindings[]{{"present", IntrinsicId::present},
                                                       {"reshape", IntrinsicId::reshape},
                                                       {"size", IntrinsicId::element_count}};
+constexpr FrontendFeatureSet features{
+    static_cast<std::uint64_t>(FrontendFeature::language_versioning) |
+    static_cast<std::uint64_t>(FrontendFeature::structured_control_flow) |
+    static_cast<std::uint64_t>(FrontendFeature::functions) |
+    static_cast<std::uint64_t>(FrontendFeature::keyword_arguments) |
+    static_cast<std::uint64_t>(FrontendFeature::multiple_results) |
+    static_cast<std::uint64_t>(FrontendFeature::array_sections) |
+    static_cast<std::uint64_t>(FrontendFeature::fixed_source_form) |
+    static_cast<std::uint64_t>(FrontendFeature::parameter_intent)};
 
 }  // namespace
 
@@ -65,19 +86,25 @@ ParseResult parse_fortran(const SourceText& source, const FortranSourceForm sour
 const FrontendDescriptor& fortran_frontend() noexcept {
   static const SourceIntrinsicTable intrinsic_tables[]{
       mathematical_intrinsic_table(), {intrinsic_bindings, std::size(intrinsic_bindings)}};
-  static const FrontendDescriptor descriptor{
-      frontend_descriptor_api_version,
-      SourceLanguage::fortran,
-      "fortran",
-      {aliases, std::size(aliases)},
-      {extensions, std::size(extensions)},
-      {"Fortran-2023-versioned-subset", "mpf.fortran.ast.v2", {77, 0}, {2023, 0}, true, true},
-      intrinsic_tables,
-      std::size(intrinsic_tables),
-      &parse_fortran_descriptor,
-      &verify_fortran_ast,
-      &lower_fortran_ast,
-      &probe_fortran};
+  static const FrontendDescriptor descriptor{frontend_descriptor_api_version,
+                                             SourceLanguage::fortran,
+                                             "fortran",
+                                             {aliases, std::size(aliases)},
+                                             {extensions, std::size(extensions)},
+                                             {"Fortran-2023-versioned-subset",
+                                              "mpf.fortran.ast.v2",
+                                              {77, 0},
+                                              {2023, 0},
+                                              features,
+                                              standard_frontend_resource_contract,
+                                              true,
+                                              true},
+                                             intrinsic_tables,
+                                             std::size(intrinsic_tables),
+                                             &create_fortran_parser_session,
+                                             &verify_fortran_ast,
+                                             &lower_fortran_ast,
+                                             &probe_fortran};
   return descriptor;
 }
 

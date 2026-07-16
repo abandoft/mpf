@@ -8,8 +8,12 @@ FrontendParseResult parse_program(const SourceText& source, const SourceLanguage
                                   const FortranSourceForm fortran_source_form) {
   const auto* frontend = find_frontend(language);
   if (frontend != nullptr) {
-    return frontend->parse(source, {fortran_source_form, frontend->manifest.maximum_version,
-                                    std::pmr::get_default_resource()});
+    return parse_with_frontend(*frontend, source,
+                               {fortran_source_form,
+                                frontend->manifest.maximum_version,
+                                std::pmr::get_default_resource(),
+                                {},
+                                {}});
   }
   FrontendParseResult result;
   result.diagnostics.push_back(

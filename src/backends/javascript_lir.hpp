@@ -160,11 +160,16 @@ struct Program final : BackendArtifact {
   [[nodiscard]] const std::vector<std::string_view>& dependencies() const noexcept override {
     return dependency_names;
   }
+  [[nodiscard]] std::string debug_dump() const override { return semantic_dump; }
 
   std::vector<std::string_view> dependency_names;
   std::vector<SerializedChunk> chunks;
+  std::string semantic_dump;
   std::size_t node_count{0};
   std::uint64_t revision{0};
 };
+
+[[nodiscard]] std::string dump(const SemanticProgram& program);
+[[nodiscard]] std::string dump(const Program& program);
 
 }  // namespace mpf::detail::javascript::lir

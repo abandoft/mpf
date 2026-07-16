@@ -38,8 +38,8 @@ std::vector<Diagnostic> run_frontend_conformance(const FrontendDescriptor& descr
     return diagnostics;
   }
 
-  auto first = descriptor.parse(source, options);
-  auto second = descriptor.parse(source, options);
+  auto first = parse_with_frontend(descriptor, source, options);
+  auto second = parse_with_frontend(descriptor, source, options);
   append(diagnostics, std::move(first.diagnostics));
   append(diagnostics, std::move(second.diagnostics));
   if (has_error(diagnostics)) return diagnostics;

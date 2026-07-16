@@ -1,0 +1,5 @@
+normalized-hir-v1
+stmt kind=1 name="value" parameters=[] returns=[]
+  expr kind=2 value="1" operators=[]
+stmt kind=4 name="" parameters=[] returns=[]
+  expr kind=1 value="value" operators=[]

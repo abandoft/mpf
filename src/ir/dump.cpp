@@ -48,6 +48,49 @@ void dump_hir_statements(std::ostringstream& output, const std::vector<hir::Stat
   }
 }
 
+void dump_normalized_hir_expression(std::ostringstream& output, const hir::Expression& expression,
+                                    const std::size_t depth) {
+  if (!expression.valid()) return;
+  output << std::string(depth * 2U, ' ') << "expr kind=" << enum_value(expression.kind)
+         << " value=" << std::quoted(expression.value) << " operators=[";
+  for (std::size_t index = 0; index < expression.operators.size(); ++index) {
+    if (index != 0) output << ',';
+    output << std::quoted(expression.operators[index]);
+  }
+  output << "]\n";
+  for (const auto& child : expression.children) {
+    dump_normalized_hir_expression(output, child, depth + 1U);
+  }
+}
+
+void dump_normalized_hir_statements(std::ostringstream& output,
+                                    const std::vector<hir::Statement>& statements,
+                                    const std::size_t depth) {
+  for (const auto& statement : statements) {
+    output << std::string(depth * 2U, ' ') << "stmt kind=" << enum_value(statement.kind)
+           << " name=" << std::quoted(statement.name) << " parameters=[";
+    for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
+      if (index != 0) output << ',';
+      output << std::quoted(statement.parameters[index]);
+    }
+    output << "] returns=[";
+    for (std::size_t index = 0; index < statement.return_names.size(); ++index) {
+      if (index != 0) output << ',';
+      output << std::quoted(statement.return_names[index]);
+    }
+    output << "]\n";
+    dump_normalized_hir_expression(output, statement.expression, depth + 1U);
+    dump_normalized_hir_expression(output, statement.secondary_expression, depth + 1U);
+    dump_normalized_hir_expression(output, statement.tertiary_expression, depth + 1U);
+    dump_normalized_hir_expression(output, statement.target_expression, depth + 1U);
+    for (const auto& expression : statement.parameter_defaults) {
+      dump_normalized_hir_expression(output, expression, depth + 1U);
+    }
+    dump_normalized_hir_statements(output, statement.body, depth + 1U);
+    dump_normalized_hir_statements(output, statement.alternative, depth + 1U);
+  }
+}
+
 template <typename Id>
 void dump_ids(std::ostringstream& output, const std::vector<Id>& ids, const char* prefix) {
   output << '[';
@@ -71,6 +114,13 @@ std::string dump_hir(const hir::Program& program) {
          << " layout=" << enum_value(program.semantics.layout)
          << " top-level=" << enum_value(program.semantics.top_level_storage) << '\n';
   dump_hir_statements(output, program.statements, 0);
+  return output.str();
+}
+
+std::string dump_normalized_hir(const hir::Program& program) {
+  std::ostringstream output;
+  output << "normalized-hir-v1\n";
+  dump_normalized_hir_statements(output, program.statements, 0);
   return output.str();
 }
 

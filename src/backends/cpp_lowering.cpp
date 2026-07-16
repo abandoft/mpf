@@ -1,6 +1,7 @@
 #include "cpp_lowering.hpp"
 
 #include <algorithm>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -9,6 +10,7 @@
 #include "cpp_bindings.hpp"
 #include "cpp_renderer.hpp"
 #include "target_lir_builder.hpp"
+#include "target_lir_dump.hpp"
 
 namespace mpf::detail::cpp {
 namespace {
@@ -214,6 +216,9 @@ std::vector<Diagnostic> verify_serialized_lir(const lir::Program& program) {
   if (program.chunks.empty() || serialize_chunks(program.chunks).empty()) {
     add_error(diagnostics, {1, 1}, "cpp LIR has no serialized emission chunks");
   }
+  if (program.semantic_dump.empty()) {
+    add_error(diagnostics, {1, 1}, "cpp LIR has no semantic debug dump");
+  }
   if (program.node_count == 0) {
     add_error(diagnostics, {1, 1}, "cpp LIR has no source node inventory");
   }
@@ -293,6 +298,7 @@ BackendLoweringResult lower(const mir::Program& program, const TranspileOptions&
     artifact->dependency_names = lowered->dependencies;
     artifact->node_count = lowered->node_count;
     artifact->revision = lowered->revision;
+    artifact->semantic_dump = lir::dump(*lowered);
     artifact->chunks = materialize_chunks(render_cpp(*lowered, options));
     auto artifact_diagnostics = verify_serialized_lir(*artifact);
     result.diagnostics.insert(result.diagnostics.end(),
@@ -301,6 +307,25 @@ BackendLoweringResult lower(const mir::Program& program, const TranspileOptions&
     if (result.diagnostics.empty()) result.artifact = std::move(artifact);
   }
   return result;
+}
+
+std::string lir::dump(const SemanticProgram& program) {
+  std::ostringstream output;
+  dump_target_lir_body(output, program, "cpp");
+  output << "emission dynamic-truthiness=" << program.emission.dynamic_truthiness
+         << " operand-logical-result=" << program.emission.operand_logical_result
+         << " real-division=" << program.emission.real_division
+         << " resizable-sections=" << program.emission.resizable_sections
+         << " module-top-level=" << program.emission.module_top_level
+         << " entry-function-top-level=" << program.emission.entry_function_top_level << '\n';
+  output << "function-order";
+  for (const auto index : program.function_graph.definition_order) output << ' ' << index;
+  output << '\n';
+  return output.str();
+}
+
+std::string lir::dump(const Program& program) {
+  return program.semantic_dump;
 }
 
 std::vector<Diagnostic> verify_artifact(const BackendArtifact& artifact) {

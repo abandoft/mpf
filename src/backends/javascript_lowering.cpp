@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -9,6 +10,7 @@
 #include "javascript_bindings.hpp"
 #include "javascript_renderer.hpp"
 #include "target_lir_builder.hpp"
+#include "target_lir_dump.hpp"
 
 namespace mpf::detail::javascript {
 namespace {
@@ -205,6 +207,9 @@ std::vector<Diagnostic> verify_serialized_lir(const lir::Program& program) {
   if (program.chunks.empty() || serialize_chunks(program.chunks).empty()) {
     add_error(diagnostics, {1, 1}, "JavaScript LIR has no serialized emission chunks");
   }
+  if (program.semantic_dump.empty()) {
+    add_error(diagnostics, {1, 1}, "JavaScript LIR has no semantic debug dump");
+  }
   if (program.node_count == 0) {
     add_error(diagnostics, {1, 1}, "JavaScript LIR has no source node inventory");
   }
@@ -279,6 +284,7 @@ BackendLoweringResult lower(const mir::Program& program, const TranspileOptions&
     artifact->dependency_names = lowered->dependencies;
     artifact->node_count = lowered->node_count;
     artifact->revision = lowered->revision;
+    artifact->semantic_dump = lir::dump(*lowered);
     artifact->chunks = materialize_chunks(render_javascript(*lowered, options));
     auto artifact_diagnostics = verify_serialized_lir(*artifact);
     result.diagnostics.insert(result.diagnostics.end(),
@@ -287,6 +293,21 @@ BackendLoweringResult lower(const mir::Program& program, const TranspileOptions&
     if (result.diagnostics.empty()) result.artifact = std::move(artifact);
   }
   return result;
+}
+
+std::string lir::dump(const SemanticProgram& program) {
+  std::ostringstream output;
+  dump_target_lir_body(output, program, "javascript");
+  output << "emission dynamic-truthiness=" << program.emission.dynamic_truthiness
+         << " operand-logical-result=" << program.emission.operand_logical_result
+         << " structural-equality=" << program.emission.structural_equality
+         << " resizable-sections=" << program.emission.resizable_sections
+         << " parameter-defaults=" << program.emission.emit_parameter_defaults << '\n';
+  return output.str();
+}
+
+std::string lir::dump(const Program& program) {
+  return program.semantic_dump;
 }
 
 std::vector<Diagnostic> verify_artifact(const BackendArtifact& artifact) {

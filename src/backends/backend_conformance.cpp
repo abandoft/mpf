@@ -57,6 +57,15 @@ std::vector<Diagnostic> run_backend_conformance(const BackendDescriptor& descrip
   append(diagnostics, descriptor.verify(*second.artifact));
   if (has_error(diagnostics)) return diagnostics;
 
+  const auto first_dump = descriptor.dump(*first.artifact);
+  const auto second_dump = descriptor.dump(*second.artifact);
+  if (first_dump.empty()) {
+    conformance_error(diagnostics, "backend produced an empty semantic LIR dump");
+  } else if (first_dump != second_dump) {
+    conformance_error(diagnostics, "backend semantic LIR dump is not deterministic");
+  }
+  if (has_error(diagnostics)) return diagnostics;
+
   const auto first_code = descriptor.emit(*first.artifact, options);
   const auto second_code = descriptor.emit(*second.artifact, options);
   if (first_code.empty()) {

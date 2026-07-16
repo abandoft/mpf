@@ -2,9 +2,21 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
   mpf
-  VERSION 0.33.0
+  VERSION 0.3.4
   DESCRIPTION "Matlab, Python and Fortran to JavaScript and C++17 transpiler"
   LANGUAGES C CXX)
+
+if(PROJECT_VERSION VERSION_LESS "0.0.1" OR PROJECT_VERSION_PATCH GREATER 9)
+  message(FATAL_ERROR
+    "MPF versions start at 0.0.1 and use one decimal patch digit; "
+    "after 0.x.9 increment the minor component")
+endif()
+
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/include/mpf")
+configure_file(
+  include/mpf/version.hpp.in
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/include/mpf/version.hpp"
+  @ONLY)
 
 if(PROJECT_IS_TOP_LEVEL)
   file(REAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/build" MPF_ALLOWED_BUILD_ROOT)
@@ -78,6 +90,7 @@ function(mpf_configure_compilation target visibility)
   target_compile_features(${target} ${visibility} cxx_std_17)
   target_include_directories(${target}
     ${visibility}
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated/include>
       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
       $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -269,7 +282,10 @@ install(TARGETS ${MPF_INSTALL_TARGETS}
 if(MPF_BUILD_CLI)
   install(TARGETS mpfc RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
-install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+  FILES_MATCHING PATTERN "*.hpp")
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/include/mpf/version.hpp"
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mpf)
 install(FILES docs/schemas/diagnostics-v1.schema.json
   DESTINATION ${CMAKE_INSTALL_DATADIR}/mpf/schemas)
 install(EXPORT mpf-targets

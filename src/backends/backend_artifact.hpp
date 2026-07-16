@@ -44,10 +44,13 @@ class BackendArtifact {
   [[nodiscard]] virtual std::size_t node_count_hint() const noexcept = 0;
   [[nodiscard]] virtual const std::vector<SerializedChunk>& serialized_chunks() const noexcept = 0;
   [[nodiscard]] virtual const std::vector<std::string_view>& dependencies() const noexcept = 0;
+  [[nodiscard]] virtual std::string debug_dump() const = 0;
 
  protected:
   BackendArtifact() = default;
 };
+
+[[nodiscard]] std::string dump_backend_artifact(const BackendArtifact& artifact);
 
 struct BackendLoweringResult {
   std::unique_ptr<BackendArtifact> artifact;

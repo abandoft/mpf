@@ -15,13 +15,35 @@ namespace {
 
 constexpr std::string_view javascript_aliases[]{"js"};
 constexpr std::string_view cpp_aliases[]{"c++"};
+constexpr std::string_view javascript_module_kinds[]{"script", "esm"};
+constexpr BackendConfigurationField javascript_configuration[]{
+    {"module_kind",
+     BackendOptionKind::enumeration,
+     "esm",
+     {javascript_module_kinds, std::size(javascript_module_kinds)},
+     true},
+    {"emit_source_banner", BackendOptionKind::boolean, "true", {}, true}};
+constexpr BackendConfigurationField cpp_configuration[]{
+    {"emit_source_banner", BackendOptionKind::boolean, "true", {}, true}};
+constexpr RuntimeComponent javascript_runtime[]{
+    {"mpf-inline-javascript-runtime", "project-version", "LicenseRef-MPF-Project",
+     "generated-from-source-tree", "built-in", true, false}};
+constexpr RuntimeComponent cpp_runtime[]{{"mpf-inline-cpp-runtime", "project-version",
+                                          "LicenseRef-MPF-Project", "generated-from-source-tree",
+                                          "built-in", true, false}};
 
 const BackendDescriptor javascript_metadata{
     backend_descriptor_api_version,
     TargetLanguage::javascript,
     "javascript",
     {javascript_aliases, std::size(javascript_aliases)},
-    {"ECMAScript-2020", "mpf.javascript.lir.v1", true, true},
+    {"ECMAScript-2020",
+     "mpf.javascript.lir.v3",
+     {1, javascript_configuration, std::size(javascript_configuration)},
+     {"mpf.runtime-supply-chain.v1", javascript_runtime, std::size(javascript_runtime)},
+     true,
+     true},
+    nullptr,
     nullptr,
     nullptr,
     nullptr,
@@ -29,18 +51,25 @@ const BackendDescriptor javascript_metadata{
     nullptr,
     nullptr,
     nullptr};
-const BackendDescriptor cpp_metadata{backend_descriptor_api_version,
-                                     TargetLanguage::cpp,
-                                     "cpp",
-                                     {cpp_aliases, std::size(cpp_aliases)},
-                                     {"C++17", "mpf.cpp.lir.v1", true, true},
-                                     nullptr,
-                                     nullptr,
-                                     nullptr,
-                                     nullptr,
-                                     nullptr,
-                                     nullptr,
-                                     nullptr};
+const BackendDescriptor cpp_metadata{
+    backend_descriptor_api_version,
+    TargetLanguage::cpp,
+    "cpp",
+    {cpp_aliases, std::size(cpp_aliases)},
+    {"C++17",
+     "mpf.cpp.lir.v3",
+     {1, cpp_configuration, std::size(cpp_configuration)},
+     {"mpf.runtime-supply-chain.v1", cpp_runtime, std::size(cpp_runtime)},
+     true,
+     true},
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
+    nullptr};
 
 using BackendFactory = const BackendDescriptor& (*)() noexcept;
 
@@ -135,15 +164,58 @@ bool validate_backend_catalog(const BackendDescriptor* const* descriptors, const
         descriptor->manifest.target_standard == nullptr ||
         descriptor->manifest.target_standard[0] == '\0' ||
         descriptor->manifest.artifact_schema == nullptr ||
-        descriptor->manifest.artifact_schema[0] == '\0' || !descriptor->manifest.deterministic ||
+        descriptor->manifest.artifact_schema[0] == '\0' ||
+        descriptor->manifest.configuration.version == 0 ||
+        descriptor->manifest.configuration.fields == nullptr ||
+        descriptor->manifest.configuration.field_count == 0 ||
+        descriptor->manifest.runtime.schema == nullptr ||
+        descriptor->manifest.runtime.schema[0] == '\0' ||
+        descriptor->manifest.runtime.components == nullptr ||
+        descriptor->manifest.runtime.component_count == 0 || !descriptor->manifest.deterministic ||
         !descriptor->manifest.reentrant ||
         (descriptor->aliases.size != 0 && descriptor->aliases.data == nullptr) ||
         (require_callbacks &&
          (descriptor->profile == nullptr || descriptor->legalizations == nullptr ||
           descriptor->binding == nullptr || descriptor->validate == nullptr ||
           descriptor->lower == nullptr || descriptor->verify == nullptr ||
-          descriptor->emit == nullptr))) {
+          descriptor->dump == nullptr || descriptor->emit == nullptr))) {
       return false;
+    }
+    for (std::size_t field_index = 0; field_index < descriptor->manifest.configuration.field_count;
+         ++field_index) {
+      const auto& field = descriptor->manifest.configuration.fields[field_index];
+      if (field.name == nullptr || field.name[0] == '\0' || field.default_value == nullptr ||
+          (field.kind == BackendOptionKind::enumeration &&
+           (field.allowed_values.data == nullptr || field.allowed_values.size == 0))) {
+        return false;
+      }
+      if (field.kind == BackendOptionKind::boolean &&
+          std::string_view(field.default_value) != "true" &&
+          std::string_view(field.default_value) != "false") {
+        return false;
+      }
+      bool default_allowed = field.kind != BackendOptionKind::enumeration;
+      for (std::size_t prior = 0; prior < field_index; ++prior) {
+        if (std::string_view(descriptor->manifest.configuration.fields[prior].name) == field.name) {
+          return false;
+        }
+      }
+      for (std::size_t value = 0; value < field.allowed_values.size; ++value) {
+        if (field.allowed_values.data[value].empty()) return false;
+        if (field.allowed_values.data[value] == field.default_value) default_allowed = true;
+      }
+      if (!default_allowed) return false;
+    }
+    for (std::size_t component_index = 0;
+         component_index < descriptor->manifest.runtime.component_count; ++component_index) {
+      const auto& component = descriptor->manifest.runtime.components[component_index];
+      if (component.name == nullptr || component.name[0] == '\0' || component.version == nullptr ||
+          component.version[0] == '\0' || component.license_spdx == nullptr ||
+          component.license_spdx[0] == '\0' || component.origin == nullptr ||
+          component.origin[0] == '\0' || component.integrity == nullptr ||
+          component.integrity[0] == '\0' || component.bundled == component.external) {
+        return false;
+      }
     }
     if (require_callbacks && (descriptor->profile().target != descriptor->target ||
                               !legalization_table_complete(descriptor->legalizations()))) {

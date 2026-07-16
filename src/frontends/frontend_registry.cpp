@@ -2,6 +2,8 @@
 
 #include <array>
 #include <cctype>
+#include <new>
+#include <utility>
 
 namespace mpf::detail {
 namespace {
@@ -44,6 +46,51 @@ std::string_view extension_of(const std::string_view filename) noexcept {
 }
 
 }  // namespace
+
+FrontendParseResult parse_with_frontend(const FrontendDescriptor& descriptor,
+                                        const SourceText& source,
+                                        const FrontendParseOptions& options) {
+  FrontendParseResult result;
+  const auto error = [&](std::string message, std::string code = "MPF0009") {
+    result.diagnostics.push_back(
+        {DiagnosticSeverity::error, std::move(code), std::move(message), {1, 1}});
+  };
+  if (descriptor.create_parser_session == nullptr) {
+    error("frontend descriptor has no parser session factory");
+    return result;
+  }
+  if (!descriptor.manifest.features.contains(options.requested_features)) {
+    error("frontend does not provide all requested parser features");
+    return result;
+  }
+  if (options.memory_resource == nullptr) {
+    error("frontend parser session requires a memory resource");
+    return result;
+  }
+  if (source.content().size() > options.resource_limits.max_source_bytes) {
+    error("resource limit exceeded at 'source-bytes': " + std::to_string(source.content().size()) +
+              " exceeds " + std::to_string(options.resource_limits.max_source_bytes),
+          "MPF0010");
+    return result;
+  }
+  try {
+    auto session = descriptor.create_parser_session(options);
+    if (session == nullptr) {
+      error("frontend parser session factory returned null");
+      return result;
+    }
+    result = session->parse(source);
+    const auto nodes = frontend_ast_node_count(result.ast);
+    if (nodes > options.resource_limits.max_ast_nodes) {
+      error("resource limit exceeded at 'ast-nodes': " + std::to_string(nodes) + " exceeds " +
+                std::to_string(options.resource_limits.max_ast_nodes),
+            "MPF0010");
+    }
+  } catch (const std::bad_alloc&) {
+    error("resource limit exceeded at 'arena-bytes'", "MPF0010");
+  }
+  return result;
+}
 
 const FrontendDescriptor* find_frontend(const SourceLanguage language) noexcept {
   for (const auto factory : factories) {
@@ -108,7 +155,7 @@ bool validate_frontend_catalog(const FrontendDescriptor* const* descriptors,
     const auto* descriptor = descriptors[left];
     if (descriptor == nullptr || descriptor->api_version != frontend_descriptor_api_version ||
         descriptor->language == SourceLanguage::automatic || descriptor->name == nullptr ||
-        descriptor->name[0] == '\0' || descriptor->parse == nullptr ||
+        descriptor->name[0] == '\0' || descriptor->create_parser_session == nullptr ||
         descriptor->verify == nullptr || descriptor->lower == nullptr ||
         descriptor->probe == nullptr || descriptor->manifest.language_version == nullptr ||
         descriptor->manifest.language_version[0] == '\0' ||
@@ -116,6 +163,9 @@ bool validate_frontend_catalog(const FrontendDescriptor* const* descriptors,
         descriptor->manifest.minimum_version.automatic() ||
         descriptor->manifest.maximum_version.automatic() ||
         descriptor->manifest.maximum_version < descriptor->manifest.minimum_version ||
+        !descriptor->manifest.features.contains(FrontendFeature::language_versioning) ||
+        descriptor->manifest.resource_contract.bits() !=
+            standard_frontend_resource_contract.bits() ||
         !descriptor->manifest.deterministic || !descriptor->manifest.reentrant ||
         (descriptor->aliases.size != 0 && descriptor->aliases.data == nullptr) ||
         (descriptor->extensions.size != 0 && descriptor->extensions.data == nullptr) ||

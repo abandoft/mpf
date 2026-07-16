@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "mpf/transpiler.hpp"
+#include "mpf/version.hpp"
 
 namespace {
 
@@ -162,7 +163,8 @@ int main() {
     max_generated = std::max(max_generated, measurement.generated_bytes);
   }
 
-  std::cout << "{\"schemaVersion\":1,\"maxLatencyNanoseconds\":" << max_latency
+  std::cout << "{\"schemaVersion\":1,\"projectVersion\":\"" << MPF_VERSION_STRING
+            << "\",\"maxLatencyNanoseconds\":" << max_latency
             << ",\"minThroughputBytesPerSecond\":" << min_throughput
             << ",\"maxPeakArenaBytes\":" << max_arena << ",\"maxGeneratedBytes\":" << max_generated
             << ",\"parallelCompilations\":8,\"scenarios\":[";

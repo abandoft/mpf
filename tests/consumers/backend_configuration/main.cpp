@@ -1,7 +1,10 @@
 #include <mpf/transpiler.hpp>
+#include <mpf/version.hpp>
 #include <string>
+#include <string_view>
 
 int main() {
+  if (std::string_view{MPF_VERSION_STRING} != MPF_EXPECT_VERSION) return 6;
   mpf::Diagnostic diagnostic{mpf::DiagnosticSeverity::note, "MPFTEST", "consumer", {1, 1}};
   diagnostic.source_name = "consumer.cpp";
   const auto diagnostic_json = mpf::render_diagnostics_json({diagnostic});

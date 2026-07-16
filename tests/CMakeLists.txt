@@ -13,6 +13,7 @@ target_compile_features(mpf-tests PRIVATE cxx_std_17)
 target_include_directories(mpf-tests PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${PROJECT_SOURCE_DIR}/src)
+target_compile_definitions(mpf-tests PRIVATE MPF_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 if(MSVC)
   target_compile_options(mpf-tests PRIVATE /W4 /permissive- /utf-8)
@@ -46,6 +47,7 @@ add_test(NAME mpf.performance.release-gate
     -DBENCHMARK=$<TARGET_FILE:mpf-benchmark>
     -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/performance/baseline.json
     -DREPORT=${CMAKE_BINARY_DIR}/performance-report.json
+    -DPROJECT_VERSION=${PROJECT_VERSION}
     -P ${PROJECT_SOURCE_DIR}/cmake/verify_performance.cmake)
 set_tests_properties(mpf.performance.release-gate PROPERTIES
   LABELS "performance;coverage-excluded"
@@ -55,6 +57,7 @@ add_custom_target(mpf-performance
     -DBENCHMARK=$<TARGET_FILE:mpf-benchmark>
     -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/performance/baseline.json
     -DREPORT=${CMAKE_BINARY_DIR}/performance-report.json
+    -DPROJECT_VERSION=${PROJECT_VERSION}
     -P ${PROJECT_SOURCE_DIR}/cmake/verify_performance.cmake
   DEPENDS mpf-benchmark
   USES_TERMINAL)
@@ -158,7 +161,8 @@ endfunction()
 
 if(TARGET mpfc)
   add_test(NAME mpf.cli.version COMMAND mpfc --version)
-  set_tests_properties(mpf.cli.version PROPERTIES PASS_REGULAR_EXPRESSION "mpfc 0.33.0")
+  set_tests_properties(mpf.cli.version PROPERTIES
+    PASS_REGULAR_EXPRESSION "mpfc ${PROJECT_VERSION}")
   add_test(NAME mpf.cli.contract
     COMMAND ${CMAKE_COMMAND}
       -DMPFC=$<TARGET_FILE:mpfc>
@@ -191,3 +195,17 @@ endif()
 mpf_add_backend_isolation_test(javascript-only ON OFF)
 mpf_add_backend_isolation_test(cpp-only OFF ON)
 mpf_add_backend_isolation_test(core-only OFF OFF)
+
+if(MPF_ENABLE_JAVASCRIPT_BACKEND AND MPF_ENABLE_CPP_BACKEND)
+  add_test(NAME mpf.installed.frontend-backend-examples
+    COMMAND ${CMAKE_COMMAND}
+      -DPROJECT_BUILD_DIR=${CMAKE_BINARY_DIR}
+      -DBUILD_DIR=${CMAKE_BINARY_DIR}/installed-examples
+      -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+      -DSTAGE=${CMAKE_BINARY_DIR}/installed-examples-stage
+      -DCONFIG=$<CONFIG>
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_installed_examples.cmake)
+  set_tests_properties(mpf.installed.frontend-backend-examples PROPERTIES
+    LABELS "install;conformance;coverage-excluded"
+    TIMEOUT 300)
+endif()

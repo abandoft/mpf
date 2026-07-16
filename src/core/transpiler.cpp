@@ -254,16 +254,13 @@ TranspileResult Transpiler::transpile(const std::string_view source,
   }
   detail::FrontendParseResult parsed;
   const auto ast_started = session.begin_stage();
-  if (frontend != nullptr && frontend->parse != nullptr) {
-    try {
-      parsed = frontend->parse(
-          source_text, {options.fortran_source_form, language_version, session.memory_resource()});
-    } catch (const std::bad_alloc&) {
-      parsed.diagnostics.push_back({DiagnosticSeverity::error,
-                                    "MPF0010",
-                                    "resource limit exceeded at 'arena-bytes'",
-                                    {1, 1}});
-    }
+  if (frontend != nullptr && frontend->create_parser_session != nullptr) {
+    parsed = detail::parse_with_frontend(*frontend, source_text,
+                                         {options.fortran_source_form,
+                                          language_version,
+                                          session.memory_resource(),
+                                          options.resource_limits,
+                                          {}});
   } else {
     parsed.diagnostics.push_back(
         {DiagnosticSeverity::error, "MPF0002", "source language could not be determined", {1, 1}});

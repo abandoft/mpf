@@ -1,5 +1,6 @@
-if(NOT DEFINED BENCHMARK OR NOT DEFINED BASELINE OR NOT DEFINED REPORT)
-  message(FATAL_ERROR "BENCHMARK, BASELINE and REPORT are required")
+if(NOT DEFINED BENCHMARK OR NOT DEFINED BASELINE OR NOT DEFINED REPORT OR
+   NOT DEFINED PROJECT_VERSION)
+  message(FATAL_ERROR "BENCHMARK, BASELINE, REPORT and PROJECT_VERSION are required")
 endif()
 
 execute_process(
@@ -17,6 +18,13 @@ string(JSON baseline_schema GET "${baseline_json}" schemaVersion)
 string(JSON report_schema GET "${benchmark_output}" schemaVersion)
 if(NOT baseline_schema EQUAL 1 OR NOT report_schema EQUAL 1)
   message(FATAL_ERROR "performance report/baseline schema mismatch")
+endif()
+string(JSON baseline_version GET "${baseline_json}" projectVersion)
+string(JSON report_version GET "${benchmark_output}" projectVersion)
+if(NOT baseline_version STREQUAL PROJECT_VERSION OR NOT report_version STREQUAL PROJECT_VERSION)
+  message(FATAL_ERROR
+    "performance baseline version mismatch: project=${PROJECT_VERSION}, "
+    "baseline=${baseline_version}, report=${report_version}")
 endif()
 
 foreach(metric IN ITEMS maxLatencyNanoseconds maxPeakArenaBytes maxGeneratedBytes)

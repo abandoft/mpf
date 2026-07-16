@@ -49,4 +49,8 @@ std::string serialize_chunks(const std::vector<SerializedChunk>& chunks) {
   return result;
 }
 
+std::string dump_backend_artifact(const BackendArtifact& artifact) {
+  return artifact.debug_dump();
+}
+
 }  // namespace mpf::detail

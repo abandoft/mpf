@@ -11,13 +11,25 @@
 namespace mpf::detail {
 namespace {
 
-FrontendParseResult parse_python_descriptor(const SourceText& source,
-                                            const FrontendParseOptions& options) {
-  const auto version =
-      options.language_version.automatic() ? LanguageVersion{3, 14} : options.language_version;
-  auto parsed = parse_python(source, version);
-  auto ast = make_python_ast(std::move(parsed.program), options.memory_resource);
-  return {FrontendAst{std::move(ast)}, std::move(parsed.diagnostics)};
+class PythonParserSession final : public FrontendParserSession {
+ public:
+  explicit PythonParserSession(const FrontendParseOptions options) : options_(options) {}
+
+  FrontendParseResult parse(const SourceText& source) override {
+    const auto version =
+        options_.language_version.automatic() ? LanguageVersion{3, 14} : options_.language_version;
+    auto parsed = parse_python(source, version);
+    auto ast = make_python_ast(std::move(parsed.program), options_.memory_resource);
+    return {FrontendAst{std::move(ast)}, std::move(parsed.diagnostics)};
+  }
+
+ private:
+  FrontendParseOptions options_;
+};
+
+std::unique_ptr<FrontendParserSession> create_python_parser_session(
+    const FrontendParseOptions& options) {
+  return std::make_unique<PythonParserSession>(options);
 }
 
 hir::LoweringResult lower_python_ast(FrontendAst&& artifact) {
@@ -47,6 +59,13 @@ constexpr std::string_view aliases[]{"py"};
 constexpr std::string_view extensions[]{".py", ".pyw"};
 constexpr SourceIntrinsicBinding intrinsic_bindings[]{{"float", IntrinsicId::python_float},
                                                       {"len", IntrinsicId::python_length}};
+constexpr FrontendFeatureSet features{
+    static_cast<std::uint64_t>(FrontendFeature::language_versioning) |
+    static_cast<std::uint64_t>(FrontendFeature::structured_control_flow) |
+    static_cast<std::uint64_t>(FrontendFeature::functions) |
+    static_cast<std::uint64_t>(FrontendFeature::keyword_arguments) |
+    static_cast<std::uint64_t>(FrontendFeature::multiple_results) |
+    static_cast<std::uint64_t>(FrontendFeature::array_sections)};
 
 }  // namespace
 
@@ -62,19 +81,25 @@ ParseResult parse_python(const SourceText& source, const LanguageVersion version
 const FrontendDescriptor& python_frontend() noexcept {
   static const SourceIntrinsicTable intrinsic_tables[]{
       mathematical_intrinsic_table(), {intrinsic_bindings, std::size(intrinsic_bindings)}};
-  static const FrontendDescriptor descriptor{
-      frontend_descriptor_api_version,
-      SourceLanguage::python,
-      "python",
-      {aliases, std::size(aliases)},
-      {extensions, std::size(extensions)},
-      {"3.14-versioned-subset", "mpf.python.ast.v2", {3, 0}, {3, 14}, true, true},
-      intrinsic_tables,
-      std::size(intrinsic_tables),
-      &parse_python_descriptor,
-      &verify_python_ast,
-      &lower_python_ast,
-      &probe_python};
+  static const FrontendDescriptor descriptor{frontend_descriptor_api_version,
+                                             SourceLanguage::python,
+                                             "python",
+                                             {aliases, std::size(aliases)},
+                                             {extensions, std::size(extensions)},
+                                             {"3.14-versioned-subset",
+                                              "mpf.python.ast.v2",
+                                              {3, 0},
+                                              {3, 14},
+                                              features,
+                                              standard_frontend_resource_contract,
+                                              true,
+                                              true},
+                                             intrinsic_tables,
+                                             std::size(intrinsic_tables),
+                                             &create_python_parser_session,
+                                             &verify_python_ast,
+                                             &lower_python_ast,
+                                             &probe_python};
   return descriptor;
 }
 
