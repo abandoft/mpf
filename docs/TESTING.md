@@ -10,17 +10,17 @@ MPF 的验证体系分为七层：
 6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖四种前端、两个目标、资源耗尽和确定性重放；
 7. 小文件延迟、吞吐、深 CFG、大 shape、跨函数图、峰值 arena、产物大小和并发 session 进入发布性能门禁。
 
-0.4.0 在既有 stage/include、AST/HIR/MIR/双目标 LIR verifier、golden、analysis revision、source map、resource、fuzz 和性能门禁上新增 TypeScript descriptor/arena/conformance、full-source token、typed scalar/array、default/value return、control flow、strict comparison、explicit/private export 和稳定拒绝语义测试。flat-MIR contract 仍要求 expression/operation child 与 roots 只保存强类型 ID，revision-bound `OperationAttributeTable` 与 inventory 一一对应，target LIR builder 只按 ID/type/shape/storage 查询；TypeScript export 额外由 semantic fact→MIR function→JavaScript LIR ABI 验证。更广四语言官方 grammar、动态 rank/广播和精确 N 维 selector region overlap 继续按 [TODO](../TODO.md) 推进。
+0.4.1 在既有 stage/include、AST/HIR/MIR/双目标 LIR verifier、golden、analysis revision、source map、resource、fuzz 和性能门禁上新增 lexical `NameScopeEdges`/损坏输入、Analyzer block state、`SymbolId` target inventory/collision、LIR v12 nested `ScopePlan`、TypeScript canonical-for MIR CFG/store/continue edge 和 runtime fragment tree-shaking 测试。flat-MIR contract 仍要求 expression/operation child 与 roots 只保存强类型 ID，revision-bound `OperationAttributeTable` 与 inventory 一一对应；目标 LIR builder 只按 ID/type/shape/storage/symbol 查询，renderer 不得按 spelling 恢复 binding。更广四语言官方 grammar、动态 rank/广播和精确 N 维 selector region overlap 继续按 [TODO](../TODO.md) 推进。
 
 ## 当前开发分支与发布基线
 
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 167 项，零失败 |
-| CTest | 62 项，包含 51 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
-| Differential corpus | Python 21、Fortran 18、Matlab 10、TypeScript 2，共 51 个 case |
-| 工具完整环境执行路径 | 143 条程序路径，另有每 case 一条 oracle |
-| 生产代码行覆盖率 | 89.20%（19587/21959），门槛 85% |
+| C++ 单元与集成测试 | 172 项，零失败 |
+| CTest | 64 项，包含 53 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
+| Differential corpus | Python 21、Fortran 18、Matlab 10、TypeScript 4，共 53 个 case |
+| 工具完整环境执行路径 | 149 条程序路径，另有每 case 一条 oracle |
+| 生产代码行覆盖率 | 89.39%（20566/23008），门槛 85% |
 
 ## Differential corpus
 
@@ -29,9 +29,9 @@ MPF 的验证体系分为七层：
 - 21 个 Python case：CPython 3.14、Node.js、生成 C++17 与 oracle 四路比较；
 - 18 个 Fortran case：gfortran 严格 `-std=f2018` reference mode、Node.js、生成 C++17 与 oracle 四路比较；`MPF_FORTRAN_REFERENCE_STANDARD` 可在工具链支持后切换到 `f2023`；
 - 10 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较；
-- 2 个 TypeScript case：Node.js 24 直接执行可擦除类型的 source、生成 JavaScript、生成 C++17 与声明式 oracle 四路比较；完整 type-check 仍待接入与 manifest 匹配的 `tsc`。
+- 4 个 TypeScript case：Node.js 24 直接执行可擦除类型的 source、生成 JavaScript、生成 C++17 与声明式 oracle 四路比较；覆盖 basic、typed array、lexical block 和 canonical `for`，完整 type-check 仍待接入与 manifest 匹配的 `tsc`。
 
-在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 51 个 case 共执行 143 条程序输出路径：51 条生成 JavaScript/Node.js、51 条生成 C++17、21 条 CPython、18 条 gfortran 和 2 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。runner 不仅分别检查 oracle，还直接比较可用执行路径。Python comparisons case 四路覆盖 equality/identity/membership、list/tuple 种类差异、递归布尔/数值相等和混合 comparison chain；TypeScript basic/arrays case 四路覆盖 default/control/export、strict equality、typed array 和零基 mutation。Fortran tensor、SELECT CASE、structured-unpacking、argument association 和 optional writeback cases 继续覆盖原契约。
+在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 53 个 case 共执行 149 条程序输出路径：53 条生成 JavaScript/Node.js、53 条生成 C++17、21 条 CPython、18 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。runner 不仅分别检查 oracle，还直接比较可用执行路径。Python comparisons case 四路覆盖 equality/identity/membership、list/tuple 种类差异、递归布尔/数值相等和混合 comparison chain；TypeScript 四路覆盖 default/control/export、strict equality、typed array/零基 mutation、block-local 混合类型遮蔽、外层赋值以及 canonical-for 的 break/continue/update/退出值。Fortran tensor、SELECT CASE、structured-unpacking、argument association 和 optional writeback cases 继续覆盖原契约。
 
 每个 case 在 `build/<preset>/differential/<case>/` 保存：
 

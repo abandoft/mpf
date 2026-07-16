@@ -1,3 +1,19 @@
+## 0.4.1
+
+- 新增 profile 驱动的 `ScopeModel` 与 revision-bound `NameScopeEdges`；function、statement、body、alternative scope 均绑定 HIR owner/kind 并由 verifier 检查稠密性、父子关系和错误 scope 注入，不再把所有语言强制压成函数级作用域。
+- TypeScript `let`/`const` 支持真实嵌套 lexical block、同名遮蔽和向最近外层可写 binding 赋值；Analyzer 在分支/循环 scope 中隔离局部符号并合并外层确定赋值状态，离开 block/`for` 后访问局部名称、`for (let i = i; ...)` 的 TDZ 自引用和当前不可移植的 nested function 都稳定失败关闭。
+- 双目标 identifier inventory 从 spelling-only 扩展为 `SymbolId` identity + source spelling 合约；同一词法名可在不同 scope 保持可读复用，同一 symbol 的冲突 spelling、保留字碰撞和缺失 identity 在 renderer 前被确定性拒绝。
+- JavaScript/`cpp` 私有 LIR schema 升至 v12，为 expression、statement、parameter、return、multi-target 和 declaration 保存强类型 symbol identity，并为 statement/body/alternative 保存目标专属 `ScopePlan`；架构门禁禁止 renderer 恢复按源码拼写猜测绑定。
+- 两个 renderer 现在按 LIR lexical scope plan 在实际 brace block 内序列化声明；TypeScript 可在内外 block 对同名名称使用不同类型，生成 JavaScript 与严格 C++17 都保持正确生命周期、遮蔽和外层更新语义。
+- TypeScript parser 新增规范 C-style `for (let ...; condition; update)` 纵切面，覆盖 type annotation、`++`/`--`、`+=`/`-=`/直接赋值、`break`、`continue` 和 induction scope；`const` induction、非布尔条件或更新其他 binding 会产生稳定诊断。
+- HIR→MIR 为 TypeScript `for` 建立独立 preheader、condition、body、update、exit block，initializer/update 使用显式 `store`，回边与 break/continue edge 携带 storage version actual；`continue` 明确进入 update block，而不是依赖 renderer 重写控制流。
+- TypeScript 数字统一按 ECMAScript `number` 的实数逻辑类型分析，数组索引仅接受可证明为整数且在目标整数范围内的常量，避免 C++17 隐式截断小数；数字参数、循环和 typed array 继续通过 MIR 类型相容验证。
+- JavaScript runtime dependency discovery 改为按 semantic profile、comparison form、truthiness 与容器需求精确裁剪；TypeScript 原生严格标量比较不再无条件携带 Python dynamic equality helper。
+- 新增 TypeScript block-scope 与 canonical-for 可执行样例、fuzz seeds，以及 Node.js source、生成 JavaScript、生成 C++17、声明式 oracle 四路差分；block-local 混合类型遮蔽、外层写入、break/continue、循环退出和 runtime tree shaking 都有端到端断言。
+- 单元门禁新增 NameScope graph/损坏输入、SymbolId inventory/collision、MIR `for` CFG/store/continue edge 和双目标 scope plan 验证；golden 与架构依赖检查同步固定 LIR v12 合约。
+- 项目版本、性能基线、安装示例和全部现行文档同步到 0.4.1；`CHANGELOG.md` 直接以正式版本标题开头，不设置 `Unreleased` 占位段，release verifier 现在会准确统计含 ASCII 分号的 8—20 条更新。
+- 当前批次为 172 项内部测试、53 个差分 case 和 64 项 CTest；工具完整环境覆盖 149 条程序执行路径，Debug/Release、ASan/UBSan、format/clang-tidy、四语言 fuzz smoke、双后端隔离、安装消费和六场景性能门禁均已通过；生产代码行覆盖率实测 89.39%（20566/23008），高于 85% 硬门槛。
+
 ## 0.4.0
 
 - 新增公共 `SourceLanguage::typescript`、`typescript`/`ts` 名称、`.ts`/`.mts`/`.cts` 扩展探测和 1.0—6.0 manifest；frontend registry、CLI 帮助、自动检测、availability/name API 与安装后 catalog 统一从 descriptor 获取第四种源语言，不把 TypeScript 塞入 Python 或 JavaScript 模式。

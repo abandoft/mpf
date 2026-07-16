@@ -1,8 +1,8 @@
 # MPF 持续建设路线图
 
-本路线图同时记录 **0.4.0 已发布基线** 与后续交付目标的真实状态。历史交付细节见
+本路线图同时记录 **0.4.1 已发布基线** 与后续交付目标的真实状态。历史交付细节见
 [CHANGELOG.md](CHANGELOG.md)，当前可依赖的语言子集见
-[docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 已有独立、可执行的首个子集，但完整 grammar 仍未完成。
+[docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 已有独立、可执行且包含 lexical block/canonical `for` 的子集，但完整 grammar 仍未完成。
 
 前后端商业级重构的权威设计见 [docs/COMPILER_PIPELINE.md](docs/COMPILER_PIPELINE.md)。路线图中的“多层 IR”只能指语言 AST、HIR、MIR、JavaScript LIR/`cpp` LIR 五层均拥有独立强类型数据模型、verifier 和实际生产调用路径；不能用共享结构体 alias、stage flag 或未被 pipeline 消费的空壳类型标记完成。
 
@@ -14,10 +14,10 @@
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；`cpp` 当前生成严格 C++17 translation unit |
 | 前后端边界 | 四语言 parser session 直接构造并发布各自 arena AST artifact，不经过共享递归 syntax tree 或整树复制；生产驱动随后固定经过 HIR→MIR→目标私有 semantic plan/LIR→emitter，两个目标不读取彼此产物 |
 | 扩展架构 | frontend descriptor API v5、backend descriptor API v5；parser session/feature/resource contract、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
-| IR 架构 | 四种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有；MIR 使用 `MirExpressionId`/`MirStatementId` 稠密 arena 与 revision-bound `OperationAttributeTable`，结构节点不再镜像宽语义 payload；conditional/短路/comparison chain 已产生 lazy CFG、typed edge merge 和 `truthiness`/`compare`，变量与 writable call 使用显式 load/allocate/store/copy/writeback；tuple/function/reference type/shape 签名、stride/view/lifetime 和单对象 call argument region/transfer 可验证；alias/effect 由独立 `AliasEffectTable` 持有；双目标 LIR v11 显式保存 ABI、scope/declaration、source export、临时值、顶层拓扑、expression/statement、强类型比较、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
+| IR 架构 | 四种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有，profile 驱动的 `NameScopeEdges` 为 function/statement/body/alternative 建立稠密 scope graph；MIR 使用 `MirExpressionId`/`MirStatementId` 稠密 arena 与 revision-bound `OperationAttributeTable`，结构节点不再镜像宽语义 payload；conditional/短路/comparison chain 和 TypeScript canonical `for` 已产生显式 CFG、typed edge merge 和 runtime-independent store；tuple/function/reference type/shape 签名、stride/view/lifetime 和单对象 call argument region/transfer 可验证；alias/effect 由独立 `AliasEffectTable` 持有；双目标 LIR v12 以 `SymbolId` 保存名称身份，并显式保存 lexical scope/declaration、ABI、source export、临时值、顶层拓扑、expression/statement、强类型比较、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
 | Python 最新能力 | relational/equality/identity/membership 比较链、右结合条件表达式、短路/惰性/单次求值；list/tuple 种类相等规则、singleton/reference identity、string/list/tuple membership；基础参数关联和递归固定序列解包 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流 |
-| 工程门禁 | 167 项内部测试；51 个差分 case、143 条工具完整环境执行路径；62 项 CTest；四语言 fuzz smoke、可选 libFuzzer、六场景版本化性能阈值、阶段报告；生产代码行覆盖率实测 89.20%（19587/21959），硬门槛 85% |
+| 工程门禁 | 172 项内部测试；53 个差分 case、149 条工具完整环境执行路径；64 项 CTest；四语言 fuzz smoke、可选 libFuzzer、六场景版本化性能阈值、阶段报告；生产代码行覆盖率实测 89.39%（20566/23008），硬门槛 85% |
 | 发布状态 | 0.x；没有长期 API/ABI 或完整语言兼容承诺 |
 
 ## 本轮商业级收尾验收（完成）
@@ -35,7 +35,7 @@
 
 ### 0.3.5：商业级前后端与五层编译器管线继续收敛（已发布）
 
-0.3.5 以 16 条独立更新完成封版，交付窄 HIR + semantic seed、独立 name/flow/alias-effect side table、跨函数 MIR call contract 和双目标 LIR v9。下列已勾选项是该版本及此前版本的实际能力；未勾选项继续作为 0.4.1 及后续版本的架构 backlog。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
+0.3.5 以 16 条独立更新完成封版，交付窄 HIR + semantic seed、独立 name/flow/alias-effect side table、跨函数 MIR call contract 和双目标 LIR v9。下列已勾选项是该版本及此前版本的实际能力；未勾选项继续作为 0.4.2 及后续版本的架构 backlog。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
 
 #### P0：基线、指标与依赖规则
 
@@ -202,7 +202,20 @@
 - [x] 用 semantic profile/side-table→MIR function→JavaScript LIR ABI 贯通显式 export policy；TypeScript 私有函数不再被 ESM 默认导出
 - [x] 增加 TypeScript descriptor/arena/conformance、拒绝语义、Node.js/生成 C++/oracle 差分和 typed-array 执行门禁
 
-### 0.4.1 及后续：官方 grammar 与对象语义继续扩展
+### 0.4.1：TypeScript lexical scope 与 canonical for（已发布）
+
+- [x] 以 `ScopeModel`/`NameScopeEdges` 为 function、statement、body、alternative 建立可验证的语言 profile 驱动 scope graph
+- [x] TypeScript `let`/`const` 支持真实 block-local declaration、嵌套遮蔽、最近外层赋值、`for` initializer TDZ 和离开 scope 后的稳定拒绝
+- [x] Analyzer 在 block/branch/loop 间隔离局部符号，并只合并外层 binding 的确定赋值状态
+- [x] 双目标名称规划按 `SymbolId` 建立 identity inventory，保留可读 scope-local spelling 并拒绝冲突 symbol/spelling 合约
+- [x] 双目标 LIR 升至 v12，为 statement/body/alternative 固化 lexical `ScopePlan`，renderer 只序列化计划声明
+- [x] TypeScript 新增 canonical C-style `for`、四种 update 形式、induction scope、break/continue 和稳定拒绝诊断
+- [x] MIR 为 `for` 建立 preheader/condition/body/update/exit CFG、显式 store、回边 storage merge 与 continue-to-update contract
+- [x] TypeScript `number` 统一为实数逻辑类型；typed array 只接受可证明的整数常量索引，避免目标端静默截断
+- [x] JavaScript runtime fragment discovery 按 profile/comparison 精确裁剪，原生 TypeScript strict scalar comparison 不再携带 Python helper
+- [x] block scope/for 示例、fuzz corpus、四路差分、golden、架构和损坏输入门禁全部通过
+
+### 0.4.2 及后续：官方 grammar 与对象语义继续扩展
 
 - [ ] 按 Matlab/Python/Fortran/TypeScript 官方 grammar 选择下一批可独立验收的纵切面；每累计 8—20 条独立更新形成下一版本
 - [ ] 继续完成动态 rank/extent、广播、精确 N 维 selector region overlap 和目标 typed-array/ownership 策略
@@ -333,13 +346,14 @@
 
 ## M5：TypeScript 6 前端
 
-当前状态：0.4.0 已交付首个可执行纵切面。TypeScript 使用独立 descriptor、statement token stream、编译期专属 `typescript::ast` PMR arena、verifier 与 AST→HIR visitor，不复用 Python/JavaScript parser 或其他语言 artifact；manifest 声明 1.0—6.0，但这不表示完整 TypeScript 6 grammar 已完成。
+当前状态：0.4.1 已在首个独立纵切面上交付 lexical block scope、最近 binding 解析和 canonical C-style `for`。TypeScript 使用独立 descriptor、statement token stream、编译期专属 `typescript::ast` PMR arena、verifier 与 AST→HIR visitor，不复用 Python/JavaScript parser 或其他语言 artifact；manifest 声明 1.0—6.0，但这不表示完整 TypeScript 6 grammar 已完成。
 
 - [x] 增加 `typescript`/`ts` 源语言身份、`.ts`/`.mts`/`.cts` 探测与独立 descriptor；不把 TypeScript 作为其他 parser 的模式分支
 - [x] 建立 TypeScript 全源 statement lexer、当前子集递归下降 parser、strict equality 表达式 token 和 `MPF19xx` 词法诊断
-- [x] 接通 type annotation 擦除后的 number/boolean/string/array facts、默认参数、值返回、函数/分支/循环与 typed array 双目标 lowering
+- [x] 接通 type annotation 擦除后的 number/boolean/string/array facts、默认参数、值返回、函数/分支/while/canonical-for 与 typed array 双目标 lowering
 - [x] 将 explicit-only export policy 作为 semantic profile 和 side-table 事实贯通 MIR/JavaScript LIR；当前仅支持 `export function`
-- [x] 对 loose equality、`var`、arrow/template、无默认值 optional parameter、block-local declaration、非可移植比较和非布尔控制条件失败关闭
+- [x] 建立 `ScopeModel`/`NameScopeEdges` 与双目标 lexical `ScopePlan`，支持 block-local `let`/`const`、遮蔽、最近外层赋值和 induction binding 生命周期
+- [x] 对 loose equality、`var`、arrow/template、nested function、无默认值 optional parameter、非可移植比较、动态 number 索引和非布尔控制条件失败关闭
 - [ ] 继续完成 TypeScript 6 官方 grammar、版本 feature gate 和产生式级 recovery/诊断；当前 parser 只是已验证子集
 - [ ] 明确并实现 enum、namespace、decorator、JSX/TSX、interface/type、generic、class/object、async 和完整 module lowering 边界
 - [ ] 将标准库与宿主 API 映射为 source intrinsic/外部 binding，不在 emitter 中匹配源 spelling
