@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -19,6 +20,9 @@ struct IdentifierPlan {
                                                   const std::set<std::string>& originals);
 [[nodiscard]] bool identifier_plan_complete(const IdentifierPlan& plan,
                                             const std::set<std::string>& originals) noexcept;
+[[nodiscard]] std::string reserve_internal_identifier(std::set<std::string>& used,
+                                                      const std::string& stem, std::uint32_t node,
+                                                      std::size_t ordinal = 0);
 
 class IdentifierMangler final {
  public:
@@ -26,12 +30,9 @@ class IdentifierMangler final {
   explicit IdentifierMangler(const IdentifierPlan& plan);
 
   [[nodiscard]] const std::string& name(const std::string& source_name) const;
-  [[nodiscard]] std::string temporary(const std::string& stem);
 
  private:
   std::unordered_map<std::string, std::string> names_;
-  std::set<std::string> used_;
-  std::size_t temporary_index_{0};
 };
 
 template <typename Expression>

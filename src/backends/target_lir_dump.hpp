@@ -62,12 +62,21 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v1 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v4 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";
   for (const auto dependency : program.dependencies) output << ' ' << dependency;
   output << '\n';
+  output << "temporaries\n";
+  for (std::size_t node = 1; node + 1U < program.temporaries.offsets.size(); ++node) {
+    for (std::size_t index = program.temporaries.offsets[node];
+         index < program.temporaries.offsets[node + 1U]; ++index) {
+      const auto& slot = program.temporaries.slots[index];
+      output << "  %l" << node << " role " << static_cast<int>(slot.role) << " ordinal "
+             << slot.ordinal << " name " << std::quoted(slot.name) << '\n';
+    }
+  }
   dump_target_statements(output, program.statements, 0);
 }
 

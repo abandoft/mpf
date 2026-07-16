@@ -45,6 +45,62 @@ struct EmissionPlan {
   bool entry_function_top_level{false};
 };
 
+enum class ParameterPassing : std::uint8_t {
+  value,
+  const_reference,
+  mutable_reference,
+  optional_reference
+};
+
+struct ParameterAbi {
+  ParameterPassing passing{ParameterPassing::value};
+  std::string concrete_type;
+  std::string template_parameter;
+};
+
+struct FunctionAbi {
+  bool valid{false};
+  bool recursive{false};
+  bool forward_declarable{false};
+  std::string return_type;
+  std::vector<ParameterAbi> parameters;
+};
+
+enum class TemporaryRole : std::uint8_t {
+  comparison_operand,
+  section_argument,
+  call_result,
+  select_value,
+  assignment_value,
+  loop_completed,
+  range_start,
+  range_stop,
+  range_step,
+  range_first,
+  range_cursor
+};
+
+struct TemporarySlot {
+  TemporaryRole role{TemporaryRole::comparison_operand};
+  std::uint32_t ordinal{0};
+  std::string name;
+};
+
+struct TemporaryPlan {
+  std::vector<std::uint32_t> offsets;
+  std::vector<TemporarySlot> slots;
+
+  [[nodiscard]] const std::string* find(const LirNodeId node, const TemporaryRole role,
+                                        const std::size_t ordinal = 0) const noexcept {
+    if (!node.valid() || node.value() + 1U >= offsets.size()) return nullptr;
+    for (std::size_t index = offsets[node.value()]; index < offsets[node.value() + 1U]; ++index) {
+      const auto& slot = slots[index];
+      if (slot.role == role && slot.ordinal == ordinal) return &slot.name;
+    }
+    return nullptr;
+  }
+};
+
 struct Expression {
   LirNodeId id{};
   HirNodeId origin{};
@@ -137,6 +193,7 @@ struct Statement {
   std::vector<ValueType> target_previous_element_types;
   std::vector<CaseSelector> case_selectors;
   bool default_case{false};
+  FunctionAbi function_abi;
   std::vector<Statement> body;
   std::vector<Statement> alternative;
 };
@@ -146,6 +203,7 @@ struct SemanticProgram {
   EmissionPlan emission;
   RuntimeRequirements runtime;
   IdentifierPlan identifiers;
+  TemporaryPlan temporaries;
   std::vector<std::string_view> dependencies;
   std::vector<Statement> statements;
   FunctionDependencyGraph function_graph;

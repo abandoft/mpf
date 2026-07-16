@@ -42,6 +42,8 @@ mpf_assert_file_excludes("src/frontends/frontend_ast.hpp" "Program syntax|AstInv
 foreach(lowering IN ITEMS
     src/backends/javascript_lowering.cpp
     src/backends/cpp_lowering.cpp)
+  mpf_assert_file_excludes("${lowering}" "expression\\.argument_(intents|optional_forward)"
+    "target lowering reinterprets source call intent instead of MIR transfer facts")
   file(READ "${SOURCE_DIR}/${lowering}" lowering_contents)
   if(NOT lowering_contents MATCHES "materialize_chunks\\(render_" OR
      NOT lowering_contents MATCHES "SemanticProgram")
@@ -72,6 +74,9 @@ endif()
 foreach(target_lir IN ITEMS src/backends/javascript_lir.hpp src/backends/cpp_lir.hpp)
   file(READ "${SOURCE_DIR}/${target_lir}" target_lir_contract)
   if(NOT target_lir_contract MATCHES "argument_transfers" OR
+     NOT target_lir_contract MATCHES "FunctionAbi" OR
+     NOT target_lir_contract MATCHES "TemporaryPlan" OR
+     NOT target_lir_contract MATCHES "offsets" OR
      target_lir_contract MATCHES "argument_intents")
     message(FATAL_ERROR "target LIR does not own a lowered argument transfer plan: ${target_lir}")
   endif()
@@ -82,7 +87,15 @@ foreach(renderer IN ITEMS src/backends/javascript_renderer.cpp src/backends/cpp_
   if(NOT renderer_contract MATCHES "argument_transfer_(writes|copies|forwards_optional)")
     message(FATAL_ERROR "target renderer ignores the lowered argument transfer plan: ${renderer}")
   endif()
+  if(renderer_contract MATCHES "mangler_->temporary|parameter_intents|parameter_optional|options_\\.module_kind" OR
+     NOT renderer_contract MATCHES "temporaries_->find" OR
+     NOT renderer_contract MATCHES "function_abi")
+    message(FATAL_ERROR "target renderer still plans temporaries or source-level function ABI: ${renderer}")
+  endif()
 endforeach()
+
+mpf_assert_file_excludes("src/backends/identifier_mangler.hpp" "temporary\\("
+  "renderer-facing identifier mangler still allocates temporaries")
 
 foreach(required_file IN ITEMS
     include/mpf/source_map.hpp

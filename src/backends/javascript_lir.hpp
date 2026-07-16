@@ -35,11 +35,56 @@ struct RuntimeRequirements {
 };
 
 struct EmissionPlan {
+  enum class ModuleFormat : std::uint8_t { strict_script, esm };
+
   bool dynamic_truthiness{false};
   bool operand_logical_result{false};
   bool structural_equality{false};
   bool resizable_sections{false};
   bool emit_parameter_defaults{false};
+  ModuleFormat module{ModuleFormat::strict_script};
+};
+
+enum class ParameterPassing : std::uint8_t { value, reference_box };
+
+struct FunctionAbi {
+  bool valid{false};
+  bool exported{false};
+  std::vector<ParameterPassing> parameters;
+};
+
+enum class TemporaryRole : std::uint8_t {
+  comparison_operand,
+  reference_argument,
+  call_result,
+  select_value,
+  assignment_value,
+  loop_completed,
+  range_start,
+  range_stop,
+  range_step,
+  range_cursor
+};
+
+struct TemporarySlot {
+  TemporaryRole role{TemporaryRole::comparison_operand};
+  std::uint32_t ordinal{0};
+  std::string name;
+};
+
+struct TemporaryPlan {
+  std::vector<std::uint32_t> offsets;
+  std::vector<TemporarySlot> slots;
+
+  [[nodiscard]] const std::string* find(const LirNodeId node, const TemporaryRole role,
+                                        const std::size_t ordinal = 0) const noexcept {
+    if (!node.valid() || node.value() + 1U >= offsets.size()) return nullptr;
+    for (std::size_t index = offsets[node.value()]; index < offsets[node.value() + 1U]; ++index) {
+      const auto& slot = slots[index];
+      if (slot.role == role && slot.ordinal == ordinal) return &slot.name;
+    }
+    return nullptr;
+  }
 };
 
 struct Expression {
@@ -134,6 +179,7 @@ struct Statement {
   std::vector<ValueType> target_previous_element_types;
   std::vector<CaseSelector> case_selectors;
   bool default_case{false};
+  FunctionAbi function_abi;
   std::vector<Statement> body;
   std::vector<Statement> alternative;
 };
@@ -143,6 +189,7 @@ struct SemanticProgram {
   EmissionPlan emission;
   RuntimeRequirements runtime;
   IdentifierPlan identifiers;
+  TemporaryPlan temporaries;
   std::vector<std::string_view> dependencies;
   std::vector<Statement> statements;
   std::size_t node_count{0};

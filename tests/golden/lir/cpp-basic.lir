@@ -1,9 +1,11 @@
-cpp-semantic-lir-v1 revision 1 nodes 5 runtime 0x0
+cpp-semantic-lir-v4 revision 1 nodes 5 runtime 0x0
 dependencies
+temporaries
 stmt %l1 origin %h1 kind 4 line 1 name ""
   expr %l2 origin %h2 kind 11 type 1 binding 0 intrinsic 0 shape [] value ""
     expr %l3 origin %h3 kind 1 type 8 binding 3 intrinsic 1 shape [] value "abs"
     expr %l4 origin %h4 kind 7 type 1 binding 0 intrinsic 0 shape [] value "-"
       expr %l5 origin %h5 kind 2 type 1 binding 0 intrinsic 0 shape [] value "2"
+function-abis
 emission dynamic-truthiness=1 operand-logical-result=1 real-division=1 resizable-sections=1 module-top-level=1 entry-function-top-level=0
 function-order

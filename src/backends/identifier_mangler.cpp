@@ -104,8 +104,7 @@ IdentifierMangler::IdentifierMangler(const TargetLanguage target,
                                      const std::set<std::string>& originals)
     : IdentifierMangler(allocate_identifiers(target, originals)) {}
 
-IdentifierMangler::IdentifierMangler(const IdentifierPlan& plan)
-    : names_(plan.names), used_(plan.used) {}
+IdentifierMangler::IdentifierMangler(const IdentifierPlan& plan) : names_(plan.names) {}
 
 bool identifier_plan_complete(const IdentifierPlan& plan,
                               const std::set<std::string>& originals) noexcept {
@@ -127,12 +126,16 @@ const std::string& IdentifierMangler::name(const std::string& source_name) const
   return found == names_.end() ? source_name : found->second;
 }
 
-std::string IdentifierMangler::temporary(const std::string& stem) {
-  std::string candidate;
-  do {
-    candidate = "mpf_internal_" + stem + '_' + std::to_string(temporary_index_++);
-  } while (used_.count(candidate) != 0U);
-  used_.insert(candidate);
+std::string reserve_internal_identifier(std::set<std::string>& used, const std::string& stem,
+                                        const std::uint32_t node, const std::size_t ordinal) {
+  const auto base =
+      "mpf_internal_" + stem + '_' + std::to_string(node) + '_' + std::to_string(ordinal);
+  auto candidate = base;
+  std::size_t collision = 0;
+  while (used.count(candidate) != 0U) {
+    candidate = base + '_' + std::to_string(++collision);
+  }
+  used.insert(candidate);
   return candidate;
 }
 

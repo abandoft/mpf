@@ -34,6 +34,7 @@ struct Program {
 [[nodiscard]] BackendLoweringResult lower(const mir::Program& program,
                                           const mir::AliasEffectTable& alias_effects,
                                           const TranspileOptions& options);
+[[nodiscard]] std::vector<Diagnostic> verify_semantic_lir(const lir::SemanticProgram& program);
 [[nodiscard]] std::vector<Diagnostic> verify_artifact(const BackendArtifact& artifact);
 
 }  // namespace mpf::detail::cpp
