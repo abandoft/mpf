@@ -73,6 +73,11 @@ class CompilationSession final {
                         counting_.peak_bytes()});
   }
 
+  void record_duration(std::string stage, const std::size_t nodes,
+                       const std::size_t duration_nanoseconds) {
+    metrics_.push_back({std::move(stage), nodes, duration_nanoseconds, counting_.peak_bytes()});
+  }
+
   [[nodiscard]] const std::vector<StageMetric>& metrics() const noexcept { return metrics_; }
   [[nodiscard]] std::size_t peak_arena_bytes() const noexcept { return counting_.peak_bytes(); }
   [[nodiscard]] std::size_t elapsed_nanoseconds() const noexcept {

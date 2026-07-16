@@ -11,6 +11,7 @@
 #include "../frontends/frontend_registry.hpp"
 #include "../ir/hir.hpp"
 #include "../ir/mir.hpp"
+#include "../ir/mir_optimization.hpp"
 #include "../ir/pass_manager.hpp"
 #include "../semantic/analyzer.hpp"
 #include "backend_registry.hpp"
@@ -332,15 +333,32 @@ TranspileResult Transpiler::transpile(const std::string_view source,
   detail::AnalysisManager<detail::mir::Program> mir_analyses;
   const detail::mir::AliasEffectTable* alias_effects = nullptr;
   if (result.success()) {
-    const auto pass_started = session.begin_stage();
+    auto optimization = detail::mir::run_default_optimization_pipeline(mir_result.program);
+    const auto& statistics = optimization.statistics;
+    result.report.mir_optimization = {
+        statistics.folded_expressions,   statistics.retired_expressions,
+        statistics.removed_instructions, statistics.propagated_block_arguments,
+        statistics.removed_blocks,       statistics.canonicalized_shapes,
+        statistics.instructions_before,  statistics.instructions_after,
+        statistics.blocks_before,        statistics.blocks_after};
+    for (const auto& pass : optimization.instrumentation) {
+      session.record_duration(std::string(pass.name), statistics.instructions_after,
+                              static_cast<std::size_t>(pass.elapsed_nanoseconds));
+    }
+    result.diagnostics.insert(result.diagnostics.end(),
+                              std::make_move_iterator(optimization.diagnostics.begin()),
+                              std::make_move_iterator(optimization.diagnostics.end()));
+  }
+  if (result.success()) {
+    const auto analysis_started = session.begin_stage();
     alias_effects = &mir_analyses.get<detail::mir::AliasEffectTable>(
         mir_result.program, "alias-effect", &detail::mir::analyze_alias_effects);
     auto mir_diagnostics =
-        detail::mir::verify_alias_effects(mir_result.program, *alias_effects, "mir-passes");
+        detail::mir::verify_alias_effects(mir_result.program, *alias_effects, "mir-analysis");
     result.diagnostics.insert(result.diagnostics.end(),
                               std::make_move_iterator(mir_diagnostics.begin()),
                               std::make_move_iterator(mir_diagnostics.end()));
-    session.record("mir-passes", mir_result.program.instructions.size() - 1U, pass_started);
+    session.record("mir-analysis", mir_result.program.instructions.size() - 1U, analysis_started);
   }
   if (result.success()) {
     auto binding_diagnostics =

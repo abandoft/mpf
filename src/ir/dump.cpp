@@ -172,7 +172,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v3 language=" << enum_value(program.source_language)
+  output << "mir-v4 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -185,7 +185,7 @@ std::string dump_mir(const mir::Program& program) {
     const auto* attributes = mir::attributes(program, expression.id);
     output << "expression %mexpr" << expression.id.value() << " instruction=!i"
            << expression.instruction.value() << " kind=" << enum_value(expression.kind)
-           << " spelling="
+           << " retired=" << expression.retired << " spelling="
            << std::quoted(attributes == nullptr ? std::string{} : attributes->spelling)
            << " children=";
     dump_ids(output, expression.children, "%mexpr");

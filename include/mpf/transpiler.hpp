@@ -78,10 +78,24 @@ struct StageReport {
   std::size_t arena_bytes{0};
 };
 
+struct MirOptimizationReport {
+  std::size_t folded_expressions{0};
+  std::size_t retired_expressions{0};
+  std::size_t removed_instructions{0};
+  std::size_t propagated_block_arguments{0};
+  std::size_t removed_blocks{0};
+  std::size_t canonicalized_shapes{0};
+  std::size_t instructions_before{0};
+  std::size_t instructions_after{0};
+  std::size_t blocks_before{0};
+  std::size_t blocks_after{0};
+};
+
 struct CompilationReport {
   std::size_t source_bytes{0};
   std::size_t total_nanoseconds{0};
   std::size_t peak_arena_bytes{0};
+  MirOptimizationReport mir_optimization;
   std::vector<StageReport> stages;
 
   [[nodiscard]] std::string to_json() const;

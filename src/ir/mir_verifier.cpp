@@ -196,7 +196,32 @@ void verify_expression(const Expression& expression, const Program& program,
               "expression arena is not dense or has an invalid identity");
     return;
   }
-  if (!expression.valid()) return;
+  if (!expression.valid()) {
+    const auto* retired_attributes = attributes(program, expression.id);
+    if (!expression.retired || expression.instruction.valid() || expression.value_id.valid() ||
+        expression.type_id.valid() || expression.shape_id.valid() ||
+        expression.storage_id.valid() || expression.symbol_id.valid() ||
+        !expression.children.empty() || retired_attributes == nullptr ||
+        retired_attributes->origin != expression.id || !retired_attributes->spelling.empty() ||
+        retired_attributes->comparison != ComparisonOperator::none ||
+        !retired_attributes->comparisons.empty() ||
+        retired_attributes->binding != BindingKind::unresolved ||
+        retired_attributes->intrinsic != IntrinsicId::none ||
+        !retired_attributes->tuple_shapes.empty() ||
+        !retired_attributes->sequence_elements.empty() ||
+        retired_attributes->requested_results != 1U || retired_attributes->multi_result_call ||
+        retired_attributes->procedure_has_result || retired_attributes->index_base != 0U ||
+        retired_attributes->allow_negative_index || retired_attributes->slice_stop_inclusive ||
+        retired_attributes->lazy_cfg) {
+      add_error(diagnostics, expression.location, stage,
+                "retired expression does not satisfy its tombstone contract");
+    }
+    return;
+  }
+  if (expression.retired) {
+    add_error(diagnostics, expression.location, stage,
+              "live expression is incorrectly marked as retired");
+  }
   const auto* expression_attributes = attributes(program, expression.id);
   if (!expression.origin.valid() || !expression.value_id.valid() ||
       !valid_index(expression.type_id, program.types) ||
@@ -462,6 +487,87 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
   if (static_cast<std::size_t>(std::count(reachable.begin(), reachable.end(), true)) + 1U !=
       program.statements.size()) {
     add_error(diagnostics, {1, 1}, stage, "MIR statement arena contains unreachable operations");
+  }
+}
+
+void verify_expression_ownership(const Program& program, std::vector<Diagnostic>& diagnostics,
+                                 const std::string_view stage) {
+  std::vector<std::uint8_t> state(program.expressions.size(), 0U);
+  std::unordered_map<ValueId, MirExpressionId> expression_by_value;
+  std::vector<bool> expression_instructions(program.instructions.size(), false);
+  for (std::size_t index = 1; index < program.expressions.size(); ++index) {
+    const auto& expression = program.expressions[index];
+    if (!expression.valid()) continue;
+    expression_by_value.emplace(expression.value_id,
+                                MirExpressionId{static_cast<MirExpressionId::value_type>(index)});
+    if (expression.instruction.valid() &&
+        expression.instruction.value() < expression_instructions.size()) {
+      expression_instructions[expression.instruction.value()] = true;
+    }
+  }
+  const auto visit = [&](const auto& self, const MirExpressionId id,
+                         const SourceLocation location) -> void {
+    if (!id.valid()) return;
+    if (!valid_index(id, program.expressions)) {
+      add_error(diagnostics, location, stage,
+                "expression ownership edge references an invalid expression");
+      return;
+    }
+    const auto& expression = program.expressions[id.value()];
+    if (!expression.valid()) {
+      add_error(diagnostics, location, stage,
+                "expression ownership edge references a retired expression");
+      return;
+    }
+    if (state[id.value()] == 1U) {
+      add_error(diagnostics, location, stage, "expression arena contains a cycle");
+      return;
+    }
+    if (state[id.value()] == 2U) return;
+    state[id.value()] = 1U;
+    for (const auto child : expression.children) self(self, child, expression.location);
+    state[id.value()] = 2U;
+  };
+  for (std::size_t index = 1; index < program.statements.size(); ++index) {
+    const auto& statement = program.statements[index];
+    const SourceLocation location{statement.line, 1};
+    if (statement.expression.valid()) visit(visit, statement.expression, location);
+    if (statement.secondary_expression.valid()) {
+      visit(visit, statement.secondary_expression, location);
+    }
+    if (statement.tertiary_expression.valid()) {
+      visit(visit, statement.tertiary_expression, location);
+    }
+    if (statement.target_expression.valid()) visit(visit, statement.target_expression, location);
+    for (const auto expression : statement.parameter_defaults) {
+      if (expression.valid()) visit(visit, expression, location);
+    }
+    for (const auto& selector : statement.case_selectors) {
+      if (selector.lower.valid()) visit(visit, selector.lower, location);
+      if (selector.upper.valid()) visit(visit, selector.upper, location);
+    }
+  }
+  const auto visit_value = [&](const ValueId value, const SourceLocation location) {
+    const auto found = expression_by_value.find(value);
+    if (found != expression_by_value.end()) visit(visit, found->second, location);
+  };
+  for (std::size_t index = 1; index < program.instructions.size(); ++index) {
+    if (expression_instructions[index]) continue;
+    const auto& instruction = program.instructions[index];
+    for (const auto operand : instruction.operands) visit_value(operand, instruction.location);
+  }
+  for (std::size_t index = 1; index < program.blocks.size(); ++index) {
+    const auto& terminator = program.blocks[index].terminator;
+    for (const auto operand : terminator.operands) visit_value(operand, {1, 1});
+    for (const auto& edge : terminator.successor_arguments) {
+      for (const auto operand : edge) visit_value(operand, {1, 1});
+    }
+  }
+  for (std::size_t index = 1; index < program.expressions.size(); ++index) {
+    if (program.expressions[index].valid() && state[index] == 0U) {
+      add_error(diagnostics, program.expressions[index].location, stage,
+                "expression arena contains an unreachable live expression");
+    }
   }
 }
 
@@ -1205,6 +1311,7 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
     verify_expression(program.expressions[index], program, expression_index, diagnostics, stage);
   }
   verify_statements(program, diagnostics, stage);
+  verify_expression_ownership(program, diagnostics, stage);
   return diagnostics;
 }
 

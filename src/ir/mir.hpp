@@ -226,6 +226,7 @@ struct Expression {
   ShapeId shape_id{};
   StorageId storage_id{};
   SymbolId symbol_id{};
+  bool retired{false};
 
   [[nodiscard]] bool valid() const noexcept { return kind != ExpressionKind::invalid; }
 };

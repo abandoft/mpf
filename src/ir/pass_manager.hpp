@@ -4,6 +4,7 @@
 #include <any>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <typeindex>
@@ -67,22 +68,26 @@ class AnalysisManager final {
 };
 
 template <typename Ir>
-using PassCallback = std::vector<Diagnostic> (*)(Ir& ir);
+using PassCallback = std::function<std::vector<Diagnostic>(Ir& ir)>;
 
 template <typename Ir>
 using VerifierCallback = std::vector<Diagnostic> (*)(const Ir& ir, std::string_view stage);
 
 template <typename Ir>
+using RevisionCallback = void (*)(Ir& ir, std::uint64_t revision);
+
+template <typename Ir>
 struct PassDescriptor {
   PassDescriptor(std::string_view pass_name, PassCallback<Ir> callback, bool mutating = true,
                  std::vector<std::string_view> preserved = {}, bool is_deterministic = true,
-                 bool is_reentrant = true)
+                 bool is_reentrant = true, RevisionCallback<Ir> revision_callback = nullptr)
       : name(pass_name),
-        run(callback),
+        run(std::move(callback)),
         mutates(mutating),
         preserved_analyses(std::move(preserved)),
         deterministic(is_deterministic),
-        reentrant(is_reentrant) {}
+        reentrant(is_reentrant),
+        synchronize_revision(revision_callback) {}
 
   std::string_view name;
   PassCallback<Ir> run{nullptr};
@@ -90,6 +95,7 @@ struct PassDescriptor {
   std::vector<std::string_view> preserved_analyses;
   bool deterministic{true};
   bool reentrant{true};
+  RevisionCallback<Ir> synchronize_revision{nullptr};
 };
 
 template <typename Ir>
@@ -107,7 +113,7 @@ class PassManager final {
     for (const auto& pass : passes_) {
       const auto before = diagnostics.size();
       const auto revision_before = ir.revision;
-      if (pass.name.empty() || pass.run == nullptr || !pass.deterministic) {
+      if (pass.name.empty() || !pass.run || !pass.deterministic) {
         diagnostics.push_back({DiagnosticSeverity::error,
                                "MPF0005",
                                "invalid pass descriptor in compiler pipeline",
@@ -123,6 +129,9 @@ class PassManager final {
                          std::make_move_iterator(pass_diagnostics.end()));
       if (pass.mutates) {
         ++ir.revision;
+        if (pass.synchronize_revision != nullptr) {
+          pass.synchronize_revision(ir, ir.revision);
+        }
         analyses_.invalidate(ir.revision, pass.preserved_analyses);
       }
       instrumentation_.push_back({pass.name, before, diagnostics.size(), revision_before,
