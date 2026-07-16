@@ -7,10 +7,11 @@
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_t size) {
   if (size == 0) return 0;
   mpf::TranspileOptions options;
-  switch (data[0] % 3U) {
+  switch (data[0] % 4U) {
     case 0: options.language = mpf::SourceLanguage::python; break;
     case 1: options.language = mpf::SourceLanguage::matlab; break;
-    default: options.language = mpf::SourceLanguage::fortran; break;
+    case 2: options.language = mpf::SourceLanguage::fortran; break;
+    default: options.language = mpf::SourceLanguage::typescript; break;
   }
   options.target =
       size > 1 && (data[1] & 1U) != 0 ? mpf::TargetLanguage::cpp : mpf::TargetLanguage::javascript;

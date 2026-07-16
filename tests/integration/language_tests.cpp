@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <string>
 
 #include "mpf/transpiler.hpp"
@@ -1005,4 +1006,57 @@ TEST_CASE("script module kind emits strict mode and no exports") {
   REQUIRE(result.success());
   REQUIRE(result.code.find("\"use strict\";") == 0);
   REQUIRE(result.code.find("export function") == std::string::npos);
+}
+
+TEST_CASE("TypeScript functions defaults control flow and strict equality lower to both targets") {
+  const std::string source =
+      "export function accumulate(limit: number, step: number = 1): number {\n"
+      "  let total: number = 0;\n"
+      "  let cursor: number = 0;\n"
+      "  while (cursor < limit) {\n"
+      "    total = total + step;\n"
+      "    cursor = cursor + 1;\n"
+      "  }\n"
+      "  if (total === 42) { total = total + 0; } else { total = 0; }\n"
+      "  return total;\n"
+      "}\n"
+      "const answer: number = accumulate(42);\n"
+      "const ratio: number = 7 / 2;\n"
+      "console.log(answer, ratio);\n";
+  const auto javascript = transpile(source, mpf::SourceLanguage::typescript);
+  const auto cpp = transpile(source, mpf::SourceLanguage::typescript, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("export function accumulate(limit, step = 1)") != std::string::npos);
+  REQUIRE(javascript.code.find("total === 42") != std::string::npos);
+  REQUIRE(javascript.code.find("accumulate(42, 1)") != std::string::npos);
+  REQUIRE(cpp.code.find("static_cast<double>(7) / static_cast<double>(2)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::optional_argument<double> step") != std::string::npos);
+
+  const auto private_function =
+      transpile("function hidden(): number { return 42; }\nconsole.log(hidden());\n",
+                mpf::SourceLanguage::typescript);
+  REQUIRE(private_function.success());
+  REQUIRE(private_function.code.find("function hidden()") != std::string::npos);
+  REQUIRE(private_function.code.find("export function hidden()") == std::string::npos);
+}
+
+TEST_CASE("TypeScript frontend rejects semantics that cannot yet be preserved") {
+  const struct Case {
+    const char* source;
+    const char* needle;
+  } cases[]{{"var value = 1;\n", "unsupported TypeScript statement keyword"},
+            {"const value = 1;\nvalue = 2;\n", "const binding"},
+            {"value = 1;\n", "undeclared TypeScript name"},
+            {"const same = 1 == 1;\n", "loose equality"},
+            {"const choose = (value: number) => value;\n", "arrow"},
+            {"if (true) { let local = 1; }\n", "block-local"}};
+  for (const auto& test : cases) {
+    const auto result = transpile(test.source, mpf::SourceLanguage::typescript);
+    REQUIRE(!result.success());
+    REQUIRE(std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+                        [&](const mpf::Diagnostic& diagnostic) {
+                          return diagnostic.message.find(test.needle) != std::string::npos;
+                        }));
+  }
 }

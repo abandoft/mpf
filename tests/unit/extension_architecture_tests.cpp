@@ -26,14 +26,17 @@ const mpf::detail::TargetProfile& wrong_target_profile() noexcept {
 }  // namespace
 
 TEST_CASE("frontend registry owns aliases extensions probes and parser callbacks") {
-  const mpf::detail::FrontendDescriptor* descriptors[]{&mpf::detail::matlab_frontend(),
-                                                       &mpf::detail::python_frontend(),
-                                                       &mpf::detail::fortran_frontend()};
+  const mpf::detail::FrontendDescriptor* descriptors[]{
+      &mpf::detail::matlab_frontend(), &mpf::detail::python_frontend(),
+      &mpf::detail::fortran_frontend(), &mpf::detail::typescript_frontend()};
   REQUIRE(mpf::detail::validate_frontend_catalog(descriptors, std::size(descriptors)));
   REQUIRE(mpf::detail::find_frontend("PY") == &mpf::detail::python_frontend());
   REQUIRE(mpf::detail::detect_frontend("value = 1\n", "CALCULATION.PY") ==
           &mpf::detail::python_frontend());
   REQUIRE(mpf::detail::detect_frontend("implicit none\n", "") == &mpf::detail::fortran_frontend());
+  REQUIRE(mpf::detail::find_frontend("TS") == &mpf::detail::typescript_frontend());
+  REQUIRE(mpf::detail::detect_frontend("const answer: number = 42;\n", "answer.mts") ==
+          &mpf::detail::typescript_frontend());
   REQUIRE(mpf::detail::detect_frontend("import values\ndisp(values)\n", "") == nullptr);
 }
 
@@ -71,6 +74,8 @@ TEST_CASE("frontend catalog rejects duplicate registrations") {
       mpf::detail::FrontendFeature::keyword_arguments));
   REQUIRE(mpf::detail::fortran_frontend().manifest.features.contains(
       mpf::detail::FrontendFeature::fixed_source_form));
+  REQUIRE(
+      (mpf::detail::typescript_frontend().manifest.maximum_version == mpf::LanguageVersion{6, 0}));
   malformed = mpf::detail::python_frontend();
   const mpf::detail::SourceIntrinsicBinding unsorted[]{
       {"len", mpf::detail::IntrinsicId::python_length},
@@ -151,6 +156,7 @@ TEST_CASE("source intrinsic catalog is language scoped and uses stable identitie
           IntrinsicId::element_count);
   REQUIRE(mpf::detail::find_intrinsic(mpf::SourceLanguage::fortran, "size") ==
           IntrinsicId::element_count);
+  REQUIRE(mpf::detail::find_intrinsic(mpf::SourceLanguage::typescript, "len") == IntrinsicId::none);
   REQUIRE(mpf::detail::find_intrinsic(mpf::SourceLanguage::automatic, "abs") == IntrinsicId::none);
   REQUIRE(mpf::detail::intrinsic_count() == static_cast<std::size_t>(IntrinsicId::count));
 }

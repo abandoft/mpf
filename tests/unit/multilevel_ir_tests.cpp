@@ -109,6 +109,8 @@ TEST_CASE("frontends lower language-owned AST artifacts into verified HIR") {
       (!std::is_same_v<mpf::detail::python::ast::Statement, mpf::detail::matlab::ast::Statement>));
   REQUIRE(
       (!std::is_same_v<mpf::detail::matlab::ast::Statement, mpf::detail::fortran::ast::Statement>));
+  REQUIRE((!std::is_same_v<mpf::detail::fortran::ast::Statement,
+                           mpf::detail::typescript::ast::Statement>));
   REQUIRE(frontend.verify(parsed.ast).empty());
 }
 
@@ -117,6 +119,8 @@ TEST_CASE("statement parsers construct language arenas directly and recover with
                                 mpf::detail::matlab::ast::ParseResult>);
   static_assert(!std::is_same_v<mpf::detail::matlab::ast::ParseResult,
                                 mpf::detail::fortran::ast::ParseResult>);
+  static_assert(!std::is_same_v<mpf::detail::fortran::ast::ParseResult,
+                                mpf::detail::typescript::ast::ParseResult>);
 
   std::pmr::monotonic_buffer_resource arena;
   mpf::detail::FrontendParseOptions options;
@@ -129,7 +133,9 @@ TEST_CASE("statement parsers construct language arenas directly and recover with
             {&mpf::detail::matlab_frontend(), "else\ndisp(1)\nend\ndisp(2)\n", "recover.m"},
             {&mpf::detail::fortran_frontend(),
              "program recover\nelse\nprint *, 1\nend if\nprint *, 2\nend program recover\n",
-             "recover.f90"}};
+             "recover.f90"},
+            {&mpf::detail::typescript_frontend(),
+             "else { console.log(1); }\nconst answer: number = 42;\n", "recover.ts"}};
 
   for (const auto& test : cases) {
     mpf::detail::SourceManager sources;
@@ -1016,9 +1022,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v10") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v11") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v10") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v11") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -1039,6 +1045,12 @@ TEST_CASE("frontend and backend extension conformance harnesses are reusable") {
   const auto& source = sources.source(source_id);
   const auto& frontend = mpf::detail::python_frontend();
   REQUIRE(mpf::detail::run_frontend_conformance(frontend, source).empty());
+
+  const auto typescript_id =
+      sources.add("const answer: number = 42;\nconsole.log(answer);\n", "conformance.ts");
+  REQUIRE(mpf::detail::run_frontend_conformance(mpf::detail::typescript_frontend(),
+                                                sources.source(typescript_id))
+              .empty());
 
   auto parsed = mpf::detail::parse_with_frontend(frontend, source);
   REQUIRE(parsed.diagnostics.empty());

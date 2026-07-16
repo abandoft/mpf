@@ -32,7 +32,8 @@ endforeach()
 foreach(frontend IN ITEMS
     src/frontends/python_frontend.cpp
     src/frontends/matlab_frontend.cpp
-    src/frontends/fortran_frontend.cpp)
+    src/frontends/fortran_frontend.cpp
+    src/frontends/typescript_frontend.cpp)
   mpf_assert_file_excludes("${frontend}" "lower_from_syntax|\\.syntax|inventory_ast"
     "production frontend still wraps or lowers the shared parser syntax tree")
 endforeach()
@@ -63,7 +64,8 @@ endif()
 foreach(statement_parser IN ITEMS
     src/frontends/python_statement_parser.cpp
     src/frontends/matlab_statement_parser.cpp
-    src/frontends/fortran_statement_parser.cpp)
+    src/frontends/fortran_statement_parser.cpp
+    src/frontends/typescript_statement_parser.cpp)
   file(READ "${SOURCE_DIR}/${statement_parser}" statement_parser_contract)
   if(NOT statement_parser_contract MATCHES "FrontendAstBuilder<" OR
      NOT statement_parser_contract MATCHES "std::vector<AstNodeId> parse_block" OR

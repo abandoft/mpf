@@ -72,11 +72,19 @@ std::string function_workload(const std::size_t functions) {
   return source;
 }
 
+std::string typescript_workload(const std::size_t statements) {
+  std::string source = "let value: number = 0;\n";
+  for (std::size_t index = 0; index < statements; ++index) source += "value = value + 1;\n";
+  source += "console.log(value);\n";
+  return source;
+}
+
 mpf::TranspileResult compile(const Scenario& scenario, const mpf::TargetLanguage target) {
   mpf::TranspileOptions options;
   options.language = scenario.language;
   options.target = target;
-  options.filename = scenario.name + ".py";
+  options.filename =
+      scenario.name + (scenario.language == mpf::SourceLanguage::typescript ? ".ts" : ".py");
   options.emit_source_banner = false;
   return mpf::Transpiler{}.transpile(scenario.source, options);
 }
@@ -133,11 +141,13 @@ bool concurrent_gate(const Scenario& scenario) {
 }  // namespace
 
 int main() {
-  const std::vector<Scenario> scenarios{{"small", "value = 40 + 2\nprint(value)\n"},
-                                        {"throughput", assignment_workload(600)},
-                                        {"cfg", control_flow_workload(80)},
-                                        {"shape", shape_workload(16)},
-                                        {"function-graph", function_workload(40)}};
+  const std::vector<Scenario> scenarios{
+      {"small", "value = 40 + 2\nprint(value)\n"},
+      {"throughput", assignment_workload(600)},
+      {"cfg", control_flow_workload(80)},
+      {"shape", shape_workload(16)},
+      {"function-graph", function_workload(40)},
+      {"typescript-throughput", typescript_workload(300), mpf::SourceLanguage::typescript}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
     Measurement measurement;

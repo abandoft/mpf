@@ -21,6 +21,7 @@ mpf::SourceLanguage language_for_path(const std::filesystem::path& path) {
   const auto value = path.generic_string();
   if (value.find("matlab") != std::string::npos) return mpf::SourceLanguage::matlab;
   if (value.find("fortran") != std::string::npos) return mpf::SourceLanguage::fortran;
+  if (value.find("typescript") != std::string::npos) return mpf::SourceLanguage::typescript;
   return mpf::SourceLanguage::python;
 }
 

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <string>
 
 #include "compiler/expression.hpp"
@@ -10,6 +11,7 @@
 #include "lexer/lexer.hpp"
 #include "lexer/matlab_statement_lexer.hpp"
 #include "lexer/python_statement_lexer.hpp"
+#include "lexer/typescript_statement_lexer.hpp"
 #include "source/source_manager.hpp"
 #include "source/source_text.hpp"
 #include "test_framework.hpp"
@@ -558,4 +560,51 @@ TEST_CASE("function dependency graph orders callees and detects semantic recursi
   REQUIRE(graph.dependencies[3].empty());
   REQUIRE(!graph.recursive[0]);
   REQUIRE(graph.recursive[2]);
+}
+
+TEST_CASE("TypeScript statement lexer preserves strict operators comments and source locations") {
+  const mpf::detail::SourceText source(
+      "// header\nconst answer: number = 40 + 2;\nconsole.log(answer !== 0);\n", "tokens.ts");
+  const auto lexed = mpf::detail::lex_typescript_statements(source);
+  REQUIRE(lexed.diagnostics.empty());
+  REQUIRE(std::any_of(lexed.tokens.begin(), lexed.tokens.end(), [](const auto& token) {
+    return token.kind == mpf::detail::TypeScriptStatementTokenKind::keyword_const;
+  }));
+  const auto strict = std::find_if(lexed.tokens.begin(), lexed.tokens.end(), [](const auto& token) {
+    return token.kind == mpf::detail::TypeScriptStatementTokenKind::strict_not_equal;
+  });
+  REQUIRE(strict != lexed.tokens.end());
+  REQUIRE(strict->location.line == 3);
+  REQUIRE(strict->text == "!==");
+}
+
+TEST_CASE(
+    "TypeScript frontend builds its own arena AST and fails closed on unsupported semantics") {
+  const mpf::detail::SourceText source(
+      "export function add(left: number, right: number = 2): number {\n"
+      "  return left + right;\n"
+      "}\n"
+      "const answer: number = add(40);\n"
+      "console.log(answer);\n",
+      "arena.ts");
+  auto parsed = mpf::detail::parse_with_frontend(mpf::detail::typescript_frontend(), source);
+  REQUIRE(parsed.diagnostics.empty());
+  const auto* ast = std::get_if<mpf::detail::typescript::ast::Program>(&parsed.ast);
+  REQUIRE(ast != nullptr);
+  REQUIRE(ast->language == mpf::SourceLanguage::typescript);
+  REQUIRE(ast->roots.size() == 3);
+  const auto& function_record = ast->records[ast->roots.front().value()];
+  REQUIRE(ast->statements[function_record.index].exported);
+  REQUIRE(ast->node_count() + 1U == ast->records.size());
+  REQUIRE(mpf::detail::typescript_frontend().verify(parsed.ast).empty());
+  REQUIRE(mpf::detail::dump_frontend_ast(parsed.ast).find("ast typescript") == 0U);
+
+  const mpf::detail::SourceText rejected(
+      "var value = 1;\nconst same = value == 1;\nconst text = `value=${value}`;\n", "bad.ts");
+  const auto invalid =
+      mpf::detail::parse_with_frontend(mpf::detail::typescript_frontend(), rejected);
+  REQUIRE(!invalid.diagnostics.empty());
+  REQUIRE(
+      std::any_of(invalid.diagnostics.begin(), invalid.diagnostics.end(),
+                  [](const mpf::Diagnostic& diagnostic) { return diagnostic.code == "MPF1200"; }));
 }

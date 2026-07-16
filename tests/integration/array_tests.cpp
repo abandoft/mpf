@@ -16,6 +16,23 @@ mpf::TranspileResult transpile_array(const std::string& source, const mpf::Sourc
 
 }  // namespace
 
+TEST_CASE("TypeScript typed arrays preserve zero-based reads and const-container mutation") {
+  const std::string source =
+      "const values: number[] = [1, 2, 3];\n"
+      "values[1] = 40;\n"
+      "console.log(values[0] + values[1] + values[2] - 2);\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::typescript, mpf::TargetLanguage::javascript);
+  const auto cpp =
+      transpile_array(source, mpf::SourceLanguage::typescript, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_set(values, [1]") != std::string::npos);
+  REQUIRE(cpp.code.find("std::vector<double>{static_cast<double>(1)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::index(values, static_cast<std::int64_t>(1), 0, false)") !=
+          std::string::npos);
+}
+
 TEST_CASE("Python list read, write, negative index, len and sum lower to both backends") {
   const std::string source =
       "values = [1, 2, 3]\n"

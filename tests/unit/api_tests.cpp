@@ -8,7 +8,9 @@ TEST_CASE("language names round-trip") {
   REQUIRE(mpf::language_from_name("python") == mpf::SourceLanguage::python);
   REQUIRE(mpf::language_from_name("MATLAB") == mpf::SourceLanguage::matlab);
   REQUIRE(mpf::language_from_name("f90") == mpf::SourceLanguage::fortran);
+  REQUIRE(mpf::language_from_name("TS") == mpf::SourceLanguage::typescript);
   REQUIRE(std::string(mpf::to_string(mpf::SourceLanguage::fortran)) == "fortran");
+  REQUIRE(std::string(mpf::to_string(mpf::SourceLanguage::typescript)) == "typescript");
   REQUIRE(mpf::target_from_name("cpp") == mpf::TargetLanguage::cpp);
   REQUIRE(mpf::target_from_name("JavaScript") == mpf::TargetLanguage::javascript);
   REQUIRE(std::string(mpf::to_string(mpf::TargetLanguage::cpp)) == "cpp");
@@ -16,11 +18,12 @@ TEST_CASE("language names round-trip") {
   REQUIRE(mpf::fortran_source_form_from_name("fixed") == mpf::FortranSourceForm::fixed);
   REQUIRE(std::string(mpf::to_string(mpf::FortranSourceForm::automatic)) == "auto");
   REQUIRE(mpf::frontend_available(mpf::SourceLanguage::python));
+  REQUIRE(mpf::frontend_available(mpf::SourceLanguage::typescript));
   REQUIRE(mpf::source_language_name_known("PY"));
   REQUIRE(!mpf::source_language_name_known("unknown"));
   REQUIRE(mpf::target_language_name_known("JS"));
   REQUIRE(!mpf::target_language_name_known("unknown"));
-  REQUIRE(mpf::registered_source_languages().size() == 3);
+  REQUIRE(mpf::registered_source_languages().size() == 4);
   REQUIRE(mpf::registered_target_languages().size() == 2);
   REQUIRE(mpf::backend_available(mpf::TargetLanguage::javascript));
   REQUIRE(mpf::backend_available(mpf::TargetLanguage::cpp));
@@ -34,6 +37,7 @@ TEST_CASE("language versions round-trip and gate version-specific syntax") {
   REQUIRE(mpf::parse_language_version("R2024b", version));
   REQUIRE((version == mpf::LanguageVersion{2024, 2}));
   REQUIRE(mpf::to_string(version, mpf::SourceLanguage::matlab) == "R2024b");
+  REQUIRE(mpf::to_string({6, 0}, mpf::SourceLanguage::typescript) == "6.0");
   REQUIRE(mpf::parse_language_version("latest", version));
   REQUIRE(version.automatic());
   REQUIRE(!mpf::parse_language_version("3.14.1", version));
@@ -79,6 +83,12 @@ TEST_CASE("language versions round-trip and gate version-specific syntax") {
   result = mpf::Transpiler{}.transpile(
       "program modern\ncontinue\nprint *, 42\nend program modern\n", options);
   REQUIRE(result.success());
+
+  options.language = mpf::SourceLanguage::typescript;
+  options.language_version = {6, 1};
+  result = mpf::Transpiler{}.transpile("const answer: number = 42;\n", options);
+  REQUIRE(!result.success());
+  REQUIRE(result.diagnostics.front().code == "MPF1201");
 }
 
 TEST_CASE("filename extension selects the frontend") {
@@ -88,6 +98,17 @@ TEST_CASE("filename extension selects the frontend") {
   const auto result = mpf::Transpiler{}.transpile("value = 40 + 2\n", options);
   REQUIRE(result.success());
   REQUIRE(result.code.find("value = 40 + 2;") != std::string::npos);
+}
+
+TEST_CASE("TypeScript extensions select the independent frontend") {
+  for (const auto* filename : {"calculation.ts", "module.mts", "common.cts"}) {
+    mpf::TranspileOptions options;
+    options.filename = filename;
+    options.emit_source_banner = false;
+    const auto result = mpf::Transpiler{}.transpile("const answer: number = 42;\n", options);
+    REQUIRE(result.success());
+    REQUIRE(result.code.find("answer = 42;") != std::string::npos);
+  }
 }
 
 TEST_CASE("transpilation returns a deterministic source map v3 for both targets") {

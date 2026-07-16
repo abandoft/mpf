@@ -159,6 +159,17 @@ elseif(DEFINED SOURCE_KIND AND SOURCE_KIND STREQUAL "fortran" AND
                   "${source_run_output}" "${source_run_error}")
   normalize_output("${source_run_output}" source_output)
   set(source_available TRUE)
+elseif(DEFINED SOURCE_KIND AND SOURCE_KIND STREQUAL "typescript" AND
+       DEFINED SOURCE_EXECUTABLE AND NOT SOURCE_EXECUTABLE STREQUAL "")
+  execute_process(
+    COMMAND "${SOURCE_EXECUTABLE}" "${INPUT}"
+    RESULT_VARIABLE source_run_status
+    OUTPUT_VARIABLE source_run_output
+    ERROR_VARIABLE source_run_error)
+  require_success("source TypeScript execution" "${source_run_status}"
+                  "${source_run_output}" "${source_run_error}")
+  normalize_output("${source_run_output}" source_output)
+  set(source_available TRUE)
 endif()
 
 normalize_output("${EXPECTED_OUTPUT}" expected_output)

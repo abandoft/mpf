@@ -1,7 +1,7 @@
 # MPF fuzzing
 
 `mpf-fuzz-smoke` replays and deterministically mutates the checked-in corpus on every CI run. It
-executes all three frontends and both target pipelines with strict resource limits.
+exercises all four frontend corpora and both target pipelines with strict resource limits.
 
 Clang/libFuzzer builds are enabled with `-DMPF_BUILD_FUZZERS=ON`. Copy the checked-in seeds to a
 directory under `build/` before running because libFuzzer adds coverage-increasing inputs to the

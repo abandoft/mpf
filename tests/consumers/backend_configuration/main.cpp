@@ -9,7 +9,7 @@ int main() {
   diagnostic.source_name = "consumer.cpp";
   const auto diagnostic_json = mpf::render_diagnostics_json({diagnostic});
   if (diagnostic_json.find("\"schemaVersion\":1") == std::string::npos) return 4;
-  if (mpf::registered_source_languages().size() != 3 ||
+  if (mpf::registered_source_languages().size() != 4 ||
       mpf::registered_target_languages().size() != 2 || !mpf::source_language_name_known("py") ||
       !mpf::target_language_name_known("cpp")) {
     return 5;
