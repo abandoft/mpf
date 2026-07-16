@@ -36,7 +36,7 @@ jobs:
         run: cmake --build --preset coverage --parallel
       - name: Preserve coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           if-no-files-found: warn
