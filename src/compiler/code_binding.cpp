@@ -54,14 +54,6 @@ void validate_statements(const std::vector<Statement>& statements, const CodeBin
 
 }  // namespace
 
-std::vector<Diagnostic> validate_code_bindings(const Program& program,
-                                               const CodeBindingLookup lookup,
-                                               const std::string_view target_name) {
-  std::vector<Diagnostic> diagnostics;
-  validate_statements(program.statements, lookup, target_name, diagnostics);
-  return diagnostics;
-}
-
 std::vector<Diagnostic> validate_code_bindings(const mir::Program& program,
                                                const CodeBindingLookup lookup,
                                                const std::string_view target_name) {

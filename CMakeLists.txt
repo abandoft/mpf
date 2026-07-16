@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
   mpf
-  VERSION 0.3.6
+  VERSION 0.3.7
   DESCRIPTION "Matlab, Python and Fortran to JavaScript and C++17 transpiler"
   LANGUAGES C CXX)
 
@@ -127,8 +127,6 @@ add_library(mpf_core
   src/compiler/expression.cpp
   src/compiler/intrinsic.cpp
   src/compiler/code_binding.cpp
-  src/compiler/frontend.cpp
-  src/compiler/function_graph.cpp
   src/ir/dump.cpp
   src/ir/hir.cpp
   src/ir/alias_effect_analysis.cpp

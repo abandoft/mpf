@@ -7,7 +7,9 @@
 #include <unordered_set>
 #include <vector>
 
+#include "expression_ast.hpp"
 #include "function_graph.hpp"
+#include "statement_kind.hpp"
 
 namespace mpf::detail {
 

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <fstream>
+#include <memory_resource>
 #include <sstream>
 #include <type_traits>
 
@@ -109,6 +110,46 @@ TEST_CASE("frontends lower language-owned AST artifacts into verified HIR") {
   REQUIRE(
       (!std::is_same_v<mpf::detail::matlab::ast::Statement, mpf::detail::fortran::ast::Statement>));
   REQUIRE(frontend.verify(parsed.ast).empty());
+}
+
+TEST_CASE("statement parsers construct language arenas directly and recover without orphan nodes") {
+  static_assert(!std::is_same_v<mpf::detail::python::ast::ParseResult,
+                                mpf::detail::matlab::ast::ParseResult>);
+  static_assert(!std::is_same_v<mpf::detail::matlab::ast::ParseResult,
+                                mpf::detail::fortran::ast::ParseResult>);
+
+  std::pmr::monotonic_buffer_resource arena;
+  mpf::detail::FrontendParseOptions options;
+  options.memory_resource = &arena;
+  const struct Case {
+    const mpf::detail::FrontendDescriptor* frontend;
+    const char* source;
+    const char* filename;
+  } cases[]{{&mpf::detail::python_frontend(), "else:\n    print(1)\nprint(2)\n", "recover.py"},
+            {&mpf::detail::matlab_frontend(), "else\ndisp(1)\nend\ndisp(2)\n", "recover.m"},
+            {&mpf::detail::fortran_frontend(),
+             "program recover\nelse\nprint *, 1\nend if\nprint *, 2\nend program recover\n",
+             "recover.f90"}};
+
+  for (const auto& test : cases) {
+    mpf::detail::SourceManager sources;
+    const auto source = sources.add(test.source, test.filename);
+    auto parsed = mpf::detail::parse_with_frontend(*test.frontend, sources.source(source), options);
+    REQUIRE(!parsed.diagnostics.empty());
+    REQUIRE(mpf::detail::frontend_ast_node_count(parsed.ast) != 0U);
+    REQUIRE(test.frontend->verify(parsed.ast).empty());
+    const auto owns_arena = std::visit(
+        [&](const auto& program) {
+          using Program = std::decay_t<decltype(program)>;
+          if constexpr (std::is_same_v<Program, std::monostate>) {
+            return false;
+          } else {
+            return program.resource() == &arena;
+          }
+        },
+        parsed.ast);
+    REQUIRE(owns_arena);
+  }
 }
 
 TEST_CASE("HIR pass manager verifies revisions and records instrumentation") {

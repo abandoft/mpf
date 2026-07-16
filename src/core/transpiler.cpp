@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "../compiler/code_binding.hpp"
-#include "../compiler/frontend.hpp"
 #include "../frontends/frontend_registry.hpp"
 #include "../ir/hir.hpp"
 #include "../ir/mir.hpp"

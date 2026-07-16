@@ -1,7 +1,6 @@
 #include <iterator>
 #include <utility>
 
-#include "../compiler/frontend.hpp"
 #include "../lexer/fortran_statement_lexer.hpp"
 #include "common.hpp"
 #include "fortran_source_form.hpp"
@@ -18,9 +17,14 @@ class FortranParserSession final : public FrontendParserSession {
   FrontendParseResult parse(const SourceText& source) override {
     const auto version = options_.language_version.automatic() ? LanguageVersion{2023, 0}
                                                                : options_.language_version;
-    auto parsed = parse_fortran(source, options_.fortran_source_form, version);
-    auto ast = make_fortran_ast(std::move(parsed.program), options_.memory_resource);
-    return {FrontendAst{std::move(ast)}, std::move(parsed.diagnostics)};
+    auto normalized = normalize_fortran_source(source, options_.fortran_source_form);
+    auto lexed = lex_fortran_statements(std::move(normalized.lines));
+    lexed.diagnostics.insert(lexed.diagnostics.begin(),
+                             std::make_move_iterator(normalized.diagnostics.begin()),
+                             std::make_move_iterator(normalized.diagnostics.end()));
+    auto parsed = parse_fortran_statements(std::move(lexed.lines), std::move(lexed.diagnostics),
+                                           version, options_.memory_resource);
+    return {FrontendAst{std::move(parsed.program)}, std::move(parsed.diagnostics)};
   }
 
  private:
@@ -73,16 +77,6 @@ constexpr FrontendFeatureSet features{
     static_cast<std::uint64_t>(FrontendFeature::parameter_intent)};
 
 }  // namespace
-
-ParseResult parse_fortran(const SourceText& source, const FortranSourceForm source_form,
-                          const LanguageVersion version) {
-  auto normalized = normalize_fortran_source(source, source_form);
-  auto lexed = lex_fortran_statements(std::move(normalized.lines));
-  lexed.diagnostics.insert(lexed.diagnostics.begin(),
-                           std::make_move_iterator(normalized.diagnostics.begin()),
-                           std::make_move_iterator(normalized.diagnostics.end()));
-  return parse_fortran_statements(std::move(lexed.lines), std::move(lexed.diagnostics), version);
-}
 
 const FrontendDescriptor& fortran_frontend() noexcept {
   static const SourceIntrinsicTable intrinsic_tables[]{

@@ -39,6 +39,41 @@ endforeach()
 mpf_assert_file_excludes("src/frontends/frontend_ast.hpp" "Program syntax|AstInventory"
   "language AST artifact still embeds the transitional shared syntax program")
 
+foreach(legacy_scratch IN ITEMS
+    src/compiler/ir.hpp
+    src/compiler/frontend.hpp
+    src/compiler/frontend.cpp
+    src/compiler/function_graph.cpp)
+  if(EXISTS "${SOURCE_DIR}/${legacy_scratch}")
+    message(FATAL_ERROR
+      "shared recursive statement-parser scratch or compatibility facade was restored: ${legacy_scratch}")
+  endif()
+endforeach()
+if(NOT EXISTS "${SOURCE_DIR}/src/frontends/frontend_ast_builder.hpp")
+  message(FATAL_ERROR "direct language AST builder is missing")
+endif()
+file(READ "${SOURCE_DIR}/src/frontends/frontend_ast_builder.hpp" direct_ast_builder)
+if(NOT direct_ast_builder MATCHES "class FrontendAstBuilder" OR
+   NOT direct_ast_builder MATCHES "add_expression" OR
+   NOT direct_ast_builder MATCHES "add_statement" OR
+   NOT direct_ast_builder MATCHES "void reserve" OR
+   NOT direct_ast_builder MATCHES "set_roots")
+  message(FATAL_ERROR "direct language AST builder does not own the parser-to-arena lifecycle")
+endif()
+foreach(statement_parser IN ITEMS
+    src/frontends/python_statement_parser.cpp
+    src/frontends/matlab_statement_parser.cpp
+    src/frontends/fortran_statement_parser.cpp)
+  file(READ "${SOURCE_DIR}/${statement_parser}" statement_parser_contract)
+  if(NOT statement_parser_contract MATCHES "FrontendAstBuilder<" OR
+     NOT statement_parser_contract MATCHES "std::vector<AstNodeId> parse_block" OR
+     statement_parser_contract MATCHES "std::vector<Statement>" OR
+     statement_parser_contract MATCHES "compiler/ir\.hpp|make_(python|matlab|fortran)_ast")
+    message(FATAL_ERROR
+      "statement parser does not build its language arena directly: ${statement_parser}")
+  endif()
+endforeach()
+
 file(READ "${SOURCE_DIR}/src/ir/hir.hpp" hir_contract)
 foreach(forbidden IN ITEMS
     "inferred_type"

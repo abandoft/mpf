@@ -7,7 +7,9 @@
 #include <variant>
 #include <vector>
 
-#include "../compiler/ir.hpp"
+#include "../compiler/assignment_pattern.hpp"
+#include "../compiler/expression_ast.hpp"
+#include "../compiler/statement_kind.hpp"
 #include "../ir/hir_lowering.hpp"
 #include "../ir/ids.hpp"
 
@@ -144,25 +146,37 @@ class ArenaProgram {
   std::pmr::vector<AstNodeId> roots;
 };
 
+template <typename LanguageTag>
+struct ArenaParseResult {
+  ArenaProgram<LanguageTag> program;
+  std::vector<Diagnostic> diagnostics;
+};
+
 namespace python::ast {
 struct LanguageTag;
 using Expression = ArenaExpression<LanguageTag>;
 using Statement = ArenaStatement<LanguageTag>;
+using CaseSelector = ArenaCaseSelector<LanguageTag>;
 using Program = ArenaProgram<LanguageTag>;
+using ParseResult = ArenaParseResult<LanguageTag>;
 }  // namespace python::ast
 
 namespace matlab::ast {
 struct LanguageTag;
 using Expression = ArenaExpression<LanguageTag>;
 using Statement = ArenaStatement<LanguageTag>;
+using CaseSelector = ArenaCaseSelector<LanguageTag>;
 using Program = ArenaProgram<LanguageTag>;
+using ParseResult = ArenaParseResult<LanguageTag>;
 }  // namespace matlab::ast
 
 namespace fortran::ast {
 struct LanguageTag;
 using Expression = ArenaExpression<LanguageTag>;
 using Statement = ArenaStatement<LanguageTag>;
+using CaseSelector = ArenaCaseSelector<LanguageTag>;
 using Program = ArenaProgram<LanguageTag>;
+using ParseResult = ArenaParseResult<LanguageTag>;
 }  // namespace fortran::ast
 
 using FrontendAst =
@@ -172,13 +186,6 @@ struct FrontendParseResult {
   FrontendAst ast;
   std::vector<Diagnostic> diagnostics;
 };
-
-[[nodiscard]] python::ast::Program make_python_ast(mpf::detail::Program&& syntax,
-                                                   std::pmr::memory_resource* resource);
-[[nodiscard]] matlab::ast::Program make_matlab_ast(mpf::detail::Program&& syntax,
-                                                   std::pmr::memory_resource* resource);
-[[nodiscard]] fortran::ast::Program make_fortran_ast(mpf::detail::Program&& syntax,
-                                                     std::pmr::memory_resource* resource);
 
 [[nodiscard]] hir::LoweringResult lower_python_ast(python::ast::Program&& program);
 [[nodiscard]] hir::LoweringResult lower_matlab_ast(matlab::ast::Program&& program);

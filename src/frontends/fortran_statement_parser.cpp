@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "common.hpp"
+#include "frontend_ast_builder.hpp"
 
 namespace mpf::detail {
 namespace {
@@ -99,12 +100,15 @@ std::optional<std::size_t> parse_dimension(const std::string_view digits) {
 class Parser final {
  public:
   Parser(std::vector<FortranStatementLine> lines, std::vector<Diagnostic> diagnostics,
-         const LanguageVersion version)
-      : lines_(std::move(lines)), diagnostics_(std::move(diagnostics)), version_(version) {}
+         const LanguageVersion version, std::pmr::memory_resource* resource)
+      : lines_(std::move(lines)),
+        diagnostics_(std::move(diagnostics)),
+        version_(version),
+        builder_(SourceLanguage::fortran, resource) {
+    builder_.reserve(lines_.size(), lines_.size() * 2U);
+  }
 
-  ParseResult parse() {
-    ParseResult result;
-    result.program.language = SourceLanguage::fortran;
+  fortran::ast::ParseResult parse() {
     if (version_ < LanguageVersion{2003, 0}) {
       for (const auto& line : lines_) {
         for (const auto& token : line.tokens) {
@@ -117,21 +121,36 @@ class Parser final {
         }
       }
     }
-    result.program.statements = parse_block();
+    auto roots = parse_block();
     while (index_ < lines_.size()) {
       frontend::unsupported(diagnostics_, lines_[index_].source.number,
                             "unexpected Fortran block terminator");
       ++index_;
       auto recovered = parse_block();
-      result.program.statements.insert(result.program.statements.end(),
-                                       std::make_move_iterator(recovered.begin()),
-                                       std::make_move_iterator(recovered.end()));
+      roots.insert(roots.end(), std::make_move_iterator(recovered.begin()),
+                   std::make_move_iterator(recovered.end()));
     }
-    result.diagnostics = std::move(diagnostics_);
-    return result;
+    builder_.set_roots(std::move(roots));
+    return {std::move(builder_).finish(), std::move(diagnostics_)};
   }
 
  private:
+  using CaseSelector = fortran::ast::CaseSelector;
+  using Statement = fortran::ast::Statement;
+
+  AstNodeId store(Statement statement) { return builder_.add_statement(std::move(statement)); }
+
+  void append_expression(AstNodeId& destination, bool& present, const std::string_view source,
+                         const std::size_t line) {
+    destination = builder_.parse_expression(source, SourceLanguage::fortran, line, diagnostics_);
+    present = destination.valid();
+  }
+
+  void append_expression(Statement& statement, const std::string_view source,
+                         const std::size_t line) {
+    append_expression(statement.expression, statement.has_expression, source, line);
+  }
+
   bool starts_with(const FortranStatementLine& line, const Kind kind) const noexcept {
     return token_count(line) != 0 && line.tokens.front().kind == kind;
   }
@@ -390,8 +409,7 @@ class Parser final {
                             "malformed Fortran " + std::string(label));
       return false;
     }
-    frontend::append_expression(statement, token_slice(line, opening + 1, closing),
-                                SourceLanguage::fortran, line.source.number, diagnostics_);
+    append_expression(statement, token_slice(line, opening + 1, closing), line.source.number);
     return statement.has_expression;
   }
 
@@ -408,7 +426,7 @@ class Parser final {
       ++index_;
       statement.alternative = parse_block();
     } else if (index_ < lines_.size() && is_else_if(lines_[index_])) {
-      statement.alternative.push_back(parse_else_if());
+      statement.alternative.push_back(store(parse_else_if()));
     }
     return statement;
   }
@@ -425,7 +443,7 @@ class Parser final {
       ++index_;
       statement.alternative = parse_block();
     } else if (index_ < lines_.size() && is_else_if(lines_[index_])) {
-      statement.alternative.push_back(parse_else_if());
+      statement.alternative.push_back(store(parse_else_if()));
     }
     expect_end_if(line_number);
     return statement;
@@ -448,20 +466,17 @@ class Parser final {
     CaseSelector selector;
     selector.range = !colons.empty();
     if (colons.empty()) {
-      frontend::append_expression(selector.lower, selector.has_lower,
-                                  token_slice(line, first, last), SourceLanguage::fortran,
-                                  line.source.number, diagnostics_);
+      append_expression(selector.lower, selector.has_lower, token_slice(line, first, last),
+                        line.source.number);
     } else {
       const auto colon = colons.front();
       if (first < colon) {
-        frontend::append_expression(selector.lower, selector.has_lower,
-                                    token_slice(line, first, colon), SourceLanguage::fortran,
-                                    line.source.number, diagnostics_);
+        append_expression(selector.lower, selector.has_lower, token_slice(line, first, colon),
+                          line.source.number);
       }
       if (colon + 1 < last) {
-        frontend::append_expression(selector.upper, selector.has_upper,
-                                    token_slice(line, colon + 1, last), SourceLanguage::fortran,
-                                    line.source.number, diagnostics_);
+        append_expression(selector.upper, selector.has_upper, token_slice(line, colon + 1, last),
+                          line.source.number);
       }
       if (!selector.has_lower && !selector.has_upper) {
         frontend::unsupported(diagnostics_, line.source.number,
@@ -469,7 +484,7 @@ class Parser final {
         return;
       }
     }
-    clause.case_selectors.push_back(std::move(selector));
+    clause.case_selectors.push_back(selector);
   }
 
   Statement parse_case_clause() {
@@ -521,8 +536,7 @@ class Parser final {
       frontend::unsupported(diagnostics_, line.source.number,
                             "malformed Fortran SELECT CASE header");
     } else {
-      frontend::append_expression(statement, token_slice(line, 3, count - 1),
-                                  SourceLanguage::fortran, line.source.number, diagnostics_);
+      append_expression(statement, token_slice(line, 3, count - 1), line.source.number);
     }
 
     ++index_;
@@ -534,7 +548,7 @@ class Parser final {
                               "Fortran SELECT CASE contains more than one CASE DEFAULT");
       }
       saw_default = saw_default || clause.default_case;
-      statement.body.push_back(std::move(clause));
+      statement.body.push_back(store(std::move(clause)));
     }
     if (statement.body.empty()) {
       frontend::unsupported(diagnostics_, statement.line,
@@ -561,8 +575,7 @@ class Parser final {
     if (!valid) {
       frontend::unsupported(diagnostics_, line.source.number, "malformed Fortran DO WHILE loop");
     } else {
-      frontend::append_expression(statement, token_slice(line, 3, closing), SourceLanguage::fortran,
-                                  line.source.number, diagnostics_);
+      append_expression(statement, token_slice(line, 3, closing), line.source.number);
     }
     ++index_;
     statement.body = parse_block();
@@ -587,17 +600,13 @@ class Parser final {
                             "Fortran counted DO requires start, stop, and optional step");
     } else {
       statement.name = line.tokens[1].text;
-      frontend::append_expression(statement, token_slice(line, 3, commas[0]),
-                                  SourceLanguage::fortran, line.source.number, diagnostics_);
-      frontend::append_expression(
-          statement.secondary_expression, statement.has_secondary_expression,
-          token_slice(line, commas[0] + 1, commas.size() == 2 ? commas[1] : count),
-          SourceLanguage::fortran, line.source.number, diagnostics_);
+      append_expression(statement, token_slice(line, 3, commas[0]), line.source.number);
+      append_expression(statement.secondary_expression, statement.has_secondary_expression,
+                        token_slice(line, commas[0] + 1, commas.size() == 2 ? commas[1] : count),
+                        line.source.number);
       if (commas.size() == 2) {
-        frontend::append_expression(statement.tertiary_expression,
-                                    statement.has_tertiary_expression,
-                                    token_slice(line, commas[1] + 1, count),
-                                    SourceLanguage::fortran, line.source.number, diagnostics_);
+        append_expression(statement.tertiary_expression, statement.has_tertiary_expression,
+                          token_slice(line, commas[1] + 1, count), line.source.number);
       }
     }
     ++index_;
@@ -661,7 +670,7 @@ class Parser final {
   void parse_declarator(const FortranStatementLine& line, const std::size_t first,
                         const std::size_t last, const ValueType declared_type,
                         const ParameterIntent parameter_intent, const bool optional_parameter,
-                        std::vector<Statement>& statements) {
+                        std::vector<AstNodeId>& statements) {
     const auto equals = top_level_tokens(line, Kind::equal, first, last);
     if (equals.size() > 1) {
       frontend::unsupported(diagnostics_, line.source.number,
@@ -701,14 +710,13 @@ class Parser final {
         frontend::unsupported(diagnostics_, line.source.number,
                               "Fortran declaration initializer requires an expression");
       } else {
-        frontend::append_expression(statement, token_slice(line, equals[0] + 1, last),
-                                    SourceLanguage::fortran, line.source.number, diagnostics_);
+        append_expression(statement, token_slice(line, equals[0] + 1, last), line.source.number);
       }
     }
-    statements.push_back(std::move(statement));
+    statements.push_back(store(std::move(statement)));
   }
 
-  void parse_declaration(std::vector<Statement>& statements) {
+  void parse_declaration(std::vector<AstNodeId>& statements) {
     const auto& line = lines_[index_];
     const auto count = token_count(line);
     ValueType declared_type = ValueType::unknown;
@@ -808,7 +816,7 @@ class Parser final {
     return false;
   }
 
-  void parse_simple_statement(std::vector<Statement>& statements) {
+  void parse_simple_statement(std::vector<AstNodeId>& statements) {
     const auto& line = lines_[index_];
     const auto count = token_count(line);
     const auto first = count == 0 ? Kind::end : line.tokens[0].kind;
@@ -821,7 +829,7 @@ class Parser final {
       statement.kind = first == Kind::keyword_exit ? StatementKind::break_statement
                                                    : StatementKind::continue_statement;
       statement.line = line.source.number;
-      statements.push_back(std::move(statement));
+      statements.push_back(store(std::move(statement)));
       ++index_;
       return;
     }
@@ -838,10 +846,9 @@ class Parser final {
         frontend::unsupported(diagnostics_, line.source.number,
                               "Fortran RETURN is only valid inside a procedure");
       } else if (!procedure_returns_.back().empty()) {
-        frontend::append_expression(statement, procedure_returns_.back().front(),
-                                    SourceLanguage::fortran, line.source.number, diagnostics_);
+        append_expression(statement, procedure_returns_.back().front(), line.source.number);
       }
-      statements.push_back(std::move(statement));
+      statements.push_back(store(std::move(statement)));
       ++index_;
       return;
     }
@@ -849,7 +856,7 @@ class Parser final {
       Statement statement;
       statement.kind = StatementKind::expression;
       statement.line = line.source.number;
-      statements.push_back(std::move(statement));
+      statements.push_back(store(std::move(statement)));
       ++index_;
       return;
     }
@@ -859,9 +866,8 @@ class Parser final {
       Statement statement;
       statement.kind = StatementKind::print;
       statement.line = line.source.number;
-      frontend::append_expression(statement, token_slice(line, expression_begin, count),
-                                  SourceLanguage::fortran, line.source.number, diagnostics_);
-      statements.push_back(std::move(statement));
+      append_expression(statement, token_slice(line, expression_begin, count), line.source.number);
+      statements.push_back(store(std::move(statement)));
       ++index_;
       return;
     }
@@ -872,17 +878,15 @@ class Parser final {
       statement.line = line.source.number;
       statement.procedure_call = true;
       if (count == 2 && is_name_kind(line.tokens[1].kind)) {
-        frontend::append_expression(statement, line.tokens[1].text + "()", SourceLanguage::fortran,
-                                    line.source.number, diagnostics_);
+        append_expression(statement, line.tokens[1].text + "()", line.source.number);
       } else if (count < 4 || !is_name_kind(line.tokens[1].kind) ||
                  line.tokens[2].kind != Kind::left_parenthesis ||
                  matching_token(line, 2) != count - 1) {
         frontend::unsupported(diagnostics_, line.source.number, "malformed Fortran CALL statement");
       } else {
-        frontend::append_expression(statement, token_slice(line, 1, count), SourceLanguage::fortran,
-                                    line.source.number, diagnostics_);
+        append_expression(statement, token_slice(line, 1, count), line.source.number);
       }
-      statements.push_back(std::move(statement));
+      statements.push_back(store(std::move(statement)));
       ++index_;
       return;
     }
@@ -906,18 +910,16 @@ class Parser final {
                  matching_token(line, 1) == equal - 1) {
         statement.kind = StatementKind::indexed_assignment;
         statement.name = line.tokens[0].text;
-        frontend::append_expression(statement.target_expression, statement.has_target_expression,
-                                    token_slice(line, 0, equal), SourceLanguage::fortran,
-                                    line.source.number, diagnostics_);
+        append_expression(statement.target_expression, statement.has_target_expression,
+                          token_slice(line, 0, equal), line.source.number);
       } else {
         frontend::unsupported(diagnostics_, line.source.number,
                               "Fortran assignment target must be a name or array element/section");
         ++index_;
         return;
       }
-      frontend::append_expression(statement, token_slice(line, equal + 1, count),
-                                  SourceLanguage::fortran, line.source.number, diagnostics_);
-      statements.push_back(std::move(statement));
+      append_expression(statement, token_slice(line, equal + 1, count), line.source.number);
+      statements.push_back(store(std::move(statement)));
       ++index_;
       return;
     }
@@ -953,8 +955,8 @@ class Parser final {
            kind == Kind::keyword_logical || kind == Kind::keyword_character;
   }
 
-  std::vector<Statement> parse_block() {
-    std::vector<Statement> statements;
+  std::vector<AstNodeId> parse_block() {
+    std::vector<AstNodeId> statements;
     while (index_ < lines_.size()) {
       const auto& line = lines_[index_];
       if (is_terminator(line)) break;
@@ -967,17 +969,17 @@ class Parser final {
           frontend::unsupported(diagnostics_, procedure.line,
                                 "nested/internal procedures inside a procedure are not supported");
         } else {
-          statements.push_back(std::move(procedure));
+          statements.push_back(store(std::move(procedure)));
         }
       } else if (first == Kind::keyword_if) {
-        statements.push_back(parse_if());
+        statements.push_back(store(parse_if()));
       } else if (first == Kind::keyword_select) {
-        statements.push_back(parse_select_case());
+        statements.push_back(store(parse_select_case()));
       } else if (first == Kind::keyword_do && token_count(line) > 1 &&
                  line.tokens[1].kind == Kind::keyword_while) {
-        statements.push_back(parse_do_while());
+        statements.push_back(store(parse_do_while()));
       } else if (first == Kind::keyword_do) {
-        statements.push_back(parse_counted_do());
+        statements.push_back(store(parse_counted_do()));
       } else if (is_declaration(first)) {
         parse_declaration(statements);
       } else {
@@ -993,14 +995,16 @@ class Parser final {
   std::size_t index_{0};
   std::size_t procedure_depth_{0};
   std::vector<std::vector<std::string>> procedure_returns_;
+  FrontendAstBuilder<fortran::ast::LanguageTag> builder_;
 };
 
 }  // namespace
 
-ParseResult parse_fortran_statements(std::vector<FortranStatementLine> lines,
-                                     std::vector<Diagnostic> diagnostics,
-                                     const LanguageVersion version) {
-  return Parser{std::move(lines), std::move(diagnostics), version}.parse();
+fortran::ast::ParseResult parse_fortran_statements(std::vector<FortranStatementLine> lines,
+                                                   std::vector<Diagnostic> diagnostics,
+                                                   const LanguageVersion version,
+                                                   std::pmr::memory_resource* resource) {
+  return Parser{std::move(lines), std::move(diagnostics), version, resource}.parse();
 }
 
 }  // namespace mpf::detail

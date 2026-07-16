@@ -7,8 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include "../compiler/expression.hpp"
-#include "../compiler/ir.hpp"
+#include "mpf/diagnostic.hpp"
 
 namespace mpf::detail::frontend {
 
@@ -85,34 +84,6 @@ inline std::vector<std::string> comma_list(std::string_view value) {
     }
   }
   return result;
-}
-
-inline void append_expression(Statement& statement, std::string_view expression,
-                              const SourceLanguage language, const std::size_t line,
-                              std::vector<Diagnostic>& diagnostics) {
-  if (trim(expression).empty()) {
-    statement.has_expression = false;
-    return;
-  }
-  auto translated = parse_expression(expression, language, line);
-  statement.expression = std::move(translated.expression);
-  statement.has_expression = statement.expression.valid();
-  diagnostics.insert(diagnostics.end(), std::make_move_iterator(translated.diagnostics.begin()),
-                     std::make_move_iterator(translated.diagnostics.end()));
-}
-
-inline void append_expression(Expression& destination, bool& present, std::string_view expression,
-                              const SourceLanguage language, const std::size_t line,
-                              std::vector<Diagnostic>& diagnostics) {
-  if (trim(expression).empty()) {
-    present = false;
-    return;
-  }
-  auto parsed = parse_expression(expression, language, line);
-  destination = std::move(parsed.expression);
-  present = destination.valid();
-  diagnostics.insert(diagnostics.end(), std::make_move_iterator(parsed.diagnostics.begin()),
-                     std::make_move_iterator(parsed.diagnostics.end()));
 }
 
 inline void unsupported(std::vector<Diagnostic>& diagnostics, const std::size_t line,

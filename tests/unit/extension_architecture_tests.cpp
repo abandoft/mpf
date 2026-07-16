@@ -170,19 +170,19 @@ TEST_CASE("every intrinsic has an explicit JavaScript and cpp code binding") {
 }
 
 TEST_CASE("missing target code bindings fail closed before emission") {
-  mpf::detail::Expression expression;
+  mpf::detail::mir::Expression expression;
   expression.kind = mpf::detail::ExpressionKind::identifier;
   expression.binding = mpf::detail::BindingKind::builtin;
   expression.intrinsic = mpf::detail::IntrinsicId::square_root;
   expression.location = {7, 3};
 
-  mpf::detail::Statement statement;
+  mpf::detail::mir::Statement statement;
   statement.kind = mpf::detail::StatementKind::expression;
   statement.has_expression = true;
   statement.expression = std::move(expression);
 
-  mpf::detail::Program program;
-  program.language = mpf::SourceLanguage::python;
+  mpf::detail::mir::Program program;
+  program.source_language = mpf::SourceLanguage::python;
   program.statements.push_back(std::move(statement));
   const auto diagnostics =
       mpf::detail::validate_code_bindings(program, &missing_binding, "test-target");

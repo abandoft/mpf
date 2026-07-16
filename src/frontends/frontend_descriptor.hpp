@@ -7,6 +7,7 @@
 #include <string_view>
 
 #include "../compiler/descriptor.hpp"
+#include "../source/source_text.hpp"
 #include "frontend_ast.hpp"
 
 namespace mpf::detail {

@@ -1,10 +1,11 @@
 #include <string>
 
 #include "compiler/expression.hpp"
-#include "compiler/frontend.hpp"
-#include "compiler/function_graph.hpp"
+#include "compiler/function_graph_generic.hpp"
 #include "frontends/fortran_source_form.hpp"
+#include "frontends/frontend_registry.hpp"
 #include "frontends/logical_source.hpp"
+#include "ir/hir.hpp"
 #include "lexer/fortran_statement_lexer.hpp"
 #include "lexer/lexer.hpp"
 #include "lexer/matlab_statement_lexer.hpp"
@@ -12,6 +13,30 @@
 #include "source/source_manager.hpp"
 #include "source/source_text.hpp"
 #include "test_framework.hpp"
+
+namespace {
+
+const mpf::detail::python::ast::Statement& python_statement(
+    const mpf::detail::python::ast::Program& program, const mpf::detail::AstNodeId id) {
+  REQUIRE(id.valid());
+  REQUIRE(id.value() < program.records.size());
+  const auto& record = program.records[id.value()];
+  REQUIRE(record.kind == mpf::detail::AstNodeKind::statement);
+  REQUIRE(record.index < program.statements.size());
+  return program.statements[record.index];
+}
+
+const mpf::detail::python::ast::Expression& python_expression(
+    const mpf::detail::python::ast::Program& program, const mpf::detail::AstNodeId id) {
+  REQUIRE(id.valid());
+  REQUIRE(id.value() < program.records.size());
+  const auto& record = program.records[id.value()];
+  REQUIRE(record.kind == mpf::detail::AstNodeKind::expression);
+  REQUIRE(record.index < program.expressions.size());
+  return program.expressions[record.index];
+}
+
+}  // namespace
 
 TEST_CASE("SourceText maps CRLF and UTF-8 byte offsets to logical locations") {
   const mpf::detail::SourceText source(u8"α\r\nx\n", "utf8.py");
@@ -403,17 +428,18 @@ TEST_CASE("Python parser preserves parameter kinds defaults and keyword actual n
       "def combine(left, /, right=2, *, scale=1):\n"
       "    return (left + right) * scale\n",
       "parameters.py");
-  const auto parsed = mpf::detail::parse_python(source);
+  const auto parsed = mpf::detail::parse_with_frontend(mpf::detail::python_frontend(), source);
   REQUIRE(parsed.diagnostics.empty());
-  REQUIRE(parsed.program.statements.size() == 1);
-  const auto& function = parsed.program.statements.front();
+  const auto& program = std::get<mpf::detail::python::ast::Program>(parsed.ast);
+  REQUIRE(program.roots.size() == 1);
+  const auto& function = python_statement(program, program.roots.front());
   REQUIRE(function.parameters.size() == 3);
   REQUIRE(function.parameter_kinds[0] == mpf::detail::ParameterKind::positional_only);
   REQUIRE(function.parameter_kinds[1] == mpf::detail::ParameterKind::positional_or_keyword);
   REQUIRE(function.parameter_kinds[2] == mpf::detail::ParameterKind::keyword_only);
   REQUIRE(!function.parameter_defaults[0].valid());
-  REQUIRE(function.parameter_defaults[1].value == "2");
-  REQUIRE(function.parameter_defaults[2].value == "1");
+  REQUIRE(python_expression(program, function.parameter_defaults[1]).value == "2");
+  REQUIRE(python_expression(program, function.parameter_defaults[2]).value == "1");
 
   const auto call = mpf::detail::parse_expression("combine(40, scale=2, right=1)",
                                                   mpf::SourceLanguage::python, 2);
@@ -432,20 +458,25 @@ TEST_CASE("Python parser normalizes flat tuple and list assignment targets") {
       "single, = (42,)\n"
       "(left, [head, *middle, tail]), answer = payload()\n",
       "unpacking.py");
-  const auto parsed = mpf::detail::parse_python(source);
+  const auto parsed = mpf::detail::parse_with_frontend(mpf::detail::python_frontend(), source);
   REQUIRE(parsed.diagnostics.empty());
-  REQUIRE(parsed.program.statements.size() == 5);
-  for (const auto& statement : parsed.program.statements) {
+  const auto& program = std::get<mpf::detail::python::ast::Program>(parsed.ast);
+  REQUIRE(program.roots.size() == 5);
+  for (const auto root : program.roots) {
+    const auto& statement = python_statement(program, root);
     REQUIRE(statement.kind == mpf::detail::StatementKind::multi_assignment);
   }
-  REQUIRE(parsed.program.statements[0].target_names.size() == 2);
-  REQUIRE(parsed.program.statements[0].target_names[0] == "first");
-  REQUIRE(parsed.program.statements[0].target_names[1] == "second");
-  REQUIRE(parsed.program.statements[2].target_names[0] == "left");
-  REQUIRE(parsed.program.statements[2].target_names[1] == "right");
-  REQUIRE(parsed.program.statements[3].target_names.size() == 1);
-  REQUIRE(parsed.program.statements[3].target_names[0] == "single");
-  const auto& nested = parsed.program.statements[4].target_pattern;
+  const auto& first = python_statement(program, program.roots[0]);
+  const auto& third = python_statement(program, program.roots[2]);
+  const auto& fourth = python_statement(program, program.roots[3]);
+  REQUIRE(first.target_names.size() == 2);
+  REQUIRE(first.target_names[0] == "first");
+  REQUIRE(first.target_names[1] == "second");
+  REQUIRE(third.target_names[0] == "left");
+  REQUIRE(third.target_names[1] == "right");
+  REQUIRE(fourth.target_names.size() == 1);
+  REQUIRE(fourth.target_names[0] == "single");
+  const auto& nested = python_statement(program, program.roots[4]).target_pattern;
   REQUIRE(nested.kind == mpf::detail::AssignmentPatternKind::sequence);
   REQUIRE(nested.children.size() == 2);
   REQUIRE(nested.children[0].children.size() == 2);
@@ -513,9 +544,12 @@ TEST_CASE("function dependency graph orders callees and detects semantic recursi
       "def callback(second):\n"
       "    return second()\n",
       "graph.py");
-  const auto parsed = mpf::detail::parse_python(source);
+  auto parsed = mpf::detail::parse_with_frontend(mpf::detail::python_frontend(), source);
   REQUIRE(parsed.diagnostics.empty());
-  const auto graph = mpf::detail::build_function_dependency_graph(parsed.program.statements);
+  auto lowered = mpf::detail::python_frontend().lower(std::move(parsed.ast));
+  REQUIRE(lowered.diagnostics.empty());
+  const auto graph = mpf::detail::build_function_dependency_graph_generic<
+      mpf::detail::hir::Expression, mpf::detail::hir::Statement>(lowered.program.statements);
   REQUIRE(graph.definition_order.size() == 4);
   REQUIRE(graph.definition_order[0] == 1);
   REQUIRE(graph.definition_order[1] == 0);

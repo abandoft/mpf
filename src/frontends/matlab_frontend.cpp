@@ -1,7 +1,6 @@
 #include <iterator>
 #include <utility>
 
-#include "../compiler/frontend.hpp"
 #include "../lexer/matlab_statement_lexer.hpp"
 #include "common.hpp"
 #include "frontend_descriptor.hpp"
@@ -18,9 +17,14 @@ class MatlabParserSession final : public FrontendParserSession {
   FrontendParseResult parse(const SourceText& source) override {
     const auto version = options_.language_version.automatic() ? LanguageVersion{2024, 2}
                                                                : options_.language_version;
-    auto parsed = parse_matlab(source, version);
-    auto ast = make_matlab_ast(std::move(parsed.program), options_.memory_resource);
-    return {FrontendAst{std::move(ast)}, std::move(parsed.diagnostics)};
+    auto normalized = normalize_matlab_source(source);
+    auto lexed = lex_matlab_statements(std::move(normalized.lines));
+    lexed.diagnostics.insert(lexed.diagnostics.begin(),
+                             std::make_move_iterator(normalized.diagnostics.begin()),
+                             std::make_move_iterator(normalized.diagnostics.end()));
+    auto parsed = parse_matlab_statements(std::move(lexed.lines), std::move(lexed.diagnostics),
+                                          version, options_.memory_resource);
+    return {FrontendAst{std::move(parsed.program)}, std::move(parsed.diagnostics)};
   }
 
  private:
@@ -69,15 +73,6 @@ constexpr FrontendFeatureSet features{
     static_cast<std::uint64_t>(FrontendFeature::array_sections)};
 
 }  // namespace
-
-ParseResult parse_matlab(const SourceText& source, const LanguageVersion version) {
-  auto normalized = normalize_matlab_source(source);
-  auto lexed = lex_matlab_statements(std::move(normalized.lines));
-  lexed.diagnostics.insert(lexed.diagnostics.begin(),
-                           std::make_move_iterator(normalized.diagnostics.begin()),
-                           std::make_move_iterator(normalized.diagnostics.end()));
-  return parse_matlab_statements(std::move(lexed.lines), std::move(lexed.diagnostics), version);
-}
 
 const FrontendDescriptor& matlab_frontend() noexcept {
   static const SourceIntrinsicTable intrinsic_tables[]{

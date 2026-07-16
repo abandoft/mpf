@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "common.hpp"
+#include "frontend_ast_builder.hpp"
 
 namespace mpf::detail {
 namespace {
@@ -60,24 +61,19 @@ std::size_t matching_token(const PythonStatementLine& line, const std::size_t op
   return token_count(line);
 }
 
-const Expression* indexed_base(const Expression& expression) noexcept {
-  auto current = &expression;
-  while (current->kind == ExpressionKind::index && !current->children.empty()) {
-    current = &current->children.front();
-  }
-  return current;
-}
-
 class Parser final {
  public:
   Parser(std::vector<PythonStatementLine> lines, std::vector<Diagnostic> diagnostics,
-         const LanguageVersion version)
-      : lines_(std::move(lines)), diagnostics_(std::move(diagnostics)), version_(version) {}
+         const LanguageVersion version, std::pmr::memory_resource* resource)
+      : lines_(std::move(lines)),
+        diagnostics_(std::move(diagnostics)),
+        version_(version),
+        builder_(SourceLanguage::python, resource) {
+    builder_.reserve(lines_.size(), lines_.size() * 2U);
+  }
 
-  ParseResult parse() {
-    ParseResult result;
-    result.program.language = SourceLanguage::python;
-    result.program.statements = parse_block(0);
+  python::ast::ParseResult parse() {
+    auto roots = parse_block(0);
     while (index_ < lines_.size()) {
       const auto orphan_indent = lines_[index_].source.indent;
       frontend::unsupported(diagnostics_, lines_[index_].source.number,
@@ -85,15 +81,38 @@ class Parser final {
       ++index_;
       while (index_ < lines_.size() && lines_[index_].source.indent > orphan_indent) ++index_;
       auto recovered = parse_block(0);
-      result.program.statements.insert(result.program.statements.end(),
-                                       std::make_move_iterator(recovered.begin()),
-                                       std::make_move_iterator(recovered.end()));
+      roots.insert(roots.end(), std::make_move_iterator(recovered.begin()),
+                   std::make_move_iterator(recovered.end()));
     }
-    result.diagnostics = std::move(diagnostics_);
-    return result;
+    builder_.set_roots(std::move(roots));
+    return {std::move(builder_).finish(), std::move(diagnostics_)};
   }
 
  private:
+  using Statement = python::ast::Statement;
+
+  AstNodeId store(Statement statement) { return builder_.add_statement(std::move(statement)); }
+
+  void append_expression(AstNodeId& destination, bool& present, const std::string_view source,
+                         const std::size_t line) {
+    destination = builder_.parse_expression(source, SourceLanguage::python, line, diagnostics_);
+    present = destination.valid();
+  }
+
+  void append_expression(Statement& statement, const std::string_view source,
+                         const std::size_t line) {
+    append_expression(statement.expression, statement.has_expression, source, line);
+  }
+
+  const python::ast::Expression* indexed_base(const AstNodeId expression) const noexcept {
+    auto current = builder_.expression(expression);
+    while (current != nullptr && current->kind == ExpressionKind::index &&
+           !current->children.empty()) {
+      current = builder_.expression(current->children.front());
+    }
+    return current;
+  }
+
   bool starts_with(const PythonStatementLine& line, const Kind kind) const noexcept {
     return token_count(line) != 0 && line.tokens.front().kind == kind;
   }
@@ -134,8 +153,7 @@ class Parser final {
                             "Python " + std::string(label) + " requires a condition");
       return false;
     }
-    frontend::append_expression(statement, expression, SourceLanguage::python, line.source.number,
-                                diagnostics_);
+    append_expression(statement, expression, line.source.number);
     return statement.has_expression;
   }
 
@@ -174,7 +192,8 @@ class Parser final {
         statement.alternative = parse_block(body_indent);
       }
     } else if (starts_with(line, Kind::keyword_elif)) {
-      statement.alternative.push_back(parse_conditional(Kind::keyword_elif, indent, "elif clause"));
+      statement.alternative.push_back(
+          store(parse_conditional(Kind::keyword_elif, indent, "elif clause")));
     }
   }
 
@@ -281,15 +300,14 @@ class Parser final {
       }
       statement.parameters.push_back(name);
       statement.parameter_kinds.push_back(kind);
-      Expression default_value;
+      AstNodeId default_value;
       if (has_default) {
         bool parsed = false;
-        frontend::append_expression(default_value, parsed,
-                                    token_slice(line, equals.front() + 1, end),
-                                    SourceLanguage::python, line.source.number, diagnostics_);
+        append_expression(default_value, parsed, token_slice(line, equals.front() + 1, end),
+                          line.source.number);
         if (!parsed) valid = false;
       }
-      statement.parameter_defaults.push_back(std::move(default_value));
+      statement.parameter_defaults.push_back(default_value);
       begin = end + 1;
     }
     if (saw_star && keyword_only_parameters == 0) valid = false;
@@ -377,15 +395,12 @@ class Parser final {
       } else {
         const auto start = arguments.size() == 1 ? std::string("0") : arguments[0];
         const auto stop = arguments.size() == 1 ? arguments[0] : arguments[1];
-        frontend::append_expression(statement, start, SourceLanguage::python, line.source.number,
-                                    diagnostics_);
-        frontend::append_expression(statement.secondary_expression,
-                                    statement.has_secondary_expression, stop,
-                                    SourceLanguage::python, line.source.number, diagnostics_);
+        append_expression(statement, start, line.source.number);
+        append_expression(statement.secondary_expression, statement.has_secondary_expression, stop,
+                          line.source.number);
         if (arguments.size() == 3) {
-          frontend::append_expression(statement.tertiary_expression,
-                                      statement.has_tertiary_expression, arguments[2],
-                                      SourceLanguage::python, line.source.number, diagnostics_);
+          append_expression(statement.tertiary_expression, statement.has_tertiary_expression,
+                            arguments[2], line.source.number);
         }
       }
     }
@@ -477,7 +492,7 @@ class Parser final {
     return !pattern.children.empty() && starred <= 1;
   }
 
-  void parse_simple_statement(std::vector<Statement>& statements) {
+  void parse_simple_statement(std::vector<AstNodeId>& statements) {
     const auto& line = lines_[index_];
     const auto count = token_count(line);
     const auto first = count == 0 ? Kind::end : line.tokens[0].kind;
@@ -490,7 +505,7 @@ class Parser final {
       statement.kind = first == Kind::keyword_break ? StatementKind::break_statement
                                                     : StatementKind::continue_statement;
       statement.line = line.source.number;
-      statements.push_back(std::move(statement));
+      statements.push_back(store(std::move(statement)));
       ++index_;
       return;
     }
@@ -499,10 +514,9 @@ class Parser final {
       statement.kind = StatementKind::return_statement;
       statement.line = line.source.number;
       if (count > 1) {
-        frontend::append_expression(statement, token_slice(line, 1, count), SourceLanguage::python,
-                                    line.source.number, diagnostics_);
+        append_expression(statement, token_slice(line, 1, count), line.source.number);
       }
-      statements.push_back(std::move(statement));
+      statements.push_back(store(std::move(statement)));
       ++index_;
       return;
     }
@@ -510,7 +524,7 @@ class Parser final {
       Statement statement;
       statement.kind = StatementKind::expression;
       statement.line = line.source.number;
-      statements.push_back(std::move(statement));
+      statements.push_back(store(std::move(statement)));
       ++index_;
       return;
     }
@@ -523,9 +537,8 @@ class Parser final {
       const auto arguments =
           std::string_view(line.source.text)
               .substr(line.tokens[1].end, line.tokens[print_closing].begin - line.tokens[1].end);
-      frontend::append_expression(statement, arguments, SourceLanguage::python, line.source.number,
-                                  diagnostics_);
-      statements.push_back(std::move(statement));
+      append_expression(statement, arguments, line.source.number);
+      statements.push_back(store(std::move(statement)));
       ++index_;
       return;
     }
@@ -566,12 +579,12 @@ class Parser final {
         return;
       } else {
         statement.kind = StatementKind::indexed_assignment;
-        frontend::append_expression(statement.target_expression, statement.has_target_expression,
-                                    token_slice(line, 0, equal), SourceLanguage::python,
-                                    line.source.number, diagnostics_);
+        append_expression(statement.target_expression, statement.has_target_expression,
+                          token_slice(line, 0, equal), line.source.number);
         const auto* base = indexed_base(statement.target_expression);
-        if (!statement.has_target_expression ||
-            statement.target_expression.kind != ExpressionKind::index || base == nullptr ||
+        const auto* target = builder_.expression(statement.target_expression);
+        if (!statement.has_target_expression || target == nullptr ||
+            target->kind != ExpressionKind::index || base == nullptr ||
             base->kind != ExpressionKind::identifier) {
           frontend::unsupported(diagnostics_, line.source.number,
                                 "Python assignment target must be a name, fixed name unpacking "
@@ -580,9 +593,8 @@ class Parser final {
           statement.name = base->value;
         }
       }
-      frontend::append_expression(statement, token_slice(line, equal + 1, count),
-                                  SourceLanguage::python, line.source.number, diagnostics_);
-      statements.push_back(std::move(statement));
+      append_expression(statement, token_slice(line, equal + 1, count), line.source.number);
+      statements.push_back(store(std::move(statement)));
       ++index_;
       return;
     }
@@ -602,14 +614,13 @@ class Parser final {
     Statement statement;
     statement.kind = StatementKind::expression;
     statement.line = line.source.number;
-    frontend::append_expression(statement, line.source.text, SourceLanguage::python,
-                                line.source.number, diagnostics_);
-    statements.push_back(std::move(statement));
+    append_expression(statement, line.source.text, line.source.number);
+    statements.push_back(store(std::move(statement)));
     ++index_;
   }
 
-  std::vector<Statement> parse_block(const std::size_t indent) {
-    std::vector<Statement> statements;
+  std::vector<AstNodeId> parse_block(const std::size_t indent) {
+    std::vector<AstNodeId> statements;
     while (index_ < lines_.size()) {
       const auto& line = lines_[index_];
       if (line.source.indent < indent) break;
@@ -622,12 +633,12 @@ class Parser final {
 
       const auto first = token_count(line) == 0 ? Kind::end : line.tokens.front().kind;
       switch (first) {
-        case Kind::keyword_def: statements.push_back(parse_function(indent)); break;
+        case Kind::keyword_def: statements.push_back(store(parse_function(indent))); break;
         case Kind::keyword_if:
-          statements.push_back(parse_conditional(Kind::keyword_if, indent, "if statement"));
+          statements.push_back(store(parse_conditional(Kind::keyword_if, indent, "if statement")));
           break;
-        case Kind::keyword_while: statements.push_back(parse_while(indent)); break;
-        case Kind::keyword_for: statements.push_back(parse_range(indent)); break;
+        case Kind::keyword_while: statements.push_back(store(parse_while(indent))); break;
+        case Kind::keyword_for: statements.push_back(store(parse_range(indent))); break;
         default: parse_simple_statement(statements); break;
       }
     }
@@ -638,14 +649,16 @@ class Parser final {
   std::vector<Diagnostic> diagnostics_;
   LanguageVersion version_;
   std::size_t index_{0};
+  FrontendAstBuilder<python::ast::LanguageTag> builder_;
 };
 
 }  // namespace
 
-ParseResult parse_python_statements(std::vector<PythonStatementLine> lines,
-                                    std::vector<Diagnostic> diagnostics,
-                                    const LanguageVersion version) {
-  return Parser{std::move(lines), std::move(diagnostics), version}.parse();
+python::ast::ParseResult parse_python_statements(std::vector<PythonStatementLine> lines,
+                                                 std::vector<Diagnostic> diagnostics,
+                                                 const LanguageVersion version,
+                                                 std::pmr::memory_resource* resource) {
+  return Parser{std::move(lines), std::move(diagnostics), version, resource}.parse();
 }
 
 }  // namespace mpf::detail
