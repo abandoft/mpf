@@ -1,6 +1,6 @@
 # 诊断与 CLI 契约
 
-自 0.1.0 起，MPF 为库调用、命令行、IDE 和 CI 提供同一个诊断模型；本文索引已覆盖 0.3.5。每条诊断包含稳定 code、severity、消息、源文件身份以及 1-based UTF-8 code-point range。未显式提供结束位置的旧诊断会覆盖起始位置的一个字符。
+自 0.1.0 起，MPF 为库调用、命令行、IDE 和 CI 提供同一个诊断模型；本文索引已覆盖 0.3.6。每条诊断包含稳定 code、severity、消息、源文件身份以及 1-based UTF-8 code-point range。未显式提供结束位置的旧诊断会覆盖起始位置的一个字符。
 
 ## 文本输出
 
@@ -120,6 +120,7 @@ Fortran statement lexer 诊断使用 `MPF18xx`：`MPF1801` 表示 source-form no
 | `MPF2041` | Python parameter kind、keyword association 或安全 default contract 无效 |
 | `MPF2042` | Python assignment pattern、固定 sequence 或普通/starred target 数量不匹配 |
 | `MPF2043` | Fortran SELECT/CASE selector/bound 的类型、常量、范围、default 或重叠关系无效 |
-| `MPF2044` | Python ordering 操作数不兼容，或 C++ 无法静态表示 equality/comparison-chain/conditional-expression 类型组合 |
+| `MPF2044` | Python ordering 操作数不兼容，或 `cpp` 无法静态保持 comparison-chain、sequence identity、conditional-expression 等目标类型/对象语义组合 |
+| `MPF2045` | Python identity 使用不可移植的数值/string 对象驻留语义，或 membership container/string needle 不在当前 string/list/tuple 可保持边界内 |
 
 语义分析和 capability validator 必须在 emitter 前产生这些错误；失败结果不应包含可被误认为成功输出的目标代码。新增或重新定义稳定 code 时必须同步本表、测试和 changelog。

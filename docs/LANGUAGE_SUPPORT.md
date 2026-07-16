@@ -12,7 +12,7 @@ TypeScript 6 已纳入产品目标，但当前尚未注册 TypeScript frontend d
 |---|---|---|---|
 | 源码形态 | 缩进式 logical statements；括号隐式续行、`\` 显式续行、行内注释、tab 展开、顶层分号；statement token/span stream | script logical statements；`...`、多行矩阵、行/block comment、顶层分号/逗号；statement token/span stream | free/fixed form 自动或显式选择；`&`/第 6 列 continuation、注释、分号 logical statements；statement token/span stream |
 | 标量数字、字符串、布尔值 | 基础支持 | 基础支持 | 基础支持 |
-| 标量算术与比较 | 支持；relational/equality 比较链短路且各操作数最多求值一次；已覆盖 bool/number 与当前同类递归 list equality | 支持，`^` 转为 `**` | 支持，含点式比较/逻辑运算符 |
+| 标量算术与比较 | 支持；equality/ordering/identity/membership 比较链短路且各操作数最多求值一次；bool/number 数值相等，同类 list/tuple 递归相等，list/tuple 跨种类不相等；`None`/布尔 singleton 与 JavaScript sequence reference identity；string/list/tuple membership | 支持，`^` 转为 `**` | 支持，含点式比较/逻辑运算符 |
 | truthiness 与逻辑 | 数字、字符串、list、`None`；`not`；operand-returning、短路且单次求值的 `and/or` | 标量逻辑基础支持 | logical `.not./.and./.or.` 基础支持 |
 | 标量转换 | `float` 的数字/布尔/字符串基础转换，含 NaN/Infinity | 尚未系统建模 | 声明赋值的基础转换 |
 | 标量赋值 | 支持；固定 tuple/list 解包支持递归圆括号/方括号 pattern，每层一个 starred target | 支持 | 支持，声明初始化亦支持 |
@@ -50,7 +50,7 @@ Python parameter parser 记录 positional-only、positional-or-keyword 与 keywo
 
 Python assignment parser 将裸/圆括号/方括号 target 解析为独立递归 `AssignmentPattern`，支持 nested sequence、单目标尾随逗号以及每层最多一个 starred name。Analyzer 接受固定 tuple/list literal、带可靠静态 extent 的 list 名称，以及逐层传播元数据的已知 user-function sequence return；它递归计算每个叶子的 type/element-type/shape 与访问路径，并以 `MPF2042` 拒绝数量不匹配、多个同层 star、非 sequence 嵌套值或动态未知长度。重复名称按 Python 从左到右覆盖；star capture 始终形成 list，C++ 对异质 capture 以 `MPF2020` 失败关闭，JavaScript 保持动态可用。字符串、一般 iterable、运行时未知长度与属性/下标 target 尚未进入当前解包子集。
 
-Python comparison chain 当前覆盖 `<`、`<=`、`>`、`>=`、`==`、`!=`，中间操作数只求值一次，后续操作数按前序比较结果短路。条件表达式按 Python 语法右结合，只执行被选中的分支。`is`/`is not`、`in`/`not in` 尚未进入当前表达式子集；JavaScript 表示也尚未完整区分 list 与 tuple 的对象种类，因此跨 sequence kind equality/identity 不作支持承诺。
+Python comparison chain 当前覆盖 `<`、`<=`、`>`、`>=`、`==`、`!=`、`is`/`is not` 与 `in`/`not in`，中间操作数只求值一次，后续操作数按前序比较结果短路；前置 `not` 按 Python precedence 包裹完整 comparison。equality 对布尔/数值使用数值等价，对同类 list/tuple 递归逐元素比较，list 与 tuple 跨种类恒不相等，异类标量安全返回 false。membership 当前支持 substring 以及 list/tuple 逐元素 equality。identity 当前支持 `None`/布尔 singleton；JavaScript 还保持 list/tuple 对象引用 identity，`cpp` 因值容器无法保持对象身份而以 `MPF2044` 失败关闭。数值/string 对象 identity 受实现驻留影响，以 `MPF2045` 拒绝。条件表达式按 Python 语法右结合，只执行被选中的分支。dict/set、自定义 iterable/`__contains__`、用户对象 equality 与对象生命周期仍未进入当前子集。
 
 Python/Matlab/Fortran 都先把物理源码归一化为带首行位置的 logical statements，随后进入各自 statement lexer 和递归下降 parser；表达式跨度仍交给共享 Pratt parser。Fortran procedure 关键字保持上下文化，declaration attribute 支持 `INTENT(IN/OUT/INOUT)` 与 `OPTIONAL`；已知 interface 的 keyword actual 在 Analyzer 中规范化为 formal 顺序，缺省 optional 以中立 omitted-argument 节点表示。当前静态/assumed-shape rank 范围内，optional 标量/数组支持全部三种 intent，存在的可写 name/element 使用 mutable borrow，section 使用显式 copy-out/copy-in-out，optional-to-optional 使用 forwarding contract；这些决定驻留于 MIR call argument 和双目标 LIR。assumed-rank、同一根 storage 的多写回参数、generic interface、module procedure 与嵌套 procedure 尚未支持。
 
@@ -69,6 +69,7 @@ Fortran `SELECT CASE` selector 只求值一次。CASE bound 当前接受 integer
 | 幂、floor division | `**`、`Math.floor` | `std::pow`、`std::floor` lowering |
 | 数学 intrinsic | `Math.*` | `<cmath>` 的 `std::*` |
 | 多值/tuple | 多输出调用返回 Array；解构赋值只求值一次 | 多输出调用返回 `std::tuple`；临时 tuple 与 `std::get<N>` 只求值一次 |
+| Python 比较对象模型 | 私有 `Symbol` 标记 tuple；递归 equality、reference identity、string/list/tuple membership | 递归跨元素类型 equality/membership、singleton identity；sequence identity 失败关闭；comparison temporary 固定左到右求值 |
 | 函数依赖与递归 | 函数声明提升；支持当前函数子集的前向、直接和互递归 | callee-first 定义；静态返回类型递归使用模板声明，未知递归返回以 `MPF2035` 拒绝 |
 | list/矩形数组 | 嵌套 JavaScript Array | element-type/shape 驱动的递归 `std::vector<T>` |
 | 安全索引 | runtime base/负下标/逐维 bounds/列主序检查 | `index` 与二维 `matrix_linear_index` runtime |
@@ -78,6 +79,6 @@ Fortran `SELECT CASE` selector 只求值一次。CASE bound 当前接受 integer
 | 自动验证 | Node.js syntax + execution | 平台 C++17 编译器 compile + execution |
 | 名称安全 | JS 保留字确定性改写 | C++ 保留字改写并隔离在 namespace |
 
-C++17 后端使用函数模板保持基础参数类型，并根据语义分析结果生成标量和任意 rank 递归 `std::vector` 声明；Python source call 在 Analyzer 后已成为完整位置实参序列。普通 Fortran IN 参数的 `const T&`、OUT/INOUT 的 `T&`，以及 optional formal 的具体 `mpf_runtime::optional_argument<T>` 已作为 `cpp` LIR v9 参数 ABI/访问计划固化。JavaScript 的 script/ESM、export、value/reference-box ABI、一般 N 维默认数组初始化与作用域声明顺序同样驻留于 JavaScript LIR v9；module/translation-unit layout、operator/comparison/custom call、first-result、N-D section、selector/range/loop-else/return 均由目标 plan 固化。逐实参 plan 同时保存 optional-forward/box/copy ownership 与写回形式，JavaScript writable call 选择 arrow IIFE，C++ section copy-in/out 选择 reference lambda，调用结果只求值一次并按计划保存。optional runtime 同时保存 absent、外部引用或临时 owned value；section actual 由 JavaScript selector-aware N 维 runtime 或 C++17 typed copy-out 回写。Analyzer 以 `MPF2038`—`MPF2041` 拒绝不可定义、alias、shape/type 或 association 不匹配。广播、动态 rank、精确 N 维 overlap/多写回 alias、矩阵乘法以及源语言特有对象模型尚未支持。
+C++17 后端使用函数模板保持基础参数类型，并根据语义分析结果生成标量和任意 rank 递归 `std::vector` 声明；Python source call 在 Analyzer 后已成为完整位置实参序列。普通 Fortran IN 参数的 `const T&`、OUT/INOUT 的 `T&`，以及 optional formal 的具体 `mpf_runtime::optional_argument<T>` 已作为 `cpp` LIR v10 参数 ABI/访问计划固化。JavaScript 的 script/ESM、export、value/reference-box ABI、一般 N 维默认数组初始化与作用域声明顺序同样驻留于 JavaScript LIR v10；module/translation-unit layout、强类型 comparison、custom call、first-result、N-D section、selector/range/loop-else/return 均由目标 plan 固化。逐实参 plan 同时保存 optional-forward/box/copy ownership 与写回形式，JavaScript writable call 选择 arrow IIFE，C++ section copy-in/out 与 comparison evaluation 选择 reference lambda，调用或操作数只求值一次并按计划保存。optional runtime 同时保存 absent、外部引用或临时 owned value；section actual 由 JavaScript selector-aware N 维 runtime 或 C++17 typed copy-out 回写。Analyzer 以 `MPF2038`—`MPF2041` 拒绝不可定义、alias、shape/type 或 association 不匹配，并以 `MPF2044`/`MPF2045` 约束 comparison 可保持边界。广播、动态 rank、精确 N 维 overlap/多写回 alias、矩阵乘法以及完整源语言对象模型尚未支持。
 
 当前 declarative corpus 在同一 differential case 中直接比较 CPython 3.14 或 gfortran 严格 `-std=f2018` reference mode、Node.js、生成 C++17 与 oracle；`MPF_FORTRAN_REFERENCE_STANDARD` 允许工具链支持后切换到 `f2023`。这个外部编译器模式只描述当前 corpus 的 reference 执行环境，不降低 MPF frontend 的 Fortran 2023 版本化目标。Matlab case 当前直接比较 Node.js、生成 C++17 与 oracle；源程序执行门禁将在 CI 提供可授权的 Matlab runner 或明确选定 Octave 兼容策略后加入。

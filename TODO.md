@@ -1,6 +1,6 @@
 # MPF 持续建设路线图
 
-本路线图同时记录 **0.3.5 已发布基线** 与下一轮 **0.3.6 交付目标** 的真实状态。历史交付细节见
+本路线图同时记录 **0.3.6 已发布基线** 与下一轮 **0.3.7 交付目标** 的真实状态。历史交付细节见
 [CHANGELOG.md](CHANGELOG.md)，当前可依赖的语言子集见
 [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 前端当前尚未实现。
 
@@ -14,10 +14,10 @@
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；`cpp` 当前生成严格 C++17 translation unit |
 | 前后端边界 | 生产驱动固定经过语言 AST artifact→HIR→MIR→目标私有 semantic plan/LIR→emitter；两个目标不读取彼此产物 |
 | 扩展架构 | frontend descriptor API v5、backend descriptor API v5；parser session/feature/resource contract、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
-| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有，Analyzer 校验并原位完善 semantic seed，以 `SymbolId` 稠密状态消费前两表；HIR→MIR 消费 semantic/name facts，MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime、驻留的 tuple/function/reference 签名，以及包含 region/intent/transfer 的单对象 call argument 表；alias/effect 由独立 `AliasEffectTable` 持有并提供 call argument/overlap facts；双目标 LIR v9 显式保存 ABI、scope/declaration、临时值、顶层拓扑、expression/statement、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
-| Python 最新能力 | relational/equality 比较链、右结合条件表达式、短路/惰性/单次求值；基础参数关联和递归固定序列解包 |
+| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有，Analyzer 校验并原位完善 semantic seed，以 `SymbolId` 稠密状态消费前两表；HIR→MIR 消费 semantic/name facts，MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime、驻留的 tuple/function/reference 签名，以及包含 region/intent/transfer 的单对象 call argument 表；alias/effect 由独立 `AliasEffectTable` 持有并提供 call argument/overlap facts；双目标 LIR v10 显式保存 ABI、scope/declaration、临时值、顶层拓扑、expression/statement、强类型比较、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
+| Python 最新能力 | relational/equality/identity/membership 比较链、右结合条件表达式、短路/惰性/单次求值；list/tuple 种类相等规则、singleton/reference identity、string/list/tuple membership；基础参数关联和递归固定序列解包 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流 |
-| 工程门禁 | 158 项内部测试；48 个差分 case、134 条工具完整环境执行路径；59 项 CTest；fuzz smoke、可选 libFuzzer、版本化性能发布阈值、阶段报告；生产代码行覆盖率实测 89.58%（17561/19604），硬门槛 85% |
+| 工程门禁 | 158 项内部测试；49 个差分 case、137 条工具完整环境执行路径；60 项 CTest；fuzz smoke、可选 libFuzzer、版本化性能发布阈值、阶段报告；生产代码行覆盖率实测 89.69%（17959/20023），硬门槛 85% |
 | 发布状态 | 0.x；没有长期 API/ABI 或完整语言兼容承诺 |
 
 ## 本轮商业级收尾验收（完成）
@@ -35,7 +35,7 @@
 
 ### 0.3.5：商业级前后端与五层编译器管线继续收敛（已发布）
 
-0.3.5 以 16 条独立更新完成封版，交付窄 HIR + semantic seed、独立 name/flow/alias-effect side table、跨函数 MIR call contract 和双目标 LIR v9。下列已勾选项是该版本及此前版本的实际能力；未勾选项不是 0.3.5 发布承诺，继续作为 0.3.6 及后续版本的架构 backlog。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
+0.3.5 以 16 条独立更新完成封版，交付窄 HIR + semantic seed、独立 name/flow/alias-effect side table、跨函数 MIR call contract 和双目标 LIR v9。下列已勾选项是该版本及此前版本的实际能力；未勾选项继续作为 0.3.7 及后续版本的架构 backlog。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
 
 #### P0：基线、指标与依赖规则
 
@@ -99,6 +99,7 @@
 - [x] JavaScript LIR v7 增加独立 `ExpressionPlan`，固化 form/precedence/token、结构相等/惰性逻辑/比较链策略、direct/custom call ABI、逐实参 value/optional-forward/reference-box 形式、first-result 与 element/section selector plan；renderer 不再读取共享 expression kind、intrinsic、binding 或 transfer
 - [x] JavaScript LIR v8 增加独立 `StatementPlan`，固化 declaration/assignment/print/return/control/function form、condition truthiness、value/reference-box 参数访问、一般 N 维默认数组初始化、assignment leaf、selector、range/loop-else 与 section 写回；`ExpressionPlan` 同步持有 index/slice metadata
 - [x] JavaScript LIR v9 以单一 `CallArgumentPlan` 固化 value/optional/box ownership 与 direct/element/section writeback，以 `EvaluationForm` 固化 comparison/lazy/writable-call arrow IIFE/thunk；按 `LirNodeId` 稠密的 `SourceSegmentPlan` 在 renderer 前固定 source/origin
+- [x] JavaScript LIR v10 以强类型 `ComparisonForm` 固化 infix/structural equality/identity/membership；私有 `Symbol` tuple tag 与 runtime helper 由 representation/runtime catalog 持有，renderer 只序列化已验证策略
 - [ ] 把 JS 数据表示、calling convention、结构化 import/export/chunk 与 NPM/runtime manifest 完整固化到 semantic IR
 - [ ] 完成独立 JavaScript AST/LIR 的结构化 module/script/import/export/chunk 节点；当前 expression/statement、临时值、IIFE/closure 和逐 `LirNodeId` source segment 已由 representation lowering 持有
 - [x] 建立 JavaScript target pass pipeline，完成保留字安全名称分配、dependency canonicalization 和确定性排序
@@ -117,6 +118,7 @@
 - [x] `cpp` LIR v7 增加独立 `ExpressionPlan`，固化 form/precedence/target token、比较器、direct/custom runtime call、逐实参 value/optional-forward/copy-section、first-result、nested/matrix/section index 模式、list concrete type 与逐元素 widening；renderer 删除 expression kind/intrinsic/binding/transfer 解释
 - [x] `cpp` LIR v8 增加独立 `StatementPlan`，固化 statement/control form、condition truthiness、direct/optional-value 访问、assignment leaf concrete type/widen、selector、range/loop-else、section replacement flatten/resize 与 return plan；`ExpressionPlan` 同步持有 index/slice metadata、reshape shape 和 call result policy
 - [x] `cpp` LIR v9 以单一 `CallArgumentPlan` 固化 value/optional-forward/copy-in-out ownership 与 section writeback，以 `EvaluationForm`/call outcome 固化 comparison/lazy/copy-call reference lambda；按 `LirNodeId` 稠密的 `SourceSegmentPlan` 前移 source/origin
+- [x] `cpp` LIR v10 以强类型 `ComparisonForm` 固化 equality/ordering/identity/membership，并为二元比较分配 CSR operand temporary 与 reference-lambda evaluation plan，保证 C++17 左到右单次求值
 - [ ] 把具体类型、calling convention、value/reference/ownership 与 ABI 完整固化到 semantic IR
 - [ ] 建立完整 representation/ABI lowering 和独立 `cpp` AST/LIR；translation unit/include/namespace/声明定义拓扑及当前 expression/statement/template/lambda/call ownership plan 已结构化，仍需把一般临时对象、RAII/copy/move 和 runtime ABI call 全部节点化
 - [x] 建立 `cpp` target pass pipeline，完成保留字安全名称分配、函数依赖排序、dependency canonicalization 和确定性排序
@@ -151,14 +153,23 @@
 
 完成定义：P0—P7 全部完成，且两个 emitter 的公共入口只能接收各自 LIR，才可宣称“商业级多层 IR 与易扩展前后端”已交付。
 
-### 0.3.6：Python 比较与成员关系语义
+### 0.3.6：Python 比较与成员关系语义（已发布）
 
-- [ ] 为 `is`/`is not`、`in`/`not in` 建立专用 token、AST/IR 和优先级规则
-- [ ] 明确 `None`/布尔/数值/string/list/tuple 的 equality、identity 与 membership 支持边界
-- [ ] JavaScript runtime 区分 list/tuple 等不同 sequence kind，避免跨类型 equality 被 Array 表示抹平
-- [ ] C++ capability validator 对无法静态保持的动态对象比较稳定失败关闭
-- [ ] 覆盖成功、拒绝、短路/单次求值、CPython/Node.js/生成 C++/oracle 差分
-- [ ] 同步版本、支持矩阵、诊断、测试统计与 changelog
+- [x] 为 `is`/`is not`、`in`/`not in` 建立专用 token、复合操作符和 Python comparison precedence，修正前置 `not` 的绑定范围
+- [x] 以强类型 `ComparisonOperator` 贯穿语言 AST、窄 HIR、MIR 和双目标 LIR；frontend AST v3 与各层 verifier 拒绝二义 payload、空操作符和错误 chain arity
+- [x] 明确 `None`/布尔/数值/string/list/tuple 的 equality、identity 与 membership 支持边界；同类 sequence 递归相等，list/tuple 跨种类不相等
+- [x] JavaScript 使用私有 `Symbol` tuple tag 区分 list/tuple，并以 runtime helper 保持递归 equality、sequence 引用 identity 与 string/list/tuple membership
+- [x] `cpp` runtime 支持跨元素类型递归 equality 与 membership；LIR 以 reference-lambda 临时值固定二元比较左到右单次求值
+- [x] `cpp` capability validator 对 value container 无法保持的 sequence identity 稳定产生 `MPF2044`，Analyzer 对不可移植 scalar identity/非法 membership 产生 `MPF2045`
+- [x] 覆盖成功、拒绝、链式短路、递归容器、list/tuple 差异、布尔/数值等价、CPython/Node.js/严格生成 C++/oracle 差分与 fuzz seed
+- [x] 双目标 LIR schema 升至 v10，并同步版本、支持矩阵、诊断、架构、测试统计、golden、性能基线与 changelog
+
+### 0.3.7：前端 grammar 与 MIR 执行语义继续收敛
+
+- [ ] 按三个官方 grammar 选择下一批可独立验收的 statement/expression 纵切面，补齐 feature gate、恢复点、拒绝诊断与差分 corpus
+- [ ] 删除 statement parser 共享 scratch 的生产依赖，继续压缩 MIR 宽结构兼容投影
+- [ ] 将更多 evaluation order、load/store 和 runtime-independent semantic operation 固化到 MIR，并保持双目标独立 legalization
+- [ ] 每累计 8—20 条可独立验证更新即形成下一版本，不跨版本堆积已完成能力
 
 ## M0：工程与端到端基础（完成）
 
@@ -211,7 +222,7 @@
 - [x] positional/keyword actual、`/` positional-only 与裸 `*` keyword-only
 - [x] 算术、幂、floor/true division、truthiness、`not`、operand-returning `and/or`
 - [x] relational/equality 比较链与右结合条件表达式；短路、惰性且实际操作数单次求值
-- [x] bool/number equality 和当前同类递归 list equality 的 JavaScript runtime
+- [x] bool/number equality、同类递归 list/tuple equality、list/tuple 跨种类不相等、singleton/reference identity 与 string/list/tuple membership
 - [x] 固定 tuple/list 解包、递归 assignment pattern、每层单 starred target 和跨函数结构元数据
 - [x] `for ... in range`、正负 step、`while`、`elif`、loop-else、`break`/`continue`
 - [x] logical line、括号/反斜杠续行、注释、tab 展开缩进和顶层分号 simple statements
@@ -223,7 +234,7 @@
 仍需建设：
 
 - [ ] 以 Python 3.14 grammar 建立 PEG/等价完整 parser 与旧版本语法门控
-- [ ] `is`/`is not`、`in`/`not in`，以及 list/tuple 跨类型 equality/identity 的精确规则
+- [x] `is`/`is not`、`in`/`not in`，以及当前可表示 list/tuple equality/identity 的精确规则；`cpp` sequence identity 明确失败关闭
 - [ ] dict/set/bytes、完整 string/f-string/triple-quoted literal、comprehension 和 generator expression
 - [ ] lambda、named expression、完整 call/attribute/subscript/slice 表达式和 operator 集合
 - [ ] 一般 iterable 解包、运行时未知长度解包，以及 attribute/subscript assignment target
@@ -309,7 +320,7 @@
 - [x] C++ 函数模板、callee-first 定义、递归声明、类型/shape 驱动声明和 namespace 隔离
 - [x] JavaScript Array 与 C++ 递归 `std::vector` 的索引、shape、聚合、reshape 和 section runtime
 - [x] Matlab 多输出和 Fortran writable actual/optional argument 双后端 lowering
-- [x] Python truthiness、and/or、比较链、条件表达式和当前 equality runtime
+- [x] Python truthiness、and/or、条件表达式，以及 equality/ordering/identity/membership 比较链和双目标 runtime/capability 边界
 - [x] Node.js 执行、生成 C++ 严格编译执行和单一差分 manifest
 
 仍需建设：

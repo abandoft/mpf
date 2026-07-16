@@ -1,5 +1,16 @@
 ## Unreleased
 
+## 0.3.6
+
+- Python 表达式 lexer/parser 新增 `is`/`is not` 与 `in`/`not in` 的专用 token、复合操作符识别和真实 comparison precedence；前置 `not` 正确包裹完整比较表达式，链式比较继续保持逐项短路。
+- 比较操作符从字符串升级为贯穿语言 AST、窄 HIR、MIR 和双目标 LIR 的强类型 `ComparisonOperator`；frontend AST schema 升至 v3，各层 verifier 拒绝二义 binary payload、空操作符和错误 chain arity。
+- Analyzer 明确 Python equality 边界：布尔与数值按 Python 数值规则比较，同类 list/tuple 递归逐元素比较，list 与 tuple 即使内容相同也不相等，异类标量相等安全返回 false。
+- identity 支持 `None`/布尔 singleton 和 JavaScript sequence 引用身份；数值/string 对象驻留规则以 `MPF2045` 拒绝，`cpp` 对 value-container 无法保持的 sequence identity 以 `MPF2044` 失败关闭。
+- membership 支持 substring、list 与异质 tuple，使用 Python equality 逐元素判断，并覆盖 `not in` 和 membership/identity 混合比较链；不受支持的 container 或 string needle 类型在 Analyzer 阶段稳定拒绝。
+- JavaScript runtime 使用私有 `Symbol` 标记 tuple，在保留 Array 性能和引用身份的同时区分 list/tuple equality；`__mpf_py_equal`、`__mpf_py_is` 与 `__mpf_py_contains` 由目标 representation 显式选择。
+- `cpp` runtime 新增递归跨元素类型的 list/tuple equality、string/list/tuple membership 和 singleton identity；二元比较由 LIR 临时资源与 reference-lambda IIFE 固定左到右单次求值，不依赖 C++17 未指定的函数实参求值顺序。
+- 双目标 LIR artifact schema 升至 v10，新增强类型 equality/ordering/identity/membership representation 与 verifier negative；新增 Python comparison 示例、fuzz seed 及 CPython/Node.js/严格生成 C++/oracle 差分，当前为 158 项内部测试、49 个 corpus case、60 项 CTest，生产代码行覆盖率 89.69%（17959/20023）。
+
 ## 0.3.5
 
 - MIR 类型系统新增驻留的 tuple、function 与 reference 类型，函数保存独立签名，Python tuple 返回保持单结果、Matlab 多输出保持多结果，Fortran `INTENT(IN/OUT/INOUT)` 参数进入带模式的 reference type。
