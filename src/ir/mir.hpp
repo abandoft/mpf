@@ -64,17 +64,23 @@ enum class Opcode {
   invalid,
   literal,
   identifier,
+  load,
   unary,
   binary,
+  compare,
   comparison_chain,
   conditional,
+  truthiness,
   call,
   member,
   index,
   slice,
   aggregate,
-  assignment,
-  indexed_assignment,
+  allocate,
+  store,
+  store_indexed,
+  copy,
+  writeback,
   output,
   return_value,
   expression,
@@ -137,11 +143,15 @@ struct Instruction {
   HirNodeId origin{};
   MirFunctionId callee{};
   IntrinsicId intrinsic{IntrinsicId::none};
+  ArgumentTransfer transfer{ArgumentTransfer::value};
+  ComparisonOperator comparison{ComparisonOperator::none};
+  semantic::Truthiness truthiness{semantic::Truthiness::native};
   SourceLocation location{};
   ValueId result{};
   TypeId type{};
   ShapeId shape{};
   StorageId storage{};
+  std::size_t result_index{dynamic_extent};
   std::vector<ValueId> operands;
 };
 
@@ -175,8 +185,10 @@ struct Function {
   BlockId entry{};
   std::vector<BlockId> blocks;
   std::vector<TypeId> parameter_types;
+  std::vector<ShapeId> parameter_shapes;
   std::vector<bool> parameter_optional;
   std::vector<TypeId> result_types;
+  std::vector<ShapeId> result_shapes;
   TypeId signature{};
 };
 
@@ -207,30 +219,7 @@ struct Expression {
   HirNodeId origin{};
   SourceLocation location{};
   ExpressionKind kind{ExpressionKind::invalid};
-  std::string value;
-  ComparisonOperator comparison{ComparisonOperator::none};
-  std::vector<ComparisonOperator> comparisons;
   std::vector<MirExpressionId> children;
-  ValueType inferred_type{ValueType::unknown};
-  BindingKind binding{BindingKind::unresolved};
-  IntrinsicId intrinsic{IntrinsicId::none};
-  ValueType element_type{ValueType::unknown};
-  std::vector<std::size_t> shape;
-  std::vector<ValueType> tuple_types;
-  std::vector<ValueType> tuple_element_types;
-  std::vector<std::vector<std::size_t>> tuple_shapes;
-  bool sequence_is_list{false};
-  std::vector<ValueMetadata> sequence_elements;
-  std::size_t requested_outputs{1};
-  bool multi_output_call{false};
-  std::vector<ParameterIntent> argument_intents;
-  std::vector<std::string> argument_names;
-  std::vector<bool> argument_optional_forward;
-  bool procedure_has_result{false};
-  std::size_t index_base{0};
-  bool allow_negative_index{false};
-  bool column_major{false};
-  bool slice_stop_inclusive{false};
   ValueId value_id{};
   TypeId type_id{};
   ShapeId shape_id{};
@@ -258,53 +247,89 @@ struct Statement {
   SymbolId symbol_id{};
   MirExpressionId expression{};
   bool has_expression{false};
-  bool procedure_call{false};
   MirExpressionId secondary_expression{};
   bool has_secondary_expression{false};
   MirExpressionId tertiary_expression{};
   bool has_tertiary_expression{false};
-  bool inclusive_stop{false};
-  bool retain_last_loop_value{true};
-  ValueType declared_type{ValueType::unknown};
-  ValueType element_type{ValueType::unknown};
-  ValueType previous_type{ValueType::unknown};
-  ValueType previous_element_type{ValueType::unknown};
-  ParameterIntent parameter_intent{ParameterIntent::none};
-  bool optional_parameter{false};
-  bool dummy_parameter{false};
-  std::vector<std::size_t> shape;
-  std::size_t index_base{0};
-  bool allow_negative_index{false};
   MirExpressionId target_expression{};
   bool has_target_expression{false};
   std::vector<std::string> parameters;
   std::vector<SymbolId> parameter_symbols;
   std::vector<ParameterKind> parameter_kinds;
   std::vector<MirExpressionId> parameter_defaults;
-  std::vector<ParameterIntent> parameter_intents;
-  std::vector<bool> parameter_optional;
-  std::vector<ValueType> parameter_types;
-  std::vector<ValueType> parameter_element_types;
-  std::vector<std::vector<std::size_t>> parameter_shapes;
   std::vector<std::string> return_names;
-  bool has_value_return{false};
-  std::vector<ValueType> return_types;
-  std::vector<ValueType> return_element_types;
-  std::vector<std::vector<std::size_t>> return_shapes;
-  bool return_sequence_is_list{false};
-  std::vector<ValueMetadata> return_sequence_elements;
   std::vector<std::string> target_names;
-  AssignmentPattern target_pattern;
+  std::vector<SymbolId> target_symbols;
   bool has_target_pattern{false};
-  std::vector<ValueType> target_types;
-  std::vector<ValueType> target_element_types;
-  std::vector<std::vector<std::size_t>> target_shapes;
-  std::vector<ValueType> target_previous_types;
-  std::vector<ValueType> target_previous_element_types;
   std::vector<CaseSelector> case_selectors;
   bool default_case{false};
   std::vector<MirStatementId> body;
   std::vector<MirStatementId> alternative;
+};
+
+struct ValueMetadata {
+  TypeId type{};
+  ShapeId shape{};
+  bool sequence{false};
+  bool list_sequence{false};
+  std::vector<ValueMetadata> elements;
+};
+
+struct AssignmentPattern {
+  AssignmentPatternKind kind{AssignmentPatternKind::invalid};
+  SourceLocation location{};
+  std::string name;
+  std::vector<AssignmentPattern> children;
+  TypeId type{};
+  ShapeId shape{};
+  TypeId previous_type{};
+  std::vector<AssignmentAccess> access_path;
+  std::vector<std::vector<AssignmentAccess>> captured_paths;
+
+  [[nodiscard]] bool valid() const noexcept { return kind != AssignmentPatternKind::invalid; }
+};
+
+struct ExpressionAttributes {
+  MirExpressionId origin{};
+  std::string spelling;
+  ComparisonOperator comparison{ComparisonOperator::none};
+  std::vector<ComparisonOperator> comparisons;
+  BindingKind binding{BindingKind::unresolved};
+  IntrinsicId intrinsic{IntrinsicId::none};
+  std::vector<ShapeId> tuple_shapes;
+  std::vector<ValueMetadata> sequence_elements;
+  std::size_t requested_results{1};
+  bool multi_result_call{false};
+  bool procedure_has_result{false};
+  std::size_t index_base{0};
+  bool allow_negative_index{false};
+  bool slice_stop_inclusive{false};
+  bool lazy_cfg{false};
+};
+
+struct TargetAttributes {
+  TypeId type{};
+  ShapeId shape{};
+  TypeId previous_type{};
+  StorageId storage{};
+};
+
+struct StatementAttributes {
+  MirStatementId origin{};
+  bool procedure_call{false};
+  bool inclusive_stop{false};
+  bool retain_last_loop_value{true};
+  TypeId previous_type{};
+  AssignmentPattern target_pattern;
+  std::vector<TargetAttributes> targets;
+};
+
+struct OperationAttributeTable {
+  std::uint64_t mir_revision{0};
+  std::size_t expression_count{0};
+  std::size_t statement_count{0};
+  std::vector<ExpressionAttributes> expressions;
+  std::vector<StatementAttributes> statements;
 };
 
 struct Program {
@@ -313,6 +338,7 @@ struct Program {
   std::vector<Expression> expressions;
   std::vector<Statement> statements;
   std::vector<MirStatementId> roots;
+  OperationAttributeTable attributes;
   std::vector<TypeData> types;
   std::vector<ShapeData> shapes;
   std::vector<StorageData> storages;
@@ -328,6 +354,17 @@ struct Program {
 [[nodiscard]] Expression* expression(Program& program, MirExpressionId id) noexcept;
 [[nodiscard]] const Statement* statement(const Program& program, MirStatementId id) noexcept;
 [[nodiscard]] Statement* statement(Program& program, MirStatementId id) noexcept;
+[[nodiscard]] const ExpressionAttributes* attributes(const Program& program,
+                                                     MirExpressionId id) noexcept;
+[[nodiscard]] ExpressionAttributes* attributes(Program& program, MirExpressionId id) noexcept;
+[[nodiscard]] const StatementAttributes* attributes(const Program& program,
+                                                    MirStatementId id) noexcept;
+[[nodiscard]] StatementAttributes* attributes(Program& program, MirStatementId id) noexcept;
+[[nodiscard]] const TypeData* type(const Program& program, TypeId id) noexcept;
+[[nodiscard]] const ShapeData* shape(const Program& program, ShapeId id) noexcept;
+[[nodiscard]] ValueType value_type(const Program& program, TypeId id) noexcept;
+[[nodiscard]] ValueType element_type(const Program& program, TypeId id) noexcept;
+[[nodiscard]] bool column_major(const Program& program, ShapeId id) noexcept;
 
 struct StorageAliasFacts {
   StorageId origin{};

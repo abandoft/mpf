@@ -59,12 +59,15 @@ Effect minimum_effects(const Instruction& instruction) noexcept {
   switch (instruction.opcode) {
     case Opcode::invalid:
     case Opcode::literal:
+    case Opcode::compare:
+    case Opcode::truthiness:
     case Opcode::unary:
     case Opcode::binary:
     case Opcode::member:
     case Opcode::expression:
-    case Opcode::function: return Effect::none;
-    case Opcode::identifier: return Effect::read;
+    case Opcode::function:
+    case Opcode::identifier: return Effect::none;
+    case Opcode::load: return Effect::read;
     case Opcode::comparison_chain:
     case Opcode::conditional:
     case Opcode::return_value:
@@ -75,9 +78,14 @@ Effect minimum_effects(const Instruction& instruction) noexcept {
       return instruction.callee.valid() ? Effect::none : intrinsic_effects(instruction.intrinsic);
     case Opcode::index:
     case Opcode::slice: return Effect::read | Effect::may_fail;
-    case Opcode::aggregate: return Effect::allocate;
-    case Opcode::assignment:
-    case Opcode::indexed_assignment: return Effect::write;
+    case Opcode::aggregate:
+    case Opcode::allocate: return Effect::allocate;
+    case Opcode::store:
+    case Opcode::store_indexed:
+    case Opcode::writeback: return Effect::write;
+    case Opcode::copy:
+      return Effect::allocate |
+             (instruction.transfer == ArgumentTransfer::copy_in_out ? Effect::read : Effect::none);
     case Opcode::output: return Effect::io;
   }
   return Effect::none;
@@ -390,12 +398,18 @@ AliasEffectTable analyze_alias_effects(const Program& program) {
     facts.origin = instruction.id;
     facts.local = minimum_effects(instruction);
     facts.effects = facts.local;
-    if (instruction.opcode == Opcode::identifier || instruction.opcode == Opcode::index ||
+    if (instruction.opcode == Opcode::load || instruction.opcode == Opcode::index ||
         instruction.opcode == Opcode::slice) {
       apply_storage_access(facts, instruction.storage, true, false);
-    } else if (instruction.opcode == Opcode::assignment ||
-               instruction.opcode == Opcode::indexed_assignment) {
+    } else if (instruction.opcode == Opcode::store || instruction.opcode == Opcode::store_indexed ||
+               instruction.opcode == Opcode::writeback) {
       apply_storage_access(facts, instruction.storage, false, true);
+    } else if (instruction.opcode == Opcode::copy) {
+      for (const auto operand : instruction.operands) {
+        const auto source =
+            operand.value() < value_storage.size() ? value_storage[operand.value()] : StorageId{};
+        apply_storage_access(facts, source, true, false);
+      }
     }
     if (instruction.opcode == Opcode::call && !instruction.callee.valid()) {
       const bool external = instruction.intrinsic == IntrinsicId::none;

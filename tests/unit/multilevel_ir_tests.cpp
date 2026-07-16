@@ -221,7 +221,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v2") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v3") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v1") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
   REQUIRE(first_mir.find("terminator op") != std::string::npos);
@@ -587,18 +587,25 @@ TEST_CASE("MIR owns dense flat value and operation arenas tied to instructions")
   const auto& program = lowered_mir.program;
   REQUIRE(program.expressions.front().id == mpf::detail::MirExpressionId{});
   REQUIRE(program.statements.front().id == mpf::detail::MirStatementId{});
+  REQUIRE(program.attributes.mir_revision == program.revision);
+  REQUIRE(program.attributes.expression_count + 1U == program.expressions.size());
+  REQUIRE(program.attributes.statement_count + 1U == program.statements.size());
+  REQUIRE(program.attributes.expressions.size() == program.expressions.size());
+  REQUIRE(program.attributes.statements.size() == program.statements.size());
   for (std::size_t index = 1; index < program.expressions.size(); ++index) {
     const auto& expression = program.expressions[index];
     REQUIRE(expression.id.value() == index);
     REQUIRE(expression.instruction.valid());
     REQUIRE(expression.instruction.value() < program.instructions.size());
     REQUIRE(program.instructions[expression.instruction.value()].result == expression.value_id);
+    REQUIRE(program.attributes.expressions[index].origin == expression.id);
   }
   for (std::size_t index = 1; index < program.statements.size(); ++index) {
     const auto& statement = program.statements[index];
     REQUIRE(statement.id.value() == index);
     REQUIRE(statement.instruction.valid());
     REQUIRE(statement.instruction.value() < program.instructions.size());
+    REQUIRE(program.attributes.statements[index].origin == statement.id);
   }
 
   auto bad_expression_edge = program;
@@ -613,6 +620,109 @@ TEST_CASE("MIR owns dense flat value and operation arenas tied to instructions")
   REQUIRE(!bad_operation_owner.roots.empty());
   bad_operation_owner.roots.push_back(bad_operation_owner.roots.front());
   REQUIRE(!mpf::detail::mir::verify(bad_operation_owner, "bad-operation-arena").empty());
+
+  auto stale_attributes = program;
+  ++stale_attributes.revision;
+  REQUIRE(!mpf::detail::mir::verify(stale_attributes, "stale-operation-attributes").empty());
+
+  auto invalid_attribute_origin = program;
+  invalid_attribute_origin.attributes.expressions[1].origin = mpf::detail::MirExpressionId{999999};
+  REQUIRE(!mpf::detail::mir::verify(invalid_attribute_origin, "bad-attribute-origin").empty());
+
+  auto invalid_attribute_type = program;
+  invalid_attribute_type.attributes.statements[1].previous_type = mpf::detail::TypeId{999999};
+  REQUIRE(!mpf::detail::mir::verify(invalid_attribute_type, "bad-attribute-type").empty());
+}
+
+TEST_CASE("MIR owns lazy evaluation CFG and explicit memory operations") {
+  auto lowered = lower_python(
+      "def probe(value):\n"
+      "    print(value)\n"
+      "    return value\n"
+      "first = 1 < probe(2) < 3\n"
+      "choice = probe(4) if first and probe(5) else probe(0)\n"
+      "print(choice)\n");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  auto lowered_mir = mpf::detail::mir::lower_from_hir(
+      std::move(lowered.program), std::move(analysis.semantics), analysis.names);
+  REQUIRE(lowered_mir.diagnostics.empty());
+  const auto& program = lowered_mir.program;
+
+  REQUIRE(std::count_if(program.attributes.expressions.begin() + 1,
+                        program.attributes.expressions.end(),
+                        [](const mpf::detail::mir::ExpressionAttributes& attributes) {
+                          return attributes.lazy_cfg;
+                        }) >= 3);
+  REQUIRE(std::any_of(program.instructions.begin() + 1, program.instructions.end(),
+                      [](const mpf::detail::mir::Instruction& instruction) {
+                        return instruction.opcode == mpf::detail::mir::Opcode::truthiness;
+                      }));
+  REQUIRE(std::any_of(program.instructions.begin() + 1, program.instructions.end(),
+                      [](const mpf::detail::mir::Instruction& instruction) {
+                        return instruction.opcode == mpf::detail::mir::Opcode::compare &&
+                               instruction.comparison != mpf::detail::ComparisonOperator::none;
+                      }));
+  REQUIRE(std::count_if(program.blocks.begin() + 1, program.blocks.end(),
+                        [](const mpf::detail::mir::BasicBlock& block) {
+                          return block.terminator.kind ==
+                                 mpf::detail::mir::TerminatorKind::conditional_branch;
+                        }) >= 3);
+  REQUIRE(std::any_of(
+      program.expressions.begin() + 1, program.expressions.end(),
+      [&](const mpf::detail::mir::Expression& expression) {
+        const auto* attributes = mpf::detail::mir::attributes(program, expression.id);
+        if (attributes == nullptr || !attributes->lazy_cfg) return false;
+        const auto& instruction = program.instructions[expression.instruction.value()];
+        if (instruction.operands.size() != 1U) return false;
+        return std::any_of(program.blocks.begin() + 1, program.blocks.end(),
+                           [&](const mpf::detail::mir::BasicBlock& block) {
+                             return std::any_of(
+                                 block.arguments.begin(), block.arguments.end(),
+                                 [&](const mpf::detail::mir::BlockArgument& argument) {
+                                   return argument.value == instruction.operands.front();
+                                 });
+                           });
+      }));
+  REQUIRE(std::any_of(program.instructions.begin() + 1, program.instructions.end(),
+                      [](const mpf::detail::mir::Instruction& instruction) {
+                        return instruction.opcode == mpf::detail::mir::Opcode::load;
+                      }));
+  REQUIRE(std::any_of(program.instructions.begin() + 1, program.instructions.end(),
+                      [](const mpf::detail::mir::Instruction& instruction) {
+                        return instruction.opcode == mpf::detail::mir::Opcode::store;
+                      }));
+
+  auto invalid_lazy_operand = program;
+  const auto lazy = std::find_if(
+      invalid_lazy_operand.expressions.begin() + 1, invalid_lazy_operand.expressions.end(),
+      [&](const mpf::detail::mir::Expression& expression) {
+        const auto* attributes = mpf::detail::mir::attributes(invalid_lazy_operand, expression.id);
+        return attributes != nullptr && attributes->lazy_cfg;
+      });
+  REQUIRE(lazy != invalid_lazy_operand.expressions.end());
+  invalid_lazy_operand.attributes.expressions[lazy->id.value()].lazy_cfg = false;
+  REQUIRE(!mpf::detail::mir::verify(invalid_lazy_operand, "bad-lazy-operand").empty());
+
+  auto invalid_truthiness = program;
+  const auto truthiness = std::find_if(
+      invalid_truthiness.instructions.begin() + 1, invalid_truthiness.instructions.end(),
+      [](const mpf::detail::mir::Instruction& instruction) {
+        return instruction.opcode == mpf::detail::mir::Opcode::truthiness;
+      });
+  REQUIRE(truthiness != invalid_truthiness.instructions.end());
+  truthiness->operands.clear();
+  REQUIRE(!mpf::detail::mir::verify(invalid_truthiness, "bad-truthiness").empty());
+
+  auto invalid_comparison = program;
+  const auto comparison = std::find_if(
+      invalid_comparison.instructions.begin() + 1, invalid_comparison.instructions.end(),
+      [](const mpf::detail::mir::Instruction& instruction) {
+        return instruction.opcode == mpf::detail::mir::Opcode::compare;
+      });
+  REQUIRE(comparison != invalid_comparison.instructions.end());
+  comparison->comparison = mpf::detail::ComparisonOperator::none;
+  REQUIRE(!mpf::detail::mir::verify(invalid_comparison, "bad-comparison").empty());
 }
 
 TEST_CASE("MIR interns tuple function and reference signatures across call sites") {
@@ -634,6 +744,8 @@ TEST_CASE("MIR interns tuple function and reference signatures across call sites
       [](const mpf::detail::mir::Function& function) { return function.name == "pair"; });
   REQUIRE(pair != python_mir.program.functions.end());
   REQUIRE(pair->signature.valid());
+  REQUIRE(pair->parameter_shapes.size() == pair->parameter_types.size());
+  REQUIRE(pair->result_shapes.size() == pair->result_types.size());
   const auto& pair_signature = python_mir.program.types[pair->signature.value()];
   REQUIRE(pair_signature.kind == mpf::detail::mir::TypeKind::function);
   REQUIRE(pair_signature.parameters.size() == 1U);
@@ -723,6 +835,7 @@ TEST_CASE("MIR call regions model borrow copy forwarding lifetime and overlap") 
                               "integer :: values(5) = [1,2,3,4,5]\n"
                               "call bump(values(2))\n"
                               "call adjust(values(1:5:2))\n"
+                              "call replace(values(2:4))\n"
                               "contains\n"
                               "subroutine bump(value)\n"
                               "integer, intent(inout) :: value\n"
@@ -732,6 +845,10 @@ TEST_CASE("MIR call regions model borrow copy forwarding lifetime and overlap") 
                               "integer, intent(inout) :: items(:)\n"
                               "items(1) = items(1) + 1\n"
                               "end subroutine adjust\n"
+                              "subroutine replace(items)\n"
+                              "integer, intent(out) :: items(:)\n"
+                              "items(1) = 9\n"
+                              "end subroutine replace\n"
                               "end program transfer_contract\n",
                               "transfer_contract.f90");
   auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
@@ -739,16 +856,60 @@ TEST_CASE("MIR call regions model borrow copy forwarding lifetime and overlap") 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
   REQUIRE(mir.diagnostics.empty());
-  REQUIRE(mir.program.calls.size() == 2U);
+  REQUIRE(mir.program.calls.size() == 3U);
   const auto& element = mir.program.calls[0].arguments.front();
   const auto& section = mir.program.calls[1].arguments.front();
+  const auto& output_section = mir.program.calls[2].arguments.front();
   REQUIRE(element.transfer == mpf::detail::ArgumentTransfer::mutable_borrow_inout);
   REQUIRE(element.view == mpf::detail::mir::StorageViewKind::element);
   REQUIRE(section.transfer == mpf::detail::ArgumentTransfer::copy_in_out);
   REQUIRE(section.view == mpf::detail::mir::StorageViewKind::section);
   REQUIRE(section.lifetime == mpf::detail::mir::StorageLifetime::expression);
+  REQUIRE(output_section.transfer == mpf::detail::ArgumentTransfer::copy_out);
   REQUIRE(element.root == section.root);
+  const auto copy =
+      std::find_if(mir.program.instructions.begin() + 1, mir.program.instructions.end(),
+                   [](const mpf::detail::mir::Instruction& instruction) {
+                     return instruction.opcode == mpf::detail::mir::Opcode::copy;
+                   });
+  const auto writeback =
+      std::find_if(mir.program.instructions.begin() + 1, mir.program.instructions.end(),
+                   [](const mpf::detail::mir::Instruction& instruction) {
+                     return instruction.opcode == mpf::detail::mir::Opcode::writeback;
+                   });
+  REQUIRE(copy != mir.program.instructions.end());
+  REQUIRE(writeback != mir.program.instructions.end());
+  REQUIRE(copy->transfer == mpf::detail::ArgumentTransfer::copy_in_out);
+  REQUIRE(writeback->transfer == mpf::detail::ArgumentTransfer::copy_in_out);
+  REQUIRE(copy->storage.valid());
+  REQUIRE(mir.program.storages[copy->storage.value()].kind ==
+          mpf::detail::mir::StorageKind::temporary);
+  REQUIRE(writeback->storage == section.storage);
+  REQUIRE(writeback->operands == std::vector<mpf::detail::ValueId>{copy->result});
+  const auto output_copy =
+      std::find_if(mir.program.instructions.begin() + 1, mir.program.instructions.end(),
+                   [](const mpf::detail::mir::Instruction& instruction) {
+                     return instruction.opcode == mpf::detail::mir::Opcode::copy &&
+                            instruction.transfer == mpf::detail::ArgumentTransfer::copy_out;
+                   });
+  REQUIRE(output_copy != mir.program.instructions.end());
+  REQUIRE(output_copy->operands.empty());
   const auto transfer_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto* copy_effects = transfer_effects.instruction(copy->id);
+  const auto* writeback_effects = transfer_effects.instruction(writeback->id);
+  REQUIRE(copy_effects != nullptr);
+  REQUIRE(writeback_effects != nullptr);
+  REQUIRE(mpf::detail::mir::has_effect(copy_effects->effects, mpf::detail::mir::Effect::allocate));
+  REQUIRE(
+      mpf::detail::mir::has_effect(writeback_effects->effects, mpf::detail::mir::Effect::write));
+
+  auto invalid_copy = mir.program;
+  invalid_copy.instructions[copy->id.value()].transfer = mpf::detail::ArgumentTransfer::value;
+  REQUIRE(!mpf::detail::mir::verify(invalid_copy, "bad-copy-transfer").empty());
+
+  auto invalid_writeback = mir.program;
+  invalid_writeback.instructions[writeback->id.value()].operands.clear();
+  REQUIRE(!mpf::detail::mir::verify(invalid_writeback, "bad-writeback").empty());
   const auto javascript =
       mpf::detail::javascript::lower(mir.program, transfer_effects, mpf::TranspileOptions{});
   const auto cpp = mpf::detail::cpp::lower(mir.program, transfer_effects, mpf::TranspileOptions{});

@@ -132,6 +132,7 @@ add_library(mpf_core
   src/ir/alias_effect_analysis.cpp
   src/ir/semantic_table.cpp
   src/ir/mir.cpp
+  src/ir/mir_verifier.cpp
   src/semantic/analyzer.cpp
   src/semantic/expression_analyzer.cpp
   src/semantic/flow_analysis.cpp

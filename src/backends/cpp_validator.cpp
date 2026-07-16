@@ -36,18 +36,23 @@ void add_error(std::vector<Diagnostic>& diagnostics, const std::size_t line, std
       {DiagnosticSeverity::error, std::move(code), std::move(message), {line, 1}});
 }
 
-bool representable_recursive_return(const mir::Statement& function) {
-  if (function.return_names.empty() && !function.has_value_return) return true;
-  const bool tuple_return =
-      function.return_names.size() > 1 ||
-      (function.declared_type == ValueType::tuple && !function.return_types.empty());
-  if (tuple_return) {
-    return (function.return_names.empty() ||
-            function.return_types.size() == function.return_names.size()) &&
-           std::all_of(function.return_types.begin(), function.return_types.end(),
-                       [](const ValueType type) { return primitive(type); });
+bool representable_type(const mir::Program& program, const TypeId id) {
+  const auto* type = mir::type(program, id);
+  if (type == nullptr) return false;
+  if (type->kind != mir::TypeKind::tuple) return primitive(mir::value_type(program, id));
+  return std::all_of(type->elements.begin(), type->elements.end(),
+                     [&](const TypeId element) { return representable_type(program, element); });
+}
+
+bool representable_recursive_return(const mir::Program& program, const mir::Function& function,
+                                    const mir::Statement& statement) {
+  if (function.result_types.empty()) return true;
+  if (!statement.return_names.empty() && function.result_types.size() > 1U &&
+      function.result_types.size() != statement.return_names.size()) {
+    return false;
   }
-  return primitive(function.declared_type);
+  return std::all_of(function.result_types.begin(), function.result_types.end(),
+                     [&](const TypeId result) { return representable_type(program, result); });
 }
 
 bool list_is_homogeneous(const mir::Program& program, const mir::Expression& expression) {
@@ -59,16 +64,19 @@ bool list_is_homogeneous(const mir::Program& program, const mir::Expression& exp
   for (const auto child_id : expression.children) {
     const auto* child = mir::expression(program, child_id);
     if (child == nullptr) return false;
-    const auto child_type = child->inferred_type;
+    const auto child_type = mir::value_type(program, child->type_id);
     nested = nested && child_type == ValueType::list;
     has_nested = has_nested || child_type == ValueType::list;
     if (child_type == ValueType::list) {
+      const auto* child_shape = mir::shape(program, child->shape_id);
+      if (child_shape == nullptr) return false;
       if (nested_shape.empty())
-        nested_shape = child->shape;
-      else if (nested_shape != child->shape)
+        nested_shape = child_shape->extents;
+      else if (nested_shape != child_shape->extents)
         return false;
     }
-    const auto scalar_type = child_type == ValueType::list ? child->element_type : child_type;
+    const auto scalar_type =
+        child_type == ValueType::list ? mir::element_type(program, child->type_id) : child_type;
     const auto joined = join_types(element_type, scalar_type);
     if (element_type != ValueType::unknown && scalar_type != ValueType::unknown &&
         joined == ValueType::unknown) {
@@ -89,18 +97,8 @@ bool has_direct_slice(const mir::Program& program, const mir::Expression& expres
 }
 
 ValueType effective_type(const mir::Program& program, const mir::Expression& expression,
-                         const FunctionReturnTypes& function_returns) {
-  if (expression.inferred_type != ValueType::unknown) return expression.inferred_type;
-  if (expression.kind != ExpressionKind::call || expression.children.empty()) {
-    return ValueType::unknown;
-  }
-  const auto* callee = mir::expression(program, expression.children.front());
-  if (callee == nullptr || callee->kind != ExpressionKind::identifier ||
-      callee->binding != BindingKind::function) {
-    return ValueType::unknown;
-  }
-  const auto found = function_returns.find(callee->value);
-  return found == function_returns.end() ? ValueType::unknown : found->second;
+                         const FunctionReturnTypes&) {
+  return mir::value_type(program, expression.type_id);
 }
 
 bool cpp_expression_types_compatible(const mir::Program& program, const mir::Expression& left,
@@ -115,12 +113,20 @@ bool cpp_expression_types_compatible(const mir::Program& program, const mir::Exp
   if (left_type == right_type && primitive(left_type)) return true;
   if (arithmetic(left_type) && arithmetic(right_type)) return true;
   if (left_type == ValueType::list && right_type == ValueType::list) {
-    return left.shape.size() == right.shape.size() && left.element_type == right.element_type;
+    const auto* left_shape = mir::shape(program, left.shape_id);
+    const auto* right_shape = mir::shape(program, right.shape_id);
+    return left_shape != nullptr && right_shape != nullptr &&
+           left_shape->extents.size() == right_shape->extents.size() &&
+           mir::element_type(program, left.type_id) == mir::element_type(program, right.type_id);
   }
   if (left_type == ValueType::tuple && right_type == ValueType::tuple) {
-    return left.tuple_types == right.tuple_types &&
-           left.tuple_element_types == right.tuple_element_types &&
-           left.tuple_shapes == right.tuple_shapes;
+    const auto* left_type_data = mir::type(program, left.type_id);
+    const auto* right_type_data = mir::type(program, right.type_id);
+    const auto* left_attributes = mir::attributes(program, left.id);
+    const auto* right_attributes = mir::attributes(program, right.id);
+    return left_type_data != nullptr && right_type_data != nullptr && left_attributes != nullptr &&
+           right_attributes != nullptr && left_type_data->elements == right_type_data->elements &&
+           left_attributes->tuple_shapes == right_attributes->tuple_shapes;
   }
   return false;
 }
@@ -154,22 +160,30 @@ bool cpp_comparison_supported(const mir::Program& program, const ComparisonOpera
     const auto right_type = effective_type(program, right, function_returns);
     if (right_type == ValueType::unknown) return true;
     if (right_type == ValueType::string) return left_type == ValueType::string;
+    const auto* right_attributes = mir::attributes(program, right.id);
     if (right_type == ValueType::list) {
-      if (!right.sequence_elements.empty()) {
-        return std::any_of(
-            right.sequence_elements.begin(), right.sequence_elements.end(),
-            [&](const auto& element) { return compatible_value_types(left_type, element.type); });
+      if (right_attributes != nullptr && !right_attributes->sequence_elements.empty()) {
+        return std::any_of(right_attributes->sequence_elements.begin(),
+                           right_attributes->sequence_elements.end(), [&](const auto& element) {
+                             return compatible_value_types(left_type,
+                                                           mir::value_type(program, element.type));
+                           });
       }
-      return compatible_value_types(left_type, right.element_type);
+      return compatible_value_types(left_type, mir::element_type(program, right.type_id));
     }
     if (right_type == ValueType::tuple) {
-      if (!right.sequence_elements.empty()) {
-        return std::any_of(
-            right.sequence_elements.begin(), right.sequence_elements.end(),
-            [&](const auto& element) { return compatible_value_types(left_type, element.type); });
+      if (right_attributes != nullptr && !right_attributes->sequence_elements.empty()) {
+        return std::any_of(right_attributes->sequence_elements.begin(),
+                           right_attributes->sequence_elements.end(), [&](const auto& element) {
+                             return compatible_value_types(left_type,
+                                                           mir::value_type(program, element.type));
+                           });
       }
-      return std::any_of(right.tuple_types.begin(), right.tuple_types.end(),
-                         [&](const auto type) { return compatible_value_types(left_type, type); });
+      const auto* tuple = mir::type(program, right.type_id);
+      return tuple != nullptr &&
+             std::any_of(tuple->elements.begin(), tuple->elements.end(), [&](const auto type) {
+               return compatible_value_types(left_type, mir::value_type(program, type));
+             });
     }
     return false;
   }
@@ -181,7 +195,8 @@ void validate_expression(const mir::Program& program, const MirExpressionId expr
                          const FunctionReturnTypes& function_returns,
                          std::vector<Diagnostic>& diagnostics) {
   const auto* expression = mir::expression(program, expression_id);
-  if (expression == nullptr) return;
+  const auto* attributes = mir::attributes(program, expression_id);
+  if (expression == nullptr || attributes == nullptr) return;
   for (const auto child : expression->children) {
     validate_expression(program, child, semantics, function_returns, diagnostics);
   }
@@ -191,20 +206,23 @@ void validate_expression(const mir::Program& program, const MirExpressionId expr
   }
   if (semantics.logical_result == semantic::LogicalResult::operand &&
       expression->kind == ExpressionKind::binary &&
-      (expression->value == "&&" || expression->value == "||") &&
+      (attributes->spelling == "&&" || attributes->spelling == "||") &&
       expression->children.size() == 2) {
     const auto* left = mir::expression(program, expression->children[0]);
     const auto* right = mir::expression(program, expression->children[1]);
     if (left != nullptr && right != nullptr) {
       const auto left_type = effective_type(program, *left, function_returns);
       const auto right_type = effective_type(program, *right, function_returns);
-      bool compatible = expression->inferred_type != ValueType::unknown &&
+      bool compatible = mir::value_type(program, expression->type_id) != ValueType::unknown &&
                         left_type != ValueType::unknown && right_type != ValueType::unknown &&
                         (left_type == right_type || (numeric(left_type) && numeric(right_type)));
       if (left_type == ValueType::list && right_type == ValueType::list) {
+        const auto* left_shape = mir::shape(program, left->shape_id);
+        const auto* right_shape = mir::shape(program, right->shape_id);
         compatible =
-            left->inferred_type == ValueType::list && right->inferred_type == ValueType::list &&
-            left->shape.size() == right->shape.size() && left->element_type == right->element_type;
+            left_shape != nullptr && right_shape != nullptr &&
+            left_shape->extents.size() == right_shape->extents.size() &&
+            mir::element_type(program, left->type_id) == mir::element_type(program, right->type_id);
       }
       if (!compatible) {
         add_error(diagnostics, expression->location.line, "MPF2032",
@@ -214,14 +232,14 @@ void validate_expression(const mir::Program& program, const MirExpressionId expr
   }
   if (semantics.truthiness == semantic::Truthiness::dynamic &&
       expression->kind == ExpressionKind::binary &&
-      expression->comparison != ComparisonOperator::none && expression->children.size() == 2) {
+      attributes->comparison != ComparisonOperator::none && expression->children.size() == 2) {
     const auto* left = mir::expression(program, expression->children[0]);
     const auto* right = mir::expression(program, expression->children[1]);
     if (left != nullptr && right != nullptr &&
-        !cpp_comparison_supported(program, expression->comparison, *left, *right,
+        !cpp_comparison_supported(program, attributes->comparison, *left, *right,
                                   function_returns)) {
       add_error(diagnostics, expression->location.line, "MPF2044",
-                comparison_is_identity(expression->comparison)
+                comparison_is_identity(attributes->comparison)
                     ? "C++17 cannot preserve Python sequence object identity with value containers"
                     : "C++17 cannot compare these Python operand types without changing semantics");
     }
@@ -231,13 +249,13 @@ void validate_expression(const mir::Program& program, const MirExpressionId expr
     for (std::size_t index = 0; index + 1 < expression->children.size(); ++index) {
       const auto* left = mir::expression(program, expression->children[index]);
       const auto* right = mir::expression(program, expression->children[index + 1U]);
-      if (index >= expression->comparisons.size() || left == nullptr || right == nullptr ||
-          !cpp_comparison_supported(program, expression->comparisons[index], *left, *right,
+      if (index >= attributes->comparisons.size() || left == nullptr || right == nullptr ||
+          !cpp_comparison_supported(program, attributes->comparisons[index], *left, *right,
                                     function_returns)) {
         add_error(
             diagnostics, expression->location.line, "MPF2044",
-            index < expression->comparisons.size() &&
-                    comparison_is_identity(expression->comparisons[index])
+            index < attributes->comparisons.size() &&
+                    comparison_is_identity(attributes->comparisons[index])
                 ? "C++17 cannot preserve Python sequence object identity in a comparison chain"
                 : "C++17 cannot compare these Python chain operand types without changing "
                   "semantics");
@@ -268,8 +286,9 @@ void collect_return_type(const mir::Program& program, const std::vector<MirState
         has_empty = true;
       } else {
         has_value = true;
-        const auto joined = join_types(result, value->inferred_type);
-        if (result != ValueType::unknown && value->inferred_type != ValueType::unknown &&
+        const auto value_type = mir::value_type(program, value->type_id);
+        const auto joined = join_types(result, value_type);
+        if (result != ValueType::unknown && value_type != ValueType::unknown &&
             joined == ValueType::unknown) {
           incompatible = true;
         }
@@ -313,13 +332,24 @@ bool statements_terminate(const mir::Program& program,
   return false;
 }
 
+void collect_assignment_leaves(const mir::AssignmentPattern& pattern,
+                               std::vector<const mir::AssignmentPattern*>& leaves) {
+  if (pattern.kind == AssignmentPatternKind::name ||
+      pattern.kind == AssignmentPatternKind::starred_name) {
+    leaves.push_back(&pattern);
+    return;
+  }
+  for (const auto& child : pattern.children) collect_assignment_leaves(child, leaves);
+}
+
 void validate_statements(const mir::Program& program, const std::vector<MirStatementId>& statements,
                          const semantic::Profile& semantics,
                          const FunctionReturnTypes& function_returns,
                          std::vector<Diagnostic>& diagnostics) {
   for (const auto statement_id : statements) {
     const auto* statement = mir::statement(program, statement_id);
-    if (statement == nullptr) continue;
+    const auto* attributes = mir::attributes(program, statement_id);
+    if (statement == nullptr || attributes == nullptr) continue;
     if (statement->has_expression) {
       validate_expression(program, statement->expression, semantics, function_returns, diagnostics);
     }
@@ -346,18 +376,20 @@ void validate_statements(const mir::Program& program, const std::vector<MirState
 
     const auto* value = mir::expression(program, statement->expression);
     if (statement->kind == StatementKind::assignment && value != nullptr) {
-      const auto current_type = value->inferred_type;
-      if (statement->previous_type != ValueType::unknown && current_type != ValueType::unknown &&
-          join_types(statement->previous_type, current_type) == ValueType::unknown) {
+      const auto current_type = mir::value_type(program, value->type_id);
+      const auto previous_type = mir::value_type(program, attributes->previous_type);
+      if (previous_type != ValueType::unknown && current_type != ValueType::unknown &&
+          join_types(previous_type, current_type) == ValueType::unknown) {
         add_error(diagnostics, statement->line, "MPF2007",
                   "C++17 target cannot represent variable '" + statement->name +
-                      "' changing from " + to_string(statement->previous_type) + " to " +
+                      "' changing from " + to_string(previous_type) + " to " +
                       to_string(current_type));
       }
-      if (current_type == ValueType::list &&
-          statement->previous_element_type != ValueType::unknown &&
-          value->element_type != ValueType::unknown &&
-          join_types(statement->previous_element_type, value->element_type) == ValueType::unknown) {
+      const auto previous_element = mir::element_type(program, attributes->previous_type);
+      const auto value_element = mir::element_type(program, value->type_id);
+      if (current_type == ValueType::list && previous_element != ValueType::unknown &&
+          value_element != ValueType::unknown &&
+          join_types(previous_element, value_element) == ValueType::unknown) {
         add_error(diagnostics, statement->line, "MPF2020",
                   "C++17 target cannot change an array/list element type");
       }
@@ -365,23 +397,27 @@ void validate_statements(const mir::Program& program, const std::vector<MirState
 
     if (statement->kind == StatementKind::multi_assignment) {
       for (std::size_t index = 0; index < statement->target_names.size(); ++index) {
-        const auto previous = index < statement->target_previous_types.size()
-                                  ? statement->target_previous_types[index]
-                                  : ValueType::unknown;
-        const auto current = index < statement->target_types.size() ? statement->target_types[index]
-                                                                    : ValueType::unknown;
+        const auto previous =
+            index < attributes->targets.size()
+                ? mir::value_type(program, attributes->targets[index].previous_type)
+                : ValueType::unknown;
+        const auto current = index < attributes->targets.size()
+                                 ? mir::value_type(program, attributes->targets[index].type)
+                                 : ValueType::unknown;
         if (previous != ValueType::unknown && current != ValueType::unknown &&
             join_types(previous, current) == ValueType::unknown) {
           add_error(diagnostics, statement->line, "MPF2007",
                     "C++17 target cannot represent variable '" + statement->target_names[index] +
                         "' changing from " + to_string(previous) + " to " + to_string(current));
         }
-        const auto previous_element = index < statement->target_previous_element_types.size()
-                                          ? statement->target_previous_element_types[index]
-                                          : ValueType::unknown;
-        const auto current_element = index < statement->target_element_types.size()
-                                         ? statement->target_element_types[index]
-                                         : ValueType::unknown;
+        const auto previous_element =
+            index < attributes->targets.size()
+                ? mir::element_type(program, attributes->targets[index].previous_type)
+                : ValueType::unknown;
+        const auto current_element =
+            index < attributes->targets.size()
+                ? mir::element_type(program, attributes->targets[index].type)
+                : ValueType::unknown;
         if (previous_element != ValueType::unknown && current_element != ValueType::unknown &&
             join_types(previous_element, current_element) == ValueType::unknown) {
           add_error(diagnostics, statement->line, "MPF2020",
@@ -390,11 +426,11 @@ void validate_statements(const mir::Program& program, const std::vector<MirState
         }
       }
       if (statement->has_target_pattern) {
-        std::vector<const AssignmentPattern*> leaves;
-        collect_assignment_leaves(statement->target_pattern, leaves);
+        std::vector<const mir::AssignmentPattern*> leaves;
+        collect_assignment_leaves(attributes->target_pattern, leaves);
         for (const auto* leaf : leaves) {
           if (leaf->kind == AssignmentPatternKind::starred_name && !leaf->captured_paths.empty() &&
-              leaf->element_type == ValueType::unknown) {
+              mir::element_type(program, leaf->type) == ValueType::unknown) {
             add_error(diagnostics, statement->line, "MPF2020",
                       "C++17 target requires a homogeneous starred capture for variable '" +
                           leaf->name + "'");
@@ -406,19 +442,23 @@ void validate_statements(const mir::Program& program, const std::vector<MirState
     const auto* target = mir::expression(program, statement->target_expression);
     if (statement->kind == StatementKind::indexed_assignment && target != nullptr &&
         value != nullptr && has_direct_slice(program, *target) &&
-        value->inferred_type == ValueType::list) {
-      if (semantics.resizable_sections && target->element_type != ValueType::unknown &&
-          value->element_type != ValueType::unknown &&
-          target->element_type != value->element_type) {
+        mir::value_type(program, value->type_id) == ValueType::list) {
+      const auto target_element = mir::element_type(program, target->type_id);
+      const auto value_element = mir::element_type(program, value->type_id);
+      if (semantics.resizable_sections && target_element != ValueType::unknown &&
+          value_element != ValueType::unknown && target_element != value_element) {
         add_error(diagnostics, statement->line, "MPF2020",
                   "C++17 cannot preserve a Python slice assignment that changes element type");
       }
-      auto replacement_rank = value->shape.size();
-      if (target->column_major && target->shape.size() == 1 && replacement_rank == 2 &&
-          (value->shape[0] == 1 || value->shape[1] == 1)) {
+      const auto* value_shape = mir::shape(program, value->shape_id);
+      const auto* target_shape = mir::shape(program, target->shape_id);
+      if (value_shape == nullptr || target_shape == nullptr) continue;
+      auto replacement_rank = value_shape->extents.size();
+      if (mir::column_major(program, target->shape_id) && target_shape->extents.size() == 1 &&
+          replacement_rank == 2 && (value_shape->extents[0] == 1 || value_shape->extents[1] == 1)) {
         replacement_rank = 1;
       }
-      if (replacement_rank != target->shape.size()) {
+      if (replacement_rank != target_shape->extents.size()) {
         add_error(diagnostics, statement->line, "MPF2020",
                   "C++17 section assignment cannot change the container nesting rank");
       }
@@ -489,7 +529,12 @@ std::vector<Diagnostic> validate_cpp_capabilities(const mir::Program& program,
     const auto* function = mir::statement(program, root);
     if (function == nullptr || function->kind != StatementKind::function) continue;
     const auto function_id = function_for_origin(program, function->origin);
-    if (recursive_function(program, function_id) && !representable_recursive_return(*function)) {
+    const auto* function_data =
+        function_id.valid() && function_id.value() < program.functions.size()
+            ? &program.functions[function_id.value()]
+            : nullptr;
+    if (function_data != nullptr && recursive_function(program, function_id) &&
+        !representable_recursive_return(program, *function_data, *function)) {
       add_error(diagnostics, function->line, "MPF2035",
                 "C++17 requires a statically representable return type for recursive function '" +
                     function->name + "'");

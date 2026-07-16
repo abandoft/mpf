@@ -164,6 +164,10 @@ foreach(planning IN ITEMS
 endforeach()
 
 file(READ "${SOURCE_DIR}/src/ir/mir.hpp" mir_contract)
+if(NOT EXISTS "${SOURCE_DIR}/src/ir/mir_verifier.cpp" OR
+   NOT EXISTS "${SOURCE_DIR}/src/ir/mir_opcode.hpp")
+  message(FATAL_ERROR "MIR verifier/opcode contract is not split into dedicated components")
+endif()
 foreach(required IN ITEMS
     "MirExpressionId"
     "MirStatementId"
@@ -175,7 +179,19 @@ foreach(required IN ITEMS
     "AliasEffectTable"
     "ArgumentTransfer"
     "StorageLifetime"
-    "StorageViewKind")
+    "StorageViewKind"
+    "OperationAttributeTable"
+    "ExpressionAttributes"
+    "StatementAttributes"
+    "std::vector<ShapeId> parameter_shapes"
+    "std::vector<ShapeId> result_shapes"
+    "bool lazy_cfg"
+    "load"
+    "store_indexed"
+    "copy"
+    "writeback"
+    "truthiness"
+    "ComparisonOperator comparison")
   if(NOT mir_contract MATCHES "${required}")
     message(FATAL_ERROR "MIR contract is missing commercial CFG/alias field: ${required}")
   endif()
@@ -184,9 +200,21 @@ if(mir_contract MATCHES "std::vector<Expression>[ \t]+children" OR
    mir_contract MATCHES "std::vector<Statement>[ \t]+(body|alternative)")
   message(FATAL_ERROR "MIR restored a recursive HIR-compatible expression/statement projection")
 endif()
+if(mir_contract MATCHES "Opcode::assignment|Opcode::indexed_assignment")
+  message(FATAL_ERROR "MIR restored ambiguous assignment opcodes instead of load/store contracts")
+endif()
+if(mir_contract MATCHES
+     "struct Expression[ \t\r\n]*\\{[^}]*((inferred|element)_type|tuple_types|sequence_elements|argument_intents|requested_outputs|column_major)" OR
+   mir_contract MATCHES
+     "struct Statement[ \t\r\n]*\\{[^}]*(declared_type|previous_type|parameter_intents|return_types|target_types|AssignmentPattern[ \t]+target_pattern)")
+  message(FATAL_ERROR "flat MIR nodes regained duplicated HIR semantic payload")
+endif()
 file(READ "${SOURCE_DIR}/src/backends/target_lir_builder.hpp" target_lir_builder_contract)
 if(NOT target_lir_builder_contract MATCHES "mir::expression\\(program" OR
    NOT target_lir_builder_contract MATCHES "mir::statement\\(program" OR
+   NOT target_lir_builder_contract MATCHES "mir::attributes\\(program" OR
+   NOT target_lir_builder_contract MATCHES "mir::value_type\\(program" OR
+   NOT target_lir_builder_contract MATCHES "mir::shape\\(program" OR
    target_lir_builder_contract MATCHES "source\.statements")
   message(FATAL_ERROR "target LIR builder does not consume the flat MIR value/operation arena")
 endif()

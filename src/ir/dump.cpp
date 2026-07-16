@@ -172,7 +172,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v2 language=" << enum_value(program.source_language)
+  output << "mir-v3 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -182,17 +182,30 @@ std::string dump_mir(const mir::Program& program) {
   output << '\n';
   for (std::size_t index = 1; index < program.expressions.size(); ++index) {
     const auto& expression = program.expressions[index];
+    const auto* attributes = mir::attributes(program, expression.id);
     output << "expression %mexpr" << expression.id.value() << " instruction=!i"
            << expression.instruction.value() << " kind=" << enum_value(expression.kind)
-           << " value=" << std::quoted(expression.value) << " children=";
+           << " spelling="
+           << std::quoted(attributes == nullptr ? std::string{} : attributes->spelling)
+           << " children=";
     dump_ids(output, expression.children, "%mexpr");
     output << " result=%v" << expression.value_id.value() << " type=!t"
            << expression.type_id.value() << " shape=!s" << expression.shape_id.value()
            << " storage=!m" << expression.storage_id.value() << " origin=%h"
-           << expression.origin.value() << '\n';
+           << expression.origin.value();
+    if (attributes != nullptr) {
+      output << " binding=" << enum_value(attributes->binding)
+             << " intrinsic=" << enum_value(attributes->intrinsic)
+             << " comparison=" << enum_value(attributes->comparison)
+             << " requested=" << attributes->requested_results
+             << " lazy-cfg=" << attributes->lazy_cfg << " tuple-shapes=";
+      dump_ids(output, attributes->tuple_shapes, "!s");
+    }
+    output << '\n';
   }
   for (std::size_t index = 1; index < program.statements.size(); ++index) {
     const auto& statement = program.statements[index];
+    const auto* attributes = mir::attributes(program, statement.id);
     output << "operation %mstmt" << statement.id.value() << " instruction=!i"
            << statement.instruction.value() << " kind=" << enum_value(statement.kind)
            << " name=" << std::quoted(statement.name) << " expression=%mexpr"
@@ -203,8 +216,17 @@ std::string dump_mir(const mir::Program& program) {
     dump_ids(output, statement.body, "%mstmt");
     output << " alternative=";
     dump_ids(output, statement.alternative, "%mstmt");
-    output << " origin=%h" << statement.origin.value() << '\n';
+    output << " origin=%h" << statement.origin.value();
+    if (attributes != nullptr) {
+      output << " procedure-call=" << attributes->procedure_call
+             << " inclusive-stop=" << attributes->inclusive_stop << " previous=!t"
+             << attributes->previous_type.value() << " targets=" << attributes->targets.size();
+    }
+    output << '\n';
   }
+  output << "attributes revision=" << program.attributes.mir_revision
+         << " expressions=" << program.attributes.expression_count
+         << " operations=" << program.attributes.statement_count << '\n';
   for (std::size_t index = 1; index < program.types.size(); ++index) {
     const auto& type = program.types[index];
     output << "type !t" << index << " kind=" << enum_value(type.kind)
@@ -248,8 +270,12 @@ std::string dump_mir(const mir::Program& program) {
     output << "function @f" << function.id.value() << " name=" << std::quoted(function.name)
            << " signature=!t" << function.signature.value() << " parameters=";
     dump_ids(output, function.parameter_types, "!t");
+    output << " parameter-shapes=";
+    dump_ids(output, function.parameter_shapes, "!s");
     output << " results=";
     dump_ids(output, function.result_types, "!t");
+    output << " result-shapes=";
+    dump_ids(output, function.result_shapes, "!s");
     output << " entry=^b" << function.entry.value() << " blocks=";
     dump_ids(output, function.blocks, "^b");
     output << '\n';
@@ -277,7 +303,14 @@ std::string dump_mir(const mir::Program& program) {
         output << " type=!t" << instruction.type.value() << " shape=!s" << instruction.shape.value()
                << " storage=!m" << instruction.storage.value() << " callee=@f"
                << instruction.callee.value() << " intrinsic=" << enum_value(instruction.intrinsic)
-               << " origin=%h" << instruction.origin.value() << '\n';
+               << " transfer=" << enum_value(instruction.transfer)
+               << " comparison=" << enum_value(instruction.comparison)
+               << " truthiness=" << enum_value(instruction.truthiness) << " result-index=";
+        if (instruction.result_index == dynamic_extent)
+          output << '-';
+        else
+          output << instruction.result_index;
+        output << " origin=%h" << instruction.origin.value() << '\n';
       }
       output << "    terminator op" << enum_value(block.terminator.kind) << " operands=";
       dump_ids(output, block.terminator.operands, "%v");

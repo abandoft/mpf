@@ -27,7 +27,9 @@ constexpr LegalizationTable make_legalizations() {
   result[static_cast<std::size_t>(mir::Opcode::call)] = LegalizationAction::rewrite;
   result[static_cast<std::size_t>(mir::Opcode::index)] = LegalizationAction::runtime;
   result[static_cast<std::size_t>(mir::Opcode::slice)] = LegalizationAction::runtime;
-  result[static_cast<std::size_t>(mir::Opcode::indexed_assignment)] = LegalizationAction::runtime;
+  result[static_cast<std::size_t>(mir::Opcode::store_indexed)] = LegalizationAction::runtime;
+  result[static_cast<std::size_t>(mir::Opcode::copy)] = LegalizationAction::rewrite;
+  result[static_cast<std::size_t>(mir::Opcode::writeback)] = LegalizationAction::rewrite;
   result[static_cast<std::size_t>(mir::Opcode::comparison_chain)] = LegalizationAction::rewrite;
   result[static_cast<std::size_t>(mir::Opcode::conditional)] = LegalizationAction::rewrite;
   return result;
@@ -52,12 +54,14 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
                         semantic::Program& result, std::vector<Diagnostic>& diagnostics,
                         const CallLookup& calls) {
   const auto* expression_node = mir::expression(program, expression_id);
-  if (expression_node == nullptr) return;
+  const auto* expression_attributes = mir::attributes(program, expression_id);
+  if (expression_node == nullptr || expression_attributes == nullptr) return;
   const auto& expression = *expression_node;
-  if (expression.binding == BindingKind::builtin && expression.intrinsic != IntrinsicId::none) {
-    const auto* binding = javascript_code_binding(expression.intrinsic);
+  const auto& attributes = *expression_attributes;
+  if (attributes.binding == BindingKind::builtin && attributes.intrinsic != IntrinsicId::none) {
+    const auto* binding = javascript_code_binding(attributes.intrinsic);
     if (binding == nullptr || binding->kind == CodeBindingKind::unavailable) {
-      const auto* descriptor = intrinsic_descriptor(expression.intrinsic);
+      const auto* descriptor = intrinsic_descriptor(attributes.intrinsic);
       add_error(diagnostics, expression.location,
                 "JavaScript legalization has no binding for intrinsic '" +
                     std::string(descriptor == nullptr ? "unknown" : descriptor->name) + "'");
@@ -72,20 +76,23 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
   if (expression.kind == ExpressionKind::conditional ||
       expression.kind == ExpressionKind::comparison_chain ||
       expression.kind == ExpressionKind::tuple ||
-      (expression.kind == ExpressionKind::unary && expression.value == "!") ||
+      (expression.kind == ExpressionKind::unary && attributes.spelling == "!") ||
       (expression.kind == ExpressionKind::binary &&
-       (expression.value == "&&" || expression.value == "||" ||
-        expression.comparison != ComparisonOperator::none))) {
+       (attributes.spelling == "&&" || attributes.spelling == "||" ||
+        attributes.comparison != ComparisonOperator::none))) {
     result.runtime.require(lir::RuntimeFeature::dynamic_values);
   }
   if (expression.kind == ExpressionKind::call && !expression.children.empty()) {
     const auto* callee = mir::expression(program, expression.children.front());
-    if (callee != nullptr && callee->binding == BindingKind::builtin &&
-        array_intrinsic(callee->intrinsic)) {
+    const auto* callee_attributes = mir::attributes(program, expression.children.front());
+    if (callee != nullptr && callee_attributes != nullptr &&
+        callee_attributes->binding == BindingKind::builtin &&
+        array_intrinsic(callee_attributes->intrinsic)) {
       result.runtime.require(lir::RuntimeFeature::arrays);
     }
-    if (callee != nullptr && callee->binding == BindingKind::builtin &&
-        callee->intrinsic == IntrinsicId::python_float) {
+    if (callee != nullptr && callee_attributes != nullptr &&
+        callee_attributes->binding == BindingKind::builtin &&
+        callee_attributes->intrinsic == IntrinsicId::python_float) {
       result.runtime.require(lir::RuntimeFeature::dynamic_values);
     }
     const auto* call = expression.origin.valid() && expression.origin.value() < calls.size()
@@ -131,7 +138,7 @@ void analyze_statements(const mir::Program& program, const std::vector<MirStatem
     }
     const auto* selector = mir::expression(program, statement.expression);
     if (statement.kind == StatementKind::select_case && selector != nullptr &&
-        selector->inferred_type == ValueType::string) {
+        mir::value_type(program, selector->type_id) == ValueType::string) {
       result.runtime.require(lir::RuntimeFeature::character_case);
     }
     analyze_statements(program, statement.body, result, diagnostics, calls);

@@ -173,14 +173,19 @@ TEST_CASE("missing target code bindings fail closed before emission") {
   mpf::detail::mir::Expression expression;
   expression.id = mpf::detail::MirExpressionId{1};
   expression.kind = mpf::detail::ExpressionKind::identifier;
-  expression.binding = mpf::detail::BindingKind::builtin;
-  expression.intrinsic = mpf::detail::IntrinsicId::square_root;
   expression.location = {7, 3};
+
+  mpf::detail::mir::ExpressionAttributes attributes;
+  attributes.origin = expression.id;
+  attributes.binding = mpf::detail::BindingKind::builtin;
+  attributes.intrinsic = mpf::detail::IntrinsicId::square_root;
 
   mpf::detail::mir::Program program;
   program.source_language = mpf::SourceLanguage::python;
   program.expressions.push_back({});
   program.expressions.push_back(std::move(expression));
+  program.attributes.expressions.push_back({});
+  program.attributes.expressions.push_back(std::move(attributes));
   const auto diagnostics =
       mpf::detail::validate_code_bindings(program, &missing_binding, "test-target");
   REQUIRE(diagnostics.size() == 1);
