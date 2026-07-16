@@ -2,7 +2,7 @@
 
 本文是 MPF 前端、公共中间表示、分析/优化基础设施和后端的权威架构规范，也是重构验收依据。若其他文档与本文的层级职责冲突，以本文和 [TODO](../TODO.md) 的逐项状态为准。
 
-> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 原子产出窄 HIR 与 revision-bound `SemanticTable` seed；0.3.6 的双目标 LIR v10 固化 call ownership/writeback、目标求值、强类型比较和 source segment；0.3.7 让三个 statement parser 直接构造语言专属 arena；0.3.8 删除 MIR 的递归 HIR 兼容 ownership；0.3.9 进一步删除 flat MIR 宽语义 payload，以 revision-bound `OperationAttributeTable` 和驻留 type/shape/storage 作为唯一事实。0.4.0 以同一 contract 接入第四个 TypeScript parser/arena/lowering，并让 explicit export policy 从 semantic profile/side-table 进入 MIR function 和 JavaScript LIR ABI。0.4.1 以 profile 驱动 `NameScopeEdges`、Analyzer block state、显式 `for` CFG、`SymbolId` target identity 和 LIR v12 lexical `ScopePlan` 贯通源块到两个目标。后续迁移集中在完整独立 target AST、一般 RAII/copy-move/runtime ABI node、完整四语言官方 grammar、动态 rank/广播、精确 N 维 overlap 和插件 ABI；不能把当前 TypeScript 子集等同于完整 TypeScript 6 兼容。
+> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 原子产出窄 HIR 与 revision-bound `SemanticTable` seed；0.3.6 的双目标 LIR v10 固化 call ownership/writeback、目标求值、强类型比较和 source segment；0.3.7 让三个 statement parser 直接构造语言专属 arena；0.3.8 删除 MIR 的递归 HIR 兼容 ownership；0.3.9 进一步删除 flat MIR 宽语义 payload，以 revision-bound `OperationAttributeTable` 和驻留 type/shape/storage 作为唯一事实。0.4.0 以同一 contract 接入第四个 TypeScript parser/arena/lowering，并让 explicit export policy 从 semantic profile/side-table 进入 MIR function 和 JavaScript LIR ABI。0.4.1 以 profile 驱动 `NameScopeEdges`、Analyzer block state、显式 `for` CFG、`SymbolId` target identity 和 LIR v12 lexical `ScopePlan` 贯通源块到两个目标。0.4.2 在后端分叉前接入共享 MIR 默认优化、逐 pass verifier/revision/instrumentation、MIR v4 tombstone ownership 与优化后 alias/effect 重算，并公开机器可读变换统计。后续迁移集中在完整独立 target AST、一般 RAII/copy-move/runtime ABI node、完整四语言官方 grammar、动态 rank/广播、精确 N 维 overlap 和插件 ABI；不能把当前 TypeScript 子集等同于完整 TypeScript 6 兼容。
 
 ## 目标与永久约束
 
@@ -31,6 +31,9 @@ SourceManager
           │  seed verification + normalization + semantic analysis
           ▼
         MIR
+          │  shared verified optimization pipeline
+          ▼
+        optimized MIR + recomputed alias/effect
           │
           ├─► JavaScript backend pipeline
           │     capability → legalization → semantic IR → AST/LIR → verifier → printer
@@ -203,7 +206,14 @@ HIR→MIR lowering 必须显式生成 CFG 和 evaluation order。结构 verifier
 - effect 与 instruction kind 的最低约束；
 - return/call signature、多结果和异常/失败边一致性。
 
-首批公共 pass 应保持保守：CFG cleanup、constant folding、dead pure instruction elimination、copy propagation 和 shape canonicalization。任何优化都不能先于 verifier、差分测试和性能基准进入默认 `O1` 管线。
+0.4.2 的默认公共管线按固定顺序运行，并在每个变换后提升 `Program::revision`、同步 `OperationAttributeTable::mir_revision`、失效未声明保留的分析、记录耗时和执行完整 MIR verifier：
+
+1. `mir-shape-canonicalization` 重新计算静态 row/column-major canonical stride，按 rank/layout/extent/stride 去重 shape，并一次性重写所有强类型 `ShapeId` 引用；dynamic-rank 的运行时 stride 不被臆测。
+2. `mir-copy-propagation` 只删除带 storage 身份、且每条 incoming edge 的 actual 完全相同的 block argument；同时按同一 ordinal 删除所有前驱 actual，其他 phi-equivalent 合并不做猜测。
+3. `mir-constant-folding-dce` 只折叠同时落在 `int64` 与 ECMAScript safe-integer 共同精确域的 checked 加减乘/正负号、布尔非和可证明整数/布尔比较；溢出、目标共同精度外整数、除法、实数、identity/membership 和 lazy CFG 保持不动。折叠后仅回收 opcode contract 已证明纯的 literal/unary/binary 子树，保留稳定 expression tombstone 并紧凑重映射 resident instruction。
+4. `mir-cfg-cleanup` 只删除非 entry、无参数、无 instruction 的单目标 forwarding block，以及无前驱的空 unreachable block；随后紧凑重映射 `BlockId`、successor 和函数 block inventory。
+
+默认管线先验证 lowering 输出，再执行上述保守变换；alias/effect 分析只在最终优化 revision 上计算，capability、binding 和两个目标 lowering 因而消费完全相同的 MIR。后端不得复制一份目标专属常量折叠或要求先生成另一目标。涉及 effect 重排、浮点代数、跨调用传播、一般 phi、循环、memory SSA 或 region-aware DCE 的优化仍未启用，必须先补证明、负向 verifier、差分、fuzz 和性能基准。
 
 ## 第四层：分层的目标后端
 
@@ -393,7 +403,7 @@ frontend-python  frontend-matlab  frontend-fortran  ...
 - 每次 lowering 保存 origin chain，诊断优先定位最接近用户语法的 span。
 - 内部 verifier 失败使用稳定内部诊断前缀，并包含 stage/pass/node identity；发布模式不得崩溃或输出未处理异常。
 - JavaScript 与 `cpp` 都从 serialized LIR chunk origin 生成 source map v3，不从 emitter 反向猜测；CLI `--source-map` 可单独写出标准 JSON map。
-- `CompilationReport` 包含 source 大小、总耗时、峰值 arena，以及各阶段耗时和节点数；默认不记录源码正文。
+- `CompilationReport` 包含 source 大小、总耗时、峰值 arena、各阶段耗时/节点数，以及 `mir_optimization` 的 folded/retired/removed/propagated/canonicalized 与 instruction/block before/after 计数；JSON 使用同一数据且默认不记录源码正文。
 
 ## 测试与质量门禁
 

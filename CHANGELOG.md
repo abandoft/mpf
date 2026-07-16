@@ -1,3 +1,19 @@
+## 0.4.2
+
+- 新增后端无关的默认 MIR 优化管线，并在 JavaScript/`cpp` 分叉之前接入唯一生产驱动；优化完成后才重算 alias/effect，binding、capability 和两个目标 lowering 始终消费同一份 revision，生成 `cpp` 不依赖 JavaScript 产物。
+- `mir-shape-canonicalization` 为静态 shape 重新计算 row/column-major canonical stride，按 dynamic-rank/layout/extent/stride 去重，并完整重写 expression attribute、assignment pattern、storage、instruction、block argument 和函数签名中的 `ShapeId`。
+- `mir-copy-propagation` 只消除带 storage 身份且所有 incoming edge actual 完全一致的 block argument，同时按相同 ordinal 压缩每条前驱 edge，避免把一般 phi、动态值或不同 storage 错误合并。
+- `mir-constant-folding-dce` 新增同时满足 `int64` 与 ECMAScript safe-integer 精确域的 checked 加减乘、正负号、布尔非以及整数/布尔比较折叠；溢出、目标共同精度外整数、实数、除法、identity、membership 和 lazy CFG 明确保留运行时求值，避免目标间数值语义漂移。
+- 常量折叠后只回收 opcode contract 证明为纯且不再被 statement、辅助 instruction、terminator 或 edge actual 使用的 literal/unary/binary 子树；稳定 `MirExpressionId` 保留显式 retired tombstone，resident `InstructionId` 则按序紧凑重映射。
+- `mir-cfg-cleanup` 保守删除非 entry、无参数、无 instruction 的单目标 forwarding block 和无前驱空 unreachable block，并同步重写 successor、函数 block inventory 与稠密 `BlockId`；一般控制流合并和循环优化仍未启用。
+- MIR verifier 新增完整 expression graph ownership 检查，从 operation field、parameter default、case selector、非 expression 辅助指令、terminator 和 edge actual 建根，允许合法共享不可变引用并拒绝 cycle、悬空 live expression、retired edge 和不完整 tombstone。
+- 通用 `PassManager` 支持捕获型 callback 和每种 IR 的 revision 同步 hook；四个 mutating pass 均执行 input/output verifier、analysis invalidation、revision instrumentation 和失败关闭，二次运行保持结构与规模幂等。
+- 公共 `CompilationReport` 新增 `MirOptimizationReport`，C++ API 与 JSON 同步公开 folded/retired expression、removed instruction/block、propagated block argument、canonicalized shape 及 instruction/block before/after；stage report 分别记录四个 pass 和优化后 `mir-analysis` 耗时。
+- 确定性 MIR textual dump 升至 v4，公开 expression retired 状态；编译器分层门禁要求独立 optimizer 组件和生产驱动调用，继续禁止 frontend/公共 IR 依赖任一目标以及两个后端相互依赖。
+- 新增 checked folding、overflow 与 JavaScript safe-integer 边界拒绝、shape 去重、instruction compaction、copy propagation、人工 forwarding CFG、revision、逐 pass 顺序、幂等和优化后 alias/effect 正负测试；公共 API 同时断言 JavaScript 与严格 C++17 输出直接包含折叠结果。
+- 新增 Python optimization 可执行样例和 fuzz seed，CPython source、生成 JavaScript/Node.js、生成 C++17 与声明式 oracle 四路固定结果 `9`；既有按源码文本匹配 `40 + 2` 的测试改为验证语义等价的优化结果 `42`。
+- 项目版本、性能基线、README、架构、管线、扩展、语言边界、诊断、测试与 TODO 同步到 0.4.2；`CHANGELOG.md` 继续直接以具体正式版本开头，不设置 `Unreleased` 段。当前为 175 项内部测试、54 个差分 case 和 65 项 CTest；Debug/Release 65/65、ASan/UBSan 64/64、format/clang-tidy、fuzz、隔离、安装、差分和性能门禁通过，生产代码行覆盖率为 89.44%（21331/23849）。
+
 ## 0.4.1
 
 - 新增 profile 驱动的 `ScopeModel` 与 revision-bound `NameScopeEdges`；function、statement、body、alternative scope 均绑定 HIR owner/kind 并由 verifier 检查稠密性、父子关系和错误 scope 注入，不再把所有语言强制压成函数级作用域。

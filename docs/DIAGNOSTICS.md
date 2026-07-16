@@ -1,6 +1,6 @@
 # 诊断与 CLI 契约
 
-自 0.1.0 起，MPF 为库调用、命令行、IDE 和 CI 提供同一个诊断模型；本文索引已覆盖 0.4.1。每条诊断包含稳定 code、severity、消息、源文件身份以及 1-based UTF-8 code-point range。未显式提供结束位置的旧诊断会覆盖起始位置的一个字符。
+自 0.1.0 起，MPF 为库调用、命令行、IDE 和 CI 提供同一个诊断模型；本文索引已覆盖 0.4.2。每条诊断包含稳定 code、severity、消息、源文件身份以及 1-based UTF-8 code-point range。未显式提供结束位置的旧诊断会覆盖起始位置的一个字符。
 
 ## 文本输出
 
@@ -53,7 +53,7 @@ example.py:1:1: error MPF2001: undefined identifier 'missing'
 
 ## Source map 与编译报告
 
-库 API 成功时通过 `TranspileResult::source_map` 返回 source map v3，并在 `TranspileResult::dependencies` 返回目标 lowering 已规范化的依赖清单；`CompilationReport` 记录 source 大小、总耗时、峰值 arena 和逐阶段节点/耗时。`emit_source_map=false` 可关闭 map 构建。
+库 API 成功时通过 `TranspileResult::source_map` 返回 source map v3，并在 `TranspileResult::dependencies` 返回目标 lowering 已规范化的依赖清单；`CompilationReport` 记录 source 大小、总耗时、峰值 arena、逐阶段节点/耗时和 `mir_optimization` 统计。后者公开 folded/retired expression、removed instruction/block、propagated block argument、canonicalized shape 以及 instruction/block before/after，不包含源码内容。`emit_source_map=false` 可关闭 map 构建。
 
 CLI 使用 `--source-map <path>` 写出标准 JSON map；该路径必须是文件，不能为 `-`，从而避免与生成代码或 diagnostics JSON 混入同一 stdout。map I/O 失败使用既有 `MPFCLI0003`/退出状态 4。
 

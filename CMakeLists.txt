@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
   mpf
-  VERSION 0.4.1
+  VERSION 0.4.2
   DESCRIPTION "Matlab, Python, Fortran and TypeScript to JavaScript and C++17 transpiler"
   LANGUAGES C CXX)
 
