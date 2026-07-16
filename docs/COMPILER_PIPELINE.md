@@ -2,7 +2,7 @@
 
 本文是 MPF 前端、公共中间表示、分析/优化基础设施和后端的权威架构规范，也是重构验收依据。若其他文档与本文的层级职责冲突，以本文和 [TODO](../TODO.md) 的逐项状态为准。
 
-> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。Analyzer 当前全部输出在边界 move-extract 到按 `HirNodeId` 稠密索引且带 revision 的唯一所有者；MIR 不再读取 HIR 语义字段。静态一般 rank 的声明、RESHAPE 和直接 section 已由双后端及三维差分覆盖。剩余迁移集中在 Analyzer 内部直接 side-table accessor、HIR/MIR 宽兼容字段、完整官方 grammar、动态 rank/广播、精确 N 维 alias/跨函数语义和插件 ABI；不能把这批架构收尾等同于完整语言兼容。
+> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。Analyzer 当前全部输出在边界 move-extract 到按 `HirNodeId` 稠密索引且带 revision 的唯一所有者；MIR 不再读取 HIR 语义字段。静态一般 rank 的声明、RESHAPE 和直接 section 已由双后端及三维差分覆盖。0.3.5 已继续落地 tuple/function/reference 驻留类型、函数签名和显式 call-site 表，跨函数 verifier 检查 call/return、多结果、optional omission 与 OUT/INOUT writable storage。剩余迁移集中在 Analyzer 内部直接 side-table accessor、HIR/MIR 宽兼容字段、完整官方 grammar、动态 rank/广播、精确 N 维 alias、参数敏感跨函数数据流和插件 ABI；不能把这批架构收尾等同于完整语言兼容。
 
 ## 目标与永久约束
 

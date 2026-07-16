@@ -14,10 +14,10 @@
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；`cpp` 当前生成严格 C++17 translation unit |
 | 前后端边界 | 生产驱动固定经过语言 AST artifact→HIR→MIR→目标私有 semantic plan/LIR→emitter；两个目标不读取彼此产物 |
 | 扩展架构 | frontend descriptor API v5、backend descriptor API v4；parser session/feature/resource contract、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
-| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；Analyzer 结果在边界抽取为 revision-checked 稠密 `SemanticTable`，MIR 只消费 side table；MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime/alias；目标 lowering 产出带 origin chunk 的最终 LIR，emitter 仅序列化 |
+| IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；Analyzer 结果在边界抽取为 revision-checked 稠密 `SemanticTable`，MIR 只消费 side table；MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime/alias，以及驻留的 tuple/function/reference 签名和可验证 call-site 表；目标 lowering 产出带 origin chunk 的最终 LIR，emitter 仅序列化 |
 | Python 最新能力 | relational/equality 比较链、右结合条件表达式、短路/惰性/单次求值；基础参数关联和递归固定序列解包 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流 |
-| 工程门禁 | 145 项内部测试；48 个差分 case、134 条工具完整环境执行路径；59 项 CTest；fuzz smoke、可选 libFuzzer、版本化性能发布阈值、阶段报告；0.3.4 生产代码覆盖率 88.26%（13779/15611） |
+| 工程门禁 | 146 项内部测试；48 个差分 case、134 条工具完整环境执行路径；59 项 CTest；fuzz smoke、可选 libFuzzer、版本化性能发布阈值、阶段报告；0.3.4 生产代码覆盖率 88.26%（13779/15611） |
 | 发布状态 | 0.x；没有长期 API/ABI 或完整语言兼容承诺 |
 
 ## 本轮商业级收尾验收（完成）
@@ -71,7 +71,7 @@
 - [x] 建立 `Program`/`Function`/`BasicBlock`、block argument identity、稠密 instruction table 和单 terminator CFG 基础
 - [x] 当前支持的 if/loop/loop-else/`break`/`continue`/`SELECT CASE` lowering 为真实 basic block、edge actual 与 block argument/phi equivalent
 - [x] 建立当前 scalar/container 的 interned logical `TypeId` 稠密表
-- [ ] 扩展 tuple、function/reference 类型签名及跨函数 type verifier
+- [x] 扩展 tuple、function/reference 驻留类型签名；call-site 表显式关联 caller/callee、argument/result type、optional omission 和 writable storage，跨函数 verifier 检查 call/return、多结果及 OUT/INOUT 引用契约
 - [x] 建立独立 `ShapeId`，表达当前 rank、静态/动态 extent 与 layout
 - [x] 增加 row/column-major canonical stride、dynamic-rank 标记、section view storage 与 shape canonicalization
 - [x] 建立 `StorageId` 和 `no_alias`/`may_alias`/`must_alias` 基础模型
@@ -79,7 +79,7 @@
 - [x] 建立结构化 `EffectSet`：read、write、allocate、io、may-fail、control、external-unknown
 - [ ] HIR→MIR 显式固定 evaluation order、短路、循环/选择 CFG、多结果、load/store 和 runtime-independent semantic operation
 - [x] MIR verifier 检查稠密表、函数/块/指令唯一所有权、函数内 edge、terminator arity、值唯一定义及 definition-dominates-use
-- [x] verifier 补齐 block argument/edge actual arity、定义顺序与 dominance、type/shape/storage metadata、view/lifetime/intent、alias relation 相容性；更完整的跨函数 call/return 与 memory-effect 证明随类型系统继续扩展
+- [x] verifier 补齐 block argument/edge actual arity、定义顺序与 dominance、type/shape/storage metadata、view/lifetime/intent、alias relation、函数签名、call/return、多结果与 writable reference 相容性；参数敏感 memory-effect 证明仍随独立分析 pass 继续扩展
 - [x] 将 Analyzer 当前全部节点输出（含 call association 与递归 assignment-pattern 路径）抽取到按 `HirNodeId` 稠密索引、带 HIR revision 的 `SemanticTable`；抽取后 HIR 语义字段为空，MIR 拒绝缺失/陈旧表且不再读取 HIR 语义投影
 - [ ] 将 Analyzer 内部兼容计算从“单遍临时注解后 move-extract”改为直接 side-table accessor，并将 name/scope、flow、alias/effect 拆成独立可缓存 analysis pass；随后删除 HIR 中的兼容语义字段
 - [ ] 首批默认优化只包括经证明安全的 CFG cleanup、constant folding、dead-pure elimination、copy propagation 和 shape canonicalization

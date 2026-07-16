@@ -10,7 +10,7 @@ MPF 的验证体系分为七层：
 6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖三种前端、两个目标、资源耗尽和确定性重放；
 7. 小文件延迟、吞吐、深 CFG、大 shape、跨函数图、峰值 arena、产物大小和并发 session 进入发布性能门禁。
 
-0.3.4 已覆盖生产 stage/include architecture test、AST/HIR/MIR/双目标 LIR verifier negative、normalized HIR 与双目标 semantic LIR golden、人类可读目标 LIR dump、analysis revision/preservation、source map v3、编译报告、前后端 conformance、安装后 consumer、细粒度 resource exhaustion、fuzz smoke/libFuzzer 和绑定项目版本的性能回归门禁。更广官方 grammar 与宽 IR 收敛继续按 [TODO 0.3.5](../TODO.md) 推进。
+0.3.4 已覆盖生产 stage/include architecture test、AST/HIR/MIR/双目标 LIR verifier negative、normalized HIR 与双目标 semantic LIR golden、人类可读目标 LIR dump、analysis revision/preservation、source map v3、编译报告、前后端 conformance、安装后 consumer、细粒度 resource exhaustion、fuzz smoke/libFuzzer 和绑定项目版本的性能回归门禁。0.3.5 新增 tuple/function/reference 类型签名、跨函数 call-site/return、缺失 call edge 和 writable-reference corruption negative case；内部测试现为 146 项，当前生产代码行覆盖率为 88.06%（14145/16063）。更广官方 grammar 与宽 IR 收敛继续按 [TODO 0.3.5](../TODO.md) 推进。
 
 ## 当前开发分支与发布基线
 

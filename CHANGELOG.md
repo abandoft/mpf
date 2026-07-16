@@ -1,3 +1,9 @@
+## Unreleased
+
+- MIR 类型系统新增驻留的 tuple、function 与 reference 类型，函数保存独立签名，Python tuple 返回保持单结果、Matlab 多输出保持多结果，Fortran `INTENT(IN/OUT/INOUT)` 参数进入带模式的 reference type。
+- 新增显式 call-site 表，关联 caller/callee、call instruction、argument/result type、optional omission、requested result 和 actual storage；verifier 跨函数检查 call/return、多结果、必需参数及 OUT/INOUT writable storage，确定性 MIR dump 同步输出类型签名和调用边。
+- 内部测试增至 146 项，新增函数签名、缺失 call edge 与 writable-reference corruption 负向测试；当前生产代码行覆盖率为 88.06%（14145/16063），继续高于 85% 门槛。
+
 ## 0.3.4
 
 - Analyzer 当前全部节点输出迁入按 `HirNodeId` O(1) 索引的紧凑 `SemanticTable`；表绑定 HIR revision，verifier 检查完整 ID 覆盖、origin 和关联 arity。分析结束后类型、shape、binding、call argument association、递归 assignment-pattern 路径及 flow 元数据从 HIR move-extract，MIR 对缺失/陈旧表失败关闭且不再读取 HIR 语义投影。

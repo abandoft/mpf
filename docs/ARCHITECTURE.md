@@ -9,12 +9,12 @@
 - 三个 frontend descriptor 产生编译期互不兼容的语言 AST artifact；节点以稠密 `AstNodeId` 存入 session PMR arena，并显式运行 AST verifier 与 AST→HIR visitor；
 - Analyzer 和 HIR pass 只处理 HIR；Analyzer 的全部外部结果在边界 move-extract 到 revision-checked 稠密 `SemanticTable`，HIR→MIR 只从该表读取类型、shape、binding、call association 与 assignment-pattern flow，再生成稠密 type、shape、storage、instruction、function/basic-block 表和 effect；
 - MIR lowering 为当前 if/loop/loop-else/`break`/`continue`/`SELECT CASE` 建立真实 CFG、block argument 和 edge actual，并显式记录 shape stride、storage view/lifetime/intent 与 alias relation；
-- MIR verifier 检查表密度、唯一所有权、terminator/edge arity、定义顺序、dominance、type/shape/storage metadata、view/lifetime/intent 与 alias relation；
+- MIR verifier 检查表密度、唯一所有权、terminator/edge arity、定义顺序、dominance、type/shape/storage metadata、view/lifetime/intent、alias relation，以及 tuple/function/reference 签名、call/return、多结果和 writable actual；
 - JavaScript 与 `cpp` 分别执行 TargetProfile、逐 opcode legalization、capability、私有 semantic plan、独立 LIR/pass/verifier；
 - representation/type/shape/ABI/name/runtime 决策在目标 lowering/renderer 完成，形成带 source origin 的 serialized chunks；核心只持有 opaque target artifact，两个 emitter 只调用 `serialize_chunks`。
 - facade 从最终 LIR origin 构建 source map v3，并公开 dependency manifest 和包含阶段耗时/节点/峰值 arena 的编译报告。
 
-0.3.4 已完成语言 AST artifact、当前支持语义的 CFG/alias、纯 emitter、source map、资源防护、fuzz、版本化性能发布门禁、Analyzer 输出 side table、静态一般 rank 的 reshape/direct-section 主链路、parser-session contract 和双目标 semantic LIR dump/golden。后续仍有更大范围的迁移任务：statement parser 内还有不会越过 frontend descriptor 的短生命周期共享 scratch；Analyzer 计算引擎仍用宽 HIR 字段做单遍临时注解，再一次性 move-extract（边界之后 HIR 不再拥有语义结果）；MIR 为兼容当前 target lowering 保留结构化语义投影；完整官方 grammar、动态 rank/广播、精确 N 维 storage overlap、跨函数 call/return 类型系统和稳定插件 ABI 也尚未完成。所有边界逐项记录在 [TODO 0.3.5/P0—P7](../TODO.md)。
+0.3.4 已完成语言 AST artifact、当前支持语义的 CFG/alias、纯 emitter、source map、资源防护、fuzz、版本化性能发布门禁、Analyzer 输出 side table、静态一般 rank 的 reshape/direct-section 主链路、parser-session contract 和双目标 semantic LIR dump/golden。0.3.5 开发线进一步加入驻留的 tuple/function/reference 类型、函数签名、显式 call-site 表，以及 call/return、多结果、optional omission 和 writable reference verifier。后续仍有更大范围的迁移任务：statement parser 内还有不会越过 frontend descriptor 的短生命周期共享 scratch；Analyzer 计算引擎仍用宽 HIR 字段做单遍临时注解，再一次性 move-extract（边界之后 HIR 不再拥有语义结果）；MIR 为兼容当前 target lowering 保留结构化语义投影；完整官方 grammar、动态 rank/广播、精确 N 维 storage overlap、参数敏感跨函数数据流和稳定插件 ABI 也尚未完成。所有边界逐项记录在 [TODO 0.3.5/P0—P7](../TODO.md)。
 
 ## 设计原则
 
@@ -116,7 +116,7 @@ mpf facade
 - `ir`：强类型 ID、semantic profile、HIR、MIR、pass/analysis manager、verifier 与确定性 dump。
 - `semantic`：目标无关的作用域、名称绑定、builtin 遮蔽、确定赋值、循环上下文、不可达代码、表达式分支类型、标量/元素类型、矩形 shape、动态 extent、slice 长度、section conformability、逐维静态越界和 rank。
 - `frontends`：统一 descriptor/registry，以及每种语言独立 logical-source normalizer 与递归下降 statement parser；parser 只消费 statement token/span，并把表达式跨度交给 Pratt parser。当前迁移覆盖已支持子集，完整官方 grammar 仍按各语言里程碑扩展。
-- `backends`：descriptor v3、TargetProfile/legalization、目标 intrinsic binding、独立 capability/semantic plan/LIR/pass/verifier、target renderer 与纯 serialized-chunk emitter，以及仅供后端使用的保留字/冲突安全名称计划。Python loop-else 使用每层独立完成标志；数组访问通过带 shape/bounds/base/negative-index/column-major 策略的 runtime lowering。生成 C++ 放入 `mpf_generated` namespace，runtime 放入独立 `mpf_runtime` namespace。
+- `backends`：descriptor v4、TargetProfile/legalization、目标 intrinsic binding、独立 capability/semantic plan/LIR/pass/verifier、target renderer 与纯 serialized-chunk emitter，以及仅供后端使用的保留字/冲突安全名称计划。Python loop-else 使用每层独立完成标志；数组访问通过带 shape/bounds/base/negative-index/column-major 策略的 runtime lowering。生成 C++ 放入 `mpf_generated` namespace，runtime 放入独立 `mpf_runtime` namespace。
 - `cli`：文件和参数 I/O，不包含编译语义。
 
 ## 正确性策略
