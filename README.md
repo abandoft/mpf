@@ -4,15 +4,15 @@ MPF 是一个通过 CMake 构建的跨平台源码转译器，目标是把 Matla
 
 ## 当前状态
 
-最新发布版为 **0.3.4**；后续架构收敛与语言覆盖按 [TODO](TODO.md) 继续推进。`FrontendDescriptor` API v5 管理身份、探测、标准版本范围、能力/resource manifest、parser session、语言 AST verifier 和 AST→窄 HIR + semantic seed lowering；`BackendDescriptor` API v5 管理 configuration/runtime supply-chain manifest、TargetProfile、稠密 MIR legalization、alias/effect 输入、capability、私有 semantic/LIR lowering、artifact verifier、semantic dump 和 printer。源语言 builtin 先解析为稳定 intrinsic ID，再由每个目标的稠密绑定表完成映射或专用 lowering。
+最新发布版为 **0.3.5**；后续架构收敛与语言覆盖按 [TODO](TODO.md) 继续推进。`FrontendDescriptor` API v5 管理身份、探测、标准版本范围、能力/resource manifest、parser session、语言 AST verifier 和 AST→窄 HIR + semantic seed lowering；`BackendDescriptor` API v5 管理 configuration/runtime supply-chain manifest、TargetProfile、稠密 MIR legalization、alias/effect 输入、capability、私有 semantic/LIR lowering、artifact verifier、semantic dump 和 printer。源语言 builtin 先解析为稳定 intrinsic ID，再由每个目标的稠密绑定表完成映射或专用 lowering。
 
 生产驱动已经实际执行“语言专属 arena AST → 窄 HIR + frontend `SemanticTable` seed → Analyzer → MIR + alias/effect analysis → JavaScript LIR/`cpp` LIR → Emitter”。三种 AST 是编译期互不兼容的 PMR arena artifact；AST→HIR 同时建立按 HIR ID 稠密、绑定 revision 的 semantic seed，HIR 节点不再重复保存 type/shape/binding/call/assignment facts。名称/作用域与控制流分别存入 `NameTable`、`FlowTable`，Analyzer 在任何 pass 前验证 seed 并原位完善它，动态类型/确定赋值状态按 `SymbolId` 访问；MIR 显式保存 type/shape/stride/storage/lifetime、tuple/function/reference 签名、call argument region/transfer、block argument、edge actual、循环和选择 CFG，并验证 ownership、arity、dominance、跨函数 call/return 与 metadata 相容性。alias/effect 不再内嵌 MIR，而由独立、可缓存、可验证的 `AliasEffectTable` 保存 storage root、instruction read/write、函数摘要、call-site 实例化和 writable overlap。两个目标通过 backend descriptor API v5 显式消费该表，各自把 borrow/copy/optional-forward、目标函数 ABI、Program/Function scope/declaration、CSR 临时资源、模块/翻译单元拓扑以及表达式和语句 representation 带入私有 LIR v9，再完成 capability、legalization、确定性 rendering 和 LIR verifier。JavaScript 与 `cpp` 的 `ExpressionPlan` 固化目标 form/precedence/token、比较策略、custom/direct call ABI、参数 value/box/optional 访问、first-result、index/slice metadata 和 reshape shape；单一 `CallArgumentPlan` 同时保存逐实参传递、ownership/copy 与 writeback，`EvaluationForm` 固化 comparison/lazy/writable-call 的 IIFE/lambda/thunk 形式，`StatementPlan` 固化 statement/control/assignment/selector/range/section/return。按 `LirNodeId` 稠密的 `SourceSegmentPlan` 在 renderer 前固定 source/origin；Renderer 不再读取节点 location/line/origin，也不再推断 writable wrapper。最终 emitter 只序列化已映射 chunk，公共结果提供 source map v3、dependency manifest 和逐阶段编译报告。
 
-0.3.4 的架构收尾已经覆盖 arena AST、Analyzer 全量输出 side table、当前语言子集的 MIR CFG/alias、静态一般 rank 的 RESHAPE/direct-section、纯 emitter、source map、fuzz/resource 与性能发布门禁；0.3.5 开发线进一步完成窄 HIR + frontend semantic seed、Analyzer 直写与结构规范化 revision/remap，独立 name/scope、flow 与 MIR alias/effect side table，以及 call argument borrow/copy/optional-forward/lifetime contract。完整官方语言 grammar、动态 rank/广播、精确 N 维 selector region overlap 和稳定插件 ABI 仍明确保持未完成。精确边界见 [TODO](TODO.md)。版本递增规则见 [版本策略](docs/VERSIONING.md)。
+0.3.5 已完成窄 HIR + frontend semantic seed、Analyzer 直写与结构规范化 revision/remap，独立 name/scope、flow 与 MIR alias/effect side table、call argument borrow/copy/optional-forward/lifetime contract，以及双目标 LIR v9 的 ABI、representation、evaluation 和 source-segment 规划。完整官方语言 grammar、动态 rank/广播、精确 N 维 selector region overlap 和稳定插件 ABI 仍明确保持未完成。精确边界见 [TODO](TODO.md)。版本递增与每版 8—20 条更新规则见 [版本策略](docs/VERSIONING.md)。
 
 - `cpp` 是唯一 C++ 目标身份，当前输出标准为 C++17；代码中不使用 `cpp17` 一类标识符。
 - 两个后端彼此独立，生成 C++ 不需要先生成 JavaScript。
-- 当前 0.3.5 开发线为 158 项内部测试、48 个差分 case 和 59 项 CTest；另有持续 fuzz smoke、可选 Clang/libFuzzer 与绑定版本号的编译性能 JSON 发布门禁；生产代码行覆盖率实测 89.58%（17561/19604），高于 85% 硬门槛。0.3.4 的封版数据保留在 changelog。
+- 0.3.5 为 158 项内部测试、48 个差分 case 和 59 项 CTest；另有持续 fuzz smoke、可选 Clang/libFuzzer 与绑定版本号的编译性能 JSON 发布门禁；生产代码行覆盖率实测 89.58%（17561/19604），高于 85% 硬门槛。历史封版数据保留在 changelog。
 - 项目仍是经过验证的语言子集，不能宣称完整兼容 Matlab 2024、Python 3.14 或 Fortran 2023。
 - TypeScript 6 已进入产品路线图，但当前尚无可声明支持的 TypeScript 前端子集。
 
@@ -85,7 +85,7 @@ cmake --install build/release --prefix build/stage
 ```
 
 ```cmake
-find_package(mpf 0.3.4 CONFIG REQUIRED COMPONENTS core cpp)
+find_package(mpf 0.3.5 CONFIG REQUIRED COMPONENTS core cpp)
 target_link_libraries(my_application PRIVATE mpf::mpf)
 ```
 

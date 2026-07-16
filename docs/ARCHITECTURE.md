@@ -1,6 +1,6 @@
 # MPF 架构
 
-本文描述 0.3.4 发布版的实际架构。CMake 同时固定 C17/C++17 标准基线，但当前生产实现和公共 API 使用 C++17；`cpp` 是 C++ 输出目标的代码身份，C++17 是当前生成标准。最终职责、性能模型和后续迁移验收条件见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
+本文描述 0.3.5 发布版的实际架构。CMake 同时固定 C17/C++17 标准基线，但当前生产实现和公共 API 使用 C++17；`cpp` 是 C++ 输出目标的代码身份，C++17 是当前生成标准。最终职责、性能模型和后续迁移验收条件见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
 
 ## 当前状态边界
 
@@ -14,7 +14,7 @@
 - renderer 不再根据 section AST 猜测 copy/writeback、扫描 call argument 选择 wrapper、读取源 parameter intent、递归扫描声明或动态分配临时名，也不再读取 `StatementKind`、`ExpressionKind`、`ValueType`、assignment pattern、源 index/shape、节点 location/line/origin、builtin binding、call transfer 或动态参数集合，且不接收 `TranspileOptions`、runtime requirements、函数图；两个目标 runtime source catalog 与 representation planner/verifier 均为独立编译单元。尚未结构化的一般 RAII/copy-move/runtime-call node 仍在对应 target renderer 序列化；核心只持有 opaque target artifact，两个 emitter 只调用 `serialize_chunks`。
 - facade 从最终 LIR origin 构建 source map v3，并公开 dependency manifest 和包含阶段耗时/节点/峰值 arena 的编译报告。
 
-0.3.4 已完成语言 AST artifact、当前支持语义的 CFG/alias、纯 emitter、source map、资源防护、fuzz、版本化性能发布门禁、Analyzer 输出 side table、静态一般 rank 的 reshape/direct-section 主链路、parser-session contract 和双目标 semantic LIR dump/golden。0.3.5 开发线进一步加入驻留的 tuple/function/reference 类型、函数签名、单对象 call argument region/transfer、跨函数 verifier、Analyzer 直写 semantic side table，以及独立、可按 revision 缓存的 name/scope、flow 和 MIR alias/effect side table。参数关联若改变结构，会提升 revision、同步紧凑重映射 HIR ID/facts、重建 name/flow 表并重新执行资源门禁。alias/effect pass 对 storage view root、instruction read/write、函数参数读写/escape、call graph 和 writable actual overlap 做保守 fixed point/实例化，并由两个后端显式消费；目标 ABI/临时值/scope/declaration/topology、expression/statement、writable call ownership/writeback/evaluation 与 source segment 已进入双目标 LIR v9。后续仍需删除 HIR 宽兼容字段；MIR 也仍为当前 target lowering 保留结构化语义投影，完整独立 target AST、一般 RAII/copy-move/runtime ABI node、结构化 import/export/chunk 仍未完成。完整官方 grammar、动态 rank/广播、精确 N 维 storage region overlap 与稳定插件 ABI 尚未完成。所有边界逐项记录在 [TODO 0.3.5/P0—P7](../TODO.md)。
+0.3.5 已完成语言 AST artifact、窄 HIR + semantic seed、当前支持语义的 CFG/alias、纯 emitter、source map、资源防护、fuzz、版本化性能发布门禁、静态一般 rank 的 reshape/direct-section 主链路、parser-session contract 和双目标 semantic LIR dump/golden。MIR 拥有驻留的 tuple/function/reference 类型、函数签名、单对象 call argument region/transfer 与跨函数 verifier；Analyzer 原位完善 frontend semantic seed，并消费独立、可按 revision 缓存的 name/scope、flow 和 MIR alias/effect side table。参数关联若改变结构，会提升 revision、同步紧凑重映射 HIR ID/facts、重建 name/flow 表并重新执行资源门禁。alias/effect pass 对 storage view root、instruction read/write、函数参数读写/escape、call graph 和 writable actual overlap 做保守 fixed point/实例化，并由两个后端显式消费；目标 ABI/临时值/scope/declaration/topology、expression/statement、writable call ownership/writeback/evaluation 与 source segment 已进入双目标 LIR v9。MIR 仍为当前 target lowering 保留结构化语义投影，完整独立 target AST、一般 RAII/copy-move/runtime ABI node、结构化 import/export/chunk 仍未完成。完整官方 grammar、动态 rank/广播、精确 N 维 storage region overlap 与稳定插件 ABI 尚未完成。所有边界逐项记录在 [TODO](../TODO.md)。
 
 ## 设计原则
 

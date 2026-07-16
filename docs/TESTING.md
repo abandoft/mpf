@@ -10,7 +10,7 @@ MPF 的验证体系分为七层：
 6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖三种前端、两个目标、资源耗尽和确定性重放；
 7. 小文件延迟、吞吐、深 CFG、大 shape、跨函数图、峰值 arena、产物大小和并发 session 进入发布性能门禁。
 
-0.3.4 已覆盖生产 stage/include architecture test、AST/HIR/MIR/双目标 LIR verifier negative、normalized HIR 与双目标 semantic LIR golden、人类可读目标 LIR dump、analysis revision/preservation、source map v3、编译报告、前后端 conformance、安装后 consumer、细粒度 resource exhaustion、fuzz smoke/libFuzzer 和绑定项目版本的性能回归门禁。0.3.5 的 LIR v9 负向测试覆盖函数 ABI/CSR temporary/scope/layout、expression/statement、聚合 call ownership/writeback、target closure evaluation 与稠密 source segment 的缺失或不一致；frontend conformance 同时验证窄 HIR 与 semantic seed，架构门禁阻止 HIR 宽语义字段、共享 syntax lowering、renderer 源级推断恢复，并要求 ABI/resource planning 先于 representation。内部测试现为 158 项，生产代码行覆盖率实测 89.58%（17561/19604）。更广官方 grammar、精确 N 维 selector region overlap 及 MIR 宽投影收敛继续按 [TODO 0.3.5](../TODO.md) 推进。
+0.3.5 已覆盖生产 stage/include architecture test、AST/HIR/MIR/双目标 LIR verifier negative、normalized HIR 与双目标 semantic LIR golden、人类可读目标 LIR dump、analysis revision/preservation、source map v3、编译报告、前后端 conformance、安装后 consumer、细粒度 resource exhaustion、fuzz smoke/libFuzzer 和绑定项目版本的性能回归门禁。LIR v9 负向测试覆盖函数 ABI/CSR temporary/scope/layout、expression/statement、聚合 call ownership/writeback、target closure evaluation 与稠密 source segment 的缺失或不一致；frontend conformance 同时验证窄 HIR 与 semantic seed，架构门禁阻止 HIR 宽语义字段、共享 syntax lowering、renderer 源级推断恢复，并要求 ABI/resource planning 先于 representation。内部测试现为 158 项，生产代码行覆盖率实测 89.58%（17561/19604）。更广官方 grammar、精确 N 维 selector region overlap 及 MIR 宽投影收敛继续按 [TODO](../TODO.md) 推进。
 
 ## 当前开发分支与发布基线
 
@@ -81,7 +81,7 @@ cmake --preset coverage
 cmake --build --preset coverage
 ```
 
-coverage preset 使用 Clang source-based coverage，将多进程 `.profraw` 合并后排除 `build/`、`tests/`、不贡献 profile 的子构建 isolation case 和已由独立 workflow 拥有的性能阈值，只统计生产源码；报告位于 `build/coverage/coverage/`。当前门槛为 85%，0.3.5 开发线实测 89.58%（17561/19604）；0.3.4 封版数据保留在 changelog。独立 `Security` workflow 先探测仓库的 GitHub Advanced Security 能力；公共仓库或已授权 GHAS 的私有仓库对 C/C++ 运行 CodeQL `security-extended`，并在 pull request 上拒绝引入 moderate 及以上已知漏洞的依赖变更。未授权私有仓库明确记录 capability notice，并继续依赖始终执行的 clang-tidy/Clang analyzer、Sanitizer 和零告警构建门禁。
+coverage preset 使用 Clang source-based coverage，将多进程 `.profraw` 合并后排除 `build/`、`tests/`、不贡献 profile 的子构建 isolation case 和已由独立 workflow 拥有的性能阈值，只统计生产源码；报告位于 `build/coverage/coverage/`。当前门槛为 85%，0.3.5 封版实测 89.58%（17561/19604）；历史封版数据保留在 changelog。独立 `Security` workflow 先探测仓库的 GitHub Advanced Security 能力；公共仓库或已授权 GHAS 的私有仓库对 C/C++ 运行 CodeQL `security-extended`，并在 pull request 上拒绝引入 moderate 及以上已知漏洞的依赖变更。未授权私有仓库明确记录 capability notice，并继续依赖始终执行的 clang-tidy/Clang analyzer、Sanitizer 和零告警构建门禁。
 
 完整的 workflow 边界、required check 名称、超时和产物策略见 [临时停用的 GitHub Actions 职责矩阵](../.github/workflows-disabled/README.md)。恢复自动执行时应将该目录整体改回 `.github/workflows/`。
 

@@ -1,6 +1,6 @@
 # MPF 持续建设路线图
 
-本路线图同时记录 **0.3.4 已发布基线** 与下一轮 **0.3.5 架构收敛目标** 的真实状态。历史交付细节见
+本路线图同时记录 **0.3.5 已发布基线** 与下一轮 **0.3.6 交付目标** 的真实状态。历史交付细节见
 [CHANGELOG.md](CHANGELOG.md)，当前可依赖的语言子集见
 [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 前端当前尚未实现。
 
@@ -31,15 +31,15 @@
 
 这里的“完成”只指上述架构与工程闭环；各语言官方 grammar、完整对象模型、动态 rank/广播、精确 N 维 overlap/alias 和稳定插件 ABI 仍由后续条目跟踪。
 
-## 下一交付目标
+## 版本化交付与持续收敛
 
-### 0.3.5：商业级前后端与五层编译器管线继续收敛（进行中）
+### 0.3.5：商业级前后端与五层编译器管线继续收敛（已发布）
 
-0.3.4 已让三个前端和两个后端全部经过真实的 `语言 AST → HIR → MIR → 目标 LIR → Emitter` 生产路径，并删除共享 `Program` 直通 emitter 的旧路径。0.3.5 只跟踪仍未完成的数据模型收窄、直接 side-table 分析与 representation/ABI 前移，不把它们误写成 0.3.4 已交付能力。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
+0.3.5 以 16 条独立更新完成封版，交付窄 HIR + semantic seed、独立 name/flow/alias-effect side table、跨函数 MIR call contract 和双目标 LIR v9。下列已勾选项是该版本及此前版本的实际能力；未勾选项不是 0.3.5 发布承诺，继续作为 0.3.6 及后续版本的架构 backlog。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
 
 #### P0：基线、指标与依赖规则
 
-- [x] 以生成代码/诊断/差分 corpus、HIR/LIR golden 和绑定 `0.3.4` 的性能 JSON 固化生成输出、编译时间、峰值内存和产物大小基线
+- [x] 以生成代码/诊断/差分 corpus、HIR/LIR golden 和绑定 `0.3.5` 的性能 JSON 固化生成输出、编译时间、峰值内存和产物大小基线
 - [x] 增加生产 stage/include architecture test 与 javascript-only、cpp-only、core-only 链接/安装隔离，禁止 frontend→MIR/backend、公共 IR→backend 和 javascript↔`cpp` 反向依赖
 - [x] 为重构设定 resource limit、确定性和性能回退阈值；CI 产出机器可读阶段指标与性能报告
 - [x] 迁移以 feature-equivalent adapter 保持既有语言行为，现有单元、集成与差分 corpus 继续作为兼容门禁
