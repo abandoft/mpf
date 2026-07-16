@@ -181,6 +181,7 @@ if(MPF_ENABLE_JAVASCRIPT_BACKEND)
     src/backends/javascript_lir_planning.cpp
     src/backends/javascript_lowering.cpp
     src/backends/javascript_renderer.cpp
+    src/backends/javascript_runtime.cpp
     src/backends/javascript_validator.cpp)
   add_library(mpf::backend-javascript ALIAS mpf_backend_javascript)
   set_target_properties(mpf_backend_javascript PROPERTIES
@@ -199,6 +200,7 @@ if(MPF_ENABLE_CPP_BACKEND)
     src/backends/cpp_lir_planning.cpp
     src/backends/cpp_lowering.cpp
     src/backends/cpp_renderer.cpp
+    src/backends/cpp_runtime.cpp
     src/backends/cpp_validator.cpp)
   add_library(mpf::backend-cpp ALIAS mpf_backend_cpp)
   set_target_properties(mpf_backend_cpp PROPERTIES

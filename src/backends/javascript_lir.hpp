@@ -92,6 +92,17 @@ struct ScopePlan {
   std::vector<std::string> declarations;
 };
 
+enum class RuntimeFragment : std::uint8_t { dynamic_values, character_case, arrays };
+
+struct ModulePlan {
+  bool valid{false};
+  bool emit_banner{false};
+  std::string banner;
+  std::vector<std::string> directives;
+  std::vector<RuntimeFragment> runtime_fragments;
+  std::vector<std::size_t> body_order;
+};
+
 struct Expression {
   LirNodeId id{};
   HirNodeId origin{};
@@ -197,6 +208,7 @@ struct SemanticProgram {
   IdentifierPlan identifiers;
   TemporaryPlan temporaries;
   ScopePlan program_scope;
+  ModulePlan module;
   std::vector<std::string_view> dependencies;
   std::vector<Statement> statements;
   std::size_t node_count{0};

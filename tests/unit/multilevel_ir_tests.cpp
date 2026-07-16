@@ -5,8 +5,10 @@
 
 #include "backends/backend_conformance.hpp"
 #include "backends/cpp_lir.hpp"
+#include "backends/cpp_lir_planning.hpp"
 #include "backends/cpp_lowering.hpp"
 #include "backends/javascript_lir.hpp"
+#include "backends/javascript_lir_planning.hpp"
 #include "backends/javascript_lowering.hpp"
 #include "core/backend_registry.hpp"
 #include "frontends/frontend_conformance.hpp"
@@ -754,9 +756,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v5") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v6") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v5") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v6") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -807,7 +809,6 @@ TEST_CASE("target LIR verifiers reject missing identities and cross-target artif
 TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   mpf::detail::javascript::lir::SemanticProgram javascript;
   javascript.node_count = 1;
-  javascript.temporaries.offsets.resize(3, 0);
   mpf::detail::javascript::lir::Statement javascript_range;
   javascript_range.id = mpf::detail::LirNodeId{1};
   javascript_range.origin = mpf::detail::HirNodeId{1};
@@ -818,13 +819,7 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   javascript.identifiers = mpf::detail::allocate_identifiers(
       mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_names(javascript));
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
-  javascript.temporaries.offsets = {0, 0, 3};
-  javascript.temporaries.slots = {
-      {mpf::detail::javascript::lir::TemporaryRole::range_start, 0, "temporary_start"},
-      {mpf::detail::javascript::lir::TemporaryRole::range_stop, 0, "temporary_stop"},
-      {mpf::detail::javascript::lir::TemporaryRole::range_step, 0, "temporary_step"}};
-  javascript.program_scope.valid = true;
-  javascript.program_scope.declarations = {"index"};
+  mpf::detail::javascript::plan_lir_resources(javascript, mpf::TranspileOptions{});
   REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript).empty());
   javascript.program_scope.declarations.clear();
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
@@ -834,7 +829,6 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
 
   mpf::detail::javascript::lir::SemanticProgram javascript_function;
   javascript_function.node_count = 1;
-  javascript_function.temporaries.offsets.resize(3, 0);
   mpf::detail::javascript::lir::Statement javascript_abi;
   javascript_abi.id = mpf::detail::LirNodeId{1};
   javascript_abi.origin = mpf::detail::HirNodeId{1};
@@ -842,21 +836,23 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   javascript_abi.name = "write";
   javascript_abi.parameters = {"value"};
   javascript_abi.parameter_intents = {mpf::detail::ParameterIntent::out};
-  javascript_abi.function_abi.valid = true;
-  javascript_abi.function_abi.parameters = {mpf::detail::javascript::lir::ParameterPassing::value};
-  javascript_abi.function_scope.valid = true;
   javascript_function.statements.push_back(std::move(javascript_abi));
-  javascript_function.program_scope.valid = true;
   javascript_function.identifiers = mpf::detail::allocate_identifiers(
       mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_names(javascript_function));
+  mpf::detail::javascript::plan_lir_resources(javascript_function, mpf::TranspileOptions{});
+  REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript_function).empty());
+  javascript_function.statements.front().function_abi.parameters.front() =
+      mpf::detail::javascript::lir::ParameterPassing::value;
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript_function).empty());
   javascript_function.statements.front().function_abi.parameters.front() =
       mpf::detail::javascript::lir::ParameterPassing::reference_box;
+  javascript_function.module.body_order.clear();
+  REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript_function).empty());
+  javascript_function.module.body_order = {0};
   REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript_function).empty());
 
   mpf::detail::cpp::lir::SemanticProgram cpp;
   cpp.node_count = 1;
-  cpp.temporaries.offsets.resize(3, 0);
   mpf::detail::cpp::lir::Statement cpp_function;
   cpp_function.id = mpf::detail::LirNodeId{1};
   cpp_function.origin = mpf::detail::HirNodeId{1};
@@ -869,10 +865,7 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   cpp.identifiers = mpf::detail::allocate_identifiers(mpf::TargetLanguage::cpp,
                                                       mpf::detail::collect_identifier_names(cpp));
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
-  cpp.program_scope.valid = true;
-  cpp.statements.front().function_abi.valid = true;
-  cpp.statements.front().function_abi.return_type = "auto";
-  cpp.statements.front().function_scope.valid = true;
+  mpf::detail::cpp::plan_lir_resources(cpp, mpf::TranspileOptions{});
   REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp).empty());
   mpf::detail::cpp::lir::DeclarationPlan unexpected;
   unexpected.name = "unexpected";
@@ -880,6 +873,64 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
   cpp.program_scope.declarations.clear();
   cpp.statements.front().function_abi.return_type = "void";
+  REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  cpp.statements.front().function_abi.return_type = "auto";
+  cpp.translation_unit.definitions.clear();
+  REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+}
+
+TEST_CASE("target LIR owns module and translation-unit topology") {
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.source_language = mpf::SourceLanguage::python;
+  javascript.node_count = 1;
+  javascript.emission.module =
+      mpf::detail::javascript::lir::EmissionPlan::ModuleFormat::strict_script;
+  javascript.runtime.require(mpf::detail::javascript::lir::RuntimeFeature::dynamic_values);
+  javascript.runtime.require(mpf::detail::javascript::lir::RuntimeFeature::arrays);
+  mpf::detail::javascript::lir::Statement javascript_statement;
+  javascript_statement.id = mpf::detail::LirNodeId{1};
+  javascript_statement.origin = mpf::detail::HirNodeId{1};
+  javascript.statements.push_back(std::move(javascript_statement));
+  javascript.identifiers = mpf::detail::allocate_identifiers(
+      mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_names(javascript));
+  mpf::TranspileOptions options;
+  options.emit_source_banner = false;
+  mpf::detail::javascript::plan_lir_resources(javascript, options);
+  REQUIRE(!javascript.module.emit_banner);
+  REQUIRE(javascript.module.banner.empty());
+  REQUIRE((javascript.module.directives == std::vector<std::string>{"\"use strict\";"}));
+  REQUIRE((javascript.module.runtime_fragments ==
+           std::vector<mpf::detail::javascript::lir::RuntimeFragment>{
+               mpf::detail::javascript::lir::RuntimeFragment::dynamic_values,
+               mpf::detail::javascript::lir::RuntimeFragment::arrays}));
+  REQUIRE((javascript.module.body_order == std::vector<std::size_t>{0}));
+  REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript).empty());
+  std::reverse(javascript.module.runtime_fragments.begin(),
+               javascript.module.runtime_fragments.end());
+  REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.source_language = mpf::SourceLanguage::python;
+  cpp.node_count = 1;
+  mpf::detail::cpp::lir::Statement cpp_statement;
+  cpp_statement.id = mpf::detail::LirNodeId{1};
+  cpp_statement.origin = mpf::detail::HirNodeId{1};
+  cpp.statements.push_back(std::move(cpp_statement));
+  cpp.identifiers = mpf::detail::allocate_identifiers(mpf::TargetLanguage::cpp,
+                                                      mpf::detail::collect_identifier_names(cpp));
+  mpf::detail::cpp::plan_lir_resources(cpp, options);
+  REQUIRE(!cpp.translation_unit.emit_banner);
+  REQUIRE(cpp.translation_unit.banner.empty());
+  REQUIRE((cpp.translation_unit.runtime_fragments ==
+           std::vector<mpf::detail::cpp::lir::RuntimeFragment>{
+               mpf::detail::cpp::lir::RuntimeFragment::core}));
+  REQUIRE(cpp.translation_unit.definitions.empty());
+  REQUIRE((cpp.translation_unit.entry_statements == std::vector<std::size_t>{0}));
+  REQUIRE(cpp.translation_unit.emit_entry_function);
+  REQUIRE(cpp.translation_unit.emit_main);
+  REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  std::swap(cpp.translation_unit.standard_headers.front(),
+            cpp.translation_unit.standard_headers.back());
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
 }
 
@@ -908,6 +959,8 @@ TEST_CASE("target LIR scope plans own declarations types and probes") {
   REQUIRE(javascript_dump.find("program-scope [\"items\",\"pair\",\"value\"]") !=
           std::string::npos);
   REQUIRE(javascript_dump.find("scope [\"local\",\"result\"]") != std::string::npos);
+  REQUIRE(javascript_dump.find("module banner=1 directives [] runtime [] body [0,1,2,3,4]") !=
+          std::string::npos);
   const auto cpp_dump = cpp.artifact->debug_dump();
   REQUIRE(cpp_dump.find("program-scope\n  declaration \"value\"") != std::string::npos);
   REQUIRE(cpp_dump.find("declaration \"items\" type-kind 0 type "
@@ -916,6 +969,10 @@ TEST_CASE("target LIR scope plans own declarations types and probes") {
           std::string::npos);
   REQUIRE(cpp_dump.find("function-scope %l") != std::string::npos);
   REQUIRE(cpp_dump.find("declaration \"local\" type-kind 0 type \"std::int64_t\"") !=
+          std::string::npos);
+  REQUIRE(cpp_dump.find("translation-unit banner=1 runtime-namespace \"mpf_runtime\"") !=
+          std::string::npos);
+  REQUIRE(cpp_dump.find("runtime [0,1] forward [] definitions [4] entry [0,1,2,3]") !=
           std::string::npos);
 }
 

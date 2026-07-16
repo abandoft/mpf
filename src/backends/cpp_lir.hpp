@@ -120,6 +120,25 @@ struct ScopePlan {
   std::vector<DeclarationPlan> declarations;
 };
 
+enum class RuntimeFragment : std::uint8_t { core, dynamic_values };
+
+struct TranslationUnitPlan {
+  bool valid{false};
+  bool emit_banner{false};
+  std::string banner;
+  std::vector<std::string> standard_headers;
+  std::vector<RuntimeFragment> runtime_fragments;
+  std::string runtime_namespace;
+  std::string generated_namespace;
+  std::vector<std::size_t> forward_declarations;
+  std::vector<std::size_t> definitions;
+  std::vector<std::size_t> entry_statements;
+  bool emit_module_scope{false};
+  bool entry_owns_program_scope{false};
+  bool emit_entry_function{false};
+  bool emit_main{false};
+};
+
 struct Expression {
   LirNodeId id{};
   HirNodeId origin{};
@@ -225,6 +244,7 @@ struct SemanticProgram {
   IdentifierPlan identifiers;
   TemporaryPlan temporaries;
   ScopePlan program_scope;
+  TranslationUnitPlan translation_unit;
   std::vector<std::string_view> dependencies;
   std::vector<Statement> statements;
   FunctionDependencyGraph function_graph;

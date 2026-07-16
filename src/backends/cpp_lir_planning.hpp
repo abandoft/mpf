@@ -7,7 +7,7 @@
 
 namespace mpf::detail::cpp {
 
-void plan_lir_resources(lir::SemanticProgram& program);
+void plan_lir_resources(lir::SemanticProgram& program, const TranspileOptions& options);
 void verify_lir_resources(const lir::SemanticProgram& program,
                           std::vector<Diagnostic>& diagnostics);
 

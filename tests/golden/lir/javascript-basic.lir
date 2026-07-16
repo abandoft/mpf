@@ -1,4 +1,4 @@
-javascript-semantic-lir-v5 revision 1 nodes 5 runtime 0x0
+javascript-semantic-lir-v6 revision 1 nodes 5 runtime 0x0
 dependencies
 temporaries
 stmt %l1 origin %h1 kind 4 line 1 name ""
@@ -8,4 +8,5 @@ stmt %l1 origin %h1 kind 4 line 1 name ""
       expr %l5 origin %h5 kind 2 type 1 binding 0 intrinsic 0 shape [] value "2"
 function-abis
 program-scope []
+module banner=1 directives [] runtime [] body [0]
 emission dynamic-truthiness=1 operand-logical-result=1 structural-equality=1 resizable-sections=1 parameter-defaults=1 module=1

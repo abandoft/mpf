@@ -336,7 +336,7 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
   lowered->identifiers =
       allocate_identifiers(TargetLanguage::javascript, collect_identifier_names(*lowered));
   lowered->dependencies = semantic_program.dependencies;
-  plan_lir_resources(*lowered);
+  plan_lir_resources(*lowered, options);
   PassManager<lir::SemanticProgram> passes(&verify_lir_stage);
   passes.add({"javascript-lir-canonicalization", &canonicalize_lir, true});
   auto lir_diagnostics = passes.run(*lowered);
@@ -349,7 +349,7 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
     artifact->node_count = lowered->node_count;
     artifact->revision = lowered->revision;
     artifact->semantic_dump = lir::dump(*lowered);
-    artifact->chunks = materialize_chunks(render_javascript(*lowered, options));
+    artifact->chunks = materialize_chunks(render_javascript(*lowered));
     auto artifact_diagnostics = verify_serialized_lir(*artifact);
     result.diagnostics.insert(result.diagnostics.end(),
                               std::make_move_iterator(artifact_diagnostics.begin()),
@@ -388,6 +388,22 @@ std::string lir::dump(const SemanticProgram& program) {
   for (std::size_t index = 0; index < program.program_scope.declarations.size(); ++index) {
     if (index != 0) output << ',';
     output << std::quoted(program.program_scope.declarations[index]);
+  }
+  output << "]\n";
+  output << "module banner=" << program.module.emit_banner << " directives [";
+  for (std::size_t index = 0; index < program.module.directives.size(); ++index) {
+    if (index != 0) output << ',';
+    output << std::quoted(program.module.directives[index]);
+  }
+  output << "] runtime [";
+  for (std::size_t index = 0; index < program.module.runtime_fragments.size(); ++index) {
+    if (index != 0) output << ',';
+    output << static_cast<int>(program.module.runtime_fragments[index]);
+  }
+  output << "] body [";
+  for (std::size_t index = 0; index < program.module.body_order.size(); ++index) {
+    if (index != 0) output << ',';
+    output << program.module.body_order[index];
   }
   output << "]\n";
   output << "emission dynamic-truthiness=" << program.emission.dynamic_truthiness

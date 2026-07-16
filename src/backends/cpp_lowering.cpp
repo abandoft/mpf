@@ -347,7 +347,7 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
   lowered->dependencies = semantic_program.dependencies;
   lowered->function_graph =
       build_function_dependency_graph_generic<lir::Expression, lir::Statement>(lowered->statements);
-  plan_lir_resources(*lowered);
+  plan_lir_resources(*lowered, options);
   PassManager<lir::SemanticProgram> passes(&verify_lir_stage);
   passes.add({"cpp-lir-canonicalization", &canonicalize_lir, true});
   auto lir_diagnostics = passes.run(*lowered);
@@ -360,7 +360,7 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
     artifact->node_count = lowered->node_count;
     artifact->revision = lowered->revision;
     artifact->semantic_dump = lir::dump(*lowered);
-    artifact->chunks = materialize_chunks(render_cpp(*lowered, options));
+    artifact->chunks = materialize_chunks(render_cpp(*lowered));
     auto artifact_diagnostics = verify_serialized_lir(*artifact);
     result.diagnostics.insert(result.diagnostics.end(),
                               std::make_move_iterator(artifact_diagnostics.begin()),
@@ -422,6 +422,33 @@ std::string lir::dump(const SemanticProgram& program) {
   };
   dump_abis(dump_abis, program.statements);
   dump_scope("program-scope", program.program_scope);
+  output << "translation-unit banner=" << program.translation_unit.emit_banner
+         << " runtime-namespace " << std::quoted(program.translation_unit.runtime_namespace)
+         << " generated-namespace " << std::quoted(program.translation_unit.generated_namespace)
+         << " headers [";
+  for (std::size_t index = 0; index < program.translation_unit.standard_headers.size(); ++index) {
+    if (index != 0) output << ',';
+    output << std::quoted(program.translation_unit.standard_headers[index]);
+  }
+  output << "] runtime [";
+  for (std::size_t index = 0; index < program.translation_unit.runtime_fragments.size(); ++index) {
+    if (index != 0) output << ',';
+    output << static_cast<int>(program.translation_unit.runtime_fragments[index]);
+  }
+  const auto dump_order = [&](const std::string_view label, const std::vector<std::size_t>& order) {
+    output << "] " << label << " [";
+    for (std::size_t index = 0; index < order.size(); ++index) {
+      if (index != 0) output << ',';
+      output << order[index];
+    }
+  };
+  dump_order("forward", program.translation_unit.forward_declarations);
+  dump_order("definitions", program.translation_unit.definitions);
+  dump_order("entry", program.translation_unit.entry_statements);
+  output << "] module-scope=" << program.translation_unit.emit_module_scope
+         << " entry-scope=" << program.translation_unit.entry_owns_program_scope
+         << " emit-entry=" << program.translation_unit.emit_entry_function
+         << " emit-main=" << program.translation_unit.emit_main << '\n';
   output << "emission dynamic-truthiness=" << program.emission.dynamic_truthiness
          << " operand-logical-result=" << program.emission.operand_logical_result
          << " real-division=" << program.emission.real_division

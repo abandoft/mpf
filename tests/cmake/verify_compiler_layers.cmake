@@ -62,8 +62,9 @@ foreach(planning IN ITEMS
   if(NOT planning_contents MATCHES "plan_lir_resources" OR
      NOT planning_contents MATCHES "verify_lir_resources" OR
      NOT planning_contents MATCHES "program_scope" OR
-     NOT planning_contents MATCHES "function_scope")
-    message(FATAL_ERROR "target LIR planning layer does not own scope resources: ${planning}")
+     NOT planning_contents MATCHES "function_scope" OR
+     NOT planning_contents MATCHES "RuntimeFragment")
+    message(FATAL_ERROR "target LIR planning layer does not own scope and layout resources: ${planning}")
   endif()
 endforeach()
 
@@ -95,6 +96,7 @@ foreach(target_lir IN ITEMS src/backends/javascript_lir.hpp src/backends/cpp_lir
      NOT target_lir_contract MATCHES "ScopePlan" OR
      NOT target_lir_contract MATCHES "program_scope" OR
      NOT target_lir_contract MATCHES "function_scope" OR
+     NOT target_lir_contract MATCHES "RuntimeFragment" OR
      NOT target_lir_contract MATCHES "offsets" OR
      target_lir_contract MATCHES "argument_intents")
     message(FATAL_ERROR "target LIR does not own a lowered argument transfer plan: ${target_lir}")
@@ -106,13 +108,36 @@ foreach(renderer IN ITEMS src/backends/javascript_renderer.cpp src/backends/cpp_
   if(NOT renderer_contract MATCHES "argument_transfer_(writes|copies|forwards_optional)")
     message(FATAL_ERROR "target renderer ignores the lowered argument transfer plan: ${renderer}")
   endif()
-  if(renderer_contract MATCHES "mangler_->temporary|parameter_intents|parameter_optional|options_\\.module_kind|collect_(assignments|declarations)" OR
+  if(renderer_contract MATCHES "mangler_->temporary|parameter_intents|parameter_optional|TranspileOptions|options_|program\\.runtime|program\\.function_graph|has_executable_statements|MPF_VERSION|collect_(assignments|declarations)" OR
      NOT renderer_contract MATCHES "temporaries_->find" OR
      NOT renderer_contract MATCHES "function_abi" OR
      NOT renderer_contract MATCHES "program_scope" OR
      NOT renderer_contract MATCHES "function_scope")
-    message(FATAL_ERROR "target renderer still plans temporaries, declarations, or source-level ABI: ${renderer}")
+    message(FATAL_ERROR "target renderer still plans layout, temporaries, declarations, or source-level ABI: ${renderer}")
   endif()
+endforeach()
+
+file(READ "${SOURCE_DIR}/src/backends/javascript_renderer.cpp" javascript_renderer_contract)
+if(NOT javascript_renderer_contract MATCHES "program\\.module" OR
+   NOT javascript_renderer_contract MATCHES "body_order" OR
+   NOT javascript_renderer_contract MATCHES "emit_javascript_runtime_fragment")
+  message(FATAL_ERROR "JavaScript renderer does not consume the module plan")
+endif()
+
+file(READ "${SOURCE_DIR}/src/backends/cpp_renderer.cpp" cpp_renderer_contract)
+if(NOT cpp_renderer_contract MATCHES "program\\.translation_unit" OR
+   NOT cpp_renderer_contract MATCHES "forward_declarations" OR
+   NOT cpp_renderer_contract MATCHES "entry_statements" OR
+   NOT cpp_renderer_contract MATCHES "emit_cpp_runtime")
+  message(FATAL_ERROR "cpp renderer does not consume the translation-unit plan")
+endif()
+
+foreach(runtime IN ITEMS src/backends/javascript_runtime.cpp src/backends/cpp_runtime.cpp)
+  if(NOT EXISTS "${SOURCE_DIR}/${runtime}")
+    message(FATAL_ERROR "target runtime catalog is missing: ${runtime}")
+  endif()
+  mpf_assert_file_excludes("${runtime}" "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
+    "target runtime catalog depends on source or target-independent compiler state")
 endforeach()
 
 file(READ "${SOURCE_DIR}/src/backends/cpp_lir.hpp" cpp_lir_contract)
@@ -121,6 +146,20 @@ if(NOT cpp_lir_contract MATCHES "DeclarationTypeKind" OR
    NOT cpp_lir_contract MATCHES "fixed_shape" OR
    NOT cpp_lir_contract MATCHES "fixed_nested_types")
   message(FATAL_ERROR "cpp LIR does not own declaration type and initialization plans")
+endif()
+
+if(NOT cpp_lir_contract MATCHES "TranslationUnitPlan" OR
+   NOT cpp_lir_contract MATCHES "standard_headers" OR
+   NOT cpp_lir_contract MATCHES "forward_declarations" OR
+   NOT cpp_lir_contract MATCHES "entry_statements")
+  message(FATAL_ERROR "cpp LIR does not own translation-unit topology")
+endif()
+
+file(READ "${SOURCE_DIR}/src/backends/javascript_lir.hpp" javascript_lir_contract)
+if(NOT javascript_lir_contract MATCHES "ModulePlan" OR
+   NOT javascript_lir_contract MATCHES "directives" OR
+   NOT javascript_lir_contract MATCHES "body_order")
+  message(FATAL_ERROR "JavaScript LIR does not own module topology")
 endif()
 
 mpf_assert_file_excludes("src/backends/identifier_mangler.hpp" "temporary\\("
