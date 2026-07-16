@@ -54,6 +54,10 @@ TEST_CASE("frontend catalog rejects duplicate registrations") {
   const mpf::detail::FrontendDescriptor* nondeterministic[]{&malformed};
   REQUIRE(!mpf::detail::validate_frontend_catalog(nondeterministic, std::size(nondeterministic)));
   malformed = mpf::detail::python_frontend();
+  malformed.manifest.minimum_version = {3, 15};
+  const mpf::detail::FrontendDescriptor* invalid_versions[]{&malformed};
+  REQUIRE(!mpf::detail::validate_frontend_catalog(invalid_versions, std::size(invalid_versions)));
+  malformed = mpf::detail::python_frontend();
   const mpf::detail::SourceIntrinsicBinding unsorted[]{
       {"len", mpf::detail::IntrinsicId::python_length},
       {"float", mpf::detail::IntrinsicId::python_float}};

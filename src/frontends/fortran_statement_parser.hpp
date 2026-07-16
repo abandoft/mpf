@@ -8,6 +8,7 @@
 namespace mpf::detail {
 
 [[nodiscard]] ParseResult parse_fortran_statements(std::vector<FortranStatementLine> lines,
-                                                   std::vector<Diagnostic> diagnostics = {});
+                                                   std::vector<Diagnostic> diagnostics = {},
+                                                   LanguageVersion version = {2023, 0});
 
 }  // namespace mpf::detail

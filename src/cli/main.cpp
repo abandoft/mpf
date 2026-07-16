@@ -47,6 +47,7 @@ void usage(std::ostream& output) {
          << source_languages << ">\n"
          << "  -t, --target <" << target_languages
          << ">\n"
+            "      --language-version <latest|major[.minor]|Ryyyy[a|b]>\n"
             "  -m, --module <esm|script>\n"
             "      --fortran-form <auto|free|fixed>\n"
             "  -o, --output <path>\n"
@@ -149,6 +150,15 @@ int main(int argc, char** argv) {
         options.module_kind = mpf::ModuleKind::script;
       } else {
         return report_driver_error(diagnostic_format, "MPFCLI0001", "unknown module kind: " + value,
+                                   ExitCode::command_line_error);
+      }
+      continue;
+    }
+    if (argument == "--language-version" && index + 1 < argc) {
+      const std::string value = argv[++index];
+      if (!mpf::parse_language_version(value, options.language_version)) {
+        return report_driver_error(diagnostic_format, "MPFCLI0001",
+                                   "invalid language version: " + value,
                                    ExitCode::command_line_error);
       }
       continue;

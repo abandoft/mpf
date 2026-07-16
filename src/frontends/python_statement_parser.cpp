@@ -70,8 +70,9 @@ const Expression* indexed_base(const Expression& expression) noexcept {
 
 class Parser final {
  public:
-  Parser(std::vector<PythonStatementLine> lines, std::vector<Diagnostic> diagnostics)
-      : lines_(std::move(lines)), diagnostics_(std::move(diagnostics)) {}
+  Parser(std::vector<PythonStatementLine> lines, std::vector<Diagnostic> diagnostics,
+         const LanguageVersion version)
+      : lines_(std::move(lines)), diagnostics_(std::move(diagnostics)), version_(version) {}
 
   ParseResult parse() {
     ParseResult result;
@@ -232,6 +233,10 @@ class Parser final {
         continue;
       }
       if (end == begin + 1 && line.tokens[begin].kind == Kind::slash) {
+        if (version_ < LanguageVersion{3, 8}) {
+          frontend::version_unsupported(diagnostics_, line.source.number,
+                                        "positional-only parameters require Python 3.8 or newer");
+        }
         if (saw_slash || saw_star || statement.parameters.empty()) {
           valid = false;
         } else {
@@ -501,6 +506,14 @@ class Parser final {
       ++index_;
       return;
     }
+    if (first == Kind::unsupported_keyword && count == 1 && line.tokens[0].text == "pass") {
+      Statement statement;
+      statement.kind = StatementKind::expression;
+      statement.line = line.source.number;
+      statements.push_back(std::move(statement));
+      ++index_;
+      return;
+    }
 
     std::size_t print_closing = count;
     if (is_print_call(line, print_closing)) {
@@ -623,14 +636,16 @@ class Parser final {
 
   std::vector<PythonStatementLine> lines_;
   std::vector<Diagnostic> diagnostics_;
+  LanguageVersion version_;
   std::size_t index_{0};
 };
 
 }  // namespace
 
 ParseResult parse_python_statements(std::vector<PythonStatementLine> lines,
-                                    std::vector<Diagnostic> diagnostics) {
-  return Parser{std::move(lines), std::move(diagnostics)}.parse();
+                                    std::vector<Diagnostic> diagnostics,
+                                    const LanguageVersion version) {
+  return Parser{std::move(lines), std::move(diagnostics), version}.parse();
 }
 
 }  // namespace mpf::detail

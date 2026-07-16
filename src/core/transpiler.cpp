@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <limits>
 #include <new>
 #include <string>
 #include <vector>
@@ -28,6 +29,19 @@ bool equals_ci(const std::string_view left, const std::string_view right) noexce
       return false;
     }
   }
+  return true;
+}
+
+bool parse_component(const std::string_view text, std::uint16_t& value) noexcept {
+  if (text.empty()) return false;
+  std::uint32_t parsed = 0;
+  for (const char character : text) {
+    if (character < '0' || character > '9') return false;
+    const auto digit = static_cast<std::uint32_t>(character - '0');
+    if (parsed > (std::numeric_limits<std::uint16_t>::max() - digit) / 10U) return false;
+    parsed = parsed * 10U + digit;
+  }
+  value = static_cast<std::uint16_t>(parsed);
   return true;
 }
 
@@ -101,6 +115,44 @@ SourceComplexity inspect_source(const std::string_view source, const SourceLangu
 }
 
 }  // namespace
+
+bool parse_language_version(const std::string_view text, LanguageVersion& version) noexcept {
+  if (equals_ci(text, "latest") || equals_ci(text, "default")) {
+    version = {};
+    return true;
+  }
+  if (text.size() == 6 && (text.front() == 'r' || text.front() == 'R') &&
+      (text.back() == 'a' || text.back() == 'A' || text.back() == 'b' || text.back() == 'B')) {
+    std::uint16_t year = 0;
+    if (!parse_component(text.substr(1, 4), year)) return false;
+    version = {year, static_cast<std::uint16_t>(text.back() == 'a' || text.back() == 'A' ? 1 : 2)};
+    return true;
+  }
+  const auto dot = text.find('.');
+  if (dot != std::string_view::npos && text.find('.', dot + 1U) != std::string_view::npos) {
+    return false;
+  }
+  std::uint16_t major = 0;
+  std::uint16_t minor = 0;
+  if (!parse_component(text.substr(0, dot), major) ||
+      (dot != std::string_view::npos && !parse_component(text.substr(dot + 1U), minor)) ||
+      major == 0) {
+    return false;
+  }
+  version = {major, minor};
+  return true;
+}
+
+std::string to_string(const LanguageVersion version, const SourceLanguage language) {
+  if (version.automatic()) return "latest";
+  if (language == SourceLanguage::matlab && (version.minor == 1 || version.minor == 2)) {
+    return "R" + std::to_string(version.major) + (version.minor == 1 ? "a" : "b");
+  }
+  if (language == SourceLanguage::python || version.minor != 0) {
+    return std::to_string(version.major) + "." + std::to_string(version.minor);
+  }
+  return std::to_string(version.major);
+}
 
 bool TranspileResult::success() const noexcept {
   return std::none_of(diagnostics.begin(), diagnostics.end(), [](const Diagnostic& diagnostic) {
@@ -182,12 +234,30 @@ TranspileResult Transpiler::transpile(const std::string_view source,
     return result;
   }
   const auto* frontend = detail::find_frontend(language);
+  auto language_version = options.language_version;
+  if (frontend != nullptr) {
+    if (language_version.automatic()) language_version = frontend->manifest.maximum_version;
+    if (language_version < frontend->manifest.minimum_version ||
+        language_version > frontend->manifest.maximum_version) {
+      result.diagnostics.push_back(
+          {DiagnosticSeverity::error,
+           "MPF1201",
+           "requested " + std::string(to_string(language)) + " language version " +
+               to_string(language_version, language) + " is outside the supported range " +
+               to_string(frontend->manifest.minimum_version, language) + " through " +
+               to_string(frontend->manifest.maximum_version, language),
+           {1, 1}});
+      attach_source();
+      finalize_report();
+      return result;
+    }
+  }
   detail::FrontendParseResult parsed;
   const auto ast_started = session.begin_stage();
   if (frontend != nullptr && frontend->parse != nullptr) {
     try {
-      parsed =
-          frontend->parse(source_text, {options.fortran_source_form, session.memory_resource()});
+      parsed = frontend->parse(
+          source_text, {options.fortran_source_form, language_version, session.memory_resource()});
     } catch (const std::bad_alloc&) {
       parsed.diagnostics.push_back({DiagnosticSeverity::error,
                                     "MPF0010",

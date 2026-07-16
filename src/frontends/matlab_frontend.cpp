@@ -13,7 +13,9 @@ namespace {
 
 FrontendParseResult parse_matlab_descriptor(const SourceText& source,
                                             const FrontendParseOptions& options) {
-  auto parsed = parse_matlab(source);
+  const auto version =
+      options.language_version.automatic() ? LanguageVersion{2024, 2} : options.language_version;
+  auto parsed = parse_matlab(source, version);
   auto ast = make_matlab_ast(std::move(parsed.program), options.memory_resource);
   return {FrontendAst{std::move(ast)}, std::move(parsed.diagnostics)};
 }
@@ -49,13 +51,13 @@ constexpr SourceIntrinsicBinding intrinsic_bindings[]{{"length", IntrinsicId::ma
 
 }  // namespace
 
-ParseResult parse_matlab(const SourceText& source) {
+ParseResult parse_matlab(const SourceText& source, const LanguageVersion version) {
   auto normalized = normalize_matlab_source(source);
   auto lexed = lex_matlab_statements(std::move(normalized.lines));
   lexed.diagnostics.insert(lexed.diagnostics.begin(),
                            std::make_move_iterator(normalized.diagnostics.begin()),
                            std::make_move_iterator(normalized.diagnostics.end()));
-  return parse_matlab_statements(std::move(lexed.lines), std::move(lexed.diagnostics));
+  return parse_matlab_statements(std::move(lexed.lines), std::move(lexed.diagnostics), version);
 }
 
 const FrontendDescriptor& matlab_frontend() noexcept {
@@ -67,7 +69,7 @@ const FrontendDescriptor& matlab_frontend() noexcept {
       "matlab",
       {aliases, std::size(aliases)},
       {extensions, std::size(extensions)},
-      {"2024-and-earlier-supported-subset", "mpf.matlab.ast.v2", true, true},
+      {"Matlab-2024-versioned-subset", "mpf.matlab.ast.v2", {1, 0}, {2024, 2}, true, true},
       intrinsic_tables,
       std::size(intrinsic_tables),
       &parse_matlab_descriptor,

@@ -13,7 +13,9 @@ namespace {
 
 FrontendParseResult parse_python_descriptor(const SourceText& source,
                                             const FrontendParseOptions& options) {
-  auto parsed = parse_python(source);
+  const auto version =
+      options.language_version.automatic() ? LanguageVersion{3, 14} : options.language_version;
+  auto parsed = parse_python(source, version);
   auto ast = make_python_ast(std::move(parsed.program), options.memory_resource);
   return {FrontendAst{std::move(ast)}, std::move(parsed.diagnostics)};
 }
@@ -48,13 +50,13 @@ constexpr SourceIntrinsicBinding intrinsic_bindings[]{{"float", IntrinsicId::pyt
 
 }  // namespace
 
-ParseResult parse_python(const SourceText& source) {
+ParseResult parse_python(const SourceText& source, const LanguageVersion version) {
   auto normalized = normalize_python_source(source);
   auto lexed = lex_python_statements(std::move(normalized.lines));
   lexed.diagnostics.insert(lexed.diagnostics.begin(),
                            std::make_move_iterator(normalized.diagnostics.begin()),
                            std::make_move_iterator(normalized.diagnostics.end()));
-  return parse_python_statements(std::move(lexed.lines), std::move(lexed.diagnostics));
+  return parse_python_statements(std::move(lexed.lines), std::move(lexed.diagnostics), version);
 }
 
 const FrontendDescriptor& python_frontend() noexcept {
@@ -66,7 +68,7 @@ const FrontendDescriptor& python_frontend() noexcept {
       "python",
       {aliases, std::size(aliases)},
       {extensions, std::size(extensions)},
-      {"3.14-and-earlier-supported-subset", "mpf.python.ast.v2", true, true},
+      {"3.14-versioned-subset", "mpf.python.ast.v2", {3, 0}, {3, 14}, true, true},
       intrinsic_tables,
       std::size(intrinsic_tables),
       &parse_python_descriptor,

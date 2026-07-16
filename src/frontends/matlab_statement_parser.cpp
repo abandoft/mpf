@@ -87,8 +87,9 @@ std::vector<std::size_t> top_level_tokens(const MatlabStatementLine& line, const
 
 class Parser final {
  public:
-  Parser(std::vector<MatlabStatementLine> lines, std::vector<Diagnostic> diagnostics)
-      : lines_(std::move(lines)), diagnostics_(std::move(diagnostics)) {}
+  Parser(std::vector<MatlabStatementLine> lines, std::vector<Diagnostic> diagnostics,
+         const LanguageVersion version)
+      : lines_(std::move(lines)), diagnostics_(std::move(diagnostics)), version_(version) {}
 
   ParseResult parse() {
     ParseResult result;
@@ -339,7 +340,6 @@ class Parser final {
       ++index_;
       return;
     }
-
     std::size_t display_closing = count;
     if (is_display_call(line, display_closing)) {
       Statement statement;
@@ -448,14 +448,16 @@ class Parser final {
 
   std::vector<MatlabStatementLine> lines_;
   std::vector<Diagnostic> diagnostics_;
+  [[maybe_unused]] LanguageVersion version_;
   std::size_t index_{0};
 };
 
 }  // namespace
 
 ParseResult parse_matlab_statements(std::vector<MatlabStatementLine> lines,
-                                    std::vector<Diagnostic> diagnostics) {
-  return Parser{std::move(lines), std::move(diagnostics)}.parse();
+                                    std::vector<Diagnostic> diagnostics,
+                                    const LanguageVersion version) {
+  return Parser{std::move(lines), std::move(diagnostics), version}.parse();
 }
 
 }  // namespace mpf::detail

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -17,6 +18,45 @@ enum class TargetLanguage { javascript, cpp };
 enum class ModuleKind { script, esm };
 
 enum class FortranSourceForm { automatic, free, fixed };
+
+// {0, 0} selects the newest standard declared by the chosen frontend. Matlab releases use the
+// release year as major and 1/2 as minor for the a/b release (for example {2024, 2}).
+struct LanguageVersion {
+  std::uint16_t major{0};
+  std::uint16_t minor{0};
+
+  [[nodiscard]] constexpr bool automatic() const noexcept { return major == 0 && minor == 0; }
+};
+
+[[nodiscard]] constexpr bool operator==(const LanguageVersion left,
+                                        const LanguageVersion right) noexcept {
+  return left.major == right.major && left.minor == right.minor;
+}
+
+[[nodiscard]] constexpr bool operator!=(const LanguageVersion left,
+                                        const LanguageVersion right) noexcept {
+  return !(left == right);
+}
+
+[[nodiscard]] constexpr bool operator<(const LanguageVersion left,
+                                       const LanguageVersion right) noexcept {
+  return left.major < right.major || (left.major == right.major && left.minor < right.minor);
+}
+
+[[nodiscard]] constexpr bool operator>(const LanguageVersion left,
+                                       const LanguageVersion right) noexcept {
+  return right < left;
+}
+
+[[nodiscard]] constexpr bool operator<=(const LanguageVersion left,
+                                        const LanguageVersion right) noexcept {
+  return !(left > right);
+}
+
+[[nodiscard]] constexpr bool operator>=(const LanguageVersion left,
+                                        const LanguageVersion right) noexcept {
+  return !(left < right);
+}
 
 struct ResourceLimits {
   std::size_t max_source_bytes{64U * 1024U * 1024U};
@@ -52,6 +92,7 @@ struct TranspileOptions {
   TargetLanguage target{TargetLanguage::javascript};
   ModuleKind module_kind{ModuleKind::esm};
   FortranSourceForm fortran_source_form{FortranSourceForm::automatic};
+  LanguageVersion language_version{};
   ResourceLimits resource_limits{};
   std::string filename;
   std::string generated_filename;
@@ -87,5 +128,7 @@ class Transpiler final {
 [[nodiscard]] const char* to_string(FortranSourceForm form) noexcept;
 [[nodiscard]] FortranSourceForm fortran_source_form_from_name(std::string_view name) noexcept;
 [[nodiscard]] bool backend_available(TargetLanguage language) noexcept;
+[[nodiscard]] bool parse_language_version(std::string_view text, LanguageVersion& version) noexcept;
+[[nodiscard]] std::string to_string(LanguageVersion version, SourceLanguage language);
 
 }  // namespace mpf

@@ -8,6 +8,7 @@
 namespace mpf::detail {
 
 [[nodiscard]] ParseResult parse_python_statements(std::vector<PythonStatementLine> lines,
-                                                  std::vector<Diagnostic> diagnostics = {});
+                                                  std::vector<Diagnostic> diagnostics = {},
+                                                  LanguageVersion version = {3, 14});
 
 }  // namespace mpf::detail

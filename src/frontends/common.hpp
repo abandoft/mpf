@@ -120,6 +120,11 @@ inline void unsupported(std::vector<Diagnostic>& diagnostics, const std::size_t 
   diagnostics.push_back({DiagnosticSeverity::error, "MPF1200", std::move(message), {line, 1}});
 }
 
+inline void version_unsupported(std::vector<Diagnostic>& diagnostics, const std::size_t line,
+                                std::string message) {
+  diagnostics.push_back({DiagnosticSeverity::error, "MPF1201", std::move(message), {line, 1}});
+}
+
 inline bool valid_identifier(std::string_view value) {
   if (value.empty()) return false;
   const auto first = static_cast<unsigned char>(value.front());

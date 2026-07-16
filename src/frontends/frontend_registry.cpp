@@ -113,6 +113,9 @@ bool validate_frontend_catalog(const FrontendDescriptor* const* descriptors,
         descriptor->probe == nullptr || descriptor->manifest.language_version == nullptr ||
         descriptor->manifest.language_version[0] == '\0' ||
         descriptor->manifest.ast_schema == nullptr || descriptor->manifest.ast_schema[0] == '\0' ||
+        descriptor->manifest.minimum_version.automatic() ||
+        descriptor->manifest.maximum_version.automatic() ||
+        descriptor->manifest.maximum_version < descriptor->manifest.minimum_version ||
         !descriptor->manifest.deterministic || !descriptor->manifest.reentrant ||
         (descriptor->aliases.size != 0 && descriptor->aliases.data == nullptr) ||
         (descriptor->extensions.size != 0 && descriptor->extensions.data == nullptr) ||

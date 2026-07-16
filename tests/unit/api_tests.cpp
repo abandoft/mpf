@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <string>
 
 #include "mpf/transpiler.hpp"
@@ -23,6 +24,61 @@ TEST_CASE("language names round-trip") {
   REQUIRE(mpf::registered_target_languages().size() == 2);
   REQUIRE(mpf::backend_available(mpf::TargetLanguage::javascript));
   REQUIRE(mpf::backend_available(mpf::TargetLanguage::cpp));
+}
+
+TEST_CASE("language versions round-trip and gate version-specific syntax") {
+  mpf::LanguageVersion version;
+  REQUIRE(mpf::parse_language_version("3.14", version));
+  REQUIRE((version == mpf::LanguageVersion{3, 14}));
+  REQUIRE(mpf::to_string(version, mpf::SourceLanguage::python) == "3.14");
+  REQUIRE(mpf::parse_language_version("R2024b", version));
+  REQUIRE((version == mpf::LanguageVersion{2024, 2}));
+  REQUIRE(mpf::to_string(version, mpf::SourceLanguage::matlab) == "R2024b");
+  REQUIRE(mpf::parse_language_version("latest", version));
+  REQUIRE(version.automatic());
+  REQUIRE(!mpf::parse_language_version("3.14.1", version));
+  REQUIRE(!mpf::parse_language_version("99999999999999999999", version));
+
+  mpf::TranspileOptions options;
+  options.language = mpf::SourceLanguage::python;
+  options.language_version = {3, 7};
+  auto result = mpf::Transpiler{}.transpile(
+      "def add(left, /, right):\n    return left + right\nprint(add(40, 2))\n", options);
+  REQUIRE(!result.success());
+  REQUIRE(
+      std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+                  [](const mpf::Diagnostic& diagnostic) { return diagnostic.code == "MPF1201"; }));
+
+  options.language_version = {3, 8};
+  result = mpf::Transpiler{}.transpile(
+      "def add(left, /, right):\n    return left + right\nprint(add(40, 2))\n", options);
+  REQUIRE(result.success());
+
+  options.language_version = {3, 15};
+  result = mpf::Transpiler{}.transpile("print(42)\n", options);
+  REQUIRE(!result.success());
+  REQUIRE(result.diagnostics.front().code == "MPF1201");
+
+  options.language = mpf::SourceLanguage::fortran;
+  options.language_version = {77, 0};
+  result = mpf::Transpiler{}.transpile(
+      "program old\ninteger :: values(2) = [20, 22]\nprint *, sum(values)\nend program old\n",
+      options);
+  REQUIRE(!result.success());
+  REQUIRE(
+      std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+                  [](const mpf::Diagnostic& diagnostic) { return diagnostic.code == "MPF1201"; }));
+
+  options.language = mpf::SourceLanguage::python;
+  options.language_version = {3, 14};
+  result = mpf::Transpiler{}.transpile("if True:\n    pass\nprint(42)\n", options);
+  REQUIRE(result.success());
+
+  options.language = mpf::SourceLanguage::fortran;
+  options.language_version = {2023, 0};
+  result = mpf::Transpiler{}.transpile(
+      "program modern\ncontinue\nprint *, 42\nend program modern\n", options);
+  REQUIRE(result.success());
 }
 
 TEST_CASE("filename extension selects the frontend") {

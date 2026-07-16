@@ -98,12 +98,25 @@ std::optional<std::size_t> parse_dimension(const std::string_view digits) {
 
 class Parser final {
  public:
-  Parser(std::vector<FortranStatementLine> lines, std::vector<Diagnostic> diagnostics)
-      : lines_(std::move(lines)), diagnostics_(std::move(diagnostics)) {}
+  Parser(std::vector<FortranStatementLine> lines, std::vector<Diagnostic> diagnostics,
+         const LanguageVersion version)
+      : lines_(std::move(lines)), diagnostics_(std::move(diagnostics)), version_(version) {}
 
   ParseResult parse() {
     ParseResult result;
     result.program.language = SourceLanguage::fortran;
+    if (version_ < LanguageVersion{2003, 0}) {
+      for (const auto& line : lines_) {
+        for (const auto& token : line.tokens) {
+          if (token.kind == Kind::left_bracket && token.begin < line.source.text.size() &&
+              line.source.text[token.begin] == '[') {
+            frontend::version_unsupported(
+                diagnostics_, line.source.number,
+                "bracket array constructors require Fortran 2003 or newer");
+          }
+        }
+      }
+    }
     result.program.statements = parse_block();
     while (index_ < lines_.size()) {
       frontend::unsupported(diagnostics_, lines_[index_].source.number,
@@ -832,6 +845,14 @@ class Parser final {
       ++index_;
       return;
     }
+    if (count == 1 && frontend::lower(line.tokens[0].text) == "continue") {
+      Statement statement;
+      statement.kind = StatementKind::expression;
+      statement.line = line.source.number;
+      statements.push_back(std::move(statement));
+      ++index_;
+      return;
+    }
 
     std::size_t expression_begin = count;
     if (is_print(line, expression_begin)) {
@@ -968,6 +989,7 @@ class Parser final {
 
   std::vector<FortranStatementLine> lines_;
   std::vector<Diagnostic> diagnostics_;
+  LanguageVersion version_;
   std::size_t index_{0};
   std::size_t procedure_depth_{0};
   std::vector<std::vector<std::string>> procedure_returns_;
@@ -976,8 +998,9 @@ class Parser final {
 }  // namespace
 
 ParseResult parse_fortran_statements(std::vector<FortranStatementLine> lines,
-                                     std::vector<Diagnostic> diagnostics) {
-  return Parser{std::move(lines), std::move(diagnostics)}.parse();
+                                     std::vector<Diagnostic> diagnostics,
+                                     const LanguageVersion version) {
+  return Parser{std::move(lines), std::move(diagnostics), version}.parse();
 }
 
 }  // namespace mpf::detail

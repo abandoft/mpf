@@ -13,7 +13,9 @@ namespace {
 
 FrontendParseResult parse_fortran_descriptor(const SourceText& source,
                                              const FrontendParseOptions& options) {
-  auto parsed = parse_fortran(source, options.fortran_source_form);
+  const auto version =
+      options.language_version.automatic() ? LanguageVersion{2023, 0} : options.language_version;
+  auto parsed = parse_fortran(source, options.fortran_source_form, version);
   auto ast = make_fortran_ast(std::move(parsed.program), options.memory_resource);
   return {FrontendAst{std::move(ast)}, std::move(parsed.diagnostics)};
 }
@@ -50,13 +52,14 @@ constexpr SourceIntrinsicBinding intrinsic_bindings[]{{"present", IntrinsicId::p
 
 }  // namespace
 
-ParseResult parse_fortran(const SourceText& source, const FortranSourceForm source_form) {
+ParseResult parse_fortran(const SourceText& source, const FortranSourceForm source_form,
+                          const LanguageVersion version) {
   auto normalized = normalize_fortran_source(source, source_form);
   auto lexed = lex_fortran_statements(std::move(normalized.lines));
   lexed.diagnostics.insert(lexed.diagnostics.begin(),
                            std::make_move_iterator(normalized.diagnostics.begin()),
                            std::make_move_iterator(normalized.diagnostics.end()));
-  return parse_fortran_statements(std::move(lexed.lines), std::move(lexed.diagnostics));
+  return parse_fortran_statements(std::move(lexed.lines), std::move(lexed.diagnostics), version);
 }
 
 const FrontendDescriptor& fortran_frontend() noexcept {
@@ -68,7 +71,7 @@ const FrontendDescriptor& fortran_frontend() noexcept {
       "fortran",
       {aliases, std::size(aliases)},
       {extensions, std::size(extensions)},
-      {"2023-and-earlier-supported-subset", "mpf.fortran.ast.v2", true, true},
+      {"Fortran-2023-versioned-subset", "mpf.fortran.ast.v2", {77, 0}, {2023, 0}, true, true},
       intrinsic_tables,
       std::size(intrinsic_tables),
       &parse_fortran_descriptor,
