@@ -20,14 +20,14 @@ MPF 的验证体系分为七层：
 | CTest | 58 项，包含 48 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译和 3 项后端隔离测试 |
 | Differential corpus | Python 20、Fortran 18、Matlab 10，共 48 个 case |
 | 工具完整环境执行路径 | 134 条程序路径，另有每 case 一条 oracle |
-| 生产代码行覆盖率 | 88.34%（13468/15245），门槛 85% |
+| 生产代码行覆盖率 | 88.33%（13505/15289），门槛 85% |
 
 ## Differential corpus
 
 权威清单位于 [`tests/differential/corpus.cmake`](../tests/differential/corpus.cmake)。当前包含：
 
 - 20 个 Python case：CPython 3.14、Node.js、生成 C++17 与 oracle 四路比较；
-- 18 个 Fortran case：gfortran `-std=f2023`、Node.js、生成 C++17 与 oracle 四路比较；
+- 18 个 Fortran case：gfortran 严格 `-std=f2018` reference mode、Node.js、生成 C++17 与 oracle 四路比较；`MPF_FORTRAN_REFERENCE_STANDARD` 可在工具链支持后切换到 `f2023`；
 - 10 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较。
 
 在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 48 个 case 共执行 134 条程序输出路径：48 条 Node.js、48 条生成 C++17，以及 20 条 CPython 和 18 条 gfortran 源语言路径；此外每个 case 都有一条声明式 oracle 基线。runner 不仅分别检查 oracle，还直接比较可用执行路径。新增 Fortran tensor case 实际执行三维 RESHAPE、任意 rank section 读写和递归 C++ runtime；Python expression-semantics case 四路覆盖 comparison chain 的中间操作数单次求值与短路、条件表达式的惰性分支和右结合，以及 bool/number 和当前 list equality；既有 SELECT CASE、structured-unpacking、argument association 和 optional writeback cases 继续覆盖原契约。
@@ -68,7 +68,7 @@ build/fuzz/tests/mpf-transpiler-fuzzer build/fuzz/corpus
 
 ## 性能发布门禁
 
-`mpf.performance.release-gate` 运行两个目标的五类编译场景和八路并发 session，重复编译还会逐字节比较代码与 source map。结果写入 `build/<preset>/performance-report.json`，并由 [`tests/performance/baseline.json`](../tests/performance/baseline.json) 的版本化上限/下限检查延迟、吞吐、峰值 arena 和最大生成大小。GitHub CI 的 Linux Clang job显式运行 `mpf-performance` 并归档报告。
+`mpf.performance.release-gate` 运行两个目标的五类编译场景和八路并发 session，重复编译还会逐字节比较代码与 source map。结果写入 `build/<preset>/performance-report.json`，并由 [`tests/performance/baseline.json`](../tests/performance/baseline.json) 的版本化上限/下限检查延迟、吞吐、峰值 arena 和最大生成大小。独立 `Performance` workflow 显式运行 `mpf-performance` 并归档机器可读报告。
 
 质量与覆盖率门禁：
 
@@ -81,8 +81,9 @@ cmake --preset coverage
 cmake --build --preset coverage
 ```
 
-coverage preset 使用 Clang source-based coverage，将多进程 `.profraw` 合并后排除 `build/` 与
-`tests/`，只统计生产源码；报告位于 `build/coverage/coverage/`。当前门槛为 85%，本次架构收尾后实测 88.34%（13468/15245）。GitHub CI 还对 C/C++ 运行 CodeQL `security-extended`，并在 pull request 上拒绝
+coverage preset 使用 Clang source-based coverage，将多进程 `.profraw` 合并后排除 `build/`、`tests/`、不贡献 profile 的子构建 isolation case 和已由独立 workflow 拥有的性能阈值，只统计生产源码；报告位于 `build/coverage/coverage/`。当前门槛为 85%，本次架构收尾后实测 88.33%（13505/15289）。独立 `Security` workflow 对 C/C++ 运行 CodeQL `security-extended`，并在 pull request 上拒绝
 引入 moderate 及以上已知漏洞的依赖变更。
+
+完整的 workflow 边界、required check 名称、超时和产物策略见 [GitHub Actions 职责矩阵](../.github/workflows/README.md)。
 
 新增可执行语言能力时，必须在 manifest 增加 case；若输出中的空白属于语义，使用 `lines` 模式，否则数值/list-directed 输出可使用 `tokens` 模式。只有编译不执行的输入应保留为独立 compile-only gate。

@@ -17,7 +17,7 @@
 | IR 架构 | 三种语言使用编译期互不兼容的 PMR arena AST；Analyzer 结果在边界抽取为 revision-checked 稠密 `SemanticTable`，MIR 只消费 side table；MIR 已有 block argument/edge actual、循环与选择 CFG、stride/view/lifetime/alias；目标 lowering 产出带 origin chunk 的最终 LIR，emitter 仅序列化 |
 | Python 最新能力 | relational/equality 比较链、右结合条件表达式、短路/惰性/单次求值；基础参数关联和递归固定序列解包 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流 |
-| 工程门禁 | 143 项内部测试；48 个差分 case、134 条工具完整环境执行路径；58 项 CTest；fuzz smoke、可选 libFuzzer、性能发布阈值、阶段报告；本轮生产代码覆盖率 88.34%（13468/15245） |
+| 工程门禁 | 143 项内部测试；48 个差分 case、134 条工具完整环境执行路径；58 项 CTest；fuzz smoke、可选 libFuzzer、性能发布阈值、阶段报告；本轮生产代码覆盖率 88.33%（13505/15289） |
 | 发布状态 | 0.x；没有长期 API/ABI 或完整语言兼容承诺 |
 
 ## 本轮商业级收尾验收（完成）
@@ -128,7 +128,7 @@
 - [x] 增加全管线 fuzz target、拒绝/成功 corpus、确定性 mutation smoke、libFuzzer crash replay 与最小化工作流
 - [x] 全量源 runner/Node.js/生成 `cpp`/oracle 差分在新管线通过，诊断和输出变化均有审核记录
 - [x] 增加小文件延迟、大文件吞吐、峰值 arena、深 CFG、大 shape、跨函数图、批量并发和生成产物 benchmark，并由 CI 执行 JSON 基线门禁
-- [x] ASan/UBSan、clang-tidy、format、85% 覆盖率、CodeQL、Linux/macOS/Windows 与 GCC/Clang/AppleClang/MSVC 门禁全部接入；本地完整 sanitizer/quality/coverage 验证通过，跨平台组合由 GitHub CI 执行
+- [x] ASan/UBSan、clang-tidy、format、85% 覆盖率、CodeQL、Linux/macOS/Windows 与 GCC/Clang/AppleClang/MSVC 门禁全部接入；GitHub Actions 按快速反馈、兼容/差分、质量、Sanitizer、覆盖率、性能、安全和发布独立失败域
 - [x] 删除共享 `Program` 直通 emitter 的生产路径；两个 emitter 只能接收对应 opaque LIR artifact
 - [ ] 删除 statement parser 的共享 scratch、HIR/MIR 宽结构兼容投影；emitter 内 lowering 已删除，文档、目录和 CMake export 已同步
 
@@ -253,7 +253,7 @@
 - [x] INTENT/default intent、标量/数组/元素/section actual 引用与 copy-in/copy-out
 - [x] keyword association、OPTIONAL/PRESENT、缺省调用和 optional 状态透传
 - [x] integer/character/logical `SELECT CASE`、单值/范围/default、重叠验证和控制流合流
-- [x] `gfortran -std=f2023`、Node.js、生成 C++ 与 oracle 差分及 source-form corpus
+- [x] gfortran 当前可用的严格 `-std=f2018` oracle（CMake 可配置未来 `f2023`）、Node.js、生成 C++ 与声明式 oracle 差分及 source-form corpus
 
 仍需建设：
 

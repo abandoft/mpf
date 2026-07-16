@@ -12,7 +12,7 @@ MPF 是一个通过 CMake 构建的跨平台源码转译器，目标是把 Matla
 
 - `cpp` 是唯一 C++ 目标身份，当前输出标准为 C++17；代码中不使用 `cpp17` 一类标识符。
 - 两个后端彼此独立，生成 C++ 不需要先生成 JavaScript。
-- 当前工作树为 143 项内部测试、48 个差分 case 和 58 项 CTest；另有持续 fuzz smoke、可选 Clang/libFuzzer 与编译性能 JSON 发布门禁；本轮实测生产代码行覆盖率为 88.34%（13468/15245），高于 85% 硬门槛。
+- 当前工作树为 143 项内部测试、48 个差分 case 和 58 项 CTest；另有持续 fuzz smoke、可选 Clang/libFuzzer 与编译性能 JSON 发布门禁；本轮实测生产代码行覆盖率为 88.33%（13505/15289），高于 85% 硬门槛。
 - 项目仍是经过验证的语言子集，不能宣称完整兼容 Matlab 2024、Python 3.14 或 Fortran 2023。
 - TypeScript 6 已进入产品路线图，但当前尚无可声明支持的 TypeScript 前端子集。
 
@@ -95,7 +95,7 @@ target_link_libraries(my_application PRIVATE mpf::mpf)
 
 ## 验证体系
 
-CTest 同时运行公共 API/语义测试、`mpfc` CLI/JSON/source-map 契约、48 个 declarative differential case、生成 C++17 的真实严格编译、fuzz corpus mutation、性能基线和后端隔离安装测试。差分 runner 在同一 case 内直接比较所有可用路径；CI 固定 CPython 3.14、Node.js 24，并在 Linux 使用 gfortran `-std=f2023`。sanitizer preset 在整个编译管线启用 ASan/UBSan；独立 quality/coverage preset 执行格式、静态分析和 85% 生产代码行覆盖率门禁，GitHub workflow 另运行 CodeQL、依赖审查和性能报告归档。详见 [测试与差分执行](docs/TESTING.md) 和 [诊断与 CLI 契约](docs/DIAGNOSTICS.md)。
+CTest 同时运行公共 API/语义测试、`mpfc` CLI/JSON/source-map 契约、48 个 declarative differential case、生成 C++17 的真实严格编译、fuzz corpus mutation、性能基线和后端隔离安装测试。差分 runner 在同一 case 内直接比较所有可用路径；CI 固定 CPython 3.14、Node.js 24，并以 gfortran 当前可用的严格 `-std=f2018` 模式执行 Fortran oracle（可通过 CMake cache 切换到未来工具链支持的 `f2023`）。GitHub Actions 已按快速反馈、跨平台/差分、质量、Sanitizer、覆盖率、性能、安全和发布拆分失败域；详见 [workflow 职责矩阵](.github/workflows/README.md)、[测试与差分执行](docs/TESTING.md) 和 [诊断与 CLI 契约](docs/DIAGNOSTICS.md)。
 
 ## 工程结构
 
