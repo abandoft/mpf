@@ -8,7 +8,7 @@ MPF 是一个通过 CMake 构建的跨平台源码转译器，目标是把 Matla
 
 生产驱动已经实际执行“语言专属 arena AST → HIR → Analyzer `SemanticTable` → MIR → JavaScript LIR/`cpp` LIR → Emitter”。三种 AST 是编译期互不兼容的 PMR arena artifact；Analyzer 的全部外部结果按 HIR ID 稠密存储并检查 revision；MIR 显式保存 type/shape/stride/storage/lifetime/alias、tuple/function/reference 签名、call-site、block argument、edge actual、循环和选择 CFG，并验证 ownership、arity、dominance、跨函数 call/return 与 metadata 相容性。两个目标各自完成 capability、legalization、representation/ABI lowering、确定性 rendering 和 LIR verifier，最终 emitter 只序列化带 source origin 的 chunk。公共结果同时提供 source map v3、dependency manifest 和逐阶段编译报告。
 
-0.3.4 的本轮架构收尾已经覆盖 arena AST、Analyzer 全量输出 side table、当前语言子集的 MIR CFG/alias、静态一般 rank 的 RESHAPE/direct-section、纯 emitter、source map、fuzz/resource 与性能发布门禁；仍未把完整官方语言 grammar、Analyzer 内部直接 side-table 计算、动态 rank/广播/精确 N 维 overlap 或稳定插件 ABI 误报为完成。精确边界见 [TODO](TODO.md)。版本递增规则见 [版本策略](docs/VERSIONING.md)。
+0.3.4 的架构收尾已经覆盖 arena AST、Analyzer 全量输出 side table、当前语言子集的 MIR CFG/alias、静态一般 rank 的 RESHAPE/direct-section、纯 emitter、source map、fuzz/resource 与性能发布门禁；0.3.5 开发线进一步完成 Analyzer 直写 semantic side table、结构规范化 revision/remap 和独立 flow side table。完整官方语言 grammar、name/scope 与 alias/effect 独立分析、动态 rank/广播/精确 N 维 overlap 和稳定插件 ABI 仍明确保持未完成。精确边界见 [TODO](TODO.md)。版本递增规则见 [版本策略](docs/VERSIONING.md)。
 
 - `cpp` 是唯一 C++ 目标身份，当前输出标准为 C++17；代码中不使用 `cpp17` 一类标识符。
 - 两个后端彼此独立，生成 C++ 不需要先生成 JavaScript。

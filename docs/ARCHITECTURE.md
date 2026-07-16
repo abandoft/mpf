@@ -7,14 +7,14 @@
 生产驱动已经切换为五层路径，旧的共享 `Program`→emitter 直通入口不存在：
 
 - 三个 frontend descriptor 产生编译期互不兼容的语言 AST artifact；节点以稠密 `AstNodeId` 存入 session PMR arena，并显式运行 AST verifier 与 AST→HIR visitor；
-- Analyzer 和 HIR pass 只处理 HIR；Analyzer 的全部外部结果在边界 move-extract 到 revision-checked 稠密 `SemanticTable`，HIR→MIR 只从该表读取类型、shape、binding、call association 与 assignment-pattern flow，再生成稠密 type、shape、storage、instruction、function/basic-block 表和 effect；
+- Analyzer 和 HIR pass 只处理 HIR；Analyzer 预分配并直接写入 revision-checked 稠密 `SemanticTable`，不再注解或 move-extract HIR 语义字段；独立的只读 flow pass 生成 revision-bound `FlowTable` 与不可达诊断，HIR→MIR 只从 semantic side table 读取类型、shape、binding、call association 与 assignment-pattern facts；
 - MIR lowering 为当前 if/loop/loop-else/`break`/`continue`/`SELECT CASE` 建立真实 CFG、block argument 和 edge actual，并显式记录 shape stride、storage view/lifetime/intent 与 alias relation；
 - MIR verifier 检查表密度、唯一所有权、terminator/edge arity、定义顺序、dominance、type/shape/storage metadata、view/lifetime/intent、alias relation，以及 tuple/function/reference 签名、call/return、多结果和 writable actual；
 - JavaScript 与 `cpp` 分别执行 TargetProfile、逐 opcode legalization、capability、私有 semantic plan、独立 LIR/pass/verifier；
 - representation/type/shape/ABI/name/runtime 决策在目标 lowering/renderer 完成，形成带 source origin 的 serialized chunks；核心只持有 opaque target artifact，两个 emitter 只调用 `serialize_chunks`。
 - facade 从最终 LIR origin 构建 source map v3，并公开 dependency manifest 和包含阶段耗时/节点/峰值 arena 的编译报告。
 
-0.3.4 已完成语言 AST artifact、当前支持语义的 CFG/alias、纯 emitter、source map、资源防护、fuzz、版本化性能发布门禁、Analyzer 输出 side table、静态一般 rank 的 reshape/direct-section 主链路、parser-session contract 和双目标 semantic LIR dump/golden。0.3.5 开发线进一步加入驻留的 tuple/function/reference 类型、函数签名、显式 call-site 表，以及 call/return、多结果、optional omission 和 writable reference verifier。后续仍有更大范围的迁移任务：statement parser 内还有不会越过 frontend descriptor 的短生命周期共享 scratch；Analyzer 计算引擎仍用宽 HIR 字段做单遍临时注解，再一次性 move-extract（边界之后 HIR 不再拥有语义结果）；MIR 为兼容当前 target lowering 保留结构化语义投影；完整官方 grammar、动态 rank/广播、精确 N 维 storage overlap、参数敏感跨函数数据流和稳定插件 ABI 也尚未完成。所有边界逐项记录在 [TODO 0.3.5/P0—P7](../TODO.md)。
+0.3.4 已完成语言 AST artifact、当前支持语义的 CFG/alias、纯 emitter、source map、资源防护、fuzz、版本化性能发布门禁、Analyzer 输出 side table、静态一般 rank 的 reshape/direct-section 主链路、parser-session contract 和双目标 semantic LIR dump/golden。0.3.5 开发线进一步加入驻留的 tuple/function/reference 类型、函数签名、显式 call-site 表、跨函数 verifier、Analyzer 直写 semantic side table，以及独立、可按 HIR revision 缓存的 flow side table。参数关联若改变结构，会提升 revision、同步紧凑重映射 HIR ID/facts，并重新执行资源门禁。后续仍需把 name/scope、alias/effect 从 Analyzer 拆为独立分析，删除 HIR 宽兼容字段；MIR 也仍为当前 target lowering 保留结构化语义投影。完整官方 grammar、动态 rank/广播、精确 N 维 storage overlap、参数敏感跨函数数据流和稳定插件 ABI 尚未完成。所有边界逐项记录在 [TODO 0.3.5/P0—P7](../TODO.md)。
 
 ## 设计原则
 
@@ -56,7 +56,7 @@ statement syntax layer
 FrontendDescriptor.verify → FrontendDescriptor.lower
       │
       ▼
-HIR verifier/pass → target-neutral binding + definite assignment + type/flow analysis
+HIR verifier/pass → direct SemanticTable analysis + independent FlowTable analysis
 source intrinsic spelling ─► stable IntrinsicId
       │
       ▼
@@ -80,7 +80,7 @@ language AST
   → emitter：确定性序列化
 ```
 
-五层已有不同强类型表示和 verifier。生产 AST 不包含共享 syntax tree，最终 emitter 不包含 lowering；Analyzer 边界后的语义事实只有 `SemanticTable` 一个 owner，MIR 以 revision verifier 拒绝 stale/missing facts。当前保留的宽 HIR 计算 scratch 与 MIR 结构化语义投影是后续压缩数据模型的兼容层，不构成跨后端生成依赖。详细 contract 和禁止依赖见 [COMPILER_PIPELINE.md](COMPILER_PIPELINE.md)。
+五层已有不同强类型表示和 verifier。生产 AST 不包含共享 syntax tree，最终 emitter 不包含 lowering；Analyzer 的语义事实只有 `SemanticTable` 一个 owner，flow pass 的控制流事实只有 `FlowTable` 一个 owner，两者都以 HIR revision 拒绝 stale/missing facts。当前 HIR 保留的宽字段只作为初始化兼容输入，Analyzer 不写回且 MIR 不读取；MIR 结构化语义投影仍是后续压缩数据模型的兼容层，不构成跨后端生成依赖。详细 contract 和禁止依赖见 [COMPILER_PIPELINE.md](COMPILER_PIPELINE.md)。
 
 0.0.8 将目标无关编译和目标能力验证彻底分层；0.0.9—0.2.3 逐步建立 section、SourceManager、差分、tokenized parser、多输出、函数图、Fortran procedure、引用与 section copy-in/copy-out；0.2.4/0.2.5 建立 Fortran argument association 与完整当前 optional intent；0.2.6 将通用 call keyword/default 元数据复用于 Python positional-only/keyword-only association；0.2.7 将同一多目标赋值 IR 扩展到 Python 固定序列解包；0.2.8 将 C++ 目标身份统一为 `cpp`；0.2.9 抽取递归 `AssignmentPattern` 与 `ValueMetadata`；0.3.0 建立格式、静态分析、覆盖率和安全扫描门禁；0.3.1 新增结构化 SELECT/CASE IR、任意分支合流和双后端单次求值 lowering；0.3.2 新增显式 Python comparison-chain/conditional AST、类型关联验证和双后端惰性单次求值 lowering；0.3.3 建立对称的前后端 descriptor/registry、稳定 intrinsic ID 与目标代码绑定表。Analyzer 对不同源语言分别确认 association、unpacking、selection 与表达式语义，后端不解析源语言参数或控制结构语法。通用 Analyzer 不接收 `TargetLanguage`，任一目标均不依赖另一目标的生成物。
 
