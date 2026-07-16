@@ -134,7 +134,9 @@ add_library(mpf_core
   src/ir/semantic_table.cpp
   src/ir/mir.cpp
   src/semantic/analyzer.cpp
+  src/semantic/expression_analyzer.cpp
   src/semantic/flow_analysis.cpp
+  src/semantic/name_analysis.cpp
   src/lexers/python_lexer.cpp
   src/lexers/matlab_lexer.cpp
   src/lexers/fortran_lexer.cpp

@@ -5,12 +5,14 @@
 #include "../ir/hir.hpp"
 #include "../ir/semantic_table.hpp"
 #include "flow_analysis.hpp"
+#include "name_analysis.hpp"
 
 namespace mpf::detail {
 
 struct AnalysisResult {
   hir::SemanticTable semantics;
   FlowTable flow;
+  NameTable names;
   std::vector<Diagnostic> diagnostics;
 
   [[nodiscard]] bool empty() const noexcept { return diagnostics.empty(); }

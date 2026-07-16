@@ -33,6 +33,7 @@ class IrId final {
 
 struct AstNodeIdTag;
 struct HirNodeIdTag;
+struct ScopeIdTag;
 struct SymbolIdTag;
 struct MirFunctionIdTag;
 struct BlockIdTag;
@@ -46,6 +47,7 @@ struct RuntimeSymbolIdTag;
 
 using AstNodeId = IrId<AstNodeIdTag>;
 using HirNodeId = IrId<HirNodeIdTag>;
+using ScopeId = IrId<ScopeIdTag>;
 using SymbolId = IrId<SymbolIdTag>;
 using MirFunctionId = IrId<MirFunctionIdTag>;
 using BlockId = IrId<BlockIdTag>;

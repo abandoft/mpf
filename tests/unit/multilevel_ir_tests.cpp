@@ -54,6 +54,30 @@ std::vector<mpf::Diagnostic> observe_hir(mpf::detail::hir::Program&) {
   return {};
 }
 
+void collect_identifiers(const mpf::detail::hir::Expression& expression,
+                         std::vector<const mpf::detail::hir::Expression*>& identifiers) {
+  if (!expression.valid()) return;
+  if (expression.kind == mpf::detail::ExpressionKind::identifier) {
+    identifiers.push_back(&expression);
+  }
+  for (const auto& child : expression.children) collect_identifiers(child, identifiers);
+}
+
+void collect_identifiers(const std::vector<mpf::detail::hir::Statement>& statements,
+                         std::vector<const mpf::detail::hir::Expression*>& identifiers) {
+  for (const auto& statement : statements) {
+    collect_identifiers(statement.expression, identifiers);
+    collect_identifiers(statement.secondary_expression, identifiers);
+    collect_identifiers(statement.tertiary_expression, identifiers);
+    collect_identifiers(statement.target_expression, identifiers);
+    for (const auto& expression : statement.parameter_defaults) {
+      collect_identifiers(expression, identifiers);
+    }
+    collect_identifiers(statement.body, identifiers);
+    collect_identifiers(statement.alternative, identifiers);
+  }
+}
+
 }  // namespace
 
 TEST_CASE("frontends lower language-owned AST artifacts into verified HIR") {
@@ -217,10 +241,13 @@ TEST_CASE("argument normalization revises HIR and keeps analysis tables dense") 
   REQUIRE(analysis.semantics.nodes.size() == lowered.program.node_count + 1U);
   REQUIRE(analysis.flow.hir_node_count == lowered.program.node_count);
   REQUIRE(analysis.flow.nodes.size() == lowered.program.node_count + 1U);
+  REQUIRE(analysis.names.hir_node_count == lowered.program.node_count);
+  REQUIRE(analysis.names.nodes.size() == lowered.program.node_count + 1U);
   REQUIRE(mpf::detail::hir::verify(lowered.program, "normalized-call").empty());
   REQUIRE(mpf::detail::hir::verify_semantics(lowered.program, analysis.semantics, "normalized-call")
               .empty());
   REQUIRE(mpf::detail::verify_flow(lowered.program, analysis.flow, "normalized-call").empty());
+  REQUIRE(mpf::detail::verify_names(lowered.program, analysis.names, "normalized-call").empty());
 
   mpf::TranspileOptions options;
   options.language = mpf::SourceLanguage::python;
@@ -270,6 +297,76 @@ TEST_CASE("control flow analysis is independent revision-bound and dense") {
   auto stale = analysis.flow;
   ++lowered.program.revision;
   REQUIRE(!mpf::detail::verify_flow(lowered.program, stale, "stale").empty());
+}
+
+TEST_CASE("name analysis owns dense lexical scopes symbols and shadowing") {
+  auto lowered = lower_python(
+      "value = 40\n"
+      "def compute(value):\n"
+      "    local = value + 2\n"
+      "    return local\n"
+      "print(compute(value) + abs(-1))\n");
+  auto analysis = mpf::detail::analyze_program(lowered.program);
+  REQUIRE(analysis.empty());
+  REQUIRE(analysis.names.hir_revision == lowered.program.revision);
+  REQUIRE(analysis.names.hir_node_count == lowered.program.node_count);
+  REQUIRE(analysis.names.nodes.size() == lowered.program.node_count + 1U);
+  REQUIRE(analysis.names.global_scope.valid());
+  REQUIRE(analysis.names.scopes.size() == 3U);
+  REQUIRE(mpf::detail::verify_names(lowered.program, analysis.names, "test").empty());
+
+  const auto& global_assignment = lowered.program.statements[0];
+  const auto& function = lowered.program.statements[1];
+  const auto* global_definition =
+      analysis.names.use(global_assignment.id, mpf::detail::NameRole::assignment);
+  const auto* function_definition =
+      analysis.names.use(function.id, mpf::detail::NameRole::declaration);
+  const auto* parameter_definition =
+      analysis.names.use(function.id, mpf::detail::NameRole::parameter);
+  REQUIRE(global_definition != nullptr);
+  REQUIRE(function_definition != nullptr);
+  REQUIRE(parameter_definition != nullptr);
+  REQUIRE(global_definition->symbol != parameter_definition->symbol);
+  REQUIRE(function_definition->binding == mpf::detail::BindingKind::function);
+  const auto function_scope = analysis.names.owned_scope(function.id);
+  REQUIRE(function_scope.valid());
+  REQUIRE(analysis.names.scope(function_scope)->parent == analysis.names.global_scope);
+  REQUIRE(analysis.names.symbol(parameter_definition->symbol)->scope == function_scope);
+
+  std::vector<const mpf::detail::hir::Expression*> identifiers;
+  collect_identifiers(lowered.program.statements, identifiers);
+  const auto find_identifier = [&](const std::string_view name, const std::size_t line) {
+    return std::find_if(identifiers.begin(), identifiers.end(), [&](const auto* expression) {
+      return expression->value == name && expression->location.line == line;
+    });
+  };
+  const auto parameter_reference = find_identifier("value", 3);
+  const auto local_reference = find_identifier("local", 4);
+  const auto global_reference = find_identifier("value", 5);
+  const auto function_reference = find_identifier("compute", 5);
+  const auto builtin_reference = find_identifier("abs", 5);
+  REQUIRE(parameter_reference != identifiers.end());
+  REQUIRE(local_reference != identifiers.end());
+  REQUIRE(global_reference != identifiers.end());
+  REQUIRE(function_reference != identifiers.end());
+  REQUIRE(builtin_reference != identifiers.end());
+  REQUIRE(analysis.names.reference((*parameter_reference)->id)->symbol ==
+          parameter_definition->symbol);
+  REQUIRE(analysis.names.reference((*global_reference)->id)->symbol == global_definition->symbol);
+  REQUIRE(analysis.names.reference((*function_reference)->id)->symbol ==
+          function_definition->symbol);
+  REQUIRE(analysis.names.reference((*local_reference)->id)->symbol.valid());
+  REQUIRE(analysis.names.reference((*builtin_reference)->id)->binding ==
+          mpf::detail::BindingKind::builtin);
+  REQUIRE(analysis.names.reference((*builtin_reference)->id)->intrinsic ==
+          mpf::detail::IntrinsicId::absolute);
+
+  auto invalid = analysis.names;
+  invalid.symbols[parameter_definition->symbol.value()].scope = invalid.global_scope;
+  REQUIRE(!mpf::detail::verify_names(lowered.program, invalid, "bad-scope").empty());
+  auto stale = analysis.names;
+  ++lowered.program.revision;
+  REQUIRE(!mpf::detail::verify_names(lowered.program, stale, "stale").empty());
 }
 
 TEST_CASE("HIR lowers to typed CFG MIR with shape storage and effects") {
