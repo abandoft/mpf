@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(mpf-embedding-example LANGUAGES CXX)
 
-find_package(mpf 0.4.7 EXACT CONFIG REQUIRED COMPONENTS core javascript cpp)
+find_package(mpf 0.4.8 EXACT CONFIG REQUIRED COMPONENTS core javascript cpp)
 
 add_executable(mpf-embedding-example main.cpp)
 target_link_libraries(mpf-embedding-example PRIVATE mpf::mpf)
