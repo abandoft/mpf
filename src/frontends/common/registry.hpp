@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <string_view>
 
-#include "frontend_descriptor.hpp"
+#include "frontends/common/descriptor.hpp"
 
 namespace mpf::detail {
 

@@ -7,8 +7,8 @@
 #include <utility>
 #include <vector>
 
-#include "../compiler/expression.hpp"
-#include "frontend_ast.hpp"
+#include "compiler/expression.hpp"
+#include "frontends/common/ast.hpp"
 
 namespace mpf::detail {
 
@@ -21,8 +21,9 @@ class FrontendAstBuilder final {
   using Program = ArenaProgram<LanguageTag>;
   using Statement = ArenaStatement<LanguageTag>;
 
-  FrontendAstBuilder(const SourceLanguage language, std::pmr::memory_resource* resource)
-      : program_(resource) {
+  FrontendAstBuilder(const SourceLanguage language, const ExpressionLexer expression_lexer,
+                     std::pmr::memory_resource* resource)
+      : expression_lexer_(expression_lexer), program_(resource) {
     program_.language = language;
   }
 
@@ -80,7 +81,7 @@ class FrontendAstBuilder final {
                                            const SourceLanguage language, const std::size_t line,
                                            std::vector<Diagnostic>& diagnostics) {
     if (frontend_trimmed_empty(source)) return {};
-    auto parsed = mpf::detail::parse_expression(source, language, line);
+    auto parsed = mpf::detail::parse_expression(expression_lexer_(source, line, 1U), language);
     diagnostics.insert(diagnostics.end(), std::make_move_iterator(parsed.diagnostics.begin()),
                        std::make_move_iterator(parsed.diagnostics.end()));
     return add_expression(std::move(parsed.expression));
@@ -126,6 +127,7 @@ class FrontendAstBuilder final {
     return AstNodeId{static_cast<AstNodeId::value_type>(program_.records.size())};
   }
 
+  ExpressionLexer expression_lexer_;
   Program program_;
 };
 

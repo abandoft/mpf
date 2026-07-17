@@ -1,4 +1,4 @@
-#include "frontend_registry.hpp"
+#include "frontends/common/registry.hpp"
 
 #include <array>
 #include <cctype>

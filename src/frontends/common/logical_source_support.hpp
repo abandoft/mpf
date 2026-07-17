@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-#include "logical_source.hpp"
+#include "frontends/common/logical_source.hpp"
 
 namespace mpf::detail::logical_source {
 

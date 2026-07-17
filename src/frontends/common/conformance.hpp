@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "frontend_descriptor.hpp"
+#include "frontends/common/descriptor.hpp"
 
 namespace mpf::detail {
 

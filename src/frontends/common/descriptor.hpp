@@ -6,9 +6,9 @@
 #include <memory_resource>
 #include <string_view>
 
-#include "../compiler/descriptor.hpp"
-#include "../source/source_text.hpp"
-#include "frontend_ast.hpp"
+#include "compiler/static_string_list.hpp"
+#include "frontends/common/ast.hpp"
+#include "source/source_text.hpp"
 
 namespace mpf::detail {
 
@@ -110,7 +110,7 @@ struct FrontendDescriptor {
   std::uint32_t api_version{frontend_descriptor_api_version};
   SourceLanguage language{SourceLanguage::automatic};
   const char* name{"unknown"};
-  StringViewList extensions;
+  StaticStringList extensions;
   FrontendManifest manifest;
   const SourceIntrinsicTable* intrinsic_tables{nullptr};
   std::size_t intrinsic_table_count{0};

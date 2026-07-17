@@ -1,4 +1,4 @@
-#include "frontend_ast.hpp"
+#include "frontends/common/ast.hpp"
 
 #include <algorithm>
 #include <iterator>
@@ -7,7 +7,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "../ir/semantic_table.hpp"
+#include "ir/semantic_table.hpp"
 
 namespace mpf::detail {
 namespace {

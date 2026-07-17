@@ -7,11 +7,11 @@
 #include <variant>
 #include <vector>
 
-#include "../compiler/assignment_pattern.hpp"
-#include "../compiler/expression_ast.hpp"
-#include "../compiler/statement_kind.hpp"
-#include "../ir/hir_lowering.hpp"
-#include "../ir/ids.hpp"
+#include "compiler/assignment_pattern.hpp"
+#include "compiler/expression_ast.hpp"
+#include "compiler/statement_kind.hpp"
+#include "ir/hir_lowering.hpp"
+#include "ir/ids.hpp"
 
 namespace mpf::detail {
 

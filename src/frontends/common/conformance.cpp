@@ -1,13 +1,13 @@
-#include "frontend_conformance.hpp"
+#include "frontends/common/conformance.hpp"
 
 #include <algorithm>
 #include <iterator>
 #include <string>
 #include <utility>
 
-#include "../ir/dump.hpp"
-#include "../ir/semantic_table.hpp"
-#include "frontend_registry.hpp"
+#include "frontends/common/registry.hpp"
+#include "ir/dump.hpp"
+#include "ir/semantic_table.hpp"
 
 namespace mpf::detail {
 namespace {
