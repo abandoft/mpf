@@ -1,6 +1,6 @@
 # MPF：Modern Polyglot Framework
 
-现代化、高性能的多语言转译库
+现代化、高性能的多语言转译框架
 
 - 使用 C17/C++17 编写，跨平台
 - 使用CMake组织和构建代码

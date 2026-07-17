@@ -1,47 +1,42 @@
 # MPF
 
-Modern Polyglot Framework：面向 Matlab、Python、Fortran 和 TypeScript 的跨平台源码转译器。
+A modern, high-performance multilingual transpilation framework. MPF converts supported source languages into modern JavaScript or portable C++17. The project provides both the `mpfc` command-line tool and a C++ library API, uses CMake for its build system, and allows the two output backends to be enabled independently.
 
-MPF 可以把受支持的源语言代码转换为现代 JavaScript 或可移植的 C++17。项目同时提供 `mpfc` 命令行工具和 C++ 库接口，使用 CMake 构建，两个输出后端可以独立启用。
+## Features
 
-> [!IMPORTANT]
-> MPF 当前版本为 **0.4.6**，仍处于早期开发阶段。现阶段只支持各语言中已经验证的子集，不能替代完整的 Matlab、Python、Fortran 或 TypeScript 实现。0.x 版本只维护当前接口，不保证兼容早期开发快照。
+- Supports Matlab, Python, Fortran, and TypeScript as input languages.
+- Provides independent JavaScript and C++17 output backends.
+- Detects languages from file extensions, with explicit selection available through the CLI or C++ API.
+- Provides text and JSON diagnostics, source ranges, source maps, dependency manifests, and compilation reports.
+- Generates JavaScript as ESM or strict scripts and produces directly compilable C++17 translation units.
+- Supports backend-specific builds and install-package components.
+- Supports GCC, Clang, AppleClang, and MSVC.
 
-## 功能
+## Support Status
 
-- 支持 Matlab、Python、Fortran 和 TypeScript 四种输入语言。
-- 支持 JavaScript 和 C++17 两个彼此独立的输出后端。
-- 根据文件扩展名自动识别语言，也可通过 CLI 或 C++ API 显式指定。
-- 提供文本和 JSON 诊断、源码范围、source map、依赖清单和编译报告。
-- 支持 ESM/strict script JavaScript 输出以及可直接编译的 C++17 translation unit。
-- 支持按后端裁剪构建和安装包组件。
-- 支持 GCC、Clang、AppleClang 和 MSVC。
-
-## 支持范围
-
-| 输入语言 | 自动识别扩展名 | 当前能力摘要 |
+| Input language | Recognized extensions | Current capabilities |
 |---|---|---|
-| Matlab | `.m` | 脚本与局部函数、条件和循环、矩阵、索引、section、`reshape`、多输出函数 |
-| Python | `.py`、`.pyw` | 函数与参数、条件和循环、list/tuple、解包、比较链、多维数组、索引和切片 |
-| Fortran | `.f`、`.for`、`.ftn`、`.f77`、`.f90` 等 | free/fixed form、function/subroutine、`INTENT`/`OPTIONAL`、数组与 section、`SELECT CASE` |
-| TypeScript | `.ts`、`.mts`、`.cts` | 类型化标量和数组、函数、块作用域、条件、`while`、标准 C 风格 `for` |
+| Matlab | `.m` | Scripts and local functions, conditionals/loops/scalar `switch`, matrices, indexing, sections, `reshape`, two-dimensional matrix multiplication, basic element-wise arithmetic, and multiple-output functions |
+| Python | `.py`, `.pyw` | Functions and parameters, conditionals and loops, lists/tuples, unpacking, comparison chains, multidimensional arrays, indexing, and slicing |
+| Fortran | `.f`, `.for`, `.ftn`, `.f77`, `.f90`, and others | Free/fixed form, functions/subroutines, `INTENT`/`OPTIONAL`, arrays and sections, and `SELECT CASE` |
+| TypeScript | `.ts`, `.mts`, `.cts` | Typed scalars and arrays, functions, block scope, conditionals, `while`, and standard C-style `for` loops |
 
-语言名称只接受 `matlab`、`python`、`fortran` 和 `typescript`；输出目标只接受 `javascript` 和 `cpp`。`cpp` 是目标名称，当前生成标准为 C++17。
+Language names are limited to `matlab`, `python`, `fortran`, and `typescript`; output targets are limited to `javascript` and `cpp`. `cpp` is the target name, and the current generated language standard is C++17.
 
-完整的已支持语法、语义和限制见[语言支持矩阵](docs/LANGUAGE_SUPPORT.md)。尚未完成的官方 grammar、动态对象模型、广播、模块系统等工作见[项目路线图](TODO.md)。
+See the [language support matrix](docs/LANGUAGE_SUPPORT.md) for the complete set of supported syntax, semantics, and limitations. See the [product plan](docs/MATLAB_TO_JAVASCRIPT.md) for the Matlab-to-JavaScript maturity analysis, completion criteria, and dedicated checklist, and the [project roadmap](TODO.md) for cross-language work.
 
-## 环境要求
+## Requirements
 
-- CMake 3.20 或更高版本
-- 支持 C++17 的编译器
-- Node.js：运行生成的 JavaScript 或完整差分测试时需要
-- Python 和 gfortran：运行相应源语言差分测试时需要
+- CMake 3.20 or later
+- A compiler with C++17 support
+- Node.js to run generated JavaScript or the complete differential test suite
+- Python and gfortran to run the corresponding source-language differential tests
 
-所有构建产物必须放在仓库根目录的 `build/` 下。
+All build artifacts must remain under the repository's top-level `build/` directory.
 
-## 构建
+## Building
 
-开发构建：
+Development build:
 
 ```sh
 cmake --preset dev
@@ -49,7 +44,7 @@ cmake --build --preset dev
 ctest --preset dev
 ```
 
-Release 构建：
+Release build:
 
 ```sh
 cmake --preset release
@@ -57,7 +52,7 @@ cmake --build --preset release
 ctest --preset release
 ```
 
-不使用 preset 时：
+Without presets:
 
 ```sh
 cmake -S . -B build/dev -DCMAKE_BUILD_TYPE=Debug
@@ -65,16 +60,16 @@ cmake --build build/dev --parallel
 ctest --test-dir build/dev --output-on-failure
 ```
 
-## 命令行快速开始
+## Command-Line Quick Start
 
-将 Python 转换为 JavaScript 并运行：
+Transpile Python to JavaScript and run it:
 
 ```sh
 build/release/mpfc --target javascript examples/python/basic.py -o build/basic.mjs
 node build/basic.mjs
 ```
 
-将 Python 转换为 C++、编译并运行：
+Transpile Python to C++, compile it, and run it:
 
 ```sh
 build/release/mpfc --target cpp examples/python/basic.py -o build/basic.cpp
@@ -82,7 +77,7 @@ c++ -std=c++17 build/basic.cpp -o build/basic
 build/basic
 ```
 
-其他输入语言示例：
+Examples for other input languages:
 
 ```sh
 build/release/mpfc --target javascript examples/matlab/basic.m -o build/matlab-basic.mjs
@@ -90,41 +85,41 @@ build/release/mpfc --target cpp examples/fortran/basic.f90 -o build/fortran-basi
 build/release/mpfc --target javascript examples/typescript/basic.ts -o build/typescript-basic.mjs
 ```
 
-从标准输入读取 fixed-form Fortran：
+Read fixed-form Fortran from standard input:
 
 ```sh
 build/release/mpfc --language fortran --fortran-form fixed - < examples/fortran/fixed_form.f
 ```
 
-生成 JSON 诊断或 source map：
+Generate JSON diagnostics or a source map:
 
 ```sh
 build/release/mpfc --diagnostics-format json --language python input.py
 build/release/mpfc --target javascript --source-map build/output.mjs.map input.py -o build/output.mjs
 ```
 
-查看全部命令行选项：
+List all command-line options:
 
 ```sh
 build/release/mpfc --help
 ```
 
-## 作为 C++ 库使用
+## Using MPF as a C++ Library
 
-安装 MPF：
+Install MPF:
 
 ```sh
 cmake --install build/release --prefix build/stage
 ```
 
-在项目中查找当前精确版本：
+Find the exact current version in another project:
 
 ```cmake
-find_package(mpf 0.4.6 EXACT CONFIG REQUIRED COMPONENTS core cpp)
+find_package(mpf 0.4.7 EXACT CONFIG REQUIRED COMPONENTS core cpp)
 target_link_libraries(my_application PRIVATE mpf::mpf)
 ```
 
-最小示例：
+Minimal example:
 
 ```cpp
 #include <iostream>
@@ -148,20 +143,20 @@ int main() {
 }
 ```
 
-安装包提供 `core`、`javascript` 和 `cpp` component，以及 `mpf::core`、`mpf::backend-javascript`、`mpf::backend-cpp` 和统一入口 `mpf::mpf`。完整集成示例见 [`examples/embedding`](examples/embedding)。
+The installed package provides the `core`, `javascript`, and `cpp` components; the `mpf::core`, `mpf::backend-javascript`, and `mpf::backend-cpp` targets; and the unified `mpf::mpf` entry point. See [`examples/embedding`](examples/embedding) for a complete integration example.
 
-## 构建配置
+## Build Configuration
 
-| CMake 选项 | 默认值 | 用途 |
+| CMake option | Default | Purpose |
 |---|---:|---|
-| `MPF_BUILD_CLI` | `ON` | 构建 `mpfc` 命令行工具 |
-| `MPF_BUILD_TESTS` | 顶层项目为 `ON` | 构建测试 |
-| `MPF_ENABLE_JAVASCRIPT_BACKEND` | `ON` | 构建 JavaScript 后端 |
-| `MPF_ENABLE_CPP_BACKEND` | `ON` | 构建 C++ 后端 |
-| `MPF_ENABLE_WERROR` | `OFF` | 将编译器警告视为错误 |
-| `MPF_ENABLE_SANITIZERS` | `OFF` | 启用 AddressSanitizer 和 UndefinedBehaviorSanitizer |
+| `MPF_BUILD_CLI` | `ON` | Build the `mpfc` command-line tool |
+| `MPF_BUILD_TESTS` | `ON` for the top-level project | Build the test suite |
+| `MPF_ENABLE_JAVASCRIPT_BACKEND` | `ON` | Build the JavaScript backend |
+| `MPF_ENABLE_CPP_BACKEND` | `ON` | Build the C++ backend |
+| `MPF_ENABLE_WERROR` | `OFF` | Treat compiler warnings as errors |
+| `MPF_ENABLE_SANITIZERS` | `OFF` | Enable AddressSanitizer and UndefinedBehaviorSanitizer |
 
-例如，只构建 C++ 后端：
+For example, to build only the C++ backend:
 
 ```sh
 cmake -S . -B build/cpp-only \
@@ -170,27 +165,23 @@ cmake -S . -B build/cpp-only \
 cmake --build build/cpp-only --parallel
 ```
 
-## 文档
+## Documentation
 
-- [语言支持矩阵](docs/LANGUAGE_SUPPORT.md)
-- [命令行与诊断](docs/DIAGNOSTICS.md)
-- [安装、测试和质量检查](docs/TESTING.md)
-- [架构说明](docs/ARCHITECTURE.md)
-- [新增源语言或输出目标](docs/EXTENDING.md)
-- [版本策略](docs/VERSIONING.md)
-- [开发路线图](TODO.md)
-- [更新日志](CHANGELOG-ZH.md)
+- [Language support matrix](docs/LANGUAGE_SUPPORT.md)
+- [Command line and diagnostics](docs/DIAGNOSTICS.md)
+- [Installation, testing, and quality checks](docs/TESTING.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Adding an input language or output target](docs/EXTENDING.md)
+- [Versioning policy](docs/VERSIONING.md)
+- [Development roadmap](TODO.md)
+- [Changelog](CHANGELOG.md)
 
-## 参与贡献
+## Contributing
 
-欢迎通过 issue 或 pull request 参与语言支持、目标后端、测试、性能和文档建设。开始前请阅读[贡献指南](CONTRIBUTING.md)，并确保新增语言行为同时包含成功、边界和拒绝场景。
+Contributions to language support, output backends, tests, performance, and documentation are welcome through issues and pull requests. Before getting started, read the [contributing guide](docs/CONTRIBUTING.md) and ensure that every new language behavior includes success, boundary, and rejection cases.
 
 ```sh
 cmake --preset dev
 cmake --build --preset dev
 ctest --preset dev
 ```
-
-## 许可证
-
-本项目基于 [MIT License](LICENSE) 发布。
