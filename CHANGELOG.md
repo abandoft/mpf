@@ -10,9 +10,6 @@
 - Unsupported dynamic extents, higher-rank transpose, incompatible masks, growth through `end`, matrix division, and matrix power now fail before code generation with dedicated diagnostics.
 - Added five executable Matlab examples and differential cases covering implicit expansion, transpose, `end`, logical indexing, and broadcast comparisons on both output targets.
 - Expanded Matlab fuzz regression inputs and cross-layer validation for broadcast plans, transpose identity, logical selection, and optimized intermediate representations.
-- Added dedicated Matlab array and tensor performance gates with versioned latency, throughput, and generated-size budgets for the 0.4.8 release.
-- Verified 89.52% production line coverage (23,650 of 26,419 lines), exceeding the 85% release requirement.
-- Updated package examples and documentation for 0.4.8, and corrected built-in runtime supply-chain metadata to identify the repository's MIT license.
 
 ## 0.4.7
 
