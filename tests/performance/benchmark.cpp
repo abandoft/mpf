@@ -170,6 +170,36 @@ std::string matlab_tensor_workload(const std::size_t pages) {
   return source;
 }
 
+std::string matlab_dynamic_end_workload(const std::size_t rounds) {
+  std::string source =
+      "values = [10 20 30 40 50 60 70 80];\n"
+      "matrix = [1 2 3 4; 5 6 7 8; 9 10 11 12; 13 14 15 16];\n"
+      "disp(dynamic_end_kernel(values, matrix))\n"
+      "function result = dynamic_end_kernel(values, matrix)\n"
+      "result = 0;\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "result = result + values(end) + values(end - 1) + sum(values(2:end)) + ";
+    source += "matrix(end, end) + matrix(end) + sum(values([1 end]));\n";
+  }
+  source += "end\n";
+  return source;
+}
+
+std::string matlab_dynamic_broadcast_workload(const std::size_t rounds) {
+  std::string source =
+      "column = [1; 2; 3; 4];\n"
+      "row = [10 20 30 40];\n"
+      "disp(dynamic_broadcast_kernel(column, row))\n"
+      "function result = dynamic_broadcast_kernel(left, right)\n"
+      "expanded = left + right;\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "expanded = expanded + right;\n";
+    source += "mask = expanded > left;\n";
+  }
+  source += "result = sum(expanded) + sum(mask);\nend\n";
+  return source;
+}
+
 std::string matlab_matrix_solve_workload(const std::size_t rounds) {
   std::string source =
       "coefficient = [4 1 0 0; 2 5 1 0; 0 1 6 2; 0 0 2 7];\n"
@@ -280,6 +310,9 @@ int main() {
       {"memory-dependence", memory_dependence_workload(16), mpf::SourceLanguage::python, 32U, true},
       {"matlab-array-kernel", matlab_array_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-tensor-kernel", matlab_tensor_workload(24), mpf::SourceLanguage::matlab},
+      {"matlab-dynamic-end", matlab_dynamic_end_workload(32), mpf::SourceLanguage::matlab},
+      {"matlab-dynamic-broadcast", matlab_dynamic_broadcast_workload(32),
+       mpf::SourceLanguage::matlab},
       {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
