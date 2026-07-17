@@ -1,5 +1,5 @@
 #include <iostream>
-#include <mpf/transpiler.hpp>
+#include <mpf/mpf.hpp>
 
 int main() {
   mpf::TranspileOptions options;

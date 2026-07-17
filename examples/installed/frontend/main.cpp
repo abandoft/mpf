@@ -1,7 +1,7 @@
 #include <array>
 #include <string_view>
 
-#include "mpf/transpiler.hpp"
+#include <mpf/mpf.hpp>
 
 int main() {
   struct Case {

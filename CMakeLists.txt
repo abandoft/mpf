@@ -14,7 +14,7 @@ endif()
 
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/include/mpf")
 configure_file(
-  include/mpf/version.hpp.in
+  cmake/templates/version.hpp.in
   "${CMAKE_CURRENT_BINARY_DIR}/generated/include/mpf/version.hpp"
   @ONLY)
 
