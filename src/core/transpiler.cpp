@@ -7,16 +7,16 @@
 #include <string>
 #include <vector>
 
-#include "../compiler/code_binding.hpp"
-#include "../frontends/frontend_registry.hpp"
-#include "../ir/hir.hpp"
-#include "../ir/memory_dependence.hpp"
-#include "../ir/mir.hpp"
-#include "../ir/mir_optimization.hpp"
-#include "../ir/pass_manager.hpp"
-#include "../semantic/analyzer.hpp"
-#include "backend_registry.hpp"
+#include "backends/common/registry.hpp"
 #include "compilation_session.hpp"
+#include "compiler/code_binding.hpp"
+#include "frontends/common/registry.hpp"
+#include "ir/hir.hpp"
+#include "ir/memory_dependence.hpp"
+#include "ir/mir.hpp"
+#include "ir/mir_optimization.hpp"
+#include "ir/pass_manager.hpp"
+#include "semantic/analyzer.hpp"
 #include "source_map_builder.hpp"
 
 namespace mpf {

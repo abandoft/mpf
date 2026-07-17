@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 
-#include "../ir/hir.hpp"
+#include "ir/hir.hpp"
 
 namespace mpf::detail {
 

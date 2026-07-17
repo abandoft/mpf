@@ -6,8 +6,8 @@
 #include <string_view>
 #include <vector>
 
-#include "../compiler/assignment_pattern.hpp"
-#include "../compiler/call_contract.hpp"
+#include "compiler/assignment_pattern.hpp"
+#include "compiler/call_contract.hpp"
 #include "hir.hpp"
 #include "ids.hpp"
 #include "semantic_table.hpp"

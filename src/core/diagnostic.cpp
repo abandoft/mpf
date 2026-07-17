@@ -6,7 +6,7 @@
 #include <string>
 #include <string_view>
 
-#include "../source/source_text.hpp"
+#include "source/source_text.hpp"
 
 namespace mpf {
 namespace {

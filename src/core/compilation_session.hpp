@@ -8,8 +8,8 @@
 #include <string>
 #include <vector>
 
-#include "../source/source_manager.hpp"
 #include "mpf/transpiler.hpp"
+#include "source/source_manager.hpp"
 
 namespace mpf::detail {
 

@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "../compiler/assignment_pattern.hpp"
+#include "compiler/assignment_pattern.hpp"
 #include "ids.hpp"
 #include "semantics.hpp"
 #include "storage_region.hpp"

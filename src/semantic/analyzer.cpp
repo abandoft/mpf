@@ -7,8 +7,8 @@
 #include <utility>
 #include <vector>
 
-#include "../compiler/function_graph_generic.hpp"
 #include "analyzer_internal.hpp"
+#include "compiler/function_graph_generic.hpp"
 
 namespace mpf::detail::semantic_internal {
 

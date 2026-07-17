@@ -6,8 +6,8 @@
 #include <string_view>
 #include <vector>
 
-#include "../compiler/expression_ast.hpp"
-#include "../compiler/statement_kind.hpp"
+#include "compiler/expression_ast.hpp"
+#include "compiler/statement_kind.hpp"
 #include "ids.hpp"
 #include "semantics.hpp"
 

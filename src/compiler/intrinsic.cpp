@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <array>
 
-#include "../frontends/frontend_registry.hpp"
+#include "frontends/common/registry.hpp"
 
 namespace mpf::detail {
 namespace {

@@ -2,9 +2,9 @@
 
 #include <vector>
 
-#include "../ir/hir.hpp"
-#include "../ir/semantic_table.hpp"
 #include "flow_analysis.hpp"
+#include "ir/hir.hpp"
+#include "ir/semantic_table.hpp"
 #include "name_analysis.hpp"
 
 namespace mpf::detail {

@@ -4,7 +4,7 @@
 #include <limits>
 #include <numeric>
 
-#include "../compiler/expression_ast.hpp"
+#include "compiler/expression_ast.hpp"
 
 namespace mpf::detail {
 namespace {

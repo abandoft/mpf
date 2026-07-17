@@ -8,8 +8,8 @@
 #include <unordered_map>
 #include <utility>
 
-#include "../semantic/name_analysis.hpp"
 #include "mir_opcode.hpp"
+#include "semantic/name_analysis.hpp"
 
 namespace mpf::detail::mir {
 namespace {

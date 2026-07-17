@@ -2,8 +2,8 @@
 
 #include <vector>
 
-#include "../ir/mir.hpp"
 #include "binding.hpp"
+#include "ir/mir.hpp"
 
 namespace mpf::detail {
 

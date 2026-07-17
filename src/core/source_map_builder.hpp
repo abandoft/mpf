@@ -3,7 +3,7 @@
 #include <string_view>
 #include <vector>
 
-#include "../backends/backend_artifact.hpp"
+#include "backends/common/artifact.hpp"
 #include "mpf/source_map.hpp"
 
 namespace mpf::detail {
