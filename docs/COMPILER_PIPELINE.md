@@ -2,7 +2,7 @@
 
 本文是 MPF 前端、公共中间表示、分析/优化基础设施和后端的权威架构规范，也是重构验收依据。若其他文档与本文的层级职责冲突，以本文和 [TODO](../TODO.md) 的逐项状态为准。
 
-> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 原子产出窄 HIR 与 revision-bound `SemanticTable` seed；0.3.6 的双目标 LIR v10 固化 call ownership/writeback、目标求值、强类型比较和 source segment；0.3.7 让三个 statement parser 直接构造语言专属 arena；0.3.8 删除 MIR 的递归 HIR 兼容 ownership；0.3.9 进一步删除 flat MIR 宽语义 payload，以 revision-bound `OperationAttributeTable` 和驻留 type/shape/storage 作为唯一事实。0.4.0 以同一 contract 接入第四个 TypeScript parser/arena/lowering，并让 explicit export policy 从 semantic profile/side-table 进入 MIR function 和 JavaScript LIR ABI。0.4.1 以 profile 驱动 `NameScopeEdges`、Analyzer block state、显式 `for` CFG、`SymbolId` target identity 和 LIR v12 lexical `ScopePlan` 贯通源块到两个目标。0.4.2 在后端分叉前接入共享 MIR 默认优化、逐 pass verifier/revision/instrumentation、MIR v4 tombstone ownership 与优化后 alias/effect 重算。0.4.3 新增 semantic v2/MIR v5/alias-effect v2 的规范化 `StorageRegion` side table，为静态已知 shape 的同根 element、连续/步长、N 维矩形与列主序线性 section 提供精确 overlap 证明。后续迁移集中在完整独立 target AST、一般 RAII/copy-move/runtime ABI node、完整四语言官方 grammar、动态 rank/广播、跨一般 view/pointer 的区域证明和插件 ABI；不能把当前 TypeScript 子集等同于完整 TypeScript 6 兼容。
+> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 原子产出窄 HIR 与 revision-bound `SemanticTable` seed；0.3.6 的双目标 LIR v10 固化 call ownership/writeback、目标求值、强类型比较和 source segment；0.3.7 让三个 statement parser 直接构造语言专属 arena；0.3.8 删除 MIR 的递归 HIR 兼容 ownership；0.3.9 进一步删除 flat MIR 宽语义 payload，以 revision-bound `OperationAttributeTable` 和驻留 type/shape/storage 作为唯一事实。0.4.0 以同一 contract 接入第四个 TypeScript parser/arena/lowering，并让 explicit export policy 从 semantic profile/side-table 进入 MIR function 和 JavaScript LIR ABI。0.4.1 以 profile 驱动 `NameScopeEdges`、Analyzer block state、显式 `for` CFG、`SymbolId` target identity 和 LIR v12 lexical `ScopePlan` 贯通源块到两个目标。0.4.2 在后端分叉前接入共享 MIR 默认优化、逐 pass verifier/revision/instrumentation、MIR v4 tombstone ownership 与优化后 alias/effect 重算。0.4.3 新增 semantic v2/MIR v5/alias-effect v2 的规范化 `StorageRegion` side table，为静态已知 shape 的同根 element、连续/步长、N 维矩形与列主序线性 section 提供精确 overlap 证明。0.4.4 以 MIR v6 的稠密 `InstructionAttributes` 将直接 load/store/copy/writeback 和循环写入统一为区域化 `MemoryAccess`，alias-effect v3 再把跨函数参数 fixed point 实例化成相同事实并提供访问级冲突查询。后续迁移集中在完整独立 target AST、一般 RAII/copy-move/runtime ABI node、完整四语言官方 grammar、动态 rank/广播、跨一般 view/pointer 的区域组合、memory SSA 和插件 ABI；不能把当前 TypeScript 子集等同于完整 TypeScript 6 兼容。
 
 ## 目标与永久约束
 
@@ -159,6 +159,7 @@ arena 只通过强类型 ID 连接，目标后端必须 O(1) lookup 后构造自
 - `ShapeId` 独立描述 rank、静态/动态 extent、stride、layout 和 section view。
 - `StorageId` 表示可能共享或重叠的存储区域；view、optional parameter、copy-in/copy-out、writable actual 和 lifetime 必须显式关联。
 - `StorageRegion` 是不修改 HIR 结构节点的稠密 semantic/operation side-table fact：`rectangular` 保存 root shape 及每维零基 `first/stride/count`，`linearized` 保存列主序单 selector 的线性 progression，`unknown` 明确表示不能作精确结论。
+- MIR v6 不把区域或 effect 塞回 `Instruction`；revision-bound `OperationAttributeTable` 按 `InstructionId` 稠密保存 `InstructionAttributes`，每条指令可持有零到多个 `MemoryAccess {storage, root, region, mode}`。直接 load/index/slice 产生 read，store/store-indexed/loop-variable/writeback 产生 write，copy-in/out 只在 copy-in 阶段读取 original region，copy-out 不伪造读取；调用自身的跨函数读写在 alias/effect fixed point 中按 actual region 实例化。
 - alias 结果不内嵌 `StorageData`，而在稀疏 side table 中使用 `no_alias`、`may_alias`、`must_alias` 等保守格；未知时不能假设不重叠。
 - mutable aggregate 不强行伪装为纯 SSA 值；通过 value SSA 加显式 memory/storage effect 表达，后续可演进 memory SSA。
 
@@ -181,7 +182,7 @@ section writable actual 的 copy transfer 在 MIR 中确定，并在 call 前后
 
 ### 副作用模型
 
-独立分析表按 `InstructionId` 稠密保存 local/transitive `EffectSet` 和 storage read/write set，按 `MirFunctionId` 保存参数读写/escape 与 unknown-memory fixed point，并按 call-site 保存实参实例化结果。`EffectSet` 至少能区分：
+独立分析表按 `InstructionId` 稠密保存 local/transitive `EffectSet`、storage read/write set 和规范化 memory-access 列表，按 `MirFunctionId` 保存参数读写/escape 与 unknown-memory fixed point，并按 call-site 保存实参实例化结果。访问级 `alias_between` 先检查最终 root，再用 region relation 将同根访问精化为 no/must/may alias；`memory_accesses_conflict` 只在至少一侧写入且不能证明 `no_alias` 时返回 true。`EffectSet` 至少能区分：
 
 ```text
 pure
@@ -210,7 +211,7 @@ HIR→MIR lowering 必须显式生成 CFG 和 evaluation order。结构 verifier
 - effect 与 instruction kind 的最低约束；
 - return/call signature、多结果和异常/失败边一致性。
 
-0.4.3 延续的默认公共管线按固定顺序运行，并在每个变换后提升 `Program::revision`、同步 `OperationAttributeTable::mir_revision`、失效未声明保留的分析、记录耗时和执行完整 MIR verifier：
+0.4.4 延续的默认公共管线按固定顺序运行，并在每个变换后提升 `Program::revision`、同步 `OperationAttributeTable::mir_revision`、失效未声明保留的分析、记录耗时和执行完整 MIR verifier；instruction compaction 必须与稠密 `InstructionAttributes` 同步重映射：
 
 1. `mir-shape-canonicalization` 重新计算静态 row/column-major canonical stride，按 rank/layout/extent/stride 去重 shape，并一次性重写所有强类型 `ShapeId` 引用；dynamic-rank 的运行时 stride 不被臆测。
 2. `mir-copy-propagation` 只删除带 storage 身份、且每条 incoming edge 的 actual 完全相同的 block argument；同时按同一 ordinal 删除所有前驱 actual，其他 phi-equivalent 合并不做猜测。

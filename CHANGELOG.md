@@ -1,3 +1,18 @@
+## 0.4.4
+
+- MIR textual schema 升至 v6，在 revision-bound `OperationAttributeTable` 中新增按 `InstructionId` 稠密的 `InstructionAttributes`；每条指令可持有零到多个目标无关 `MemoryAccess`，显式保存 storage、最终 root、normalized region 和 read/write/read-write mode，而不把分析 payload 耦合回结构 `Instruction`。
+- HIR→MIR 为变量/索引/section 的 `load`/`index`/`slice` 建立区域化 read，为赋值、indexed assignment、声明初始化、range/`for` induction store 建立区域化 write；全 storage 写入使用已知 shape 的 full region，动态 selector 保持 unknown。
+- writable section 的 transfer 现在在指令事实中区分 copy-in/out 与 copy-out：copy-in/out 的 `copy` 读取 original actual region，copy-out 不伪造输入读取，两种 transfer 的 `writeback` 都精确写回同一 original region。
+- MIR verifier 新增 instruction attribute revision/count/density/origin、memory mode、storage/root、region validity、write mutability 和 duplicate row 检查，并交叉验证 expression storage-region 与 resident read access；损坏或陈旧事实以内部 `MPF0006` 失败关闭。
+- 默认 MIR 优化把 `Instruction` 与其属性行作为同一个稠密单元压缩和重映射；dead-pure instruction 回收后同步更新 origin/count/revision，四个共享 pass 的逐步 verifier 防止 memory fact 与 `InstructionId` 错位。
+- alias/effect textual schema 升至 v3；分析不再从 opcode 和 operand 反向猜测显式 memory operation，而直接消费经验证的访问表，同时保留排序后的 storage read/write projection、local/transitive effect 和 unknown-memory 保守边界。
+- 跨函数 fixed point 会把 callee 参数 read/write 按每个 call actual 的 storage/root/region 实例化到 call instruction 的 memory-access facts；直接 load/store、copy/writeback 与 transitive call effect 因而使用同一表示和 verifier。
+- 新增访问级 `alias_between` 与 `memory_accesses_conflict` 公共分析查询：同根 disjoint/identical region 分别精化为 `no_alias`/`must_alias`，至少一侧写入且无法证明不相交时报告冲突；unknown 或尚未组合的一般嵌套 view 保守保持 `may_alias`。
+- MIR 与 alias/effect deterministic dump 公开 instruction direct/transitive memory-access inventory；架构门禁固定 `InstructionAttributes`/`MemoryAccess`/冲突查询 contract，并继续禁止 JavaScript/`cpp` lowering 与 renderer 重算公共 storage-region 语义。
+- 单元和损坏输入覆盖 dense inventory、invalid mode/root/region、copy-in/copy-out/writeback、跨函数 disjoint actual、访问级 alias/conflict 以及优化后 instruction compaction；既有四语言、双目标、55 个差分 case 与 writable-overlap 诊断继续回归。
+- 新增 Python index/slice/store memory-region fuzz seed；版本化 `storage-regions` 性能场景继续以 128 个同根交错 section 调用覆盖 direct access、copy/writeback、跨函数 effect 实例化、确定性重放和八路并发。
+- 项目版本、性能基线、README、架构、管线、扩展、语言边界、诊断、测试与 TODO 同步到 0.4.4；`CHANGELOG.md` 继续直接以具体正式版本开头，不设置 `Unreleased` 段。当前为 177 项内部测试、55 个差分 case 和 66 项 CTest；Debug/Release 66/66、ASan/UBSan 65/65、format/clang-tidy、fuzz、隔离、安装、差分和七场景性能门禁通过，生产代码行覆盖率为 89.56%（21863/24412）。
+
 ## 0.4.3
 
 - 新增目标无关的 `StorageRegion`、`StorageRegionDimension` 与 `StorageRegionRelation`，以 `unknown`、N 维 `rectangular` 和列主序 `linearized` 三种形式统一描述 identifier、element 与 section 相对根 storage 的区域。

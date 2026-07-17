@@ -10,7 +10,7 @@ MPF 的验证体系分为七层：
 6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖四种前端、两个目标、资源耗尽和确定性重放；
 7. 小文件延迟、吞吐、深 CFG、大 shape、跨函数图、峰值 arena、产物大小和并发 session 进入发布性能门禁。
 
-0.4.3 在既有 stage/include、AST/HIR/MIR/双目标 LIR verifier、共享优化、source map、resource、fuzz 和性能门禁上新增静态 N 维 storage-region 纵切面。单元/负向测试覆盖 rectangular/linearized/unknown、空集、identical、连续/交错 progression、二维笛卡尔积、非法 bounds、`2^63`/最小 step 转换边界、HIR/MIR side-table 不一致和 writable conflict；集成测试覆盖双后端连续、负步长、交错 stride 与二维 block writeback，并固定重叠或动态边界的 `MPF2038` fail-closed。semantic v2、MIR v5 和 alias-effect v2 dump 公开完整 root shape 与 `first:stride:count`；架构门禁要求公共 region contract 并禁止目标 lowering/renderer 重算。新增 gfortran source、Node.js、严格生成 C++ 与 oracle 四路差分、Fortran fuzz seed，以及第七个 `storage-regions` 性能场景。更广四语言官方 grammar、动态 rank/广播和跨一般 pointer/view 的区域证明继续按 [TODO](../TODO.md) 推进。
+0.4.4 在 0.4.3 静态 N 维 storage-region 纵切面上新增完整指令内存事实门禁。单元/负向测试覆盖 `InstructionAttributes` revision/density/origin、read/write mode、storage/root/region/mutability、expression 与 memory row 一致性、copy-in/copy-out/writeback 区域、跨函数 call-site 实例化、访问级 alias/conflict，以及优化后 `InstructionId`/attribute 同步紧凑重映射；既有 rectangular/linearized/unknown、空集、交错 stride、二维 block、`MPF2038` fail-closed 和双目标差分继续回归。semantic v2、MIR v6 和 alias-effect v3 dump 公开 expression/call region 与每条 direct/transitive memory access；架构门禁要求公共 memory contract，并继续禁止目标 lowering/renderer 重算。新增 Python index/slice/store fuzz seed，第七个 `storage-regions` 场景同时覆盖 direct/copy/writeback/call effect 构建成本。更广四语言官方 grammar、动态 rank/广播、跨一般 pointer/view 的区域组合和 memory SSA/region-aware DCE 继续按 [TODO](../TODO.md) 推进。
 
 ## 当前开发分支与发布基线
 
@@ -20,7 +20,7 @@ MPF 的验证体系分为七层：
 | CTest | 66 项，包含 55 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
 | Differential corpus | Python 22、Fortran 19、Matlab 10、TypeScript 4，共 55 个 case |
 | 工具完整环境执行路径 | 155 条程序路径，另有每 case 一条 oracle |
-| 生产代码行覆盖率 | 89.49%（21617/24156），门槛 85% |
+| 生产代码行覆盖率 | 89.56%（21863/24412），门槛 85% |
 
 ## Differential corpus
 
