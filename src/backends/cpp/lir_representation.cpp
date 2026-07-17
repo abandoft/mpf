@@ -81,7 +81,7 @@ int binary_precedence(const std::string& token) noexcept {
 }
 
 bool has_array_operand(const lir::Expression& expression) noexcept {
-  return expression.inferred_type == ValueType::list ||
+  return expression.broadcast.valid || expression.inferred_type == ValueType::list ||
          std::any_of(
              expression.children.begin(), expression.children.end(),
              [](const lir::Expression& child) { return child.inferred_type == ValueType::list; });
@@ -199,6 +199,41 @@ bool valid_matrix_shapes(const lir::MatrixOperationPlan& plan,
   return false;
 }
 
+bool valid_broadcast_plan(const lir::Expression& expression) noexcept {
+  const auto& plan = expression.broadcast;
+  if (!plan.valid) {
+    return plan.shape_source == semantic::BroadcastShapeSource::static_extents &&
+           plan.left_shape.empty() && plan.right_shape.empty() && plan.result_shape.empty() &&
+           plan.axes.empty();
+  }
+  if (expression.kind != ExpressionKind::binary ||
+      expression.array_operation != semantic::ArrayOperation::matlab ||
+      expression.shape != plan.result_shape || plan.left_shape.size() != plan.axes.size() ||
+      plan.right_shape.size() != plan.axes.size() || plan.result_shape.size() != plan.axes.size()) {
+    return false;
+  }
+  const bool runtime = plan.shape_source == semantic::BroadcastShapeSource::runtime_operands;
+  if (plan.axes.empty()) return runtime && plan.left_shape.empty() && plan.right_shape.empty();
+  bool has_runtime_axis = false;
+  for (std::size_t axis = 0; axis < plan.axes.size(); ++axis) {
+    const auto left = plan.left_shape[axis];
+    const auto right = plan.right_shape[axis];
+    const auto result = plan.result_shape[axis];
+    const auto mode = plan.axes[axis];
+    const auto known = left == dynamic_extent ? right : left;
+    const auto runtime_result = known == dynamic_extent || known == 1U ? dynamic_extent : known;
+    const bool valid_axis =
+        (mode == semantic::BroadcastAxis::match && left == right && result == left) ||
+        (mode == semantic::BroadcastAxis::expand_left && left == 1U && result == right) ||
+        (mode == semantic::BroadcastAxis::expand_right && right == 1U && result == left) ||
+        (runtime && mode == semantic::BroadcastAxis::runtime &&
+         (left == dynamic_extent || right == dynamic_extent) && result == runtime_result);
+    if (!valid_axis) return false;
+    has_runtime_axis = has_runtime_axis || mode == semantic::BroadcastAxis::runtime;
+  }
+  return runtime == has_runtime_axis;
+}
+
 lir::ComparisonPlan comparison_plan(const ComparisonOperator operation,
                                     const lir::EmissionPlan& emission) {
   lir::ComparisonPlan result;
@@ -285,7 +320,10 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       result.form = lir::ExpressionForm::omitted;
       result.token = "std::nullopt";
       break;
-    case ExpressionKind::end_index: result.form = lir::ExpressionForm::invalid; break;
+    case ExpressionKind::end_index:
+      result.form = lir::ExpressionForm::runtime_extent;
+      result.token = "__mpf_extent";
+      break;
     case ExpressionKind::identifier:
       result.form = expression.binding == BindingKind::builtin ? lir::ExpressionForm::target_symbol
                                                                : lir::ExpressionForm::variable;
@@ -330,6 +368,12 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
         result.token = matlab_array_helper(expression);
         result.form = lir::ExpressionForm::matlab_array_operation;
         result.broadcast = expression.broadcast;
+        if (result.broadcast.valid) {
+          result.token +=
+              result.broadcast.shape_source == semantic::BroadcastShapeSource::runtime_operands
+                  ? "_runtime"
+                  : "_broadcast";
+        }
       } else if (expression.comparison != ComparisonOperator::none) {
         result.form = lir::ExpressionForm::binary_comparison;
         result.evaluation = lir::EvaluationForm::binary_comparison_reference_lambda_iife;
@@ -416,10 +460,14 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
         result.call_arguments.push_back(argument);
       }
       break;
-    case ExpressionKind::index:
+    case ExpressionKind::index: {
       result.form = lir::ExpressionForm::index;
       result.precedence = 9;
       result.index_selectors = expression.index_selectors;
+      result.index_extents = expression.index_extents;
+      const bool runtime_extent =
+          std::any_of(result.index_extents.begin(), result.index_extents.end(),
+                      semantic::requires_runtime_extent);
       if (std::any_of(result.index_selectors.begin(), result.index_selectors.end(),
                       semantic::selector_preserves_dimension)) {
         const bool general_selector = std::any_of(
@@ -428,9 +476,10 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
                      selector != semantic::IndexSelectorKind::slice;
             });
         if (result.index_selectors.size() == 1 && expression.column_major &&
-            !expression.children.empty() && expression.children.front().shape.size() > 1U) {
+            (runtime_extent ||
+             (!expression.children.empty() && expression.children.front().shape.size() > 1U))) {
           result.index = lir::IndexForm::linear_section;
-        } else if (general_selector || result.index_selectors.size() > 2U) {
+        } else if (runtime_extent || general_selector || result.index_selectors.size() > 2U) {
           result.index = lir::IndexForm::section_nd;
         } else if (result.index_selectors.size() == 1) {
           result.index = lir::IndexForm::slice;
@@ -443,6 +492,10 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
             result.index = lir::IndexForm::block;
           }
         }
+      } else if (runtime_extent && expression.column_major && expression.children.size() == 2U) {
+        result.index = lir::IndexForm::linear_element;
+      } else if (runtime_extent) {
+        result.index = lir::IndexForm::section_nd;
       } else if (expression.column_major && expression.children.size() == 2 &&
                  expression.children.front().shape.size() > 1) {
         result.index = lir::IndexForm::matrix_linear;
@@ -453,6 +506,7 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       result.allow_negative_index = expression.allow_negative_index;
       result.column_major = expression.column_major;
       break;
+    }
     case ExpressionKind::slice:
       result.form = lir::ExpressionForm::slice;
       result.index_base = expression.index_base;
@@ -491,6 +545,7 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
   if (left.valid != right.valid || left.form != right.form || left.precedence != right.precedence ||
       left.token != right.token || left.comparisons.size() != right.comparisons.size() ||
       left.broadcast.valid != right.broadcast.valid ||
+      left.broadcast.shape_source != right.broadcast.shape_source ||
       left.broadcast.left_shape != right.broadcast.left_shape ||
       left.broadcast.right_shape != right.broadcast.right_shape ||
       left.broadcast.result_shape != right.broadcast.result_shape ||
@@ -498,7 +553,7 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.evaluation != right.evaluation || left.call_value != right.call_value ||
       left.call_outcome != right.call_outcome ||
       left.call_arguments.size() != right.call_arguments.size() || left.index != right.index ||
-      left.index_selectors != right.index_selectors ||
+      left.index_selectors != right.index_selectors || left.index_extents != right.index_extents ||
       left.variable_access != right.variable_access || left.index_base != right.index_base ||
       left.allow_negative_index != right.allow_negative_index ||
       left.column_major != right.column_major ||
@@ -524,13 +579,34 @@ void plan_expression(lir::Expression& expression, const lir::EmissionPlan& emiss
   expression.plan = expected_expression_plan(expression, emission, context);
 }
 
+void collect_index_extent(const lir::Expression& expression,
+                          std::optional<semantic::IndexExtentSource>& source, bool& valid) {
+  if (expression.kind == ExpressionKind::end_index) {
+    if (!semantic::requires_runtime_extent(expression.index_extent) ||
+        (source.has_value() && *source != expression.index_extent)) {
+      valid = false;
+      return;
+    }
+    source = expression.index_extent;
+    return;
+  }
+  for (const auto& child : expression.children) collect_index_extent(child, source, valid);
+}
+
 void verify_expression(const lir::Expression& expression, const lir::EmissionPlan& emission,
                        const AccessContext& context, const SourceLanguage source_language,
                        std::vector<Diagnostic>& diagnostics) {
   if (!expression.valid()) return;
+  if ((expression.kind == ExpressionKind::end_index) !=
+      semantic::requires_runtime_extent(expression.index_extent)) {
+    add_error(diagnostics, expression.location,
+              "cpp LIR runtime index-extent ownership is inconsistent");
+  }
   if (expression.kind == ExpressionKind::index) {
-    if (expression.index_selectors.size() + 1U != expression.children.size()) {
-      add_error(diagnostics, expression.location, "cpp LIR index selector arity is inconsistent");
+    if (expression.index_selectors.size() + 1U != expression.children.size() ||
+        expression.index_extents.size() != expression.index_selectors.size()) {
+      add_error(diagnostics, expression.location,
+                "cpp LIR index selector or extent arity is inconsistent");
     } else {
       for (std::size_t index = 0; index < expression.index_selectors.size(); ++index) {
         const auto expected = expected_index_selector(expression.children[index + 1U]);
@@ -539,19 +615,33 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
                     "cpp LIR index selector identity is inconsistent");
           break;
         }
+        std::optional<semantic::IndexExtentSource> extent;
+        bool valid_extent = true;
+        collect_index_extent(expression.children[index + 1U], extent, valid_extent);
+        if (!valid_extent ||
+            expression.index_extents[index] != extent.value_or(semantic::IndexExtentSource::none)) {
+          add_error(diagnostics, expression.location,
+                    "cpp LIR runtime index-extent plan is inconsistent");
+          break;
+        }
       }
     }
-  } else if (!expression.index_selectors.empty()) {
+  } else if (!expression.index_selectors.empty() || !expression.index_extents.empty()) {
     add_error(diagnostics, expression.location,
-              "cpp non-index LIR expression retains selector facts");
+              "cpp non-index LIR expression retains selector or extent facts");
   }
-  const bool requires_matlab_array_operation = source_language == SourceLanguage::matlab &&
-                                               expression.kind == ExpressionKind::binary &&
-                                               expression.inferred_type == ValueType::list;
+  const bool requires_matlab_array_operation =
+      source_language == SourceLanguage::matlab && expression.kind == ExpressionKind::binary &&
+      (expression.inferred_type == ValueType::list ||
+       (expression.inferred_type == ValueType::unknown && expression.broadcast.valid &&
+        expression.broadcast.shape_source == semantic::BroadcastShapeSource::runtime_operands));
   if ((expression.array_operation == semantic::ArrayOperation::matlab) !=
       requires_matlab_array_operation) {
     add_error(diagnostics, expression.location,
               "cpp LIR Matlab array-operation identity is inconsistent");
+  }
+  if (!valid_broadcast_plan(expression)) {
+    add_error(diagnostics, expression.location, "cpp LIR Matlab broadcast plan is inconsistent");
   }
   const auto expected_matrix = source_language == SourceLanguage::matlab
                                    ? expected_matrix_operation(expression)

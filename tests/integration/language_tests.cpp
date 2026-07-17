@@ -425,7 +425,7 @@ TEST_CASE("Matlab multi-output metadata propagates through forward local functio
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
   REQUIRE(cpp.code.find("inner(T0 input)") < cpp.code.find("outer(T0 input)"));
-  REQUIRE(cpp.code.find("std::get<0>(inner(input))") == std::string::npos);
+  REQUIRE(cpp.code.find("decltype(std::get<0>(inner(input)))") != std::string::npos);
   REQUIRE(cpp.code.find("const auto mpf_internal_outputs_") != std::string::npos);
 }
 

@@ -237,6 +237,10 @@ class Renderer final {
 
   void emit_selector(const Expression& expression, const std::size_t child_index) {
     const auto& selector = expression.children[child_index];
+    const bool runtime_extent =
+        !type_probe_ &&
+        semantic::requires_runtime_extent(expression.plan.index_extents.at(child_index - 1U));
+    if (runtime_extent) output_ << "[&](std::size_t __mpf_extent) { return ";
     switch (expression.plan.index_selectors.at(child_index - 1U)) {
       case semantic::IndexSelectorKind::slice:
         output_ << "mpf_runtime::slice_selector{";
@@ -266,6 +270,7 @@ class Renderer final {
         output_ << '}';
         break;
     }
+    if (runtime_extent) output_ << "; }";
   }
 
   void emit_runtime_index(const Expression& container, const Expression& index_expression,
@@ -592,12 +597,12 @@ class Renderer final {
         break;
       case cpp::lir::ExpressionForm::matlab_array_operation:
         output_ << expression.plan.token;
-        if (expression.plan.broadcast.valid) output_ << "_broadcast";
         output_ << '(';
         emit_expression(expression.children[0]);
         output_ << ", ";
         emit_expression(expression.children[1]);
-        if (expression.plan.broadcast.valid) {
+        if (expression.plan.broadcast.valid && expression.plan.broadcast.shape_source ==
+                                                   semantic::BroadcastShapeSource::static_extents) {
           output_ << ", ";
           emit_shape_array(expression.plan.broadcast.left_shape);
           output_ << ", ";
@@ -618,6 +623,12 @@ class Renderer final {
         output_ << "))";
         break;
       case cpp::lir::ExpressionForm::call: break;
+      case cpp::lir::ExpressionForm::runtime_extent:
+        if (type_probe_)
+          output_ << '1';
+        else
+          output_ << "static_cast<std::int64_t>(" << expression.plan.token << ')';
+        break;
       case cpp::lir::ExpressionForm::index:
         switch (expression.plan.index) {
           case cpp::lir::IndexForm::slice:
@@ -677,6 +688,14 @@ class Renderer final {
             output_ << ", static_cast<std::int64_t>(";
             emit_expression(expression.children[1]);
             output_ << "), " << expression.plan.index_base << ')';
+            break;
+          case cpp::lir::IndexForm::linear_element:
+            output_ << "mpf_runtime::linear_index_column_major(";
+            emit_expression(expression.children[0]);
+            output_ << ", ";
+            emit_selector(expression, 1U);
+            output_ << ", " << expression.plan.index_base << ", "
+                    << (expression.plan.allow_negative_index ? "true" : "false") << ')';
             break;
           case cpp::lir::IndexForm::nested:
             for (std::size_t index = 1; index < expression.children.size(); ++index) {
@@ -779,11 +798,11 @@ class Renderer final {
 
   void emit_declaration_type_expression(const cpp::lir::DeclarationPlan& declaration) {
     const auto& probe = expression(declaration.type_probe);
+    const bool previous_type_probe = type_probe_;
+    type_probe_ = true;
     if (!declaration.probe_path.empty()) {
       emit_pattern_access(declaration.probe_path, [&] { emit_expression(probe); });
-      return;
-    }
-    if (declaration.tuple_index != dynamic_extent) {
+    } else if (declaration.tuple_index != dynamic_extent) {
       if (declaration.probe_sequence_list) {
         output_ << '(';
         emit_expression(probe);
@@ -793,9 +812,10 @@ class Renderer final {
         emit_expression(probe);
         output_ << ')';
       }
-      return;
+    } else {
+      emit_expression(probe);
     }
-    emit_expression(probe);
+    type_probe_ = previous_type_probe;
   }
 
   void emit_function_signature(const Statement& statement) {
@@ -1312,6 +1332,7 @@ class Renderer final {
   std::unique_ptr<IdentifierMangler> mangler_;
   std::vector<std::string> loop_completion_flags_;
   std::vector<RenderMarker> markers_;
+  bool type_probe_{false};
 };
 
 }  // namespace
