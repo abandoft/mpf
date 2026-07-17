@@ -16,11 +16,11 @@ MPF 的验证体系分为七层：
 
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 180 项，零失败 |
-| CTest | 66 项，包含 55 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
-| Differential corpus | Python 22、Fortran 19、Matlab 10、TypeScript 4，共 55 个 case |
-| 工具完整环境执行路径 | 155 条程序路径，另有每 case 一条 oracle |
-| 生产代码行覆盖率 | 89.74%（22249/24793），门槛 85% |
+| C++ 单元与集成测试 | 187 项，零失败 |
+| CTest | 68 项，包含 57 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
+| Differential corpus | Python 22、Fortran 19、Matlab 12、TypeScript 4，共 57 个 case |
+| 工具完整环境执行路径 | 159 条程序路径，另有每 case 一条 oracle |
+| 生产代码行覆盖率 | 89.63%（22756/25388），门槛 85% |
 
 ## Differential corpus
 
@@ -28,10 +28,10 @@ MPF 的验证体系分为七层：
 
 - 22 个 Python case：CPython 3.14、Node.js、生成 C++17 与 oracle 四路比较；
 - 19 个 Fortran case：gfortran 严格 `-std=f2018` reference mode、Node.js、生成 C++17 与 oracle 四路比较；`MPF_FORTRAN_REFERENCE_STANDARD` 可在工具链支持后切换到 `f2023`；
-- 10 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较；
+- 11 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较；
 - 4 个 TypeScript case：Node.js 24 直接执行可擦除类型的 source、生成 JavaScript、生成 C++17 与声明式 oracle 四路比较；覆盖 basic、typed array、lexical block 和 canonical `for`，完整 type-check 仍待接入与 manifest 匹配的 `tsc`。
 
-在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 55 个 case 共执行 155 条程序输出路径：55 条生成 JavaScript/Node.js、55 条生成 C++17、22 条 CPython、19 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。runner 不仅分别检查 oracle，还直接比较可用执行路径。Python optimization case 固定 checked constant folding 在 source、生成 JavaScript 与生成 C++17 间的结果等价；comparisons case 四路覆盖 equality/identity/membership、list/tuple 种类差异、递归布尔/数值相等和混合 comparison chain；TypeScript 四路覆盖 default/control/export、strict equality、typed array/零基 mutation、block-local 混合类型遮蔽、外层赋值以及 canonical-for 的 break/continue/update/退出值。Fortran disjoint-regions case 四路覆盖交错 stride 与二维同根 writable block，tensor、SELECT CASE、structured-unpacking、argument association 和 optional writeback cases 继续覆盖原契约。
+在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 57 个 case 共执行 159 条程序输出路径：57 条生成 JavaScript/Node.js、57 条生成 C++17、22 条 CPython、19 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。runner 不仅分别检查 oracle，还直接比较可用执行路径。Matlab switch case 覆盖 selector 单次求值、numeric/character 分支、`otherwise` 和双目标精确相等；Matlab operators case 覆盖二维矩阵乘法、同 shape/标量逐元素算术及两种目标 runtime。Python optimization case 固定 checked constant folding 在 source、生成 JavaScript 与生成 C++17 间的结果等价；comparisons case 四路覆盖 equality/identity/membership、list/tuple 种类差异、递归布尔/数值相等和混合 comparison chain；TypeScript 四路覆盖 default/control/export、strict equality、typed array/零基 mutation、block-local 混合类型遮蔽、外层赋值以及 canonical-for 的 break/continue/update/退出值。Fortran disjoint-regions case 四路覆盖交错 stride 与二维同根 writable block，tensor、SELECT CASE、structured-unpacking、argument association 和 optional writeback cases 继续覆盖原契约。
 
 每个 case 在 `build/<preset>/differential/<case>/` 保存：
 
@@ -84,6 +84,7 @@ cmake --build --preset coverage
 
 coverage preset 使用 Clang source-based coverage，将多进程 `.profraw` 合并后排除 `build/`、`tests/`、不贡献 profile 的子构建 isolation case 和已由独立 workflow 拥有的性能阈值，只统计生产源码；报告位于 `build/coverage/coverage/`。当前门槛为 85%；每个正式版本的实测值记录在 changelog，历史数据不覆写。独立 `Security` workflow 先探测仓库的 GitHub Advanced Security 能力；公共仓库或已授权 GHAS 的私有仓库对 C/C++ 运行 CodeQL `security-extended`，并在 pull request 上拒绝引入 moderate 及以上已知漏洞的依赖变更。未授权私有仓库明确记录 capability notice，并继续依赖始终执行的 clang-tidy/Clang analyzer、Sanitizer 和零告警构建门禁。
 
-完整的 workflow 边界、required check 名称、超时和产物策略见 [临时停用的 GitHub Actions 职责矩阵](../.github/workflows-disabled/README.md)。恢复自动执行时应将该目录整体改回 `.github/workflows/`。
+完整的 workflow 边界、required check 名称、超时和产物策略见
+[GitHub Actions 职责矩阵](../.github/workflows/README.md)。仓库公开后八类流水线已经恢复自动执行。
 
 新增可执行语言能力时，必须在 manifest 增加 case；若输出中的空白属于语义，使用 `lines` 模式，否则数值/list-directed 输出可使用 `tokens` 模式。只有编译不执行的输入应保留为独立 compile-only gate。
