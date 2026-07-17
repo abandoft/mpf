@@ -210,6 +210,8 @@ if(MPF_ENABLE_JAVASCRIPT_BACKEND AND MPF_ENABLE_CPP_BACKEND)
       -DBUILD_DIR=${CMAKE_BINARY_DIR}/installed-examples
       -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
       -DSTAGE=${CMAKE_BINARY_DIR}/installed-examples-stage
+      -DLICENSE_FILE=${PROJECT_SOURCE_DIR}/LICENSE
+      -DINSTALL_DOCDIR=${CMAKE_INSTALL_DOCDIR}
       -DCONFIG=$<CONFIG>
       -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_installed_examples.cmake)
   set_tests_properties(mpf.installed.frontend-backend-examples PROPERTIES

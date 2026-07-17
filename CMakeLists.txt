@@ -304,6 +304,7 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/include/mpf/version.hpp"
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/mpf)
 install(FILES docs/schemas/diagnostics-v1.schema.json
   DESTINATION ${CMAKE_INSTALL_DATADIR}/mpf/schemas)
+install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
 install(EXPORT mpf-targets
   FILE mpf-targets.cmake
   NAMESPACE mpf::

@@ -1,6 +1,8 @@
 if(NOT DEFINED PROJECT_BUILD_DIR OR NOT DEFINED BUILD_DIR OR NOT DEFINED SOURCE_DIR OR
-   NOT DEFINED STAGE OR NOT DEFINED CONFIG)
-  message(FATAL_ERROR "PROJECT_BUILD_DIR, BUILD_DIR, SOURCE_DIR, STAGE and CONFIG are required")
+   NOT DEFINED STAGE OR NOT DEFINED LICENSE_FILE OR NOT DEFINED INSTALL_DOCDIR OR
+   NOT DEFINED CONFIG)
+  message(FATAL_ERROR
+    "PROJECT_BUILD_DIR, BUILD_DIR, SOURCE_DIR, STAGE, LICENSE_FILE, INSTALL_DOCDIR and CONFIG are required")
 endif()
 
 file(REMOVE_RECURSE "${STAGE}" "${BUILD_DIR}")
@@ -12,6 +14,16 @@ execute_process(
   ERROR_VARIABLE install_error)
 if(NOT install_status EQUAL 0)
   message(FATAL_ERROR "installed example staging failed:\n${install_output}\n${install_error}")
+endif()
+
+set(installed_license "${STAGE}/${INSTALL_DOCDIR}/LICENSE")
+if(NOT EXISTS "${installed_license}")
+  message(FATAL_ERROR "installed package is missing ${INSTALL_DOCDIR}/LICENSE")
+endif()
+file(SHA256 "${LICENSE_FILE}" source_license_sha256)
+file(SHA256 "${installed_license}" installed_license_sha256)
+if(NOT source_license_sha256 STREQUAL installed_license_sha256)
+  message(FATAL_ERROR "installed LICENSE does not match the repository license")
 endif()
 
 set(incompatible_source "${BUILD_DIR}/incompatible-version-source")
