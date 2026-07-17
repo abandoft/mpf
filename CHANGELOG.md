@@ -8,6 +8,7 @@
 - JavaScript and C++ backend sources now reside in separate target directories, with redundant target prefixes removed from filenames to clarify extension boundaries.
 - Added Matlab array-operation differential examples, positive and negative semantic tests, target-code checks, and fuzz regression inputs.
 - Updated the Matlab-to-JavaScript support matrix, diagnostics documentation, and project roadmap to reflect current capabilities and known limitations.
+- C++ output now assigns distinct target identifiers to lexically shadowed symbols, preventing warning-as-error failures with MSVC while preserving source scope semantics.
 
 ## 0.4.6
 
