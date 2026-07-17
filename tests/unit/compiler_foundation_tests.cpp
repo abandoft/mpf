@@ -4,20 +4,40 @@
 
 #include "compiler/expression.hpp"
 #include "compiler/function_graph_generic.hpp"
-#include "frontends/fortran_source_form.hpp"
-#include "frontends/frontend_registry.hpp"
-#include "frontends/logical_source.hpp"
+#include "frontends/common/registry.hpp"
+#include "frontends/fortran/expression_lexer.hpp"
+#include "frontends/fortran/source_form.hpp"
+#include "frontends/fortran/statement_lexer.hpp"
+#include "frontends/matlab/expression_lexer.hpp"
+#include "frontends/matlab/logical_source.hpp"
+#include "frontends/matlab/statement_lexer.hpp"
+#include "frontends/python/expression_lexer.hpp"
+#include "frontends/python/logical_source.hpp"
+#include "frontends/python/statement_lexer.hpp"
+#include "frontends/typescript/expression_lexer.hpp"
+#include "frontends/typescript/statement_lexer.hpp"
 #include "ir/hir.hpp"
-#include "lexer/fortran_statement_lexer.hpp"
 #include "lexer/lexer.hpp"
-#include "lexer/matlab_statement_lexer.hpp"
-#include "lexer/python_statement_lexer.hpp"
-#include "lexer/typescript_statement_lexer.hpp"
 #include "source/source_manager.hpp"
 #include "source/source_text.hpp"
 #include "test_framework.hpp"
 
 namespace {
+
+mpf::detail::ExpressionParseResult parse_expression(const std::string_view source,
+                                                    const mpf::SourceLanguage language,
+                                                    const std::size_t line,
+                                                    const std::size_t column = 1U) {
+  mpf::detail::ExpressionLexer lexer = nullptr;
+  switch (language) {
+    case mpf::SourceLanguage::python: lexer = &mpf::detail::lex_python_expression; break;
+    case mpf::SourceLanguage::matlab: lexer = &mpf::detail::lex_matlab_expression; break;
+    case mpf::SourceLanguage::fortran: lexer = &mpf::detail::lex_fortran_expression; break;
+    case mpf::SourceLanguage::typescript: lexer = &mpf::detail::lex_typescript_expression; break;
+    case mpf::SourceLanguage::automatic: return {};
+  }
+  return mpf::detail::parse_expression(lexer(source, line, column), language);
+}
 
 const mpf::detail::python::ast::Statement& python_statement(
     const mpf::detail::python::ast::Program& program, const mpf::detail::AstNodeId id) {
@@ -226,6 +246,23 @@ TEST_CASE("Python lexer normalizes logical comparison and floor division tokens"
   REQUIRE(result.tokens[0].location.column == 3);
 }
 
+TEST_CASE("expression scanner profiles isolate language-specific spellings") {
+  const auto python = mpf::detail::lex_python_expression("left ~= right", 1, 1);
+  const auto matlab = mpf::detail::lex_matlab_expression("left // right", 1, 1);
+  const auto fortran = mpf::detail::lex_fortran_expression("left != right", 1, 1);
+  const auto typescript = mpf::detail::lex_typescript_expression("left === right", 1, 1);
+
+  REQUIRE(!python.diagnostics.empty());
+  REQUIRE(!fortran.diagnostics.empty());
+  REQUIRE(std::none_of(matlab.tokens.begin(), matlab.tokens.end(), [](const auto& token) {
+    return token.kind == mpf::detail::TokenKind::floor_slash;
+  }));
+  REQUIRE(typescript.diagnostics.empty());
+  REQUIRE(typescript.tokens.size() == 4);
+  REQUIRE(typescript.tokens[1].kind == mpf::detail::TokenKind::equal_equal);
+  REQUIRE(typescript.tokens[1].text == "===");
+}
+
 TEST_CASE(
     "Python expression lexer and parser preserve conditional and comparison-chain structure") {
   const auto lexed = mpf::detail::lex_python_expression("1 if ready else 0 < value <= 2", 3, 5);
@@ -233,8 +270,7 @@ TEST_CASE(
   REQUIRE(lexed.tokens[1].kind == mpf::detail::TokenKind::conditional_if);
   REQUIRE(lexed.tokens[3].kind == mpf::detail::TokenKind::conditional_else);
 
-  const auto chain =
-      mpf::detail::parse_expression("0 < probe(1) <= 2 != 3", mpf::SourceLanguage::python, 4);
+  const auto chain = parse_expression("0 < probe(1) <= 2 != 3", mpf::SourceLanguage::python, 4);
   REQUIRE(chain.diagnostics.empty());
   REQUIRE(chain.expression.kind == mpf::detail::ExpressionKind::comparison_chain);
   REQUIRE(chain.expression.children.size() == 4);
@@ -243,23 +279,22 @@ TEST_CASE(
   REQUIRE(chain.expression.comparisons[1] == mpf::detail::ComparisonOperator::less_equal);
   REQUIRE(chain.expression.comparisons[2] == mpf::detail::ComparisonOperator::not_equal);
 
-  const auto compound = mpf::detail::parse_expression("needle not in values is not None",
-                                                      mpf::SourceLanguage::python, 5);
+  const auto compound =
+      parse_expression("needle not in values is not None", mpf::SourceLanguage::python, 5);
   REQUIRE(compound.diagnostics.empty());
   REQUIRE(compound.expression.kind == mpf::detail::ExpressionKind::comparison_chain);
   REQUIRE(compound.expression.comparisons.size() == 2);
   REQUIRE(compound.expression.comparisons[0] == mpf::detail::ComparisonOperator::not_contains);
   REQUIRE(compound.expression.comparisons[1] == mpf::detail::ComparisonOperator::not_identity);
 
-  const auto precedence =
-      mpf::detail::parse_expression("not 1 in values", mpf::SourceLanguage::python, 5);
+  const auto precedence = parse_expression("not 1 in values", mpf::SourceLanguage::python, 5);
   REQUIRE(precedence.diagnostics.empty());
   REQUIRE(precedence.expression.kind == mpf::detail::ExpressionKind::unary);
   REQUIRE(precedence.expression.children.front().comparison ==
           mpf::detail::ComparisonOperator::contains);
 
-  const auto conditional = mpf::detail::parse_expression("1 if first else 2 if second else 3",
-                                                         mpf::SourceLanguage::python, 5);
+  const auto conditional =
+      parse_expression("1 if first else 2 if second else 3", mpf::SourceLanguage::python, 5);
   REQUIRE(conditional.diagnostics.empty());
   REQUIRE(conditional.expression.kind == mpf::detail::ExpressionKind::conditional);
   REQUIRE(conditional.expression.children.size() == 3);
@@ -428,7 +463,7 @@ TEST_CASE("Fortran lexer normalizes dotted operators and kind exponents") {
 
 TEST_CASE("Fortran expression parser preserves keyword actual argument names") {
   const auto result =
-      mpf::detail::parse_expression("combine(right=2, left=40)", mpf::SourceLanguage::fortran, 3);
+      parse_expression("combine(right=2, left=40)", mpf::SourceLanguage::fortran, 3);
   REQUIRE(result.diagnostics.empty());
   REQUIRE(result.expression.kind == mpf::detail::ExpressionKind::call);
   REQUIRE(result.expression.children.size() == 3);
@@ -436,8 +471,7 @@ TEST_CASE("Fortran expression parser preserves keyword actual argument names") {
   REQUIRE(result.expression.argument_names[0] == "right");
   REQUIRE(result.expression.argument_names[1] == "left");
 
-  const auto invalid =
-      mpf::detail::parse_expression("combine(right=2, 40)", mpf::SourceLanguage::fortran, 4);
+  const auto invalid = parse_expression("combine(right=2, 40)", mpf::SourceLanguage::fortran, 4);
   REQUIRE(!invalid.diagnostics.empty());
   REQUIRE(invalid.diagnostics.front().code == "MPF1015");
 }
@@ -460,8 +494,8 @@ TEST_CASE("Python parser preserves parameter kinds defaults and keyword actual n
   REQUIRE(python_expression(program, function.parameter_defaults[1]).value == "2");
   REQUIRE(python_expression(program, function.parameter_defaults[2]).value == "1");
 
-  const auto call = mpf::detail::parse_expression("combine(40, scale=2, right=1)",
-                                                  mpf::SourceLanguage::python, 2);
+  const auto call =
+      parse_expression("combine(40, scale=2, right=1)", mpf::SourceLanguage::python, 2);
   REQUIRE(call.diagnostics.empty());
   REQUIRE(call.expression.argument_names.size() == 3);
   REQUIRE(call.expression.argument_names[0].empty());
@@ -506,8 +540,7 @@ TEST_CASE("Python parser normalizes flat tuple and list assignment targets") {
 }
 
 TEST_CASE("Pratt parser preserves precedence and right associative power") {
-  const auto result =
-      mpf::detail::parse_expression("-2 ** 2 + 3 * 4", mpf::SourceLanguage::python, 1);
+  const auto result = parse_expression("-2 ** 2 + 3 * 4", mpf::SourceLanguage::python, 1);
   REQUIRE(result.diagnostics.empty());
   REQUIRE(result.expression.kind == mpf::detail::ExpressionKind::binary);
   REQUIRE(result.expression.value == "+");
@@ -528,14 +561,14 @@ TEST_CASE("Matlab parser preserves matrix and element-wise operator identity") {
       {"left .\\ right", ".\\", BinaryOperator::elementwise_left_divide},
       {"left .^ right", ".^", BinaryOperator::elementwise_power}};
   for (const auto& [source, expected, operation] : operators) {
-    const auto result = mpf::detail::parse_expression(source, mpf::SourceLanguage::matlab, 1);
+    const auto result = parse_expression(source, mpf::SourceLanguage::matlab, 1);
     REQUIRE(result.diagnostics.empty());
     REQUIRE(result.expression.kind == mpf::detail::ExpressionKind::binary);
     REQUIRE(result.expression.value == expected);
     REQUIRE(result.expression.operation == operation);
   }
 
-  const auto power = mpf::detail::parse_expression("2 .^ 3 .^ 2", mpf::SourceLanguage::matlab, 1);
+  const auto power = parse_expression("2 .^ 3 .^ 2", mpf::SourceLanguage::matlab, 1);
   REQUIRE(power.diagnostics.empty());
   REQUIRE(power.expression.value == ".^");
   REQUIRE(power.expression.children[1].value == ".^");
@@ -543,10 +576,9 @@ TEST_CASE("Matlab parser preserves matrix and element-wise operator identity") {
 
 TEST_CASE("Matlab parser preserves conjugating and non-conjugating transpose identity") {
   using mpf::detail::UnaryOperator;
-  const auto conjugating = mpf::detail::parse_expression("values'", mpf::SourceLanguage::matlab, 1);
-  const auto non_conjugating =
-      mpf::detail::parse_expression("values.'", mpf::SourceLanguage::matlab, 1);
-  const auto chained = mpf::detail::parse_expression("values''", mpf::SourceLanguage::matlab, 1);
+  const auto conjugating = parse_expression("values'", mpf::SourceLanguage::matlab, 1);
+  const auto non_conjugating = parse_expression("values.'", mpf::SourceLanguage::matlab, 1);
+  const auto chained = parse_expression("values''", mpf::SourceLanguage::matlab, 1);
 
   REQUIRE(conjugating.diagnostics.empty());
   REQUIRE(non_conjugating.diagnostics.empty());
@@ -560,11 +592,9 @@ TEST_CASE("Matlab parser preserves conjugating and non-conjugating transpose ide
 }
 
 TEST_CASE("malformed expressions report stable parser diagnostics") {
-  const auto result = mpf::detail::parse_expression("(1 + 2", mpf::SourceLanguage::python, 8, 5);
-  const auto conditional =
-      mpf::detail::parse_expression("1 if True", mpf::SourceLanguage::python, 9);
-  const auto non_python_chain =
-      mpf::detail::parse_expression("1 < 2 < 3", mpf::SourceLanguage::matlab, 10);
+  const auto result = parse_expression("(1 + 2", mpf::SourceLanguage::python, 8, 5);
+  const auto conditional = parse_expression("1 if True", mpf::SourceLanguage::python, 9);
+  const auto non_python_chain = parse_expression("1 < 2 < 3", mpf::SourceLanguage::matlab, 10);
   REQUIRE(!result.diagnostics.empty());
   REQUIRE(!conditional.diagnostics.empty());
   REQUIRE(!non_python_chain.diagnostics.empty());
@@ -575,10 +605,8 @@ TEST_CASE("malformed expressions report stable parser diagnostics") {
 }
 
 TEST_CASE("subscript parser normalizes Python and Matlab slice ordering") {
-  const auto python =
-      mpf::detail::parse_expression("values[1:6:2]", mpf::SourceLanguage::python, 1);
-  const auto matlab =
-      mpf::detail::parse_expression("matrix(:, 1:2:5)", mpf::SourceLanguage::matlab, 1);
+  const auto python = parse_expression("values[1:6:2]", mpf::SourceLanguage::python, 1);
+  const auto matlab = parse_expression("matrix(:, 1:2:5)", mpf::SourceLanguage::matlab, 1);
   REQUIRE(python.diagnostics.empty());
   REQUIRE(matlab.diagnostics.empty());
   REQUIRE(python.expression.kind == mpf::detail::ExpressionKind::index);

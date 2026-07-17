@@ -2,12 +2,12 @@
 #include <string>
 #include <utility>
 
+#include "backends/common/registry.hpp"
 #include "backends/cpp/bindings.hpp"
 #include "backends/javascript/bindings.hpp"
 #include "compiler/code_binding.hpp"
 #include "compiler/intrinsic.hpp"
-#include "core/backend_registry.hpp"
-#include "frontends/frontend_registry.hpp"
+#include "frontends/common/registry.hpp"
 #include "source/source_manager.hpp"
 #include "test_framework.hpp"
 

@@ -15,6 +15,24 @@ if(NOT root_build_contract MATCHES "COMPATIBILITY ExactVersion" OR
   message(FATAL_ERROR
     "unfinished MPF package must require its exact version without compatibility ranges")
 endif()
+foreach(static_target IN ITEMS
+    mpf_core mpf_backend_common mpf_backend_javascript mpf_backend_cpp mpf)
+  if(NOT root_build_contract MATCHES
+     "add_library\\(${static_target}[ \t\r\n]+STATIC")
+    message(FATAL_ERROR
+      "0.x C++ target must not become an accidental shared ABI: ${static_target}")
+  endif()
+endforeach()
+foreach(source_language IN ITEMS python matlab)
+  foreach(logical_source_component IN ITEMS logical_source.cpp logical_source.hpp)
+    if(NOT EXISTS
+       "${SOURCE_DIR}/src/frontends/${source_language}/${logical_source_component}")
+      message(FATAL_ERROR
+        "logical-source frontend component is missing: "
+        "${source_language}/${logical_source_component}")
+    endif()
+  endforeach()
+endforeach()
 mpf_assert_file_excludes("cmake/mpf-config.cmake.in"
   "MPF_(JAVASCRIPT|CPP)_BACKEND_AVAILABLE"
   "obsolete uppercase package availability variables were restored")
@@ -22,14 +40,14 @@ mpf_assert_file_excludes("include/mpf/transpiler.hpp"
   "language_from_name|source_language_name_known|target_from_name|target_language_name_known|fortran_source_form_from_name"
   "ambiguous legacy name parsing API was restored")
 foreach(descriptor IN ITEMS
-    src/frontends/frontend_descriptor.hpp
-    src/backends/backend.hpp)
-  mpf_assert_file_excludes("${descriptor}" "StringViewList aliases"
-    "descriptor compatibility aliases were restored")
+    src/frontends/common/descriptor.hpp
+    src/backends/common/descriptor.hpp)
+  mpf_assert_file_excludes("${descriptor}" "StringViewList"
+    "descriptor compatibility string-list type was restored")
 endforeach()
 foreach(registry IN ITEMS
-    src/frontends/frontend_registry.cpp
-    src/core/backend_registry.cpp)
+    src/frontends/common/registry.cpp
+    src/backends/common/registry.cpp)
   mpf_assert_file_excludes("${registry}" "\\.aliases|_aliases"
     "registry compatibility alias routing was restored")
 endforeach()
@@ -66,14 +84,14 @@ foreach(emitter IN ITEMS
 endforeach()
 
 foreach(frontend IN ITEMS
-    src/frontends/python_frontend.cpp
-    src/frontends/matlab_frontend.cpp
-    src/frontends/fortran_frontend.cpp
-    src/frontends/typescript_frontend.cpp)
+    src/frontends/python/frontend.cpp
+    src/frontends/matlab/frontend.cpp
+    src/frontends/fortran/frontend.cpp
+    src/frontends/typescript/frontend.cpp)
   mpf_assert_file_excludes("${frontend}" "lower_from_syntax|\\.syntax|inventory_ast"
     "production frontend still wraps or lowers the shared parser syntax tree")
 endforeach()
-mpf_assert_file_excludes("src/frontends/frontend_ast.hpp" "Program syntax|AstInventory"
+mpf_assert_file_excludes("src/frontends/common/ast.hpp" "Program syntax|AstInventory"
   "language AST artifact still embeds the transitional shared syntax program")
 
 foreach(legacy_scratch IN ITEMS
@@ -86,10 +104,10 @@ foreach(legacy_scratch IN ITEMS
       "shared recursive statement-parser scratch or compatibility facade was restored: ${legacy_scratch}")
   endif()
 endforeach()
-if(NOT EXISTS "${SOURCE_DIR}/src/frontends/frontend_ast_builder.hpp")
+if(NOT EXISTS "${SOURCE_DIR}/src/frontends/common/ast_builder.hpp")
   message(FATAL_ERROR "direct language AST builder is missing")
 endif()
-file(READ "${SOURCE_DIR}/src/frontends/frontend_ast_builder.hpp" direct_ast_builder)
+file(READ "${SOURCE_DIR}/src/frontends/common/ast_builder.hpp" direct_ast_builder)
 if(NOT direct_ast_builder MATCHES "class FrontendAstBuilder" OR
    NOT direct_ast_builder MATCHES "add_expression" OR
    NOT direct_ast_builder MATCHES "add_statement" OR
@@ -98,10 +116,10 @@ if(NOT direct_ast_builder MATCHES "class FrontendAstBuilder" OR
   message(FATAL_ERROR "direct language AST builder does not own the parser-to-arena lifecycle")
 endif()
 foreach(statement_parser IN ITEMS
-    src/frontends/python_statement_parser.cpp
-    src/frontends/matlab_statement_parser.cpp
-    src/frontends/fortran_statement_parser.cpp
-    src/frontends/typescript_statement_parser.cpp)
+    src/frontends/python/statement_parser.cpp
+    src/frontends/matlab/statement_parser.cpp
+    src/frontends/fortran/statement_parser.cpp
+    src/frontends/typescript/statement_parser.cpp)
   file(READ "${SOURCE_DIR}/${statement_parser}" statement_parser_contract)
   if(NOT statement_parser_contract MATCHES "FrontendAstBuilder<" OR
      NOT statement_parser_contract MATCHES "std::vector<AstNodeId> parse_block" OR
@@ -233,7 +251,7 @@ foreach(renderer IN ITEMS
     "target renderer bypasses SymbolId-aware identifier lookup")
 endforeach()
 
-file(READ "${SOURCE_DIR}/src/backends/identifier_mangler.hpp" identifier_contract)
+file(READ "${SOURCE_DIR}/src/backends/common/identifier_mangler.hpp" identifier_contract)
 if(NOT identifier_contract MATCHES "struct IdentifierInventory" OR
    NOT identifier_contract MATCHES "std::map<SymbolId, std::string> symbols" OR
    NOT identifier_contract MATCHES "name\\(SymbolId symbol")
@@ -311,7 +329,7 @@ if(mir_contract MATCHES
      "struct Statement[ \t\r\n]*\\{[^}]*(declared_type|previous_type|parameter_intents|return_types|target_types|AssignmentPattern[ \t]+target_pattern)")
   message(FATAL_ERROR "flat MIR nodes regained duplicated HIR semantic payload")
 endif()
-file(READ "${SOURCE_DIR}/src/backends/target_lir_builder.hpp" target_lir_builder_contract)
+file(READ "${SOURCE_DIR}/src/backends/common/lir_builder.hpp" target_lir_builder_contract)
 if(NOT target_lir_builder_contract MATCHES "mir::expression\\(program" OR
    NOT target_lir_builder_contract MATCHES "mir::statement\\(program" OR
    NOT target_lir_builder_contract MATCHES "mir::attributes\\(program" OR
@@ -422,10 +440,10 @@ foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/
   endif()
 endforeach()
 
-if(NOT EXISTS "${SOURCE_DIR}/src/backends/target_lir_source_segments.hpp")
+if(NOT EXISTS "${SOURCE_DIR}/src/backends/common/source_segments.hpp")
   message(FATAL_ERROR "target LIR source-segment planning utility is missing")
 endif()
-file(READ "${SOURCE_DIR}/src/backends/target_lir_source_segments.hpp" source_segment_contract)
+file(READ "${SOURCE_DIR}/src/backends/common/source_segments.hpp" source_segment_contract)
 if(NOT source_segment_contract MATCHES "build_source_segment_plan" OR
    NOT source_segment_contract MATCHES "LirNodeId" OR
    NOT source_segment_contract MATCHES "SourceSegmentPlan")
@@ -491,7 +509,7 @@ endif()
 
 foreach(comparison_ir IN ITEMS
     src/compiler/expression_ast.hpp
-    src/frontends/frontend_ast.hpp
+    src/frontends/common/ast.hpp
     src/ir/hir.hpp
     src/ir/mir.hpp
     src/backends/javascript/lir.hpp
@@ -506,7 +524,7 @@ endforeach()
 
 foreach(binary_operator_ir IN ITEMS
     src/compiler/expression_ast.hpp
-    src/frontends/frontend_ast.hpp
+    src/frontends/common/ast.hpp
     src/ir/hir.hpp
     src/ir/mir.hpp
     src/backends/javascript/lir.hpp
@@ -526,7 +544,7 @@ foreach(operator_consumer IN ITEMS
     "Matlab operator semantics regressed to source-spelling decisions")
 endforeach()
 
-mpf_assert_file_excludes("src/backends/identifier_mangler.hpp" "temporary\\("
+mpf_assert_file_excludes("src/backends/common/identifier_mangler.hpp" "temporary\\("
   "renderer-facing identifier mangler still allocates temporaries")
 
 foreach(required_file IN ITEMS
@@ -554,7 +572,63 @@ foreach(lir_header IN ITEMS
     "target LIR header imports an analysis/validation layer")
 endforeach()
 
-file(GLOB frontend_files
+if(EXISTS "${SOURCE_DIR}/src/lexers")
+  message(FATAL_ERROR
+    "language lexers must be owned by their frontend instead of a parallel src/lexers tree")
+endif()
+foreach(common_lexer_file IN ITEMS
+    src/lexer/lexer.cpp
+    src/lexer/lexer.hpp
+    src/lexer/scanner.cpp
+    src/lexer/scanner.hpp)
+  mpf_assert_file_excludes("${common_lexer_file}"
+    "lex_(python|matlab|fortran|typescript)_expression|SourceLanguage"
+    "common lexer infrastructure dispatches concrete source languages")
+endforeach()
+if(EXISTS "${SOURCE_DIR}/include/mpf/version.hpp.in" OR
+   NOT EXISTS "${SOURCE_DIR}/cmake/templates/version.hpp.in")
+  message(FATAL_ERROR
+    "generated-header templates must live under cmake/templates, outside the public include tree")
+endif()
+if(NOT EXISTS "${SOURCE_DIR}/include/mpf/mpf.hpp")
+  message(FATAL_ERROR "public umbrella header include/mpf/mpf.hpp is missing")
+endif()
+
+file(GLOB flat_frontend_files
+  "${SOURCE_DIR}/src/frontends/*.cpp"
+  "${SOURCE_DIR}/src/frontends/*.hpp")
+if(flat_frontend_files)
+  message(FATAL_ERROR
+    "frontend implementation files must live in common or language-owned directories: "
+    "${flat_frontend_files}")
+endif()
+foreach(source_language IN ITEMS python matlab fortran typescript)
+  foreach(required_component IN ITEMS
+      expression_lexer.cpp
+      expression_lexer.hpp
+      frontend.cpp
+      statement_lexer.cpp
+      statement_lexer.hpp
+      statement_parser.cpp
+      statement_parser.hpp)
+    if(NOT EXISTS
+       "${SOURCE_DIR}/src/frontends/${source_language}/${required_component}")
+      message(FATAL_ERROR
+        "source frontend directory is missing "
+        "${source_language}/${required_component}")
+    endif()
+  endforeach()
+  file(READ
+    "${SOURCE_DIR}/src/frontends/${source_language}/statement_parser.cpp"
+    statement_parser_layout)
+  if(NOT statement_parser_layout MATCHES
+     "&lex_${source_language}_expression")
+    message(FATAL_ERROR
+      "source frontend does not own its expression lexer callback: ${source_language}")
+  endif()
+endforeach()
+
+file(GLOB_RECURSE frontend_files
   "${SOURCE_DIR}/src/frontends/*.cpp"
   "${SOURCE_DIR}/src/frontends/*.hpp")
 foreach(file IN LISTS frontend_files)
@@ -562,6 +636,17 @@ foreach(file IN LISTS frontend_files)
   if(contents MATCHES "[./](backends|ir/mir)" OR
      contents MATCHES "(javascript|cpp)_(lir|lowering|renderer|emitter|validator|bindings|backend)")
     message(FATAL_ERROR "frontend crosses the HIR extension boundary: ${file}")
+  endif()
+endforeach()
+
+file(GLOB_RECURSE implementation_files
+  "${SOURCE_DIR}/src/*.cpp"
+  "${SOURCE_DIR}/src/*.hpp")
+foreach(file IN LISTS implementation_files)
+  file(READ "${file}" contents)
+  if(contents MATCHES [=[#include[ \t]+"\.\./]=])
+    message(FATAL_ERROR
+      "internal cross-component includes must be source-root-qualified: ${file}")
   endif()
 endforeach()
 
@@ -610,6 +695,35 @@ if(legacy_prefixed_backend_files)
     "target backend files must live in language directories without language filename prefixes: "
     "${legacy_prefixed_backend_files}")
 endif()
+file(GLOB flat_backend_files
+  "${SOURCE_DIR}/src/backends/*.cpp"
+  "${SOURCE_DIR}/src/backends/*.hpp")
+if(flat_backend_files)
+  message(FATAL_ERROR
+    "backend implementation files must live in common or target-owned directories: "
+    "${flat_backend_files}")
+endif()
+foreach(common_backend_component IN ITEMS
+    artifact.cpp
+    artifact.hpp
+    conformance.cpp
+    conformance.hpp
+    descriptor.hpp
+    identifier_mangler.cpp
+    identifier_mangler.hpp
+    lir_builder.hpp
+    lir_dump.hpp
+    pipeline.cpp
+    pipeline.hpp
+    registry.cpp
+    registry.hpp
+    source_segments.hpp)
+  if(NOT EXISTS
+     "${SOURCE_DIR}/src/backends/common/${common_backend_component}")
+    message(FATAL_ERROR
+      "common backend directory is missing ${common_backend_component}")
+  endif()
+endforeach()
 foreach(target_directory IN ITEMS javascript cpp)
   foreach(required_component IN ITEMS
       backend bindings emitter lir lir_planning lir_representation lowering renderer runtime validator)

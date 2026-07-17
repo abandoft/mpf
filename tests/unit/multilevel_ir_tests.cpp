@@ -4,7 +4,8 @@
 #include <sstream>
 #include <type_traits>
 
-#include "backends/backend_conformance.hpp"
+#include "backends/common/conformance.hpp"
+#include "backends/common/registry.hpp"
 #include "backends/cpp/lir.hpp"
 #include "backends/cpp/lir_planning.hpp"
 #include "backends/cpp/lir_representation.hpp"
@@ -13,9 +14,8 @@
 #include "backends/javascript/lir_planning.hpp"
 #include "backends/javascript/lir_representation.hpp"
 #include "backends/javascript/lowering.hpp"
-#include "core/backend_registry.hpp"
-#include "frontends/frontend_conformance.hpp"
-#include "frontends/frontend_registry.hpp"
+#include "frontends/common/conformance.hpp"
+#include "frontends/common/registry.hpp"
 #include "ir/dump.hpp"
 #include "ir/hir.hpp"
 #include "ir/mir.hpp"
