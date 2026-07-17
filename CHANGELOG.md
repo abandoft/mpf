@@ -1,3 +1,18 @@
+## 0.4.9
+
+- Matlab matrix left division now solves static full-rank dense real square, overdetermined, and underdetermined systems with one or more right-hand-side columns.
+- Matlab matrix right division now supports row vectors and rank-two left operands with static full-rank dense real square or rectangular divisors.
+- Matlab matrix power now supports zero, positive, and negative ECMAScript-safe integer exponents for static square dense real matrices.
+- Square solves use partial pivoting; rectangular least-squares and minimum-norm solves use column-pivoted Householder QR in both generated JavaScript and C++17.
+- Matlab array division by a scalar and scalar left division of an array now preserve matrix-operator semantics without requiring element-wise spelling.
+- Matlab indexing now supports ordered numeric selector arrays, repeated indices, empty selectors, and logical selectors in either linear or per-dimension positions.
+- Logical selectors with runtime-known extents now validate their shape in generated code instead of requiring every mask size to be known during compilation.
+- Matrix operation kind, solve class, and input/output shapes now remain explicit and verified across HIR, MIR, JavaScript LIR, and `cpp` LIR.
+- Semantic, MIR, and target LIR schemas advance to v4, v9, and v15; every scalar, slice, numeric, logical, or empty selector now has a verified per-subscript identity.
+- Rank-deficient systems, non-square powers, matrix exponents, non-finite solve values, and unsafe or fractional exponents fail closed deterministically.
+- Added executable square and rectangular solve examples, two-target differential coverage, and generated-runtime rejection coverage for rank deficiency.
+- Expanded Matlab fuzz, source-map, generated-code, runtime-rejection, and compilation-performance coverage for matrix solve/power and generalized indexing.
+
 ## 0.4.8
 
 - Matlab array arithmetic now supports compatible-size implicit expansion across statically known N-dimensional shapes, including singleton and missing trailing dimensions.

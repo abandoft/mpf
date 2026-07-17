@@ -1,3 +1,18 @@
+## 0.4.9
+
+- Matlab 矩阵左除现可求解静态满秩稠密实数方阵、超定和欠定系统，并支持一列或多列右端项。
+- Matlab 矩阵右除现支持 row vector 或 rank-2 左操作数，以及静态满秩稠密实数方阵或矩形除数。
+- Matlab 矩阵幂现支持静态方阵稠密实数矩阵的零次、正整数次和负整数次幂，指数限制在 ECMAScript safe-integer 范围内。
+- 方阵求解使用部分主元选取；矩形最小二乘和最小范数求解在生成的 JavaScript 与 C++17 中均使用带列主元的 Householder QR。
+- 数组除以 scalar 和 scalar 左除数组现可保持 Matlab 矩阵运算符语义，无需改写为逐元素运算符。
+- Matlab 索引新增保序 numeric selector array、重复下标、空 selector，以及线性或逐维位置的 logical selector。
+- shape 只能在 runtime 确定的 logical selector 现在由生成代码验证，不再要求所有 mask 大小都能在编译期求出。
+- 矩阵运算种类、求解类别及输入/输出 shape 现在以显式、可验证事实贯穿 HIR、MIR、JavaScript LIR 和 `cpp` LIR。
+- Semantic、MIR 与目标 LIR schema 分别升级到 v4、v9 和 v15；每个 scalar、slice、numeric、logical 或 empty selector 都拥有逐下标可验证身份。
+- 秩亏系统、非方阵幂、矩阵指数、非有限求解值，以及不安全或非整数指数会确定性失败关闭。
+- 新增可执行的方阵和矩形求解示例、双目标差分验证，以及秩亏系统的生成 runtime 拒绝门禁。
+- 扩充 Matlab 矩阵求解/幂和通用索引的 fuzz、source map、生成代码、runtime 拒绝及编译性能覆盖。
+
 ## 0.4.8
 
 - Matlab 数组算术现支持静态已知 N 维 shape 的 compatible-size 隐式扩展，包括 singleton 维和缺失的尾随维度。

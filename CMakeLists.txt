@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
   mpf
-  VERSION 0.4.8
+  VERSION 0.4.9
   DESCRIPTION "Modern, high-performance multilingual translation framework."
   LANGUAGES C CXX)
 
@@ -187,6 +187,7 @@ if(MPF_ENABLE_JAVASCRIPT_BACKEND)
     src/backends/javascript/lir_planning.cpp
     src/backends/javascript/lir_representation.cpp
     src/backends/javascript/lowering.cpp
+    src/backends/javascript/matrix_runtime.cpp
     src/backends/javascript/renderer.cpp
     src/backends/javascript/runtime.cpp
     src/backends/javascript/validator.cpp)
@@ -207,6 +208,7 @@ if(MPF_ENABLE_CPP_BACKEND)
     src/backends/cpp/lir_planning.cpp
     src/backends/cpp/lir_representation.cpp
     src/backends/cpp/lowering.cpp
+    src/backends/cpp/matrix_runtime.cpp
     src/backends/cpp/renderer.cpp
     src/backends/cpp/runtime.cpp
     src/backends/cpp/validator.cpp)
