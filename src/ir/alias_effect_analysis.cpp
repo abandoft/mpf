@@ -164,19 +164,46 @@ std::vector<StorageId> function_parameter_storages(const Program& program,
   return result;
 }
 
-void apply_storage_access(InstructionEffectFacts& facts, const StorageId storage, const bool read,
-                          const bool write) {
-  if (!storage.valid()) return;
+MemoryAccessMode merged_mode(const MemoryAccessMode current, const bool read,
+                             const bool write) noexcept {
+  const auto reads = memory_access_reads(current) || read;
+  const auto writes = memory_access_writes(current) || write;
+  if (reads && writes) return MemoryAccessMode::read_write;
+  if (reads) return MemoryAccessMode::read;
+  if (writes) return MemoryAccessMode::write;
+  return MemoryAccessMode::none;
+}
+
+bool apply_storage_access(const Program& program, InstructionEffectFacts& facts,
+                          const StorageId storage, const StorageRegion& region, const bool read,
+                          const bool write, const bool record_local = true) {
+  if (!storage.valid()) return false;
+  bool changed = false;
   if (read) {
-    insert_sorted(facts.reads, storage);
-    facts.local |= Effect::read;
+    changed = insert_sorted(facts.reads, storage) || changed;
+    if (record_local) facts.local |= Effect::read;
     facts.effects |= Effect::read;
   }
   if (write) {
-    insert_sorted(facts.writes, storage);
-    facts.local |= Effect::write;
+    changed = insert_sorted(facts.writes, storage) || changed;
+    if (record_local) facts.local |= Effect::write;
     facts.effects |= Effect::write;
   }
+  const auto root = storage_root(program, storage);
+  const auto found = std::find_if(
+      facts.memory_accesses.begin(), facts.memory_accesses.end(), [&](const MemoryAccess& access) {
+        return access.storage == storage && access.root == root && access.region == region;
+      });
+  if (found == facts.memory_accesses.end()) {
+    facts.memory_accesses.push_back({storage, root, region, merged_mode({}, read, write)});
+    return true;
+  }
+  const auto mode = merged_mode(found->mode, read, write);
+  if (mode != found->mode) {
+    found->mode = mode;
+    changed = true;
+  }
+  return changed;
 }
 
 void apply_unknown_access(InstructionEffectFacts& facts, const bool read, const bool write) {
@@ -254,8 +281,8 @@ bool same_instruction(const InstructionEffectFacts& left,
                       const InstructionEffectFacts& right) noexcept {
   return left.origin == right.origin && left.local.bits() == right.local.bits() &&
          left.effects.bits() == right.effects.bits() && left.reads == right.reads &&
-         left.writes == right.writes && left.reads_unknown == right.reads_unknown &&
-         left.writes_unknown == right.writes_unknown;
+         left.writes == right.writes && left.memory_accesses == right.memory_accesses &&
+         left.reads_unknown == right.reads_unknown && left.writes_unknown == right.writes_unknown;
 }
 
 bool same_function(const FunctionEffectFacts& left, const FunctionEffectFacts& right) noexcept {
@@ -347,6 +374,29 @@ AliasClass alias_between(const AliasEffectTable& analysis, const StorageId left,
   return AliasClass::no_alias;
 }
 
+AliasClass alias_between(const AliasEffectTable& analysis, const MemoryAccess& left,
+                         const MemoryAccess& right) noexcept {
+  const auto* left_storage = analysis.storage(left.storage);
+  const auto* right_storage = analysis.storage(right.storage);
+  if (left_storage == nullptr || right_storage == nullptr || left.root != left_storage->root ||
+      right.root != right_storage->root) {
+    return AliasClass::may_alias;
+  }
+  if (left.root.valid() && left.root == right.root) {
+    const auto relation = storage_region_relation(left.region, right.region);
+    if (relation == StorageRegionRelation::disjoint) return AliasClass::no_alias;
+    if (relation == StorageRegionRelation::identical) return AliasClass::must_alias;
+    return AliasClass::may_alias;
+  }
+  return alias_between(analysis, left.storage, right.storage);
+}
+
+bool memory_accesses_conflict(const AliasEffectTable& analysis, const MemoryAccess& left,
+                              const MemoryAccess& right) noexcept {
+  return (memory_access_writes(left.mode) || memory_access_writes(right.mode)) &&
+         alias_between(analysis, left, right) != AliasClass::no_alias;
+}
+
 AliasEffectTable analyze_alias_effects(const Program& program) {
   AliasEffectTable result;
   result.mir_revision = program.revision;
@@ -398,17 +448,11 @@ AliasEffectTable analyze_alias_effects(const Program& program) {
     facts.origin = instruction.id;
     facts.local = minimum_effects(instruction);
     facts.effects = facts.local;
-    if (instruction.opcode == Opcode::load || instruction.opcode == Opcode::index ||
-        instruction.opcode == Opcode::slice) {
-      apply_storage_access(facts, instruction.storage, true, false);
-    } else if (instruction.opcode == Opcode::store || instruction.opcode == Opcode::store_indexed ||
-               instruction.opcode == Opcode::writeback) {
-      apply_storage_access(facts, instruction.storage, false, true);
-    } else if (instruction.opcode == Opcode::copy) {
-      for (const auto operand : instruction.operands) {
-        const auto source =
-            operand.value() < value_storage.size() ? value_storage[operand.value()] : StorageId{};
-        apply_storage_access(facts, source, true, false);
+    if (const auto* instruction_attributes = attributes(program, instruction.id)) {
+      for (const auto& access : instruction_attributes->memory_accesses) {
+        (void)apply_storage_access(program, facts, access.storage, access.region,
+                                   memory_access_reads(access.mode),
+                                   memory_access_writes(access.mode));
       }
     }
     if (instruction.opcode == Opcode::call && !instruction.callee.valid()) {
@@ -418,7 +462,7 @@ AliasEffectTable analyze_alias_effects(const Program& program) {
         const auto storage =
             operand.value() < value_storage.size() ? value_storage[operand.value()] : StorageId{};
         if (!storage.valid()) continue;
-        apply_storage_access(facts, storage, true, external);
+        (void)apply_storage_access(program, facts, storage, {}, true, external);
         if (external) {
           const auto root = storage_root(program, storage);
           if (root.valid()) result.storages[root.value()].escapes = true;
@@ -467,8 +511,11 @@ AliasEffectTable analyze_alias_effects(const Program& program) {
             argument < callee.parameter_reads.size() && callee.parameter_reads[argument];
         const bool writes =
             argument < callee.parameter_writes.size() && callee.parameter_writes[argument];
-        if (reads) changed = insert_sorted(instruction.reads, actual) || changed;
-        if (writes) changed = insert_sorted(instruction.writes, actual) || changed;
+        if (reads || writes) {
+          changed = apply_storage_access(program, instruction, actual,
+                                         call.arguments[argument].region, reads, writes, false) ||
+                    changed;
+        }
         if (reads) changed = update_effect(instruction.effects, Effect::read) || changed;
         if (writes) changed = update_effect(instruction.effects, Effect::write) || changed;
         const auto caller_parameter =
@@ -533,18 +580,11 @@ AliasEffectTable analyze_alias_effects(const Program& program) {
       if (!call.arguments[left].storage.valid()) continue;
       for (std::size_t right = left + 1U; right < call.arguments.size(); ++right) {
         if (!call.arguments[right].storage.valid()) continue;
-        auto relation =
-            alias_between(result, call.arguments[left].storage, call.arguments[right].storage);
-        if (relation != AliasClass::no_alias &&
-            call.arguments[left].root == call.arguments[right].root) {
-          const auto region_relation =
-              storage_region_relation(call.arguments[left].region, call.arguments[right].region);
-          if (region_relation == StorageRegionRelation::disjoint) {
-            relation = AliasClass::no_alias;
-          } else if (region_relation == StorageRegionRelation::identical) {
-            relation = AliasClass::must_alias;
-          }
-        }
+        const MemoryAccess left_access{call.arguments[left].storage, call.arguments[left].root,
+                                       call.arguments[left].region, MemoryAccessMode::read};
+        const MemoryAccess right_access{call.arguments[right].storage, call.arguments[right].root,
+                                        call.arguments[right].region, MemoryAccessMode::read};
+        const auto relation = alias_between(result, left_access, right_access);
         if (relation == AliasClass::no_alias) continue;
         facts.overlaps.push_back({static_cast<std::uint32_t>(left),
                                   static_cast<std::uint32_t>(right), relation,
@@ -634,6 +674,19 @@ std::vector<Diagnostic> verify_alias_effects(const Program& program,
       if (!valid_index(storage, program.storages)) {
         add_error(diagnostics, instruction.location, stage,
                   "instruction write set references invalid storage");
+      }
+    }
+    for (const auto& access : facts.memory_accesses) {
+      if (!valid_index(access.storage, program.storages) ||
+          !valid_index(access.root, program.storages) ||
+          access.root != storage_root(program, access.storage) ||
+          access.mode == MemoryAccessMode::none || !valid_storage_region(access.region) ||
+          (memory_access_reads(access.mode) &&
+           !std::binary_search(facts.reads.begin(), facts.reads.end(), access.storage)) ||
+          (memory_access_writes(access.mode) &&
+           !std::binary_search(facts.writes.begin(), facts.writes.end(), access.storage))) {
+        add_error(diagnostics, instruction.location, stage,
+                  "instruction memory-access facts are invalid or disagree with read/write sets");
       }
     }
   }

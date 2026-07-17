@@ -330,12 +330,45 @@ struct StatementAttributes {
   std::vector<TargetAttributes> targets;
 };
 
+enum class MemoryAccessMode : std::uint8_t { none, read, write, read_write };
+
+[[nodiscard]] constexpr bool memory_access_reads(const MemoryAccessMode mode) noexcept {
+  return mode == MemoryAccessMode::read || mode == MemoryAccessMode::read_write;
+}
+
+[[nodiscard]] constexpr bool memory_access_writes(const MemoryAccessMode mode) noexcept {
+  return mode == MemoryAccessMode::write || mode == MemoryAccessMode::read_write;
+}
+
+struct MemoryAccess {
+  StorageId storage{};
+  StorageId root{};
+  StorageRegion region;
+  MemoryAccessMode mode{MemoryAccessMode::none};
+};
+
+[[nodiscard]] inline bool operator==(const MemoryAccess& left, const MemoryAccess& right) noexcept {
+  return left.storage == right.storage && left.root == right.root && left.region == right.region &&
+         left.mode == right.mode;
+}
+
+[[nodiscard]] inline bool operator!=(const MemoryAccess& left, const MemoryAccess& right) noexcept {
+  return !(left == right);
+}
+
+struct InstructionAttributes {
+  InstructionId origin{};
+  std::vector<MemoryAccess> memory_accesses;
+};
+
 struct OperationAttributeTable {
   std::uint64_t mir_revision{0};
   std::size_t expression_count{0};
   std::size_t statement_count{0};
+  std::size_t instruction_count{0};
   std::vector<ExpressionAttributes> expressions;
   std::vector<StatementAttributes> statements;
+  std::vector<InstructionAttributes> instructions;
 };
 
 struct Program {
@@ -366,6 +399,9 @@ struct Program {
 [[nodiscard]] const StatementAttributes* attributes(const Program& program,
                                                     MirStatementId id) noexcept;
 [[nodiscard]] StatementAttributes* attributes(Program& program, MirStatementId id) noexcept;
+[[nodiscard]] const InstructionAttributes* attributes(const Program& program,
+                                                      InstructionId id) noexcept;
+[[nodiscard]] InstructionAttributes* attributes(Program& program, InstructionId id) noexcept;
 [[nodiscard]] const TypeData* type(const Program& program, TypeId id) noexcept;
 [[nodiscard]] const ShapeData* shape(const Program& program, ShapeId id) noexcept;
 [[nodiscard]] ValueType value_type(const Program& program, TypeId id) noexcept;
@@ -385,6 +421,7 @@ struct InstructionEffectFacts {
   Effect effects{Effect::none};
   std::vector<StorageId> reads;
   std::vector<StorageId> writes;
+  std::vector<MemoryAccess> memory_accesses;
   bool reads_unknown{false};
   bool writes_unknown{false};
 };
@@ -463,6 +500,11 @@ struct LoweringResult {
                                                            std::string_view stage);
 [[nodiscard]] AliasClass alias_between(const AliasEffectTable& analysis, StorageId left,
                                        StorageId right) noexcept;
+[[nodiscard]] AliasClass alias_between(const AliasEffectTable& analysis, const MemoryAccess& left,
+                                       const MemoryAccess& right) noexcept;
+[[nodiscard]] bool memory_accesses_conflict(const AliasEffectTable& analysis,
+                                            const MemoryAccess& left,
+                                            const MemoryAccess& right) noexcept;
 [[nodiscard]] std::vector<Diagnostic> verify(const Program& program, std::string_view stage);
 
 }  // namespace mpf::detail::mir

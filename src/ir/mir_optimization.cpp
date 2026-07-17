@@ -26,6 +26,8 @@ void add_error(std::vector<Diagnostic>& diagnostics, std::string message) {
 
 void synchronize_revision(Program& program, const std::uint64_t revision) {
   program.attributes.mir_revision = revision;
+  program.attributes.instruction_count =
+      program.instructions.size() - (program.instructions.empty() ? 0U : 1U);
 }
 
 std::vector<std::size_t> canonical_strides(const ShapeData& shape) {
@@ -446,11 +448,17 @@ void compact_instructions(Program& program, const std::vector<bool>& removed,
   std::vector<Instruction> instructions;
   instructions.reserve(program.instructions.size());
   instructions.push_back({});
+  std::vector<InstructionAttributes> instruction_attributes;
+  instruction_attributes.reserve(program.attributes.instructions.size());
+  instruction_attributes.push_back({});
   for (std::size_t index = 1; index < program.instructions.size(); ++index) {
     if (removed[index]) continue;
     auto instruction = std::move(program.instructions[index]);
     instruction.id = InstructionId{static_cast<InstructionId::value_type>(instructions.size())};
     remap[index] = instruction.id;
+    auto attributes = std::move(program.attributes.instructions[index]);
+    attributes.origin = instruction.id;
+    instruction_attributes.push_back(std::move(attributes));
     instructions.push_back(std::move(instruction));
   }
   const auto remap_id = [&](InstructionId& id) {
@@ -480,6 +488,7 @@ void compact_instructions(Program& program, const std::vector<bool>& removed,
     for (auto& id : owned) remap_id(id);
   }
   program.instructions = std::move(instructions);
+  program.attributes.instructions = std::move(instruction_attributes);
 }
 
 std::vector<Diagnostic> fold_constants_and_eliminate_dead_pure(Program& program,

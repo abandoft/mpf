@@ -307,7 +307,9 @@ class Builder final {
         store.storage = initializer->storage;
         store.operands.push_back(update->value_id);
         storage_values_[store.storage] = store.result;
-        append_instruction(std::move(store));
+        append_instruction(std::move(store), {make_memory_access(initializer->storage,
+                                                                 full_region(initializer->storage),
+                                                                 MemoryAccessMode::write)});
       }
       const auto update_versions = storage_values_;
       const auto update_exit = current_block_;
@@ -895,12 +897,20 @@ class Builder final {
     instruction.type = result.type_id;
     instruction.shape = result.shape_id;
     instruction.storage = result.storage_id;
+    std::vector<MemoryAccess> instruction_accesses;
+    if ((instruction.opcode == Opcode::load || instruction.opcode == Opcode::index ||
+         instruction.opcode == Opcode::slice) &&
+        instruction.storage.valid()) {
+      instruction_accesses.push_back(make_memory_access(
+          instruction.storage, result_attributes.storage_region, MemoryAccessMode::read));
+    }
     struct PendingWriteback {
       StorageId target{};
       ValueId temporary{};
       TypeId type{};
       ShapeId shape{};
       ArgumentTransfer transfer{ArgumentTransfer::value};
+      StorageRegion region;
     };
     std::optional<UnresolvedCall> unresolved_call;
     std::vector<PendingWriteback> pending_writebacks;
@@ -943,9 +953,14 @@ class Builder final {
               copy.operands.push_back(argument->value_id);
             }
             if (index < operands.size()) operands[index] = copy.result;
-            pending_writebacks.push_back(
-                {contract.storage, copy.result, copy.type, copy.shape, contract.transfer});
-            append_instruction(std::move(copy));
+            pending_writebacks.push_back({contract.storage, copy.result, copy.type, copy.shape,
+                                          contract.transfer, contract.region});
+            std::vector<MemoryAccess> copy_accesses;
+            if (contract.transfer == ArgumentTransfer::copy_in_out && contract.storage.valid()) {
+              copy_accesses.push_back(
+                  make_memory_access(contract.storage, contract.region, MemoryAccessMode::read));
+            }
+            append_instruction(std::move(copy), std::move(copy_accesses));
           }
           call.arguments.push_back(contract);
         }
@@ -956,7 +971,7 @@ class Builder final {
     result.instruction = instruction.id;
     instruction.operands = std::move(operands);
     if (unresolved_call.has_value()) unresolved_call->instruction = instruction.id;
-    append_instruction(std::move(instruction));
+    append_instruction(std::move(instruction), std::move(instruction_accesses));
     if (unresolved_call.has_value()) unresolved_calls_.push_back(std::move(*unresolved_call));
     for (const auto& pending : pending_writebacks) {
       Instruction writeback;
@@ -971,7 +986,8 @@ class Builder final {
       writeback.transfer = pending.transfer;
       writeback.operands.push_back(pending.temporary);
       storage_values_[pending.target] = writeback.result;
-      append_instruction(std::move(writeback));
+      append_instruction(std::move(writeback), {make_memory_access(pending.target, pending.region,
+                                                                   MemoryAccessMode::write)});
     }
     const auto id = result.id;
     program_.expressions[id.value()] = std::move(result);
@@ -1052,7 +1068,9 @@ class Builder final {
           store.result = value_ids_.next();
           storage_values_[store.storage] = store.result;
         }
-        append_instruction(std::move(store));
+        append_instruction(std::move(store),
+                           {make_memory_access(target.storage, full_region(target.storage),
+                                               MemoryAccessMode::write)});
       }
       return;
     }
@@ -1100,7 +1118,22 @@ class Builder final {
       instruction.result = value_ids_.next();
       storage_values_[instruction.storage] = instruction.result;
     }
-    append_instruction(std::move(instruction));
+    std::vector<MemoryAccess> memory_accesses;
+    const bool writes_storage =
+        statement.kind == StatementKind::assignment ||
+        statement.kind == StatementKind::indexed_assignment ||
+        statement.kind == StatementKind::range_loop || statement.kind == StatementKind::for_loop ||
+        (statement.kind == StatementKind::declaration && statement.has_expression);
+    if (writes_storage && instruction.storage.valid()) {
+      auto region = full_region(instruction.storage);
+      if (statement.kind == StatementKind::indexed_assignment) {
+        const auto* target_attributes = mir::attributes(program_, statement.target_expression);
+        if (target_attributes != nullptr) region = target_attributes->storage_region;
+      }
+      memory_accesses.push_back(
+          make_memory_access(instruction.storage, std::move(region), MemoryAccessMode::write));
+    }
+    append_instruction(std::move(instruction), std::move(memory_accesses));
   }
 
   StorageId storage_root(StorageId storage) const noexcept {
@@ -1285,9 +1318,28 @@ class Builder final {
     function.signature = intern_function_type(signature_parameters, function.result_types);
   }
 
-  void append_instruction(Instruction instruction) {
+  StorageRegion full_region(const StorageId storage) const {
+    const auto root = storage_root(storage);
+    if (!root.valid() || root.value() >= program_.storages.size()) return {};
+    const auto shape_id = program_.storages[root.value()].shape;
+    const auto* shape_data = mir::shape(program_, shape_id);
+    return shape_data == nullptr ? StorageRegion{} : full_storage_region(shape_data->extents);
+  }
+
+  MemoryAccess make_memory_access(const StorageId storage, StorageRegion region,
+                                  const MemoryAccessMode mode) const {
+    return {storage, storage_root(storage), std::move(region), mode};
+  }
+
+  void append_instruction(Instruction instruction, std::vector<MemoryAccess> memory_accesses = {}) {
     ensure_open_block();
     current_block().instructions.push_back(instruction.id);
+    if (program_.attributes.instructions.size() <= instruction.id.value()) {
+      program_.attributes.instructions.resize(static_cast<std::size_t>(instruction.id.value()) +
+                                              1U);
+    }
+    program_.attributes.instructions[instruction.id.value()] = {instruction.id,
+                                                                std::move(memory_accesses)};
     program_.instructions.push_back(std::move(instruction));
   }
 
@@ -1475,6 +1527,18 @@ StatementAttributes* attributes(Program& program, const MirStatementId id) noexc
              : nullptr;
 }
 
+const InstructionAttributes* attributes(const Program& program, const InstructionId id) noexcept {
+  return id.valid() && static_cast<std::size_t>(id.value()) < program.attributes.instructions.size()
+             ? &program.attributes.instructions[id.value()]
+             : nullptr;
+}
+
+InstructionAttributes* attributes(Program& program, const InstructionId id) noexcept {
+  return id.valid() && static_cast<std::size_t>(id.value()) < program.attributes.instructions.size()
+             ? &program.attributes.instructions[id.value()]
+             : nullptr;
+}
+
 const TypeData* type(const Program& program, const TypeId id) noexcept {
   return id.valid() && static_cast<std::size_t>(id.value()) < program.types.size()
              ? &program.types[id.value()]
@@ -1514,6 +1578,7 @@ LoweringResult lower_from_hir(hir::Program&& source, hir::SemanticTable&& semant
   result.program.statements.push_back({});
   result.program.attributes.expressions.push_back({});
   result.program.attributes.statements.push_back({});
+  result.program.attributes.instructions.push_back({});
   result.program.types.push_back({});
   result.program.shapes.push_back({});
   result.program.storages.push_back({});
@@ -1553,6 +1618,7 @@ LoweringResult lower_from_hir(hir::Program&& source, hir::SemanticTable&& semant
   result.program.attributes.mir_revision = result.program.revision;
   result.program.attributes.expression_count = result.program.expressions.size() - 1U;
   result.program.attributes.statement_count = result.program.statements.size() - 1U;
+  result.program.attributes.instruction_count = result.program.instructions.size() - 1U;
   result.diagnostics = verify(result.program, "hir-to-mir");
   return result;
 }

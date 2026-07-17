@@ -39,6 +39,16 @@ bool valid_index(const Id id, const std::vector<Item>& items) noexcept {
   return id.valid() && static_cast<std::size_t>(id.value()) < items.size();
 }
 
+StorageId storage_root(const Program& program, StorageId storage) noexcept {
+  for (std::size_t depth = 0; depth < program.storages.size(); ++depth) {
+    if (!valid_index(storage, program.storages)) return {};
+    const auto& metadata = program.storages[storage.value()];
+    if (metadata.kind != StorageKind::view) return storage;
+    storage = metadata.base;
+  }
+  return {};
+}
+
 const TypeData* type_data(const Program& program, const TypeId id) noexcept {
   return valid_index(id, program.types) ? &program.types[id.value()] : nullptr;
 }
@@ -312,6 +322,24 @@ void verify_expression(const Expression& expression, const Program& program,
        !expression.storage_id.valid())) {
     add_error(diagnostics, expression.location, stage,
               "expression operation attributes contain an invalid storage region");
+  }
+  if (expression.instruction.valid() &&
+      expression.instruction.value() < program.instructions.size()) {
+    const auto& instruction = program.instructions[expression.instruction.value()];
+    if ((instruction.opcode == Opcode::load || instruction.opcode == Opcode::index ||
+         instruction.opcode == Opcode::slice) &&
+        expression.storage_id.valid()) {
+      const auto* instruction_attributes = attributes(program, instruction.id);
+      const MemoryAccess expected{expression.storage_id,
+                                  storage_root(program, expression.storage_id),
+                                  expression_attributes->storage_region, MemoryAccessMode::read};
+      if (instruction_attributes == nullptr ||
+          instruction_attributes->memory_accesses.size() != 1U ||
+          instruction_attributes->memory_accesses.front() != expected) {
+        add_error(diagnostics, expression.location, stage,
+                  "expression memory access disagrees with its storage-region side table");
+      }
+    }
   }
   if (expression.kind == ExpressionKind::call && expression.instruction.valid() &&
       expression.instruction.value() < index.calls_by_instruction.size()) {
@@ -1156,8 +1184,10 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
   if (program.attributes.mir_revision != program.revision ||
       program.attributes.expression_count + 1U != program.expressions.size() ||
       program.attributes.statement_count + 1U != program.statements.size() ||
+      program.attributes.instruction_count + 1U != program.instructions.size() ||
       program.attributes.expressions.size() != program.expressions.size() ||
-      program.attributes.statements.size() != program.statements.size()) {
+      program.attributes.statements.size() != program.statements.size() ||
+      program.attributes.instructions.size() != program.instructions.size()) {
     add_error(diagnostics, {1, 1}, stage,
               "operation-attribute table is stale or its dense inventory is inconsistent");
   }
@@ -1255,6 +1285,66 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
         !instruction.origin.valid()) {
       add_error(diagnostics, instruction.location, stage,
                 "instruction table is not dense or has an invalid opcode/origin");
+    }
+    const auto* instruction_attributes = attributes(program, instruction.id);
+    if (instruction_attributes == nullptr || instruction_attributes->origin != instruction.id) {
+      add_error(diagnostics, instruction.location, stage,
+                "instruction has no matching operation-attribute row");
+    } else {
+      for (std::size_t access_index = 0;
+           access_index < instruction_attributes->memory_accesses.size(); ++access_index) {
+        const auto& access = instruction_attributes->memory_accesses[access_index];
+        const auto root = storage_root(program, access.storage);
+        const bool valid_mode = access.mode != MemoryAccessMode::none;
+        const bool valid_root = valid_index(root, program.storages) && access.root == root &&
+                                program.storages[root.value()].kind != StorageKind::view;
+        if (!valid_mode || !valid_index(access.storage, program.storages) || !valid_root ||
+            !valid_storage_region(access.region) ||
+            (memory_access_writes(access.mode) &&
+             !program.storages[access.storage.value()].writable)) {
+          add_error(
+              diagnostics, instruction.location, stage,
+              "instruction memory access has invalid mode, storage root, region, or mutability");
+        }
+        if (std::find(instruction_attributes->memory_accesses.begin(),
+                      instruction_attributes->memory_accesses.begin() +
+                          static_cast<std::ptrdiff_t>(access_index),
+                      access) != instruction_attributes->memory_accesses.begin() +
+                                     static_cast<std::ptrdiff_t>(access_index)) {
+          add_error(diagnostics, instruction.location, stage,
+                    "instruction memory-access side table contains a duplicate row");
+        }
+      }
+      const auto has_access = [&](const bool read, const bool write) {
+        return std::any_of(instruction_attributes->memory_accesses.begin(),
+                           instruction_attributes->memory_accesses.end(),
+                           [&](const MemoryAccess& access) {
+                             return access.storage == instruction.storage &&
+                                    (!read || memory_access_reads(access.mode)) &&
+                                    (!write || memory_access_writes(access.mode));
+                           });
+      };
+      if ((instruction.opcode == Opcode::load || instruction.opcode == Opcode::index ||
+           instruction.opcode == Opcode::slice) &&
+          instruction.storage.valid() && !has_access(true, false)) {
+        add_error(diagnostics, instruction.location, stage,
+                  "memory-reading instruction has no read-access attribute");
+      }
+      if ((instruction.opcode == Opcode::store || instruction.opcode == Opcode::store_indexed ||
+           instruction.opcode == Opcode::writeback) &&
+          !has_access(false, true)) {
+        add_error(diagnostics, instruction.location, stage,
+                  "memory-writing instruction has no write-access attribute");
+      }
+      if (instruction.opcode == Opcode::copy &&
+          (instruction.transfer == ArgumentTransfer::copy_in_out) !=
+              std::any_of(
+                  instruction_attributes->memory_accesses.begin(),
+                  instruction_attributes->memory_accesses.end(),
+                  [](const MemoryAccess& access) { return memory_access_reads(access.mode); })) {
+        add_error(diagnostics, instruction.location, stage,
+                  "copy instruction read access disagrees with its transfer mode");
+      }
     }
     if (instruction.result.valid() && !valid_index(instruction.type, program.types)) {
       add_error(diagnostics, instruction.location, stage,
