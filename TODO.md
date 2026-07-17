@@ -1,6 +1,6 @@
 # MPF 持续建设路线图
 
-本路线图记录 **0.4.9 当前开发基线** 与后续交付目标的真实状态。历史交付细节见
+本路线图记录 **0.5.0 当前开发基线** 与后续交付目标的真实状态。历史交付细节见
 [CHANGELOG-ZH.md](CHANGELOG-ZH.md)，当前可依赖的语言子集见
 [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 已有独立、可执行且包含 lexical block/canonical `for` 的子集，但完整 grammar 仍未完成。
 
@@ -14,11 +14,11 @@
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；源码分别位于无重复文件名前缀的 `src/backends/javascript/`、`src/backends/cpp/`，`cpp` 当前生成严格 C++17 translation unit |
 | 前后端边界 | 四语言 parser session 直接构造并发布各自 arena AST artifact，不经过共享递归 syntax tree 或整树复制；生产驱动随后固定经过 HIR→MIR→共享优化→优化后 alias/effect→CFG memory-dependence→目标私有 semantic plan/LIR→emitter，两个目标不读取彼此产物 |
 | 扩展架构 | frontend descriptor API v6、backend descriptor API v6；仅接受 canonical 语言/目标名称，不保留旧名称 alias；parser session/feature/resource contract、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
-| IR 架构 | 四种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有，profile 驱动的 `NameScopeEdges` 为 function/statement/body/alternative 建立稠密 scope graph；MIR v9 使用 `MirExpressionId`/`MirStatementId` 稠密 arena、revision-bound `OperationAttributeTable` 与显式 retired tombstone，结构节点不再镜像宽语义 payload；同一属性表按 `InstructionId` 稠密保存零到多个 storage/root/region/mode `MemoryAccess`，指令压缩同步重映射；conditional/短路/comparison chain 和 TypeScript canonical `for` 已产生显式 CFG、typed edge merge 和 runtime-independent store；默认共享 pass 已接通 shape canonicalization、相同 edge-actual copy propagation、精确整数/布尔 constant folding、dead-pure elimination 和保守 CFG cleanup，每个 pass 后验证并同步 revision；tuple/function/reference type/shape 签名、stride/view/lifetime 与 call argument transfer 可验证；Matlab 每个下标的 scalar/slice/numeric/logical/empty selector identity 由 Semantic v4、MIR v9 与双目标 LIR v15 逐层验证；静态已知 shape 的 identifier/element/N 维矩形及列主序线性 section 由 HIR/MIR `StorageRegion` side table 规范化，alias/effect v3 在优化后统一直接访问与跨函数 actual-region 实例化并提供访问级冲突查询；`MemoryDependenceTable` v1 在函数 CFG 上建立 region-refined flow/anti/output、unknown barrier 与 loop-carried adjacency，拥有独立 revision、verifier、dump、cache 和报告；双目标 LIR v15 以 `SymbolId` 保存名称身份，并显式保存 lexical scope/declaration、ABI、source export、临时值、顶层拓扑、expression/statement、强类型比较、Matlab matrix-operation/solve/selector plan、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
+| IR 架构 | 四种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有，profile 驱动的 `NameScopeEdges` 为 function/statement/body/alternative 建立稠密 scope graph；MIR v11 使用 `MirExpressionId`/`MirStatementId` 稠密 arena、revision-bound `OperationAttributeTable` 与显式 retired tombstone，结构节点不再镜像宽语义 payload；同一属性表按 `InstructionId` 稠密保存零到多个 storage/root/region/mode `MemoryAccess`，指令压缩同步重映射；conditional/短路/comparison chain 和 TypeScript canonical `for` 已产生显式 CFG、typed edge merge 和 runtime-independent store；默认共享 pass 已接通 shape canonicalization、相同 edge-actual copy propagation、精确整数/布尔 constant folding、dead-pure elimination 和保守 CFG cleanup，每个 pass 后验证并同步 revision；tuple/function/reference type/shape 签名、stride/view/lifetime 与 call argument transfer 可验证；Matlab 广播的 static-extents/runtime-operands shape source、逐轴 mode、每个下标的 selector identity 及 runtime-axis/runtime-linear extent source 由 Semantic v6、MIR v11 与双目标 LIR v17 逐层验证；静态已知 shape 的 identifier/element/N 维矩形及列主序线性 section 由 HIR/MIR `StorageRegion` side table 规范化，alias/effect v3 在优化后统一直接访问与跨函数 actual-region 实例化并提供访问级冲突查询；`MemoryDependenceTable` v1 在函数 CFG 上建立 region-refined flow/anti/output、unknown barrier 与 loop-carried adjacency，函数 write summary 会裁剪不可能参与 WAR 的纯 read frontier，并拥有独立 revision、verifier、dump、cache 和报告；双目标 LIR v17 以 `SymbolId` 保存名称身份，并显式保存 lexical scope/declaration、ABI、source export、临时值、顶层拓扑、expression/statement、强类型比较、Matlab broadcast/matrix-operation/solve/selector/extent plan、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
 | Python 最新能力 | relational/equality/identity/membership 比较链、右结合条件表达式、短路/惰性/单次求值；list/tuple 种类相等规则、singleton/reference identity、string/list/tuple membership；基础参数关联和递归固定序列解包 |
-| Matlab 最新能力 | scalar numeric/logical/character `switch/case/otherwise`；矩阵/逐元素及共轭/非共轭转置 identity 保留；二维矩阵乘法、静态满秩稠密实数方阵/超定/欠定 solve、safe-integer 方阵 power、静态 N 维 compatible-size 算术/关系比较、`end`、保序/重复/空 numeric selector 和线性/逐维 logical selector 读写进入双目标专属 LIR/runtime |
+| Matlab 最新能力 | scalar numeric/logical/character `switch/case/otherwise`；矩阵/逐元素及共轭/非共轭转置 identity 保留；二维矩阵乘法、静态满秩稠密实数方阵/超定/欠定 solve、safe-integer 方阵 power、静态 N 维及 local-function runtime rank/extent 的 compatible-size 算术/关系比较、静态及运行时 extent 的逐维/线性 `end`、保序/重复/空 numeric selector 和线性/逐维 logical selector 读写进入双目标专属 LIR/runtime |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流；已知静态 shape 下可证明不相交的同根连续、步长与 N 维矩形 writable section actual |
-| 工程门禁 | 201 项内部测试；65 个差分 case、175 条工具完整环境执行路径；78 项 CTest；四语言 fuzz smoke、可选 libFuzzer、2 项生成 runtime 拒绝测试、版本化通用及 Matlab 专项性能阈值、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率硬门槛 85% |
+| 工程门禁 | 206 项内部测试；67 个差分 case、179 条工具完整环境执行路径；81 项 CTest；四语言 fuzz smoke、可选 libFuzzer、3 项生成 runtime 拒绝测试、版本化通用及 Matlab 专项性能阈值、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率硬门槛 85% |
 | 发布状态 | 0.x 开发快照；包消费要求精确当前版本，不提供旧 MPF API/ABI/schema/CLI/CMake 兼容承诺或迁移 shim |
 
 ## 本轮商业级收尾验收（完成）
@@ -30,7 +30,7 @@
 - [x] 四语言/双目标 fuzz smoke、Clang/libFuzzer、资源耗尽、确定性重放、崩溃复现与最小化工作流落地
 - [x] 延迟、吞吐、深 CFG、大 shape、函数图、八路并发、峰值 arena 和产物大小纳入版本化 JSON 发布门禁与 CI 报告
 
-这里的“完成”只指上述架构与工程闭环；各语言官方 grammar、完整对象模型、动态 rank/extent 广播、一般 view/pointer 的完整 overlap/alias 和稳定插件 ABI 仍由后续条目跟踪。
+这里的“完成”只指上述架构与工程闭环；各语言官方 grammar、完整对象模型、跨语言动态 shape 传播与 NDArray 表示、一般 view/pointer 的完整 overlap/alias 和稳定插件 ABI 仍由后续条目跟踪。
 
 ## 当前迭代优先级
 
@@ -41,9 +41,11 @@
 - [x] 完成 [Matlab → JavaScript 产品计划](docs/MATLAB_TO_JAVASCRIPT.md) 的 0.4.8 纵切面：静态 `end`、单 mask 线性逻辑索引、静态 N 维隐式扩展、数组比较和 vector/rank-2 转置
 - [x] Matlab P0 静态满秩稠密实数方阵/超定/欠定左除与右除、safe-integer 正/零/负整数幂、跨层 MatrixOperationPlan/solve kind、部分主元和 CPQR 双目标 runtime
 - [x] Matlab P0 广义索引：逐下标 selector identity、保序/重复/空 numeric selector、线性/逐维 logical selector、动态 mask runtime 验证及双目标门禁
-- [ ] 继续 Matlab P0：秩亏求解兼容策略、dynamic `end`/broadcast extent、complex/numeric class、growth 和 indexed deletion
+- [x] Matlab P0 动态 `end`：runtime-axis/runtime-linear typed plan 贯穿 HIR/MIR/双目标 LIR，覆盖 scalar/colon/算术/numeric selector 及读写、source map、差分、fuzz 和性能门禁
+- [x] Matlab P0 动态 compatible-size：static-extents/runtime-operands typed plan 贯穿 HIR/MIR/双目标 LIR，local function 参数支持标量或运行时 rank/extent 的算术、关系比较及 scalar expansion，并覆盖拒错、source map、差分、fuzz 和性能门禁
+- [ ] 继续 Matlab P0：秩亏求解兼容策略、complex/numeric class、growth 和 indexed deletion
 - [ ] 按 Python/Fortran/TypeScript 官方 grammar 选择下一批可独立验收的纵切面
-- [ ] 继续完成动态 rank/extent 广播、跨一般 view/pointer 的 region/alias 证明和目标 typed-array/ownership 策略
+- [ ] 继续完成跨语言动态 shape 数据流、类型化 NDArray/typed-array ownership、跨一般 view/pointer 的 region/alias 证明
 - [ ] 在已交付的区域化 memory-dependence contract 上建立 memory version、memory phi、rename/def-use 的完整 MemorySSA；以负向 verifier、差分、fuzz 和性能门禁后再启用 region-aware DCE/store forwarding
 - [ ] 将 interner、诊断、配置和全部阶段 arena 所有权迁入 `CompilationSession`，并让 IR 容器实际使用 session resource
 - [ ] 完成稳定 C17 插件 ABI 前保持 descriptor 为源码树内的精确当前契约，不提供旧 descriptor adapter、size negotiation 或跨版本动态加载
@@ -89,7 +91,7 @@
 - [x] 跨语言一般 N 维静态 shape、声明、RESHAPE、直接 index/section 读取写入，以及 JavaScript/C++ 递归运行时；三维 Fortran/gfortran/Node.js/生成 C++ 差分已入门禁
 - [x] 静态已知 shape、同一 storage root 的 element/连续/步长/N 维矩形 section overlap 与多 writable actual alias 证明
 - [x] 将直接 load/store/copy/writeback 与跨函数参数 effect 统一为按 `InstructionId` 稠密的区域化 memory-access fact，并提供访问级 alias/conflict 查询
-- [ ] 动态 rank/extent 广播、跨一般 view/pointer/storage association 的完整 region 证明
+- [ ] 跨语言动态 shape 传播、一般 NDArray/typed-array 表示，以及跨 view/pointer/storage association 的完整 region 证明
 - [x] revision-bound CFG memory-dependence v1：区域精化 RAW/WAR/WAW、unknown barrier、loop-carried、稠密 adjacency、verifier/dump/cache/report 与生产调用
 - [ ] MemorySSA 的 memory version/phi/rename/def-use、region-aware DCE/store forwarding 与循环内存优化
 - [x] source map v3、输入文件身份、生成文件身份和 LIR-origin 位置映射；banner 独立控制
@@ -144,9 +146,9 @@
 - [x] 文件级 local function、前向/跨函数调用、多输出绑定和转发
 - [x] scalar numeric/logical/character `switch/case/otherwise`；selector 单次求值、无 fallthrough、Matlab 字符精确相等
 - [x] `*`/`/`/`\`/`^` 与 `.*`/`./`/`.\`/`.^` identity；二维矩阵乘法、同 shape 或 scalar expansion 的基础逐元素算术；JavaScript/`cpp` 目标计划与 runtime
-- [x] 静态已知 shape 的 compatible-size N 维隐式扩展和数组关系比较；HIR/MIR/双目标 LIR 保存并验证逐轴 broadcast plan
+- [x] 静态已知 shape 及 local-function runtime rank/extent 的 compatible-size 隐式扩展和数组关系比较；HIR/MIR/双目标 LIR 保存并验证 shape source 与逐轴 broadcast plan
 - [x] 共轭 `'`/非共轭 `.'` 的上下文解析与强类型身份；当前非 complex vector/rank-2 转置进入双目标 runtime
-- [x] 静态 extent 的逐维/线性 `end`，以及保序/重复/空 numeric selector 和线性/逐维 logical selector 的列主序读写；runtime-sized logical mask 由生成代码验证
+- [x] 静态及运行时 extent 的逐维/线性 `end`，包括 scalar、colon、算术与 numeric selector array；保序/重复/空 numeric selector 和线性/逐维 logical selector 的列主序读写；runtime-sized extent/mask 由生成代码验证
 - [x] 静态满秩稠密实数方阵/超定/欠定矩阵 `\`/`/` 求解与 safe-integer 方阵 `^`；部分主元、带列主元 Householder QR、秩亏检查和正/零/负整数幂进入双目标 runtime
 - [x] Matlab 数组专项差分、负向语义、fuzz seed 和编译延迟/吞吐/产物大小发布门禁
 - [x] Node.js、生成 C++ 与 oracle 差分框架
@@ -154,9 +156,9 @@
 仍需建设：
 
 - [ ] 完整 command/function 调用语法、complex 共轭转置、character/string 数组转置和剩余字符串歧义解析
-- [ ] dynamic `end`/bounds、indexed deletion 与 growth
+- [ ] indexed deletion 与 growth
 - [ ] 元胞数组、struct、string、table、datetime 等核心类型
-- [ ] 秩亏矩阵求解的 Matlab 兼容行为、非整数矩阵幂、动态 rank/extent 隐式扩展、numeric class、complex 与稀疏数组语义
+- [ ] 秩亏矩阵求解的 Matlab 兼容行为、非整数矩阵幂、numeric class、complex、稀疏数组，以及一般 NDArray 值语义
 - [ ] nested/anonymous function 和完整 function workspace/closure 语义
 - [ ] `classdef`、properties、methods、events 与 handle/value 对象模型
 - [ ] 核心函数与工具箱 API 的分层映射、许可证和版本策略
