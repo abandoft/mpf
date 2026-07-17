@@ -123,7 +123,7 @@ Minimal example:
 
 ```cpp
 #include <iostream>
-#include <mpf/transpiler.hpp>
+#include <mpf/mpf.hpp>
 
 int main() {
   mpf::TranspileOptions options;
@@ -144,6 +144,8 @@ int main() {
 ```
 
 The installed package provides the `core`, `javascript`, and `cpp` components; the `mpf::core`, `mpf::backend-javascript`, and `mpf::backend-cpp` targets; and the unified `mpf::mpf` entry point. See [`examples/embedding`](examples/embedding) for a complete integration example.
+
+MPF 0.x installs static libraries deliberately. A supported shared-library ABI will require an explicit symbol-export, allocator/ownership, and version-negotiation contract; setting `BUILD_SHARED_LIBS` does not silently expose the current internal C++ ABI.
 
 ## Build Configuration
 

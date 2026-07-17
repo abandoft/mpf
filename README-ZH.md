@@ -123,7 +123,7 @@ target_link_libraries(my_application PRIVATE mpf::mpf)
 
 ```cpp
 #include <iostream>
-#include <mpf/transpiler.hpp>
+#include <mpf/mpf.hpp>
 
 int main() {
   mpf::TranspileOptions options;
@@ -144,6 +144,8 @@ int main() {
 ```
 
 安装包提供 `core`、`javascript` 和 `cpp` component，以及 `mpf::core`、`mpf::backend-javascript`、`mpf::backend-cpp` 和统一入口 `mpf::mpf`。完整集成示例见 [`examples/embedding`](examples/embedding)。
+
+MPF 0.x 有意只安装静态库。共享库需要先明确符号导出、allocator/所有权和版本协商契约；设置 `BUILD_SHARED_LIBS` 不会把当前内部 C++ ABI 意外暴露为受支持的动态库接口。
 
 ## 构建配置
 
