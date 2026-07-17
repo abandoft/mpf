@@ -105,6 +105,27 @@ void collect_binary_operations(const std::vector<mpf::detail::hir::Statement>& s
   }
 }
 
+void collect_unary_operations(const mpf::detail::hir::Expression& expression,
+                              std::vector<mpf::detail::UnaryOperator>& operations) {
+  if (!expression.valid()) return;
+  if (expression.kind == mpf::detail::ExpressionKind::unary) {
+    operations.push_back(expression.unary_operation);
+  }
+  for (const auto& child : expression.children) collect_unary_operations(child, operations);
+}
+
+void collect_unary_operations(const std::vector<mpf::detail::hir::Statement>& statements,
+                              std::vector<mpf::detail::UnaryOperator>& operations) {
+  for (const auto& statement : statements) {
+    collect_unary_operations(statement.expression, operations);
+    collect_unary_operations(statement.secondary_expression, operations);
+    collect_unary_operations(statement.tertiary_expression, operations);
+    collect_unary_operations(statement.target_expression, operations);
+    collect_unary_operations(statement.body, operations);
+    collect_unary_operations(statement.alternative, operations);
+  }
+}
+
 }  // namespace
 
 TEST_CASE("frontends lower language-owned AST artifacts into verified HIR") {
@@ -213,8 +234,48 @@ TEST_CASE("Matlab binary operator identity remains typed through HIR and MIR") {
         return attributes.operation == mpf::detail::BinaryOperator::elementwise_multiply;
       });
   REQUIRE(found != missing_operation.attributes.expressions.end());
+  REQUIRE(found->array_operation == mpf::detail::semantic::ArrayOperation::matlab);
   found->operation = mpf::detail::BinaryOperator::none;
   REQUIRE(!mpf::detail::mir::verify(missing_operation, "missing-binary-operator").empty());
+
+  auto missing_array_semantics = mir.program;
+  const auto array_operation = std::find_if(
+      missing_array_semantics.attributes.expressions.begin() + 1,
+      missing_array_semantics.attributes.expressions.end(), [](const auto& attributes) {
+        return attributes.array_operation == mpf::detail::semantic::ArrayOperation::matlab;
+      });
+  REQUIRE(array_operation != missing_array_semantics.attributes.expressions.end());
+  array_operation->array_operation = mpf::detail::semantic::ArrayOperation::native;
+  REQUIRE(!mpf::detail::mir::verify(missing_array_semantics, "missing-array-semantics").empty());
+}
+
+TEST_CASE("Matlab transpose identity remains typed through HIR and MIR") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "values = [1 2; 3 4];\n"
+                              "conjugating = values';\n"
+                              "non_conjugating = values.';\n",
+                              "transpose.m");
+  std::vector<mpf::detail::UnaryOperator> hir_operations;
+  collect_unary_operations(lowered.program.statements, hir_operations);
+  REQUIRE(std::find(hir_operations.begin(), hir_operations.end(),
+                    mpf::detail::UnaryOperator::conjugate_transpose) != hir_operations.end());
+  REQUIRE(std::find(hir_operations.begin(), hir_operations.end(),
+                    mpf::detail::UnaryOperator::transpose) != hir_operations.end());
+
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  std::vector<mpf::detail::UnaryOperator> mir_operations;
+  for (std::size_t index = 1; index < mir.program.attributes.expressions.size(); ++index) {
+    const auto operation = mir.program.attributes.expressions[index].unary_operation;
+    if (operation != mpf::detail::UnaryOperator::none) mir_operations.push_back(operation);
+  }
+  REQUIRE(std::find(mir_operations.begin(), mir_operations.end(),
+                    mpf::detail::UnaryOperator::conjugate_transpose) != mir_operations.end());
+  REQUIRE(std::find(mir_operations.begin(), mir_operations.end(),
+                    mpf::detail::UnaryOperator::transpose) != mir_operations.end());
 }
 
 TEST_CASE("HIR pass manager verifies revisions and records instrumentation") {

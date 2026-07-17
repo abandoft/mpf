@@ -148,7 +148,7 @@ TEST_CASE("Python float conversion validates arity and supported source types") 
 }
 
 TEST_CASE("Matlab array operators reject incompatible and unsupported matrix semantics") {
-  const auto mismatched = matlab("value = [1 2] + [1; 2];\ndisp(value)\n");
+  const auto mismatched = matlab("value = [1 2] + [1 2 3];\ndisp(value)\n");
   const auto matrix_divide = matlab("value = [1 2; 3 4] / [1 0; 0 1];\ndisp(value)\n");
   REQUIRE(!mismatched.success());
   REQUIRE(!matrix_divide.success());

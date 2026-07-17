@@ -541,6 +541,24 @@ TEST_CASE("Matlab parser preserves matrix and element-wise operator identity") {
   REQUIRE(power.expression.children[1].value == ".^");
 }
 
+TEST_CASE("Matlab parser preserves conjugating and non-conjugating transpose identity") {
+  using mpf::detail::UnaryOperator;
+  const auto conjugating = mpf::detail::parse_expression("values'", mpf::SourceLanguage::matlab, 1);
+  const auto non_conjugating =
+      mpf::detail::parse_expression("values.'", mpf::SourceLanguage::matlab, 1);
+  const auto chained = mpf::detail::parse_expression("values''", mpf::SourceLanguage::matlab, 1);
+
+  REQUIRE(conjugating.diagnostics.empty());
+  REQUIRE(non_conjugating.diagnostics.empty());
+  REQUIRE(chained.diagnostics.empty());
+  REQUIRE(conjugating.expression.kind == mpf::detail::ExpressionKind::unary);
+  REQUIRE(non_conjugating.expression.kind == mpf::detail::ExpressionKind::unary);
+  REQUIRE(conjugating.expression.unary_operation == UnaryOperator::conjugate_transpose);
+  REQUIRE(non_conjugating.expression.unary_operation == UnaryOperator::transpose);
+  REQUIRE(chained.expression.unary_operation == UnaryOperator::conjugate_transpose);
+  REQUIRE(chained.expression.children[0].unary_operation == UnaryOperator::conjugate_transpose);
+}
+
 TEST_CASE("malformed expressions report stable parser diagnostics") {
   const auto result = mpf::detail::parse_expression("(1 + 2", mpf::SourceLanguage::python, 8, 5);
   const auto conditional =
