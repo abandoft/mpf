@@ -1,13 +1,13 @@
-#include "backend_registry.hpp"
+#include "backends/common/registry.hpp"
 
 #include <array>
 #include <cctype>
 
 #if MPF_HAS_JAVASCRIPT_BACKEND
-#include "../backends/javascript/backend.hpp"
+#include "backends/javascript/backend.hpp"
 #endif
 #if MPF_HAS_CPP_BACKEND
-#include "../backends/cpp/backend.hpp"
+#include "backends/cpp/backend.hpp"
 #endif
 
 namespace mpf::detail {

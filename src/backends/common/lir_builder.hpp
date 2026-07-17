@@ -4,8 +4,8 @@
 #include <utility>
 #include <vector>
 
-#include "../ir/ids.hpp"
-#include "../ir/mir.hpp"
+#include "ir/ids.hpp"
+#include "ir/mir.hpp"
 
 namespace mpf::detail {
 

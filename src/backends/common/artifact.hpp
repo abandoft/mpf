@@ -6,7 +6,7 @@
 #include <string_view>
 #include <vector>
 
-#include "../ir/ids.hpp"
+#include "ir/ids.hpp"
 #include "mpf/diagnostic.hpp"
 #include "mpf/transpiler.hpp"
 

@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <vector>
 
-#include "backend_artifact.hpp"
+#include "backends/common/artifact.hpp"
 
 namespace mpf::detail {
 

@@ -7,9 +7,9 @@
 #include <string>
 #include <unordered_map>
 
-#include "../compiler/expression_ast.hpp"
-#include "../compiler/statement_kind.hpp"
-#include "../ir/ids.hpp"
+#include "compiler/expression_ast.hpp"
+#include "compiler/statement_kind.hpp"
+#include "ir/ids.hpp"
 
 namespace mpf::detail {
 

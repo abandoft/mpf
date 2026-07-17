@@ -1,12 +1,12 @@
-#include "backend_conformance.hpp"
+#include "backends/common/conformance.hpp"
 
 #include <algorithm>
 #include <iterator>
 #include <string>
 #include <utility>
 
-#include "../compiler/code_binding.hpp"
-#include "../core/backend_registry.hpp"
+#include "backends/common/registry.hpp"
+#include "compiler/code_binding.hpp"
 
 namespace mpf::detail {
 namespace {

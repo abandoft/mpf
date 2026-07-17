@@ -5,11 +5,11 @@
 #include <string_view>
 #include <vector>
 
-#include "../compiler/code_binding.hpp"
-#include "../compiler/descriptor.hpp"
-#include "../ir/mir.hpp"
-#include "backend_artifact.hpp"
-#include "backend_pipeline.hpp"
+#include "backends/common/artifact.hpp"
+#include "backends/common/pipeline.hpp"
+#include "compiler/code_binding.hpp"
+#include "compiler/static_string_list.hpp"
+#include "ir/mir.hpp"
 
 namespace mpf::detail {
 
@@ -21,7 +21,7 @@ struct BackendConfigurationField {
   const char* name{nullptr};
   BackendOptionKind kind{BackendOptionKind::string};
   const char* default_value{nullptr};
-  StringViewList allowed_values;
+  StaticStringList allowed_values;
   bool affects_code{false};
 };
 
