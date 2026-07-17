@@ -153,6 +153,19 @@ bool runtime_broadcast(const hir::BroadcastPlan& plan) {
          plan.axes.end();
 }
 
+bool static_rank_two_shape(const std::vector<std::size_t>& shape) noexcept {
+  return shape.size() == 2U && std::find(shape.begin(), shape.end(), dynamic_extent) == shape.end();
+}
+
+std::optional<std::vector<std::size_t>> static_matlab_matrix_shape(
+    const std::vector<std::size_t>& shape) {
+  if (shape.size() == 1U && shape.front() != dynamic_extent) {
+    return std::vector<std::size_t>{1U, shape.front()};
+  }
+  return static_rank_two_shape(shape) ? std::optional<std::vector<std::size_t>>{shape}
+                                      : std::nullopt;
+}
+
 std::optional<std::size_t> static_element_count(const std::vector<std::size_t>& shape) {
   if (shape.empty()) return std::nullopt;
   std::size_t result = 1U;
@@ -497,15 +510,18 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
                              operation == BinaryOperator::elementwise_left_divide ||
                              operation == BinaryOperator::elementwise_power;
     const bool scalar_scale = operation == BinaryOperator::multiply && left_array != right_array;
+    const bool scalar_matrix_division =
+        (operation == BinaryOperator::divide && left_array && !right_array) ||
+        (operation == BinaryOperator::left_divide && !left_array && right_array);
 
-    if ((elementwise || scalar_scale) &&
+    if ((elementwise || scalar_scale || scalar_matrix_division) &&
         (!numeric_or_unknown(left_element) || !numeric_or_unknown(right_element))) {
       diagnose(expression.location.line, "MPF2046",
                "Matlab array operator '" + expression.value +
                    "' requires numeric scalar or array operands");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
-    if (has_array && (elementwise || scalar_scale)) {
+    if (has_array && (elementwise || scalar_scale || scalar_matrix_division)) {
       auto& facts = semantic(semantics_, expression);
       facts.array_operation = semantic::ArrayOperation::matlab;
       if (left_array && right_array) {
@@ -527,7 +543,9 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
         if (left_facts.shape != right_facts.shape) facts.broadcast = *broadcast;
       }
       facts.inferred_type = ValueType::list;
-      facts.element_type = operation == BinaryOperator::elementwise_divide ||
+      facts.element_type = operation == BinaryOperator::divide ||
+                                   operation == BinaryOperator::left_divide ||
+                                   operation == BinaryOperator::elementwise_divide ||
                                    operation == BinaryOperator::elementwise_left_divide ||
                                    operation == BinaryOperator::elementwise_power
                                ? ValueType::real
@@ -560,6 +578,92 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
       facts.inferred_type = ValueType::list;
       facts.element_type = join_types(left_element, right_element);
       facts.shape = {left_facts.shape[0], right_facts.shape[1]};
+      if (!static_rank_two_shape(left_facts.shape) || !static_rank_two_shape(right_facts.shape)) {
+        diagnose(expression.location.line, "MPF2046",
+                 "Matlab matrix multiplication currently requires static rank-2 extents");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      facts.matrix_operation = {semantic::MatrixOperation::multiply,
+                                semantic::MatrixSolveKind::none, left_facts.shape,
+                                right_facts.shape, facts.shape};
+      return facts.inferred_type;
+    }
+    if (left_array && right_array &&
+        (operation == BinaryOperator::left_divide || operation == BinaryOperator::divide)) {
+      if (!numeric_or_unknown(left_element) || !numeric_or_unknown(right_element)) {
+        diagnose(expression.location.line, "MPF2046",
+                 "Matlab matrix division requires numeric array operands");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      const auto left_matrix_shape = static_matlab_matrix_shape(left_facts.shape);
+      const auto right_matrix_shape = static_matlab_matrix_shape(right_facts.shape);
+      if (!left_matrix_shape.has_value() || !right_matrix_shape.has_value()) {
+        diagnose(expression.location.line, "MPF2046",
+                 "Matlab matrix division currently requires static rank-2 operands");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      auto& facts = semantic(semantics_, expression);
+      facts.array_operation = semantic::ArrayOperation::matlab;
+      facts.inferred_type = ValueType::list;
+      facts.element_type = ValueType::real;
+      if (operation == BinaryOperator::left_divide) {
+        if ((*left_matrix_shape)[0] != (*right_matrix_shape)[0]) {
+          diagnose(expression.location.line, "MPF2046",
+                   "Matlab matrix left division requires a right-hand side with the same row "
+                   "extent as its coefficient matrix");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        facts.shape = {(*left_matrix_shape)[1], (*right_matrix_shape)[1]};
+        facts.matrix_operation = {
+            semantic::MatrixOperation::left_divide,
+            semantic::matrix_solve_kind((*left_matrix_shape)[0], (*left_matrix_shape)[1]),
+            *left_matrix_shape, *right_matrix_shape, facts.shape};
+      } else {
+        if ((*left_matrix_shape)[1] != (*right_matrix_shape)[1]) {
+          diagnose(expression.location.line, "MPF2046",
+                   "Matlab matrix right division requires both operands to have the same column "
+                   "extent");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        facts.shape = {(*left_matrix_shape)[0], (*right_matrix_shape)[0]};
+        facts.matrix_operation = {
+            semantic::MatrixOperation::right_divide,
+            semantic::matrix_solve_kind((*right_matrix_shape)[1], (*right_matrix_shape)[0]),
+            *left_matrix_shape, *right_matrix_shape, facts.shape};
+      }
+      return facts.inferred_type;
+    }
+    if (left_array && !right_array && operation == BinaryOperator::power) {
+      if (!numeric_or_unknown(left_element) || !numeric_or_unknown(right)) {
+        diagnose(expression.location.line, "MPF2046",
+                 "Matlab matrix power requires a numeric matrix and numeric scalar exponent");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      if (!static_rank_two_shape(left_facts.shape) || left_facts.shape[0] != left_facts.shape[1]) {
+        diagnose(expression.location.line, "MPF2046",
+                 "Matlab matrix power currently requires a static square rank-2 matrix");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      const auto exponent_constant = numeric_constant(expression.children[1]);
+      const auto integral_exponent = integral_constant(expression.children[1]);
+      constexpr long long maximum_safe_integer = 9007199254740991LL;
+      if (exponent_constant.has_value() &&
+          (!integral_exponent.has_value() || *integral_exponent < -maximum_safe_integer ||
+           *integral_exponent > maximum_safe_integer)) {
+        diagnose(expression.location.line, "MPF2046",
+                 "Matlab matrix power currently requires an ECMAScript-safe integer exponent");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      auto& facts = semantic(semantics_, expression);
+      facts.array_operation = semantic::ArrayOperation::matlab;
+      facts.inferred_type = ValueType::list;
+      facts.element_type = ValueType::real;
+      facts.shape = left_facts.shape;
+      facts.matrix_operation = {semantic::MatrixOperation::integer_power,
+                                semantic::MatrixSolveKind::none,
+                                left_facts.shape,
+                                {},
+                                facts.shape};
       return facts.inferred_type;
     }
     if (has_array &&
@@ -1229,9 +1333,11 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
     diagnose(expression.location.line, "MPF2025",
              "Fortran array reference rank does not match its declared rank");
   }
-  bool has_slice = false;
-  bool has_logical = false;
+  bool has_expanding_selector = false;
   std::vector<std::size_t> result_shape;
+  auto& index_selectors = semantic(semantics_, expression).index_selectors;
+  index_selectors.clear();
+  index_selectors.reserve(index_count);
   StorageRegion storage_region;
   storage_region.kind = semantic(semantics_, expression).column_major && index_count == 1U &&
                                 container_facts.shape.size() > 1U
@@ -1283,7 +1389,8 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
     };
     resolve_end(resolve_end, index);
     if (index.kind == ExpressionKind::slice) {
-      has_slice = true;
+      has_expanding_selector = true;
+      index_selectors.push_back(semantic::IndexSelectorKind::slice);
       const auto count = analyze_slice(index, extent);
       result_shape.push_back(count);
       const auto dimension =
@@ -1296,28 +1403,60 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
     }
     const auto index_type = analyze_expression(index);
     const auto& index_facts = semantic(semantics_, index);
-    if (program_.language == SourceLanguage::matlab && index_type == ValueType::list &&
-        index_facts.element_type == ValueType::boolean) {
-      has_logical = true;
-      semantic(semantics_, expression).index_selection = semantic::IndexSelection::logical;
-      if (index_count != 1U) {
-        diagnose(index.location.line, "MPF2049",
-                 "Matlab logical indexing currently requires one linear mask selector");
+    if (program_.language == SourceLanguage::matlab && index_type == ValueType::list) {
+      has_expanding_selector = true;
+      exact_region = false;
+      const auto selector_size = static_element_count(index_facts.shape);
+      if (selector_size.has_value() && *selector_size == 0U) {
+        index_selectors.push_back(semantic::IndexSelectorKind::empty);
+        result_shape.push_back(0U);
+        continue;
       }
-      const auto container_size = static_element_count(container_facts.shape);
-      const auto mask_size = static_element_count(index_facts.shape);
-      if (!container_size.has_value() || !mask_size.has_value()) {
-        diagnose(index.location.line, "MPF2049",
-                 "Matlab logical indexing currently requires statically known array and mask "
-                 "shapes");
-      } else if (*container_size != *mask_size) {
-        diagnose(index.location.line, "MPF2049",
-                 "Matlab logical index mask must contain one value per array element");
+      if (index_facts.element_type == ValueType::boolean) {
+        index_selectors.push_back(semantic::IndexSelectorKind::logical);
+        const auto expected_size = index_count == 1U ? static_element_count(container_facts.shape)
+                                   : extent == dynamic_extent ? std::optional<std::size_t>{}
+                                                              : std::optional<std::size_t>{extent};
+        if (expected_size.has_value() && selector_size.has_value() &&
+            *expected_size != *selector_size) {
+          diagnose(index.location.line, "MPF2049",
+                   index_count == 1U
+                       ? "Matlab linear logical selector must contain one value per array element"
+                       : "Matlab dimensional logical selector must match its array extent");
+        }
+        result_shape.push_back(boolean_literal_count(index).value_or(dynamic_extent));
+        continue;
       }
-      result_shape = {boolean_literal_count(index).value_or(dynamic_extent)};
+      if (index_facts.element_type == ValueType::integer ||
+          index_facts.element_type == ValueType::real) {
+        index_selectors.push_back(semantic::IndexSelectorKind::numeric);
+        result_shape.push_back(selector_size.value_or(dynamic_extent));
+        const auto validate_elements = [&](auto&& self, const Expression& candidate) -> void {
+          if (candidate.kind == ExpressionKind::list) {
+            for (const auto& child : candidate.children) self(self, child);
+            return;
+          }
+          if (numeric_constant(candidate).has_value() &&
+              !integral_constant(candidate).has_value()) {
+            diagnose(candidate.location.line, "MPF2023",
+                     "Matlab numeric selector arrays must contain integer values");
+            return;
+          }
+          validate_static_index(candidate.location.line, candidate, extent,
+                                semantic(semantics_, expression).index_base,
+                                semantic(semantics_, expression).allow_negative_index);
+        };
+        validate_elements(validate_elements, index);
+        continue;
+      }
+      index_selectors.push_back(semantic::IndexSelectorKind::numeric);
+      result_shape.push_back(selector_size.value_or(dynamic_extent));
+      diagnose(index.location.line, "MPF2023",
+               "Matlab numeric selector arrays must contain integer values");
       exact_region = false;
       continue;
     }
+    index_selectors.push_back(semantic::IndexSelectorKind::scalar);
     const bool typescript_integral_number = program_.language == SourceLanguage::typescript &&
                                             index_type == ValueType::real &&
                                             integral_constant(index).has_value();
@@ -1348,7 +1487,7 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
   }
   semantic(semantics_, expression).element_type = container_facts.element_type;
   if (container_facts.shape.empty()) {
-    if (has_slice) {
+    if (has_expanding_selector) {
       semantic(semantics_, expression).shape = std::move(result_shape);
       return semantic(semantics_, expression).inferred_type = ValueType::list;
     }
@@ -1361,7 +1500,7 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
                         container_facts.shape.begin() + static_cast<std::ptrdiff_t>(index_count),
                         container_facts.shape.end());
   }
-  if (has_slice || has_logical || !result_shape.empty()) {
+  if (has_expanding_selector || !result_shape.empty()) {
     semantic(semantics_, expression).shape = std::move(result_shape);
     return semantic(semantics_, expression).inferred_type = ValueType::list;
   }
@@ -1504,6 +1643,11 @@ void Analyzer::validate_static_index(const std::size_t line, const Expression& i
   if (extent == dynamic_extent) return;
   const auto constant = numeric_constant(index);
   if (!constant.has_value()) return;
+  constexpr double maximum_safe_integer = 9007199254740991.0;
+  if (std::fabs(*constant) > maximum_safe_integer) {
+    diagnose(line, "MPF2021", "constant array/list index exceeds the target-safe integer range");
+    return;
+  }
   const auto integral = integral_constant(index);
   const auto minimum = static_cast<double>(std::numeric_limits<long long>::min());
   if (!integral.has_value() && (*constant < minimum || *constant >= -minimum)) {

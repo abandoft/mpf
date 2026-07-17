@@ -748,24 +748,10 @@ bool Analyzer::analyze_statement(Statement& statement) {
       if (statement.target_expression.kind != ExpressionKind::index) {
         diagnose(statement.line, "MPF2022",
                  "indexed assignment target is not an array/list element");
-      } else if (semantic(semantics_, statement.target_expression).index_selection ==
-                 semantic::IndexSelection::logical) {
-        const auto target_element = semantic(semantics_, statement.target_expression).element_type;
-        const auto replacement_element =
-            value_type == ValueType::list ? semantic(semantics_, statement.expression).element_type
-                                          : value_type;
-        if (target_element != ValueType::unknown && replacement_element != ValueType::unknown &&
-            join_types(target_element, replacement_element) == ValueType::unknown) {
-          diagnose(statement.line, "MPF2020",
-                   "logical indexed assignment changes the array element type");
-        }
-        if (value_type == ValueType::list &&
-            semantic(semantics_, statement.expression).shape.size() != 1U) {
-          diagnose(statement.line, "MPF2049",
-                   "Matlab logical assignment currently requires a scalar or vector "
-                   "replacement");
-        }
-      } else if (has_direct_slice(statement.target_expression)) {
+      } else if (std::any_of(
+                     semantic(semantics_, statement.target_expression).index_selectors.begin(),
+                     semantic(semantics_, statement.target_expression).index_selectors.end(),
+                     semantic::selector_preserves_dimension)) {
         analyze_section_assignment(statement, value_type);
       } else if (contains_slice(statement.target_expression)) {
         diagnose(statement.line, "MPF2029", "cannot assign through a temporary array/list section");
@@ -774,10 +760,9 @@ bool Analyzer::analyze_statement(Statement& statement) {
         diagnose(statement.line, "MPF2020", "indexed assignment changes the array element type");
       }
       semantic(semantics_, statement).element_type =
-          semantic(semantics_, statement.target_expression).index_selection ==
-                  semantic::IndexSelection::logical
-              ? semantic(semantics_, statement.target_expression).element_type
-          : has_direct_slice(statement.target_expression)
+          std::any_of(semantic(semantics_, statement.target_expression).index_selectors.begin(),
+                      semantic(semantics_, statement.target_expression).index_selectors.end(),
+                      semantic::selector_preserves_dimension)
               ? semantic(semantics_, statement.target_expression).element_type
               : target_type;
       return false;

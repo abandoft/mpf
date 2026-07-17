@@ -22,6 +22,16 @@ struct BroadcastPlan {
   std::vector<semantic::BroadcastAxis> axes;
 };
 
+struct MatrixOperationPlan {
+  semantic::MatrixOperation operation{semantic::MatrixOperation::none};
+  semantic::MatrixSolveKind solve{semantic::MatrixSolveKind::none};
+  std::vector<std::size_t> left_shape;
+  std::vector<std::size_t> right_shape;
+  std::vector<std::size_t> result_shape;
+
+  [[nodiscard]] bool valid() const noexcept { return operation != semantic::MatrixOperation::none; }
+};
+
 struct ExpressionFacts {
   HirNodeId origin{};
   ValueType inferred_type{ValueType::unknown};
@@ -31,6 +41,7 @@ struct ExpressionFacts {
   std::vector<std::size_t> shape;
   semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
   BroadcastPlan broadcast;
+  MatrixOperationPlan matrix_operation;
   std::vector<ValueType> tuple_types;
   std::vector<ValueType> tuple_element_types;
   std::vector<std::vector<std::size_t>> tuple_shapes;
@@ -46,7 +57,7 @@ struct ExpressionFacts {
   bool allow_negative_index{false};
   bool column_major{false};
   bool slice_stop_inclusive{false};
-  semantic::IndexSelection index_selection{semantic::IndexSelection::positional};
+  std::vector<semantic::IndexSelectorKind> index_selectors;
   StorageRegion storage_region;
 };
 

@@ -1,5 +1,7 @@
 #include "semantic_table.hpp"
 
+#include <algorithm>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -16,6 +18,89 @@ void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation locati
   diagnostics.push_back(
       {DiagnosticSeverity::error, "MPF0005",
        "invalid semantic table at '" + std::string(stage) + "': " + std::move(message), location});
+}
+
+semantic::MatrixOperation matrix_operation_for_operator(const BinaryOperator operation) noexcept {
+  switch (operation) {
+    case BinaryOperator::multiply: return semantic::MatrixOperation::multiply;
+    case BinaryOperator::left_divide: return semantic::MatrixOperation::left_divide;
+    case BinaryOperator::divide: return semantic::MatrixOperation::right_divide;
+    case BinaryOperator::power: return semantic::MatrixOperation::integer_power;
+    default: return semantic::MatrixOperation::none;
+  }
+}
+
+semantic::MatrixOperation expected_matrix_operation(const Expression& expression,
+                                                    const ExpressionFacts& facts,
+                                                    const SemanticTable& table) noexcept {
+  if (facts.array_operation != semantic::ArrayOperation::matlab) {
+    return semantic::MatrixOperation::none;
+  }
+  if (expression.children.size() != 2U) return semantic::MatrixOperation::none;
+  const auto* left = table.expression(expression.children[0].id);
+  const auto* right = table.expression(expression.children[1].id);
+  if (left == nullptr || right == nullptr) return semantic::MatrixOperation::none;
+  const bool left_array = left->inferred_type == ValueType::list;
+  const bool right_array = right->inferred_type == ValueType::list;
+  if (expression.operation == BinaryOperator::multiply && left_array && right_array) {
+    return semantic::MatrixOperation::multiply;
+  }
+  if (expression.operation == BinaryOperator::left_divide && left_array && right_array) {
+    return semantic::MatrixOperation::left_divide;
+  }
+  if (expression.operation == BinaryOperator::divide && left_array && right_array) {
+    return semantic::MatrixOperation::right_divide;
+  }
+  if (expression.operation == BinaryOperator::power && left_array && !right_array) {
+    return semantic::MatrixOperation::integer_power;
+  }
+  return semantic::MatrixOperation::none;
+}
+
+bool static_rank_two(const std::vector<std::size_t>& shape) noexcept {
+  return shape.size() == 2U && std::find(shape.begin(), shape.end(), dynamic_extent) == shape.end();
+}
+
+std::optional<semantic::IndexSelectorKind> expected_index_selector(
+    const Expression& selector, const SemanticTable& table) noexcept {
+  if (selector.kind == ExpressionKind::slice) return semantic::IndexSelectorKind::slice;
+  const auto* facts = table.expression(selector.id);
+  if (facts == nullptr || facts->inferred_type == ValueType::unknown) return std::nullopt;
+  if (facts->inferred_type != ValueType::list) return semantic::IndexSelectorKind::scalar;
+  if (std::find(facts->shape.begin(), facts->shape.end(), 0U) != facts->shape.end()) {
+    return semantic::IndexSelectorKind::empty;
+  }
+  if (facts->element_type == ValueType::boolean) return semantic::IndexSelectorKind::logical;
+  if (facts->element_type == ValueType::integer || facts->element_type == ValueType::real) {
+    return semantic::IndexSelectorKind::numeric;
+  }
+  return std::nullopt;
+}
+
+bool valid_matrix_shapes(const MatrixOperationPlan& plan) noexcept {
+  if (!static_rank_two(plan.left_shape) || !static_rank_two(plan.result_shape)) return false;
+  switch (plan.operation) {
+    case semantic::MatrixOperation::none: return false;
+    case semantic::MatrixOperation::multiply:
+      return plan.solve == semantic::MatrixSolveKind::none && static_rank_two(plan.right_shape) &&
+             plan.left_shape[1] == plan.right_shape[0] &&
+             plan.result_shape[0] == plan.left_shape[0] &&
+             plan.result_shape[1] == plan.right_shape[1];
+    case semantic::MatrixOperation::left_divide:
+      return static_rank_two(plan.right_shape) && plan.left_shape[0] == plan.right_shape[0] &&
+             plan.solve == semantic::matrix_solve_kind(plan.left_shape[0], plan.left_shape[1]) &&
+             plan.result_shape[0] == plan.left_shape[1] &&
+             plan.result_shape[1] == plan.right_shape[1];
+    case semantic::MatrixOperation::right_divide:
+      return static_rank_two(plan.right_shape) && plan.left_shape[1] == plan.right_shape[1] &&
+             plan.solve == semantic::matrix_solve_kind(plan.right_shape[1], plan.right_shape[0]) &&
+             plan.result_shape[0] == plan.left_shape[0] &&
+             plan.result_shape[1] == plan.right_shape[0];
+    case semantic::MatrixOperation::integer_power:
+      return plan.solve == semantic::MatrixSolveKind::none && plan.right_shape.empty() &&
+             plan.left_shape[0] == plan.left_shape[1] && plan.result_shape == plan.left_shape;
+  }
+  return false;
 }
 
 void verify_expression(const Expression& expression, const SemanticTable& table,
@@ -47,10 +132,41 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
     add_error(diagnostics, expression.location, stage,
               "expression broadcast plan has an invalid kind, arity, or result shape");
   }
-  if (facts->index_selection == semantic::IndexSelection::logical &&
-      (expression.kind != ExpressionKind::index || expression.children.size() != 2U)) {
+  const auto& matrix = facts->matrix_operation;
+  const auto expected_matrix = expected_matrix_operation(expression, *facts, table);
+  if (matrix.operation != expected_matrix) {
     add_error(diagnostics, expression.location, stage,
-              "logical index facts require one normalized selector");
+              "matrix-operation identity disagrees with the typed operands");
+  } else if (matrix.valid()) {
+    if (facts->array_operation != semantic::ArrayOperation::matlab ||
+        expression.kind != ExpressionKind::binary || facts->broadcast.valid ||
+        matrix.operation != matrix_operation_for_operator(expression.operation) ||
+        facts->shape != matrix.result_shape || !valid_matrix_shapes(matrix)) {
+      add_error(diagnostics, expression.location, stage,
+                "matrix-operation plan has an invalid operator, shape, or result contract");
+    }
+  } else if (matrix.solve != semantic::MatrixSolveKind::none || !matrix.left_shape.empty() ||
+             !matrix.right_shape.empty() || !matrix.result_shape.empty()) {
+    add_error(diagnostics, expression.location, stage,
+              "inactive matrix-operation plan retains shape facts");
+  }
+  if (expression.kind == ExpressionKind::index) {
+    if (facts->index_selectors.size() + 1U != expression.children.size()) {
+      add_error(diagnostics, expression.location, stage,
+                "index selector facts disagree with the expression arity");
+    } else {
+      for (std::size_t index = 0; index < facts->index_selectors.size(); ++index) {
+        const auto expected = expected_index_selector(expression.children[index + 1U], table);
+        if (expected.has_value() && *expected != facts->index_selectors[index]) {
+          add_error(diagnostics, expression.location, stage,
+                    "index selector kind disagrees with the source expression");
+          break;
+        }
+      }
+    }
+  } else if (!facts->index_selectors.empty()) {
+    add_error(diagnostics, expression.location, stage,
+              "non-index expression retains selector facts");
   }
   if (!valid_storage_region(facts->storage_region) ||
       (facts->storage_region.kind != StorageRegionKind::unknown &&
