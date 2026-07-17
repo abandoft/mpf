@@ -1,6 +1,6 @@
 # 扩展前端、后端与代码绑定
 
-0.4.6 使用对称的 descriptor/registry 架构接入四种内置源语言和两个输出目标。当前核心驱动执行“选择 descriptor → 创建 parser session → parser 直接构造语言 arena AST → AST verifier → AST→窄 HIR + semantic seed → HIR/seed verifier → NameTable/FlowTable → Analyzer + normalized storage-region side table → flat MIR value/operation arena + revision-bound expression/statement/instruction attributes + lazy/memory CFG → 共享 MIR 默认优化 + 逐 pass verifier → 优化后区域化 alias/effect → CFG memory-dependence fixed point + verifier → capability/legalization → 私有 semantic plan/LIR → LIR verifier/dump → printer”，不按具体语言或目标硬编码分派。TypeScript 证明了同一扩展边界既可承载独立 token stream/arena 和 explicit export policy，也可通过 semantic profile 选择 lexical-block scope model，而无需修改 emitter 分派。新增源语言只负责产生同一 `MemoryAccess` contract；RAW/WAR/WAW、unknown barrier 与 loop-carried 分析继续由公共 MIR 层统一完成，前端和目标后端都不得复制。当前 descriptor contract 面向同一源码树中的编译期组件，只接受 canonical name，并且不承诺跨版本 C++ 布局或动态库插件 ABI。
+0.4.7 使用对称的 descriptor/registry 架构接入四种内置源语言和两个输出目标。当前核心驱动执行“选择 descriptor → 创建 parser session → parser 直接构造语言 arena AST → AST verifier → AST→窄 HIR + semantic seed → HIR/seed verifier → NameTable/FlowTable → Analyzer + normalized storage-region side table → flat MIR value/operation arena + revision-bound expression/statement/instruction attributes + lazy/memory CFG → 共享 MIR 默认优化 + 逐 pass verifier → 优化后区域化 alias/effect → CFG memory-dependence fixed point + verifier → capability/legalization → 私有 semantic plan/LIR → LIR verifier/dump → printer”，不按具体语言或目标硬编码分派。TypeScript 证明了同一扩展边界既可承载独立 token stream/arena 和 explicit export policy，也可通过 semantic profile 选择 lexical-block scope model，而无需修改 emitter 分派。新增源语言只负责产生同一 `MemoryAccess` contract；RAW/WAR/WAW、unknown barrier 与 loop-carried 分析继续由公共 MIR 层统一完成，前端和目标后端都不得复制。当前 descriptor contract 面向同一源码树中的编译期组件，只接受 canonical name，并且不承诺跨版本 C++ 布局或动态库插件 ABI。
 
 本页记录当前可执行的 frontend API v6/backend API v6 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、direct arena builder、窄 HIR + frontend semantic seed、Analyzer 直写 side table、profile 驱动 `NameScopeEdges`、独立 flow/alias-effect、MIR resident instruction + ID arena、共享默认优化、call argument borrow/copy/optional-forward/normalized-region contract、按 `InstructionId` 稠密的区域化 `MemoryAccess`、当前控制结构 CFG、`SymbolId` target inventory、LIR v12 lexical `ScopePlan`、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；静态已知 shape 的同根 N 维 selector overlap 与直接/跨调用 memory effect 已由公共 Analyzer/MIR/alias 层完成，动态 extent、一般 pointer/view association 与 region 组合、完整官方 grammar 与独立 target AST 仍不是已经完成的扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
 
@@ -62,7 +62,7 @@ emitter/printer
 接入步骤：
 
 1. 在公共 `TargetLanguage` 中加入稳定身份。
-2. 新建独立 CMake target、descriptor、TargetProfile、稠密 legalization table、binding table、capability、semantic plan、LIR/pass/verifier 和 emitter；只依赖 `mpf-core`/允许的 backend-common 设施。
+2. 在 `src/backends/<canonical-target>/` 新建不重复目标前缀的 `backend`、`bindings`、`lir`、`lowering`、`renderer`、`runtime`、`validator` 和 `emitter`，并建立独立 CMake target；只依赖 `mpf-core`/允许的 backend-common 设施。
 3. 在 backend registry 增加目标 metadata 与条件 factory，在 facade 中加入对应构建选项和链接边界。
 4. 为每个 `IntrinsicId` 提供显式 binding；不支持的项保留 `unavailable`，让 `MPF0004` 在 emitter 前失败关闭。
 5. 运行 `run_backend_conformance`，以共享默认 pipeline 产出的同一 MIR 和 revision-checked alias/effect table 验证 descriptor/profile/legalization/binding、重复 lowering、artifact verifier 和逐字节确定性；后端不得自行复制公共 folding/DCE/CFG pass。
