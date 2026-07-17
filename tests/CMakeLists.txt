@@ -100,6 +100,30 @@ function(mpf_add_generated_cpp_compile_test name input)
     TIMEOUT 300)
 endfunction()
 
+function(mpf_add_generated_runtime_failure_test name input expected_error)
+  set(tool_arguments)
+  if(MPF_NODE_EXECUTABLE)
+    list(APPEND tool_arguments "-DNODE=${MPF_NODE_EXECUTABLE}")
+  endif()
+  add_test(NAME mpf.generated.failure.${name}
+    COMMAND ${CMAKE_COMMAND}
+      -DMPFC=$<TARGET_FILE:mpfc>
+      -DINPUT=${PROJECT_SOURCE_DIR}/${input}
+      -DCASE_NAME=${name}
+      -DTEST_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/generated
+      -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/generated-failure-${name}
+      "-DEXPECTED_ERROR=${expected_error}"
+      "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}"
+      "-DGENERATOR=${CMAKE_GENERATOR}"
+      "-DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+      "-DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+      ${tool_arguments}
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_generated_runtime_failure.cmake)
+  set_tests_properties(mpf.generated.failure.${name} PROPERTIES
+    LABELS "generated;runtime-rejection;matlab"
+    TIMEOUT 300)
+endfunction()
+
 function(mpf_add_differential_case name language input expected_output)
   if(ARGC GREATER 4)
     set(output_mode "${ARGV4}")
@@ -197,6 +221,12 @@ if(TARGET mpfc)
 
   include(${CMAKE_CURRENT_SOURCE_DIR}/differential/corpus.cmake)
   mpf_add_generated_cpp_compile_test(matlab-basic examples/matlab/basic.m)
+  mpf_add_generated_runtime_failure_test(
+    matlab-rank-deficient tests/fixtures/matlab_rank_deficient.m
+    "rank deficient to working precision")
+  mpf_add_generated_runtime_failure_test(
+    matlab-dynamic-logical-mismatch tests/fixtures/matlab_dynamic_logical_mismatch.m
+    "logical selector shape")
 endif()
 
 mpf_add_backend_isolation_test(javascript-only ON OFF)
