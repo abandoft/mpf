@@ -1,4 +1,4 @@
-#include "matlab_statement_lexer.hpp"
+#include "frontends/matlab/statement_lexer.hpp"
 
 #include <algorithm>
 #include <cctype>

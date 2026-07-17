@@ -1,11 +1,12 @@
+#include "frontends/matlab/logical_source.hpp"
+
 #include <cctype>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
-#include "logical_source.hpp"
-#include "logical_source_common.hpp"
+#include "frontends/common/logical_source_support.hpp"
 
 namespace mpf::detail {
 namespace {

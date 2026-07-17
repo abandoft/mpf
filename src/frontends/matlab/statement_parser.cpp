@@ -1,4 +1,4 @@
-#include "matlab_statement_parser.hpp"
+#include "frontends/matlab/statement_parser.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -9,8 +9,9 @@
 #include <utility>
 #include <vector>
 
-#include "common.hpp"
-#include "frontend_ast_builder.hpp"
+#include "frontends/common/ast_builder.hpp"
+#include "frontends/common/parser_support.hpp"
+#include "frontends/matlab/expression_lexer.hpp"
 
 namespace mpf::detail {
 namespace {
@@ -93,7 +94,7 @@ class Parser final {
       : lines_(std::move(lines)),
         diagnostics_(std::move(diagnostics)),
         version_(version),
-        builder_(SourceLanguage::matlab, resource) {
+        builder_(SourceLanguage::matlab, &lex_matlab_expression, resource) {
     builder_.reserve(lines_.size(), lines_.size() * 2U);
   }
 

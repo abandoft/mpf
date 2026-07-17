@@ -3,8 +3,8 @@
 #include <memory_resource>
 #include <vector>
 
-#include "../lexer/matlab_statement_lexer.hpp"
-#include "frontend_ast.hpp"
+#include "frontends/common/ast.hpp"
+#include "frontends/matlab/statement_lexer.hpp"
 
 namespace mpf::detail {
 

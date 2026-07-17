@@ -1,11 +1,11 @@
 #include <iterator>
 #include <utility>
 
-#include "../lexer/matlab_statement_lexer.hpp"
-#include "common.hpp"
-#include "frontend_descriptor.hpp"
-#include "logical_source.hpp"
-#include "matlab_statement_parser.hpp"
+#include "frontends/common/descriptor.hpp"
+#include "frontends/common/parser_support.hpp"
+#include "frontends/matlab/logical_source.hpp"
+#include "frontends/matlab/statement_lexer.hpp"
+#include "frontends/matlab/statement_parser.hpp"
 
 namespace mpf::detail {
 namespace {
