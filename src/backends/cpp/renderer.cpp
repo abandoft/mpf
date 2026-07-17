@@ -489,6 +489,11 @@ class Renderer final {
         output_ << expression.plan.token;
         if (!expression.children.empty()) emit_expression(expression.children.front(), own);
         break;
+      case cpp::lir::ExpressionForm::matlab_transpose:
+        output_ << expression.plan.token << '(';
+        emit_expression(expression.children.front());
+        output_ << ')';
+        break;
       case cpp::lir::ExpressionForm::binary_lazy_and:
       case cpp::lir::ExpressionForm::binary_lazy_or:
         if (expression.plan.evaluation != cpp::lir::EvaluationForm::lazy_reference_lambda_thunks) {
@@ -541,10 +546,20 @@ class Renderer final {
         emit_expression(expression.children[1], own + 1);
         break;
       case cpp::lir::ExpressionForm::matlab_array_operation:
-        output_ << expression.plan.token << '(';
+        output_ << expression.plan.token;
+        if (expression.plan.broadcast.valid) output_ << "_broadcast";
+        output_ << '(';
         emit_expression(expression.children[0]);
         output_ << ", ";
         emit_expression(expression.children[1]);
+        if (expression.plan.broadcast.valid) {
+          output_ << ", ";
+          emit_shape_array(expression.plan.broadcast.left_shape);
+          output_ << ", ";
+          emit_shape_array(expression.plan.broadcast.right_shape);
+          output_ << ", ";
+          emit_shape_array(expression.plan.broadcast.result_shape);
+        }
         output_ << ')';
         break;
       case cpp::lir::ExpressionForm::comparison_chain: emit_comparison_chain(expression); break;
@@ -621,6 +636,17 @@ class Renderer final {
               output_ << "), " << expression.plan.index_base << ", "
                       << (expression.plan.allow_negative_index ? "true" : "false") << ')';
             }
+            break;
+          case cpp::lir::IndexForm::logical:
+            output_ << "mpf_runtime::logical_index_nd(";
+            emit_expression(expression.children[0]);
+            output_ << ", ";
+            emit_expression(expression.children[1]);
+            output_ << ", ";
+            emit_shape_array(expression.plan.input_shape);
+            output_ << ", ";
+            emit_shape_array(expression.plan.result_shape);
+            output_ << ')';
             break;
           case cpp::lir::IndexForm::none: output_ << '0'; break;
         }
@@ -998,6 +1024,20 @@ class Renderer final {
           emit_expression(statement.expression);
         }
         output_ << ";\n";
+        break;
+      case cpp::lir::StatementForm::indexed_logical_assignment:
+        indentation();
+        output_ << "mpf_runtime::assign_logical_nd(";
+        emit_expression(statement.target_expression.children[0]);
+        output_ << ", ";
+        emit_expression(statement.target_expression.children[1]);
+        output_ << ", ";
+        emit_expression(statement.expression);
+        output_ << ", ";
+        emit_shape_array(statement.target_expression.plan.input_shape);
+        output_ << ", ";
+        emit_shape_array(statement.target_expression.plan.result_shape);
+        output_ << ");\n";
         break;
       case cpp::lir::StatementForm::print_empty:
       case cpp::lir::StatementForm::print_value:
