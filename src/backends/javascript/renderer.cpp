@@ -49,6 +49,15 @@ class Renderer final {
            form == javascript::lir::ExpressionForm::binary_reverse_divide;
   }
 
+  void emit_shape(const std::vector<std::size_t>& shape) {
+    output_ << '[';
+    for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+      if (axis != 0U) output_ << ", ";
+      output_ << shape[axis];
+    }
+    output_ << ']';
+  }
+
   void emit_comparison(const javascript::lir::ComparisonPlan& comparison, const std::string& left,
                        const std::string& right) {
     switch (comparison.form) {
@@ -252,6 +261,11 @@ class Renderer final {
           emit_expression(expression.children.front(), precedence);
         }
         break;
+      case javascript::lir::ExpressionForm::matlab_transpose:
+        output_ << expression.plan.token << '(';
+        emit_expression(expression.children.front());
+        output_ << ')';
+        break;
       case javascript::lir::ExpressionForm::binary_lazy_and:
       case javascript::lir::ExpressionForm::binary_lazy_or:
         if (expression.plan.evaluation != javascript::lir::EvaluationForm::lazy_arrow_thunks) {
@@ -287,6 +301,14 @@ class Renderer final {
         emit_expression(expression.children[0]);
         output_ << ", ";
         emit_expression(expression.children[1]);
+        if (expression.plan.broadcast.valid) {
+          output_ << ", ";
+          emit_shape(expression.plan.broadcast.left_shape);
+          output_ << ", ";
+          emit_shape(expression.plan.broadcast.right_shape);
+          output_ << ", ";
+          emit_shape(expression.plan.broadcast.result_shape);
+        }
         output_ << ')';
         break;
       case javascript::lir::ExpressionForm::binary_operator: {
@@ -317,7 +339,13 @@ class Renderer final {
         break;
       case javascript::lir::ExpressionForm::call: break;
       case javascript::lir::ExpressionForm::index:
-        if (expression.plan.index == javascript::lir::IndexForm::section) {
+        if (expression.plan.index == javascript::lir::IndexForm::logical) {
+          output_ << "__mpf_logical_get(";
+          emit_expression(expression.children[0]);
+          output_ << ", ";
+          emit_expression(expression.children[1]);
+          output_ << ')';
+        } else if (expression.plan.index == javascript::lir::IndexForm::section) {
           output_ << "__mpf_section(";
           emit_expression(expression.children[0]);
           output_ << ", [";
@@ -732,6 +760,16 @@ class Renderer final {
                   << ", " << (statement.target_expression.plan.column_major ? "true" : "false")
                   << ");\n";
         }
+        break;
+      case javascript::lir::StatementForm::indexed_logical_assignment:
+        indentation();
+        output_ << "__mpf_set_logical(";
+        emit_expression(statement.target_expression.children[0]);
+        output_ << ", ";
+        emit_expression(statement.target_expression.children[1]);
+        output_ << ", ";
+        emit_expression(statement.expression);
+        output_ << ");\n";
         break;
       case javascript::lir::StatementForm::print_empty:
       case javascript::lir::StatementForm::print_value:
