@@ -3,8 +3,8 @@
 #include <memory_resource>
 #include <vector>
 
-#include "../lexer/python_statement_lexer.hpp"
-#include "frontend_ast.hpp"
+#include "frontends/common/ast.hpp"
+#include "frontends/python/statement_lexer.hpp"
 
 namespace mpf::detail {
 

@@ -1,11 +1,11 @@
 #include <iterator>
 #include <utility>
 
-#include "../lexer/python_statement_lexer.hpp"
-#include "common.hpp"
-#include "frontend_descriptor.hpp"
-#include "logical_source.hpp"
-#include "python_statement_parser.hpp"
+#include "frontends/common/descriptor.hpp"
+#include "frontends/common/parser_support.hpp"
+#include "frontends/python/logical_source.hpp"
+#include "frontends/python/statement_lexer.hpp"
+#include "frontends/python/statement_parser.hpp"
 
 namespace mpf::detail {
 namespace {
