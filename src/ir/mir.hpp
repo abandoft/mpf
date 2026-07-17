@@ -296,6 +296,7 @@ struct AssignmentPattern {
 
 struct BroadcastPlan {
   bool valid{false};
+  semantic::BroadcastShapeSource shape_source{semantic::BroadcastShapeSource::static_extents};
   ShapeId left_shape{};
   ShapeId right_shape{};
   ShapeId result_shape{};
@@ -332,7 +333,9 @@ struct ExpressionAttributes {
   std::size_t index_base{0};
   bool allow_negative_index{false};
   bool slice_stop_inclusive{false};
+  semantic::IndexExtentSource index_extent{semantic::IndexExtentSource::none};
   std::vector<semantic::IndexSelectorKind> index_selectors;
+  std::vector<semantic::IndexExtentSource> index_extents;
   bool lazy_cfg{false};
   StorageRegion storage_region;
 };

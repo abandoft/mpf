@@ -725,6 +725,7 @@ class Builder final {
       result_attributes.array_operation = semantic_facts->array_operation;
       if (semantic_facts->broadcast.valid) {
         result_attributes.broadcast.valid = true;
+        result_attributes.broadcast.shape_source = semantic_facts->broadcast.shape_source;
         result_attributes.broadcast.left_shape =
             intern_shape(semantic_facts->broadcast.left_shape, false);
         result_attributes.broadcast.right_shape =
@@ -761,7 +762,9 @@ class Builder final {
       result_attributes.index_base = semantic_facts->index_base;
       result_attributes.allow_negative_index = semantic_facts->allow_negative_index;
       result_attributes.slice_stop_inclusive = semantic_facts->slice_stop_inclusive;
+      result_attributes.index_extent = semantic_facts->index_extent;
       result_attributes.index_selectors = semantic_facts->index_selectors;
+      result_attributes.index_extents = semantic_facts->index_extents;
       result_attributes.storage_region = semantic_facts->storage_region;
     }
     result.children.reserve(source.children.size());

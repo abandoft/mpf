@@ -109,10 +109,12 @@ class HirLowerer final {
     facts.slice_stop_inclusive = node.slice_stop_inclusive;
     if (result.kind == ExpressionKind::index) {
       facts.index_selectors.reserve(result.children.empty() ? 0U : result.children.size() - 1U);
+      facts.index_extents.reserve(result.children.empty() ? 0U : result.children.size() - 1U);
       for (std::size_t index = 1; index < result.children.size(); ++index) {
         facts.index_selectors.push_back(result.children[index].kind == ExpressionKind::slice
                                             ? semantic::IndexSelectorKind::slice
                                             : semantic::IndexSelectorKind::scalar);
+        facts.index_extents.push_back(semantic::IndexExtentSource::none);
       }
     }
     append_expression_facts(std::move(facts));

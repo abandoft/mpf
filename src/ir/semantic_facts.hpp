@@ -16,6 +16,7 @@ enum class SemanticNodeKind : std::uint8_t { absent, expression, statement };
 
 struct BroadcastPlan {
   bool valid{false};
+  semantic::BroadcastShapeSource shape_source{semantic::BroadcastShapeSource::static_extents};
   std::vector<std::size_t> left_shape;
   std::vector<std::size_t> right_shape;
   std::vector<std::size_t> result_shape;
@@ -57,7 +58,9 @@ struct ExpressionFacts {
   bool allow_negative_index{false};
   bool column_major{false};
   bool slice_stop_inclusive{false};
+  semantic::IndexExtentSource index_extent{semantic::IndexExtentSource::none};
   std::vector<semantic::IndexSelectorKind> index_selectors;
+  std::vector<semantic::IndexExtentSource> index_extents;
   StorageRegion storage_region;
 };
 

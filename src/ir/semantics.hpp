@@ -17,6 +17,9 @@ enum class ScopeModel { function, lexical_blocks };
 // Per-axis lowering contract for Matlab compatible-size array operations. Matlab aligns
 // dimensions from the first axis and treats missing trailing dimensions as singleton axes.
 enum class BroadcastAxis : std::uint8_t { match, expand_left, expand_right, runtime };
+// Whether a compatible-size operation can use analyzer-owned extents directly or must derive
+// operand shapes after evaluating the two runtime values. The latter also represents unknown rank.
+enum class BroadcastShapeSource : std::uint8_t { static_extents, runtime_operands };
 enum class ArrayOperation : std::uint8_t { native, matlab };
 enum class MatrixOperation : std::uint8_t {
   none,
@@ -36,8 +39,16 @@ enum class MatrixSolveKind : std::uint8_t { none, square, overdetermined, underd
 // indexing semantics again in each target backend.
 enum class IndexSelectorKind : std::uint8_t { scalar, slice, numeric, logical, empty };
 
+// Runtime source for Matlab's contextual `end` value. An axis extent is resolved against the
+// current selector dimension; a linear extent is resolved against the column-major element count.
+enum class IndexExtentSource : std::uint8_t { none, runtime_axis, runtime_linear };
+
 [[nodiscard]] constexpr bool selector_preserves_dimension(const IndexSelectorKind kind) noexcept {
   return kind != IndexSelectorKind::scalar;
+}
+
+[[nodiscard]] constexpr bool requires_runtime_extent(const IndexExtentSource source) noexcept {
+  return source != IndexExtentSource::none;
 }
 
 struct Profile {
