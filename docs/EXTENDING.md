@@ -33,9 +33,9 @@ AST-to-HIR + dense semantic-seed lowering callback
 接入步骤：
 
 1. 在公共 `SourceLanguage` 中加入稳定身份；名称使用语言名，不携带实现标准版本号。
-2. 在独立目录/源文件中实现 logical-source normalization、statement lexer/parser 和语言专属 PMR arena AST；节点类型必须与其他语言编译期不兼容，不能把共享 syntax `Program` 放进 artifact。
+2. 在 `src/frontends/<canonical-language>/` 中实现 expression/statement lexer、logical-source normalization、statement parser、frontend factory 和语言专属 PMR arena AST；节点类型必须与其他语言编译期不兼容，不能把共享 syntax `Program` 放进 artifact。只有真正跨语言、目标无关的前端设施才能进入 `src/frontends/common/`。
 3. 提供 descriptor factory 和独立 parser-session factory；扩展名和探测规则归前端所有，解析选项、arena、资源上限和请求 feature 通过 `FrontendParseOptions` 传入，并声明版本范围、能力与 AST schema。
-4. 在 `frontend_registry.cpp` 的静态 catalog 增加一项，并将组件源码加入 `mpf-core`。
+4. 在 `src/frontends/common/registry.cpp` 的静态 catalog 增加一项，并将组件源码加入 `mpf-core`。
 5. 由 descriptor 显式选择一组有序 spelling → `IntrinsicId` 表；只有源语言确实提供相同全局拼写时才选择共享数学表，TypeScript 一类语言可以完全不选。语义相同的函数复用已有 ID，语义不同的函数必须新增 ID。
 6. 提供 AST verifier 和 AST→HIR lowering；每个有效 `HirNodeId` 必须同时拥有同 revision 的 semantic slot。运行 `run_frontend_conformance` 验证 descriptor、HIR/seed 完整性以及重复 parse/lowering 的逐字节确定性。
 7. 增加 canonical 名称/扩展名冲突、旧缩写拒绝、探测优先级、parser 成功/拒绝、双后端行为和差分测试。
@@ -62,8 +62,8 @@ emitter/printer
 接入步骤：
 
 1. 在公共 `TargetLanguage` 中加入稳定身份。
-2. 在 `src/backends/<canonical-target>/` 新建不重复目标前缀的 `backend`、`bindings`、`lir`、`lowering`、`renderer`、`runtime`、`validator` 和 `emitter`，并建立独立 CMake target；只依赖 `mpf-core`/允许的 backend-common 设施。
-3. 在 backend registry 增加目标 metadata 与条件 factory，在 facade 中加入对应构建选项和链接边界。
+2. 在 `src/backends/<canonical-target>/` 新建不重复目标前缀的 `backend`、`bindings`、`lir`、`lowering`、`renderer`、`runtime`、`validator` 和 `emitter`，并建立独立 CMake target；只依赖 `mpf-core` 和 `src/backends/common/` 提供的允许设施。
+3. 在 `src/backends/common/registry.cpp` 增加目标 metadata 与条件 factory，在 facade 中加入对应构建选项和链接边界。
 4. 为每个 `IntrinsicId` 提供显式 binding；不支持的项保留 `unavailable`，让 `MPF0004` 在 emitter 前失败关闭。
 5. 运行 `run_backend_conformance`，以共享默认 pipeline 产出的同一 MIR 和 revision-checked alias/effect table 验证 descriptor/profile/legalization/binding、重复 lowering、artifact verifier 和逐字节确定性；后端不得自行复制公共 folding/DCE/CFG pass。
 6. 增加 target-only、其他后端禁用和 core-only 的全新构建/安装/外部消费测试，确认 compilation database 不包含禁用目标源码。
@@ -143,15 +143,17 @@ descriptor API 升级时必须同步替换 catalog producer/consumer、validatio
 一个新输出语言的推荐目录固定为：
 
 ```text
-backends/<target>/
-├── descriptor + target_profile
-├── capability
-├── legalization
-├── type_and_representation_lowering
-├── intrinsic_and_runtime_bindings
-├── semantic_ir + verifier
-├── lir + passes + verifier
-└── emitter_or_printer
+src/backends/<target>/
+├── backend.*             descriptor, target profile and capability
+├── bindings.*            intrinsic and runtime bindings
+├── lir.hpp               target-owned semantic/rendered LIR
+├── lir_planning.*        resources, ABI and scope planning
+├── lir_representation.*  target representation decisions and verifier
+├── lowering.*            MIR-to-target lowering
+├── renderer.*            source-origin chunk materialization
+├── runtime.*             target runtime catalog
+├── validator.*           capability and legalization
+└── emitter.*             pure serialization
 ```
 
 接入新目标不应修改 MIR opcode 的既有含义、其他后端或核心分派；只有确属跨目标的新语义才先扩展 MIR contract。Backend SDK 负责生命周期、pass、诊断、origin、metrics、稳定名称和 conformance，具体后端负责所有目标策略。

@@ -39,9 +39,19 @@ go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
 
 不要在根目录或源码子目录中生成构建文件；只使用 `build/<name>/`。不要修改、构建或引用废弃归档内容。公共 API 变更直接更新当前 producer、consumer、测试和文档，不保留旧接口适配层。新增源语言语义必须在对应 frontend 中解析并 lowering 到公共 IR，不得在任一目标 emitter 中根据源文本猜测。语言能力原则上必须同时提供 JavaScript 和 C++17 后端测试；C++17 生成物测试必须真实编译。生成任一目标不得依赖另一目标的生成物。
 
+源语言实现分别位于 `src/frontends/<language>/`，表达式 lexer、statement lexer/parser、
+logical-source normalizer 和 frontend factory 都由语言目录所有；只有 descriptor、registry 和真正
+跨语言的 arena/parser 支持可以进入 `src/frontends/common/`。`src/lexer/` 只放目标无关的 token、
+scanner 基础设施，不建立平行的 `src/lexers/`。
+
 目标后端源码分别位于 `src/backends/javascript/` 和 `src/backends/cpp/`，文件名只表达
-`backend`、`lir`、`lowering`、`renderer` 等职责，不重复目标语言前缀。跨目标公共组件才能放在
-`src/backends/` 根目录；任一目标目录不得包含另一目标的头文件。
+`backend`、`lir`、`lowering`、`renderer` 等职责，不重复目标语言前缀。跨目标公共组件只能放在
+`src/backends/common/`；`src/backends/` 根目录不放实现文件，任一目标目录不得包含另一目标的头文件。
+公共可安装头文件只放在 `include/mpf/`；生成头模板放在 `cmake/templates/`，不得把 `.in` 文件混入
+公共 include tree。
+
+内部跨组件 include 使用以 `src/` 为根的稳定路径，例如 `"ir/mir.hpp"` 和
+`"frontends/common/descriptor.hpp"`；禁止 `../`/`../../` 穿越目录。组件内部可以使用同目录短路径。
 
 版本号遵循 [版本策略](VERSIONING.md)：从 `0.0.1` 开始，patch 只使用 `0`—`9`，
 因此 `0.2.9` 的下一个版本是 `0.3.0`。只修改 CMake `project(VERSION)`；公共头、CLI 和安装包

@@ -23,7 +23,7 @@
 - 前端彼此隔离，只负责源语言语法和语义；禁止在解析器中直接拼接目标语言代码。
 - HIR 表达规范化源语义，MIR 表达目标无关执行语义；后端不得从源语言身份猜测行为。
 - 不支持或无法保持语义的结构必须产生诊断，禁止静默降级。
-- 公共 API 只位于 `include/mpf/`；0.x 期间公共与内部接口均以当前源码为唯一 contract，不形成跨版本兼容承诺。
+- 公共 API 只位于 `include/mpf/`；`mpf/mpf.hpp` 是完整入口，细粒度头文件可按需包含。配置期生成的 `mpf/version.hpp` 来自 `cmake/templates/version.hpp.in`，模板不混入可安装头文件树。0.x 期间公共与内部接口均以当前源码为唯一 contract，不形成跨版本兼容承诺。
 - 默认输出 JavaScript ESM，也可选择 C++17；两种输出都应确定、格式稳定并适合代码审查。
 
 ## 编译流程
@@ -109,11 +109,13 @@ mpf facade
 - `mpf-backend-cpp`：`cpp` 稠密代码绑定、capability、semantic plan、LIR/pass/verifier 和 emitter。
 - `mpf` facade：公共转译 API 与可选 backend registry；不直接包含具体 emitter 头文件。
 
+当前这些 C++ target 均显式构建为静态库，避免 `BUILD_SHARED_LIBS` 在未定义导出宏、可见性、稳定 ABI 和跨模块 allocator contract 时意外产出不可支持的动态库。稳定共享库将在 C ABI/符号导出/所有权/版本协商边界完成后作为独立产品能力交付，不把内部 0.x C++ descriptor 当作动态 ABI。
+
 目标源码按目录而不是文件名前缀区分：`src/backends/javascript/` 与
 `src/backends/cpp/` 各自包含 `backend`、`bindings`、`lir`、`lowering`、`renderer`、
-`runtime`、`validator` 和纯 `emitter`；公共 artifact、pipeline、identifier 与 target-LIR
-工具保留在 `src/backends/` 根目录。架构门禁拒绝在根目录恢复 `javascript_*`/`cpp_*`
-文件，也拒绝目标目录 include 另一目标。
+`runtime`、`validator` 和纯 `emitter`；跨目标的 artifact、pipeline、registry、identifier
+与 target-LIR 工具集中在 `src/backends/common/`。`src/backends/` 根目录不放实现文件。
+架构门禁拒绝恢复平铺文件，也拒绝目标目录 include 另一目标。
 
 隔离测试会为 javascript-only、cpp-only 和 core-only 分别创建全新构建树，检查 compilation database 中不存在禁用后端源码，执行可用/不可用目标诊断，安装对应组件，再由外部 CMake 消费者验证导出依赖。
 
@@ -121,14 +123,24 @@ mpf facade
 
 ## 目录边界
 
+```text
+include/mpf/                 public installed C++ API
+cmake/templates/             configure-time generated-header templates
+src/lexer/                   source-language-neutral token/scanner primitives
+src/frontends/common/        frontend descriptor, registry and arena support
+src/frontends/<language>/    language-owned normalization, lexing, parsing and frontend
+src/backends/common/         cross-target backend infrastructure
+src/backends/<target>/       target-owned lowering, LIR, runtime, rendering and emission
+```
+
 - `core`：公共入口、诊断以及编译会话生命周期。
 - `source`：SourceManager 拥有多份源码、稳定文件表、UTF-8 位置、行表和跨度。
-- `lexer`/`lexers`：公共表达式 token/scanner、语言独立词法规则、共享 `BasicStatementToken` 载体，以及带 byte span/源位置的四语言 statement lexer。
+- `lexer`：只保留公共 token/scanner、语言独立词法规则和共享 `BasicStatementToken` 载体；表达式与 statement lexer 都由 `frontends/<language>/` 所有，不存在平行的 `src/lexers/`。通用表达式 parser 接收语言目录提供的 lexer 回调和 token 结果，公共 lexer 层不以 `switch(SourceLanguage)` 枚举具体语言。
 - `compiler`：递归 assignment pattern/value metadata、Pratt 表达式 parser、轻量 statement identity、通用 HIR 函数依赖图、稳定 intrinsic ID 和代码绑定验证；不定义跨语言 syntax `Program`/`Statement`。
 - `ir`：强类型 ID、semantic profile、HIR、MIR lowering、独立 MIR opcode/verifier、共享 MIR optimization pipeline、revision-bound alias/effect 与 CFG memory-dependence 分析、pass/analysis manager 与确定性 dump。
 - `semantic`：目标无关的作用域、名称绑定、builtin 遮蔽、确定赋值、循环上下文、不可达代码、表达式分支类型、标量/元素类型、矩形 shape、动态 extent、slice 长度、section conformability、逐维静态越界和 rank。
-- `frontends`：统一 descriptor/registry、只共享 arena 生命周期机制的 `FrontendAstBuilder`，以及每种语言独立 logical-source normalizer 与递归下降 statement parser；parser 消费 statement token/span，把表达式跨度交给 Pratt parser 并立即驻留到本语言 arena。当前迁移覆盖已支持子集，完整官方 grammar 仍按各语言里程碑扩展。
-- `backends`：descriptor v5、revision-checked alias/effect 输入、TargetProfile/legalization、目标 intrinsic binding、独立 capability/semantic plan/LIR/pass/verifier、resource/layout/representation planner、target renderer、目标 runtime source catalog 与纯 serialized-chunk emitter，以及仅供后端使用的保留字/冲突安全名称和 CSR temporary plan。Python loop-else 使用每层独立完成标志；数组访问的 nested/matrix/section 形式由目标 `ExpressionPlan` 固化，并消费 shape/bounds/base/negative-index/column-major 元数据。生成 C++ 放入 `TranslationUnitPlan` 固化的 `mpf_generated` namespace，runtime 放入独立 `mpf_runtime` namespace。
+- `frontends`：`common/` 拥有 descriptor/registry 和只共享 arena 生命周期机制的 `FrontendAstBuilder`；每个语言目录独占 logical-source normalizer、表达式/statement lexer、递归下降 parser 与 frontend factory。parser 消费 statement token/span，把表达式跨度交给 Pratt parser 并立即驻留到本语言 arena。当前迁移覆盖已支持子集，完整官方 grammar 仍按各语言里程碑扩展。
+- `backends`：`common/` 拥有 descriptor、registry、revision-checked artifact/pipeline 和跨目标名称/LIR 工具；每个目标目录独占 intrinsic binding、capability/semantic plan/LIR/pass/verifier、resource/layout/representation planner、renderer、runtime source catalog 与纯 serialized-chunk emitter。Python loop-else 使用每层独立完成标志；数组访问的 nested/matrix/section 形式由目标 `ExpressionPlan` 固化，并消费 shape/bounds/base/negative-index/column-major 元数据。生成 C++ 放入 `TranslationUnitPlan` 固化的 `mpf_generated` namespace，runtime 放入独立 `mpf_runtime` namespace。
 - `cli`：文件和参数 I/O，不包含编译语义。
 
 ## 正确性策略
