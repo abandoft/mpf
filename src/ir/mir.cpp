@@ -733,6 +733,18 @@ class Builder final {
             intern_shape(semantic_facts->broadcast.result_shape, false);
         result_attributes.broadcast.axes = semantic_facts->broadcast.axes;
       }
+      if (semantic_facts->matrix_operation.valid()) {
+        result_attributes.matrix_operation.operation = semantic_facts->matrix_operation.operation;
+        result_attributes.matrix_operation.solve = semantic_facts->matrix_operation.solve;
+        result_attributes.matrix_operation.left_shape =
+            intern_shape(semantic_facts->matrix_operation.left_shape, false);
+        if (!semantic_facts->matrix_operation.right_shape.empty()) {
+          result_attributes.matrix_operation.right_shape =
+              intern_shape(semantic_facts->matrix_operation.right_shape, false);
+        }
+        result_attributes.matrix_operation.result_shape =
+            intern_shape(semantic_facts->matrix_operation.result_shape, false);
+      }
       result_attributes.binding = semantic_facts->binding;
       result_attributes.intrinsic = semantic_facts->intrinsic;
       result_attributes.tuple_shapes.reserve(semantic_facts->tuple_shapes.size());
@@ -749,7 +761,7 @@ class Builder final {
       result_attributes.index_base = semantic_facts->index_base;
       result_attributes.allow_negative_index = semantic_facts->allow_negative_index;
       result_attributes.slice_stop_inclusive = semantic_facts->slice_stop_inclusive;
-      result_attributes.index_selection = semantic_facts->index_selection;
+      result_attributes.index_selectors = semantic_facts->index_selectors;
       result_attributes.storage_region = semantic_facts->storage_region;
     }
     result.children.reserve(source.children.size());

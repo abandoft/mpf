@@ -302,6 +302,16 @@ struct BroadcastPlan {
   std::vector<semantic::BroadcastAxis> axes;
 };
 
+struct MatrixOperationPlan {
+  semantic::MatrixOperation operation{semantic::MatrixOperation::none};
+  semantic::MatrixSolveKind solve{semantic::MatrixSolveKind::none};
+  ShapeId left_shape{};
+  ShapeId right_shape{};
+  ShapeId result_shape{};
+
+  [[nodiscard]] bool valid() const noexcept { return operation != semantic::MatrixOperation::none; }
+};
+
 struct ExpressionAttributes {
   MirExpressionId origin{};
   std::string spelling;
@@ -311,6 +321,7 @@ struct ExpressionAttributes {
   std::vector<ComparisonOperator> comparisons;
   semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
   BroadcastPlan broadcast;
+  MatrixOperationPlan matrix_operation;
   BindingKind binding{BindingKind::unresolved};
   IntrinsicId intrinsic{IntrinsicId::none};
   std::vector<ShapeId> tuple_shapes;
@@ -321,7 +332,7 @@ struct ExpressionAttributes {
   std::size_t index_base{0};
   bool allow_negative_index{false};
   bool slice_stop_inclusive{false};
-  semantic::IndexSelection index_selection{semantic::IndexSelection::positional};
+  std::vector<semantic::IndexSelectorKind> index_selectors;
   bool lazy_cfg{false};
   StorageRegion storage_region;
 };

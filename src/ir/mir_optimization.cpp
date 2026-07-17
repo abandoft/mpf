@@ -96,6 +96,13 @@ std::vector<Diagnostic> canonicalize_shapes(Program& program, OptimizationStatis
       remap_shape(attributes.broadcast.right_shape, remap);
       remap_shape(attributes.broadcast.result_shape, remap);
     }
+    if (attributes.matrix_operation.valid()) {
+      remap_shape(attributes.matrix_operation.left_shape, remap);
+      if (attributes.matrix_operation.right_shape.valid()) {
+        remap_shape(attributes.matrix_operation.right_shape, remap);
+      }
+      remap_shape(attributes.matrix_operation.result_shape, remap);
+    }
     for (auto& shape : attributes.tuple_shapes) remap_shape(shape, remap);
     for (auto& metadata : attributes.sequence_elements) remap_value_metadata(metadata, remap);
   }
@@ -366,6 +373,7 @@ bool fold_expression(Program& program, const MirExpressionId id, OptimizationSta
   facts->comparisons.clear();
   facts->array_operation = semantic::ArrayOperation::native;
   facts->broadcast = {};
+  facts->matrix_operation = {};
   facts->binding = BindingKind::unresolved;
   facts->intrinsic = IntrinsicId::none;
   facts->tuple_shapes.clear();
@@ -376,7 +384,7 @@ bool fold_expression(Program& program, const MirExpressionId id, OptimizationSta
   facts->index_base = 0U;
   facts->allow_negative_index = false;
   facts->slice_stop_inclusive = false;
-  facts->index_selection = semantic::IndexSelection::positional;
+  facts->index_selectors.clear();
   facts->lazy_cfg = false;
   facts->storage_region = {};
   instruction.opcode = Opcode::literal;

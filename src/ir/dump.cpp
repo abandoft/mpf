@@ -164,7 +164,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v2 hir-nodes=" << table.hir_node_count
+  output << "semantic-v4 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -180,7 +180,35 @@ std::string dump_semantics(const hir::SemanticTable& table) {
         if (extent != 0) output << ',';
         output << facts.shape[extent];
       }
-      output << "] outputs=" << facts.requested_outputs << " region=";
+      output << "] outputs=" << facts.requested_outputs;
+      if (!facts.index_selectors.empty()) {
+        output << " selectors=[";
+        for (std::size_t selector = 0; selector < facts.index_selectors.size(); ++selector) {
+          if (selector != 0U) output << ',';
+          output << enum_value(facts.index_selectors[selector]);
+        }
+        output << ']';
+      }
+      if (facts.matrix_operation.valid()) {
+        const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
+          output << '[';
+          for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+            if (axis != 0U) output << ',';
+            output << shape[axis];
+          }
+          output << ']';
+        };
+        output << " matrix-operation=" << enum_value(facts.matrix_operation.operation)
+               << " solve=" << enum_value(facts.matrix_operation.solve) << ' ';
+        dump_shape(facts.matrix_operation.left_shape);
+        if (!facts.matrix_operation.right_shape.empty()) {
+          output << ',';
+          dump_shape(facts.matrix_operation.right_shape);
+        }
+        output << "->";
+        dump_shape(facts.matrix_operation.result_shape);
+      }
+      output << " region=";
       dump_storage_region(output, facts.storage_region);
     } else if (slot.kind == hir::SemanticNodeKind::statement &&
                slot.offset < table.statements.size()) {
@@ -202,7 +230,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v6 language=" << enum_value(program.source_language)
+  output << "mir-v9 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -239,8 +267,13 @@ std::string dump_mir(const mir::Program& program) {
       if (attributes->array_operation == semantic::ArrayOperation::matlab) {
         output << " matlab-array-operation=1";
       }
-      if (attributes->index_selection == semantic::IndexSelection::logical) {
-        output << " logical-index=1";
+      if (!attributes->index_selectors.empty()) {
+        output << " selectors=[";
+        for (std::size_t selector = 0; selector < attributes->index_selectors.size(); ++selector) {
+          if (selector != 0U) output << ',';
+          output << enum_value(attributes->index_selectors[selector]);
+        }
+        output << ']';
       }
       if (attributes->broadcast.valid) {
         output << " broadcast=!s" << attributes->broadcast.left_shape.value() << ",!s"
@@ -251,6 +284,15 @@ std::string dump_mir(const mir::Program& program) {
           output << enum_value(attributes->broadcast.axes[axis]);
         }
         output << ']';
+      }
+      if (attributes->matrix_operation.valid()) {
+        output << " matrix-operation=" << enum_value(attributes->matrix_operation.operation)
+               << " solve=" << enum_value(attributes->matrix_operation.solve) << " !s"
+               << attributes->matrix_operation.left_shape.value();
+        if (attributes->matrix_operation.right_shape.valid()) {
+          output << ",!s" << attributes->matrix_operation.right_shape.value();
+        }
+        output << "->!s" << attributes->matrix_operation.result_shape.value();
       }
     }
     output << '\n';

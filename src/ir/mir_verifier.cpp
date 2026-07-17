@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -37,6 +38,26 @@ void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation locati
 template <typename Id, typename Item>
 bool valid_index(const Id id, const std::vector<Item>& items) noexcept {
   return id.valid() && static_cast<std::size_t>(id.value()) < items.size();
+}
+
+std::optional<semantic::IndexSelectorKind> expected_index_selector(
+    const Program& program, const Expression& selector) noexcept {
+  if (selector.kind == ExpressionKind::slice) return semantic::IndexSelectorKind::slice;
+  const auto selector_type = value_type(program, selector.type_id);
+  if (selector_type == ValueType::unknown) return std::nullopt;
+  if (selector_type != ValueType::list) return semantic::IndexSelectorKind::scalar;
+  const auto* selector_shape = shape(program, selector.shape_id);
+  if (selector_shape != nullptr &&
+      std::find(selector_shape->extents.begin(), selector_shape->extents.end(), 0U) !=
+          selector_shape->extents.end()) {
+    return semantic::IndexSelectorKind::empty;
+  }
+  const auto selector_element = element_type(program, selector.type_id);
+  if (selector_element == ValueType::boolean) return semantic::IndexSelectorKind::logical;
+  if (selector_element == ValueType::integer || selector_element == ValueType::real) {
+    return semantic::IndexSelectorKind::numeric;
+  }
+  return std::nullopt;
 }
 
 StorageId storage_root(const Program& program, StorageId storage) noexcept {
@@ -119,6 +140,84 @@ bool compatible_shape(const Program& program, const ShapeId actual, const ShapeI
     }
   }
   return true;
+}
+
+semantic::MatrixOperation matrix_operation_for_operator(const BinaryOperator operation) noexcept {
+  switch (operation) {
+    case BinaryOperator::multiply: return semantic::MatrixOperation::multiply;
+    case BinaryOperator::left_divide: return semantic::MatrixOperation::left_divide;
+    case BinaryOperator::divide: return semantic::MatrixOperation::right_divide;
+    case BinaryOperator::power: return semantic::MatrixOperation::integer_power;
+    default: return semantic::MatrixOperation::none;
+  }
+}
+
+semantic::MatrixOperation expected_matrix_operation(
+    const Program& program, const Expression& expression,
+    const ExpressionAttributes& attributes) noexcept {
+  if (program.source_language != SourceLanguage::matlab ||
+      attributes.array_operation != semantic::ArrayOperation::matlab) {
+    return semantic::MatrixOperation::none;
+  }
+  if (expression.children.size() != 2U ||
+      !valid_index(expression.children[0], program.expressions) ||
+      !valid_index(expression.children[1], program.expressions)) {
+    return semantic::MatrixOperation::none;
+  }
+  const bool left_array =
+      value_type(program, program.expressions[expression.children[0].value()].type_id) ==
+      ValueType::list;
+  const bool right_array =
+      value_type(program, program.expressions[expression.children[1].value()].type_id) ==
+      ValueType::list;
+  if (attributes.operation == BinaryOperator::multiply && left_array && right_array) {
+    return semantic::MatrixOperation::multiply;
+  }
+  if (attributes.operation == BinaryOperator::left_divide && left_array && right_array) {
+    return semantic::MatrixOperation::left_divide;
+  }
+  if (attributes.operation == BinaryOperator::divide && left_array && right_array) {
+    return semantic::MatrixOperation::right_divide;
+  }
+  if (attributes.operation == BinaryOperator::power && left_array && !right_array) {
+    return semantic::MatrixOperation::integer_power;
+  }
+  return semantic::MatrixOperation::none;
+}
+
+bool static_rank_two(const ShapeData* shape_data) noexcept {
+  return shape_data != nullptr && shape_data->extents.size() == 2U &&
+         std::find(shape_data->extents.begin(), shape_data->extents.end(), dynamic_extent) ==
+             shape_data->extents.end();
+}
+
+bool valid_matrix_shapes(const Program& program, const MatrixOperationPlan& plan,
+                         const ShapeId expression_shape) noexcept {
+  const auto* left = shape(program, plan.left_shape);
+  const auto* right = shape(program, plan.right_shape);
+  const auto* result = shape(program, plan.result_shape);
+  if (!static_rank_two(left) || !static_rank_two(result) || plan.result_shape != expression_shape) {
+    return false;
+  }
+  switch (plan.operation) {
+    case semantic::MatrixOperation::none: return false;
+    case semantic::MatrixOperation::multiply:
+      return plan.solve == semantic::MatrixSolveKind::none && static_rank_two(right) &&
+             left->extents[1] == right->extents[0] && result->extents[0] == left->extents[0] &&
+             result->extents[1] == right->extents[1];
+    case semantic::MatrixOperation::left_divide:
+      return static_rank_two(right) && left->extents[0] == right->extents[0] &&
+             plan.solve == semantic::matrix_solve_kind(left->extents[0], left->extents[1]) &&
+             result->extents[0] == left->extents[1] && result->extents[1] == right->extents[1];
+    case semantic::MatrixOperation::right_divide:
+      return static_rank_two(right) && left->extents[1] == right->extents[1] &&
+             plan.solve == semantic::matrix_solve_kind(right->extents[1], right->extents[0]) &&
+             result->extents[0] == left->extents[0] && result->extents[1] == right->extents[0];
+    case semantic::MatrixOperation::integer_power:
+      return plan.solve == semantic::MatrixSolveKind::none && !plan.right_shape.valid() &&
+             left->extents[0] == left->extents[1] && result->extents == left->extents;
+  }
+  return false;
 }
 
 void verify_value_metadata(const ValueMetadata& metadata, const Program& program,
@@ -218,7 +317,11 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->comparison != ComparisonOperator::none ||
         !retired_attributes->comparisons.empty() ||
         retired_attributes->array_operation != semantic::ArrayOperation::native ||
-        retired_attributes->broadcast.valid ||
+        retired_attributes->broadcast.valid || retired_attributes->matrix_operation.valid() ||
+        retired_attributes->matrix_operation.solve != semantic::MatrixSolveKind::none ||
+        retired_attributes->matrix_operation.left_shape.valid() ||
+        retired_attributes->matrix_operation.right_shape.valid() ||
+        retired_attributes->matrix_operation.result_shape.valid() ||
         retired_attributes->binding != BindingKind::unresolved ||
         retired_attributes->intrinsic != IntrinsicId::none ||
         !retired_attributes->tuple_shapes.empty() ||
@@ -226,8 +329,7 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->requested_results != 1U || retired_attributes->multi_result_call ||
         retired_attributes->procedure_has_result || retired_attributes->index_base != 0U ||
         retired_attributes->allow_negative_index || retired_attributes->slice_stop_inclusive ||
-        retired_attributes->index_selection != semantic::IndexSelection::positional ||
-        retired_attributes->lazy_cfg ||
+        !retired_attributes->index_selectors.empty() || retired_attributes->lazy_cfg ||
         retired_attributes->storage_region.kind != StorageRegionKind::unknown) {
       add_error(diagnostics, expression.location, stage,
                 "retired expression does not satisfy its tombstone contract");
@@ -328,10 +430,27 @@ void verify_expression(const Expression& expression, const Program& program,
     add_error(diagnostics, expression.location, stage,
               "expression operation attributes contain an invalid storage region");
   }
-  if (expression_attributes->index_selection == semantic::IndexSelection::logical &&
-      (expression.kind != ExpressionKind::index || expression.children.size() != 2U)) {
+  if (expression.kind == ExpressionKind::index) {
+    if (expression_attributes->index_selectors.size() + 1U != expression.children.size()) {
+      add_error(diagnostics, expression.location, stage,
+                "index selector attributes disagree with the expression arity");
+    } else {
+      for (std::size_t selector_index = 0;
+           selector_index < expression_attributes->index_selectors.size(); ++selector_index) {
+        const auto* selector = mir::expression(program, expression.children[selector_index + 1U]);
+        const auto expected = selector == nullptr ? std::optional<semantic::IndexSelectorKind>{}
+                                                  : expected_index_selector(program, *selector);
+        if (expected.has_value() &&
+            *expected != expression_attributes->index_selectors[selector_index]) {
+          add_error(diagnostics, expression.location, stage,
+                    "index selector attribute disagrees with its MIR child");
+          break;
+        }
+      }
+    }
+  } else if (!expression_attributes->index_selectors.empty()) {
     add_error(diagnostics, expression.location, stage,
-              "logical index attributes require one normalized selector");
+              "non-index MIR expression retains selector attributes");
   }
   const bool requires_matlab_array_operation =
       program.source_language == SourceLanguage::matlab &&
@@ -377,6 +496,26 @@ void verify_expression(const Expression& expression, const Program& program,
         }
       }
     }
+  }
+  const auto& matrix = expression_attributes->matrix_operation;
+  const auto expected_matrix =
+      expected_matrix_operation(program, expression, *expression_attributes);
+  if (matrix.operation != expected_matrix) {
+    add_error(diagnostics, expression.location, stage,
+              "expression matrix-operation identity disagrees with its typed operands");
+  } else if (matrix.valid() &&
+             (expression_attributes->array_operation != semantic::ArrayOperation::matlab ||
+              expression.kind != ExpressionKind::binary || expression_attributes->broadcast.valid ||
+              matrix.operation != matrix_operation_for_operator(expression_attributes->operation) ||
+              !valid_matrix_shapes(program, matrix, expression.shape_id))) {
+    add_error(diagnostics, expression.location, stage,
+              "expression matrix-operation attributes have an invalid operator or shape "
+              "contract");
+  } else if (!matrix.valid() &&
+             (matrix.solve != semantic::MatrixSolveKind::none || matrix.left_shape.valid() ||
+              matrix.right_shape.valid() || matrix.result_shape.valid())) {
+    add_error(diagnostics, expression.location, stage,
+              "inactive expression matrix-operation attributes retain solve or shape facts");
   }
   if (expression.instruction.valid() &&
       expression.instruction.value() < program.instructions.size()) {
