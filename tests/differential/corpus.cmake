@@ -31,6 +31,11 @@ mpf_add_differential_case(matlab-multi-output matlab examples/matlab/multi_outpu
 mpf_add_differential_case(matlab-function-graph matlab examples/matlab/function_graph.m "61")
 mpf_add_differential_case(matlab-switch-case matlab examples/matlab/switch_case.m "42")
 mpf_add_differential_case(matlab-operators matlab examples/matlab/operators.m "101")
+mpf_add_differential_case(matlab-implicit-expansion matlab examples/matlab/implicit_expansion.m "329")
+mpf_add_differential_case(matlab-transpose matlab examples/matlab/transpose.m "16")
+mpf_add_differential_case(matlab-end-indexing matlab examples/matlab/end_indexing.m "122")
+mpf_add_differential_case(matlab-logical-indexing matlab examples/matlab/logical_indexing.m "48")
+mpf_add_differential_case(matlab-logical-comparisons matlab examples/matlab/logical_comparisons.m "164")
 
 mpf_add_differential_case(fortran-loops fortran examples/fortran/loops.f90 "12 -1")
 mpf_add_differential_case(python-loops python examples/python/loops.py "12 1")
