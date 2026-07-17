@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "../../ir/mir.hpp"
+#include "ir/mir.hpp"
 
 namespace mpf::detail {
 

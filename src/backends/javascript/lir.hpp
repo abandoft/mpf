@@ -6,13 +6,13 @@
 #include <string_view>
 #include <vector>
 
-#include "../../compiler/assignment_pattern.hpp"
-#include "../../compiler/binding.hpp"
-#include "../../compiler/call_contract.hpp"
-#include "../../ir/ids.hpp"
-#include "../../ir/semantics.hpp"
-#include "../backend_artifact.hpp"
-#include "../identifier_mangler.hpp"
+#include "backends/common/artifact.hpp"
+#include "backends/common/identifier_mangler.hpp"
+#include "compiler/assignment_pattern.hpp"
+#include "compiler/binding.hpp"
+#include "compiler/call_contract.hpp"
+#include "ir/ids.hpp"
+#include "ir/semantics.hpp"
 
 namespace mpf::detail::javascript::lir {
 

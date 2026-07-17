@@ -6,10 +6,10 @@
 #include <string>
 #include <utility>
 
-#include "../../ir/pass_manager.hpp"
-#include "../target_lir_builder.hpp"
-#include "../target_lir_dump.hpp"
+#include "backends/common/lir_builder.hpp"
+#include "backends/common/lir_dump.hpp"
 #include "bindings.hpp"
+#include "ir/pass_manager.hpp"
 #include "lir_planning.hpp"
 #include "lir_representation.hpp"
 #include "renderer.hpp"

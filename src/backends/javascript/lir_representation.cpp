@@ -4,7 +4,7 @@
 #include <string>
 #include <utility>
 
-#include "../target_lir_source_segments.hpp"
+#include "backends/common/source_segments.hpp"
 
 namespace mpf::detail::javascript {
 namespace {
