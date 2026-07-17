@@ -1,0 +1,4 @@
+overdetermined = [1 0; 0 1; 1 1] \ [1; 2; 4];
+underdetermined = [1 0 1; 0 1 1] \ [2; 3];
+right_solution = [1 2] / [1 0; 0 1; 1 1];
+disp(overdetermined(1) + underdetermined(2) + right_solution(3))

@@ -1,0 +1,6 @@
+coefficient = [4 1; 2 3];
+right_hand_side = [9; 8];
+solution = coefficient \ right_hand_side;
+right_solution = [5 7] / coefficient;
+powered = coefficient ^ -2;
+disp(solution(1) + right_solution(2) + powered(1, 1))
