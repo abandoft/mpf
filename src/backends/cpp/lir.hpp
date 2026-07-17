@@ -144,6 +144,7 @@ enum class ExpressionForm : std::uint8_t {
   comparison_chain,
   conditional,
   call,
+  runtime_extent,
   index,
   slice,
   member,
@@ -202,6 +203,7 @@ enum class IndexForm : std::uint8_t {
   none,
   nested,
   matrix_linear,
+  linear_element,
   slice,
   row_slice,
   column,
@@ -219,6 +221,7 @@ struct ComparisonPlan {
 
 struct BroadcastPlan {
   bool valid{false};
+  semantic::BroadcastShapeSource shape_source{semantic::BroadcastShapeSource::static_extents};
   std::vector<std::size_t> left_shape;
   std::vector<std::size_t> right_shape;
   std::vector<std::size_t> result_shape;
@@ -249,6 +252,7 @@ struct ExpressionPlan {
   std::vector<CallArgumentPlan> call_arguments;
   IndexForm index{IndexForm::none};
   std::vector<semantic::IndexSelectorKind> index_selectors;
+  std::vector<semantic::IndexExtentSource> index_extents;
   VariableAccess variable_access{VariableAccess::direct};
   std::size_t index_base{0};
   bool allow_negative_index{false};
@@ -376,7 +380,9 @@ struct Expression {
   bool allow_negative_index{false};
   bool column_major{false};
   bool slice_stop_inclusive{false};
+  semantic::IndexExtentSource index_extent{semantic::IndexExtentSource::none};
   std::vector<semantic::IndexSelectorKind> index_selectors;
+  std::vector<semantic::IndexExtentSource> index_extents;
   ExpressionPlan plan;
 
   [[nodiscard]] bool valid() const noexcept { return kind != ExpressionKind::invalid; }

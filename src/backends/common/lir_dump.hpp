@@ -120,6 +120,14 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     }
     output << ']';
   }
+  if (!expression.plan.index_extents.empty()) {
+    output << " extents [";
+    for (std::size_t index = 0; index < expression.plan.index_extents.size(); ++index) {
+      if (index != 0) output << ',';
+      output << static_cast<int>(expression.plan.index_extents[index]);
+    }
+    output << ']';
+  }
   if (expression.plan.broadcast.valid) {
     const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
       output << '[';
@@ -130,6 +138,10 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
       output << ']';
     };
     output << " broadcast ";
+    output << (expression.plan.broadcast.shape_source ==
+                       semantic::BroadcastShapeSource::runtime_operands
+                   ? "runtime "
+                   : "static ");
     dump_shape(expression.plan.broadcast.left_shape);
     output << ',';
     dump_shape(expression.plan.broadcast.right_shape);
@@ -194,7 +206,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v15 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v17 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

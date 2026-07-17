@@ -92,6 +92,7 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
   result.array_operation = attributes.array_operation;
   if (attributes.broadcast.valid) {
     result.broadcast.valid = true;
+    result.broadcast.shape_source = attributes.broadcast.shape_source;
     const auto* left_shape = mir::shape(program, attributes.broadcast.left_shape);
     const auto* right_shape = mir::shape(program, attributes.broadcast.right_shape);
     const auto* result_shape = mir::shape(program, attributes.broadcast.result_shape);
@@ -146,7 +147,9 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
   result.allow_negative_index = attributes.allow_negative_index;
   result.column_major = mir::column_major(program, source.shape_id);
   result.slice_stop_inclusive = attributes.slice_stop_inclusive;
+  result.index_extent = attributes.index_extent;
   result.index_selectors = attributes.index_selectors;
+  result.index_extents = attributes.index_extents;
   return result;
 }
 
