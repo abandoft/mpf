@@ -147,15 +147,54 @@ TEST_CASE("Python float conversion validates arity and supported source types") 
   REQUIRE(list.diagnostics.front().code == "MPF2033");
 }
 
-TEST_CASE("Matlab array operators reject incompatible and unsupported matrix semantics") {
+TEST_CASE("Matlab array operators validate matrix solve and power contracts") {
   const auto mismatched = matlab("value = [1 2] + [1 2 3];\ndisp(value)\n");
   const auto matrix_divide = matlab("value = [1 2; 3 4] / [1 0; 0 1];\ndisp(value)\n");
+  const auto rectangular_left = matlab("value = [1 2; 3 4; 5 6] \\ [1; 2; 3];\ndisp(value)\n");
+  const auto wide_right = matlab("value = [1 2 3] / [1 2 3; 4 5 6];\ndisp(value)\n");
+  const auto tall_right = matlab("value = [1 2] / [1 0; 0 1; 1 1];\ndisp(value)\n");
+  const auto incompatible_right = matlab("value = [1 2] / [1 2 3; 4 5 6];\ndisp(value)\n");
+  const auto nonsquare_power = matlab("value = [1 2 3; 4 5 6] ^ 2;\ndisp(value)\n");
+  const auto matrix_exponent = matlab("value = [1 2; 3 4] ^ [2];\ndisp(value)\n");
+  const auto fractional_power = matlab("value = [1 2; 3 4] ^ 0.5;\ndisp(value)\n");
+  const auto unsafe_power = matlab("value = [1 2; 3 4] ^ 9007199254740992;\ndisp(value)\n");
   REQUIRE(!mismatched.success());
-  REQUIRE(!matrix_divide.success());
+  REQUIRE(matrix_divide.success());
+  REQUIRE(rectangular_left.success());
+  REQUIRE(wide_right.success());
+  REQUIRE(tall_right.success());
+  REQUIRE(!incompatible_right.success());
+  REQUIRE(!nonsquare_power.success());
+  REQUIRE(!matrix_exponent.success());
+  REQUIRE(!fractional_power.success());
+  REQUIRE(!unsafe_power.success());
   REQUIRE(mismatched.code.empty());
-  REQUIRE(matrix_divide.code.empty());
   REQUIRE(mismatched.diagnostics.front().code == "MPF2046");
-  REQUIRE(matrix_divide.diagnostics.front().code == "MPF2046");
+  REQUIRE(incompatible_right.diagnostics.front().code == "MPF2046");
+  REQUIRE(nonsquare_power.diagnostics.front().code == "MPF2046");
+  REQUIRE(matrix_exponent.diagnostics.front().code == "MPF2046");
+  REQUIRE(fractional_power.diagnostics.front().code == "MPF2046");
+  REQUIRE(unsafe_power.diagnostics.front().code == "MPF2046");
+}
+
+TEST_CASE("Matlab selector analysis distinguishes scalar slice numeric logical and empty") {
+  const auto generalized = matlab(
+      "values = [10 20 30 40];\n"
+      "numeric = values([4 2 2]);\n"
+      "empty = values([]);\n"
+      "mask = values > 15;\n"
+      "logical = values(mask);\n"
+      "matrix = [1 2 3; 4 5 6];\n"
+      "rows = [true false];\n"
+      "columns = matrix(rows, [3 1]);\n"
+      "disp(numeric, empty, logical, columns)\n");
+  const auto mismatched = matlab(
+      "matrix = [1 2 3; 4 5 6];\n"
+      "rows = [true false true];\n"
+      "bad = matrix(rows, :);\n");
+  REQUIRE(generalized.success());
+  REQUIRE(!mismatched.success());
+  REQUIRE(mismatched.diagnostics.front().code == "MPF2049");
 }
 
 TEST_CASE("function bodies may bind globals initialized before the function is called") {
