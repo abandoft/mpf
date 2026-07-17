@@ -121,6 +121,8 @@ TEST_CASE("backend registry owns canonical names availability and callback contr
   REQUIRE(mpf::detail::validate_backend_catalog(descriptors, std::size(descriptors)));
   REQUIRE(descriptors[0]->manifest.configuration.field_count == 2);
   REQUIRE(descriptors[0]->manifest.runtime.component_count == 1);
+  REQUIRE(std::string_view(descriptors[0]->manifest.runtime.components[0].license_spdx) == "MIT");
+  REQUIRE(std::string_view(descriptors[1]->manifest.runtime.components[0].license_spdx) == "MIT");
   REQUIRE(descriptors[0]->dump != nullptr);
   REQUIRE(mpf::detail::find_backend_descriptor("JAVASCRIPT")->target ==
           mpf::TargetLanguage::javascript);

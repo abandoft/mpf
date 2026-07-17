@@ -23,12 +23,11 @@ constexpr BackendConfigurationField javascript_configuration[]{
     {"emit_source_banner", BackendOptionKind::boolean, "true", {}, true}};
 constexpr BackendConfigurationField cpp_configuration[]{
     {"emit_source_banner", BackendOptionKind::boolean, "true", {}, true}};
-constexpr RuntimeComponent javascript_runtime[]{
-    {"mpf-inline-javascript-runtime", "project-version", "LicenseRef-MPF-Project",
-     "generated-from-source-tree", "built-in", true, false}};
-constexpr RuntimeComponent cpp_runtime[]{{"mpf-inline-cpp-runtime", "project-version",
-                                          "LicenseRef-MPF-Project", "generated-from-source-tree",
-                                          "built-in", true, false}};
+constexpr RuntimeComponent javascript_runtime[]{{"mpf-inline-javascript-runtime", "project-version",
+                                                 "MIT", "generated-from-source-tree", "built-in",
+                                                 true, false}};
+constexpr RuntimeComponent cpp_runtime[]{{"mpf-inline-cpp-runtime", "project-version", "MIT",
+                                          "generated-from-source-tree", "built-in", true, false}};
 
 const BackendDescriptor javascript_metadata{
     backend_descriptor_api_version,

@@ -17,8 +17,8 @@ const BackendDescriptor& javascript_backend() noexcept {
        true},
       {"emit_source_banner", BackendOptionKind::boolean, "true", {}, true}};
   static constexpr RuntimeComponent runtime_components[]{
-      {"mpf-inline-javascript-runtime", "project-version", "LicenseRef-MPF-Project",
-       "generated-from-source-tree", "built-in", true, false}};
+      {"mpf-inline-javascript-runtime", "project-version", "MIT", "generated-from-source-tree",
+       "built-in", true, false}};
   static const BackendDescriptor backend{
       backend_descriptor_api_version,
       TargetLanguage::javascript,
