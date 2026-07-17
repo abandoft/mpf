@@ -80,13 +80,7 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
   }
   if (program.source_language == SourceLanguage::matlab &&
       expression.kind == ExpressionKind::binary &&
-      (mir::value_type(program, expression.type_id) == ValueType::list ||
-       std::any_of(expression.children.begin(), expression.children.end(),
-                   [&](const MirExpressionId child) {
-                     const auto* child_expression = mir::expression(program, child);
-                     return child_expression != nullptr &&
-                            mir::value_type(program, child_expression->type_id) == ValueType::list;
-                   }))) {
+      attributes.array_operation == mpf::detail::semantic::ArrayOperation::matlab) {
     result.runtime.require(lir::RuntimeFeature::arrays);
   }
   const auto dynamic_truthiness =

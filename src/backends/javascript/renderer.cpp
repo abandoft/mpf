@@ -301,7 +301,8 @@ class Renderer final {
         emit_expression(expression.children[0]);
         output_ << ", ";
         emit_expression(expression.children[1]);
-        if (expression.plan.broadcast.valid) {
+        if (expression.plan.broadcast.valid && expression.plan.broadcast.shape_source ==
+                                                   semantic::BroadcastShapeSource::static_extents) {
           output_ << ", ";
           emit_shape(expression.plan.broadcast.left_shape);
           output_ << ", ";
@@ -338,6 +339,7 @@ class Renderer final {
         output_ << "))";
         break;
       case javascript::lir::ExpressionForm::call: break;
+      case javascript::lir::ExpressionForm::runtime_extent: output_ << expression.plan.token; break;
       case javascript::lir::ExpressionForm::index:
         if (expression.plan.index == javascript::lir::IndexForm::section) {
           output_ << "__mpf_section(";
@@ -356,7 +358,7 @@ class Renderer final {
           output_ << ", [";
           for (std::size_t index = 1; index < expression.children.size(); ++index) {
             if (index != 1) output_ << ", ";
-            emit_expression(expression.children[index]);
+            emit_index_value(expression, index);
           }
           output_ << "], " << expression.plan.index_base << ", "
                   << (expression.plan.allow_negative_index ? "true" : "false") << ", "
@@ -484,7 +486,7 @@ class Renderer final {
       output_ << ", [";
       for (std::size_t index = 1; index < target.children.size(); ++index) {
         if (index != 1) output_ << ", ";
-        emit_expression(target.children[index]);
+        emit_index_value(target, index);
       }
       output_ << "], " << reference << ".value, " << target.plan.index_base << ", "
               << (target.plan.allow_negative_index ? "true" : "false") << ", "
@@ -519,22 +521,37 @@ class Renderer final {
   }
 
   void emit_selector_descriptor(const Expression& index_expression, const std::size_t child_index) {
+    const bool runtime_extent =
+        semantic::requires_runtime_extent(index_expression.plan.index_extents.at(child_index - 1U));
+    if (runtime_extent) output_ << "(__mpf_extent) => (";
     const auto selector = index_expression.plan.index_selectors.at(child_index - 1U);
     if (selector == semantic::IndexSelectorKind::slice) {
       emit_slice_descriptor(index_expression.children[child_index]);
+    } else {
+      output_ << "{ kind: \"";
+      switch (selector) {
+        case semantic::IndexSelectorKind::scalar: output_ << "scalar"; break;
+        case semantic::IndexSelectorKind::numeric: output_ << "numeric"; break;
+        case semantic::IndexSelectorKind::logical: output_ << "logical"; break;
+        case semantic::IndexSelectorKind::empty: output_ << "empty"; break;
+        case semantic::IndexSelectorKind::slice: break;
+      }
+      output_ << "\", value: ";
+      emit_expression(index_expression.children[child_index]);
+      output_ << " }";
+    }
+    if (runtime_extent) output_ << ')';
+  }
+
+  void emit_index_value(const Expression& index_expression, const std::size_t child_index) {
+    if (semantic::requires_runtime_extent(
+            index_expression.plan.index_extents.at(child_index - 1U))) {
+      output_ << "(__mpf_extent) => (";
+      emit_expression(index_expression.children[child_index]);
+      output_ << ')';
       return;
     }
-    output_ << "{ kind: \"";
-    switch (selector) {
-      case semantic::IndexSelectorKind::scalar: output_ << "scalar"; break;
-      case semantic::IndexSelectorKind::numeric: output_ << "numeric"; break;
-      case semantic::IndexSelectorKind::logical: output_ << "logical"; break;
-      case semantic::IndexSelectorKind::empty: output_ << "empty"; break;
-      case semantic::IndexSelectorKind::slice: break;
-    }
-    output_ << "\", value: ";
     emit_expression(index_expression.children[child_index]);
-    output_ << " }";
   }
 
   void indentation() {
@@ -746,7 +763,7 @@ class Renderer final {
           for (std::size_t index = 1; index < statement.target_expression.children.size();
                ++index) {
             if (index != 1) output_ << ", ";
-            emit_expression(statement.target_expression.children[index]);
+            emit_index_value(statement.target_expression, index);
           }
           output_ << "], ";
           emit_expression(statement.expression);
