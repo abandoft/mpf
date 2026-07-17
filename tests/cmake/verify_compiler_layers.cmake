@@ -9,6 +9,42 @@ function(mpf_assert_file_excludes file pattern message_text)
   endif()
 endfunction()
 
+file(READ "${SOURCE_DIR}/CMakeLists.txt" root_build_contract)
+if(NOT root_build_contract MATCHES "COMPATIBILITY ExactVersion" OR
+   root_build_contract MATCHES "COMPATIBILITY (SameMajorVersion|AnyNewerVersion)")
+  message(FATAL_ERROR
+    "unfinished MPF package must require its exact version without compatibility ranges")
+endif()
+mpf_assert_file_excludes("cmake/mpf-config.cmake.in"
+  "MPF_(JAVASCRIPT|CPP)_BACKEND_AVAILABLE"
+  "obsolete uppercase package availability variables were restored")
+mpf_assert_file_excludes("include/mpf/transpiler.hpp"
+  "language_from_name|source_language_name_known|target_from_name|target_language_name_known|fortran_source_form_from_name"
+  "ambiguous legacy name parsing API was restored")
+foreach(descriptor IN ITEMS
+    src/frontends/frontend_descriptor.hpp
+    src/backends/backend.hpp)
+  mpf_assert_file_excludes("${descriptor}" "StringViewList aliases"
+    "descriptor compatibility aliases were restored")
+endforeach()
+foreach(registry IN ITEMS
+    src/frontends/frontend_registry.cpp
+    src/core/backend_registry.cpp)
+  mpf_assert_file_excludes("${registry}" "\\.aliases|_aliases"
+    "registry compatibility alias routing was restored")
+endforeach()
+foreach(example IN ITEMS
+    examples/embedding/CMakeLists.txt
+    examples/installed/frontend/CMakeLists.txt
+    examples/installed/backend/CMakeLists.txt)
+  file(READ "${SOURCE_DIR}/${example}" example_contract)
+  if(NOT example_contract MATCHES "find_package\\(mpf [0-9]+\\.[0-9]+\\.[0-9]+ EXACT")
+    message(FATAL_ERROR "installed example does not require the exact MPF version: ${example}")
+  endif()
+endforeach()
+mpf_assert_file_excludes("src/core/diagnostic.cpp" "effective_end"
+  "diagnostic renderer restored missing-range compatibility synthesis")
+
 foreach(emitter IN ITEMS
     src/backends/javascript_emitter.cpp
     src/backends/cpp_emitter.cpp)

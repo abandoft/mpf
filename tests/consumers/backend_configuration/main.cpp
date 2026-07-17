@@ -10,8 +10,11 @@ int main() {
   const auto diagnostic_json = mpf::render_diagnostics_json({diagnostic});
   if (diagnostic_json.find("\"schemaVersion\":1") == std::string::npos) return 4;
   if (mpf::registered_source_languages().size() != 4 ||
-      mpf::registered_target_languages().size() != 2 || !mpf::source_language_name_known("py") ||
-      !mpf::target_language_name_known("cpp")) {
+      mpf::registered_target_languages().size() != 2 ||
+      mpf::parse_source_language("python") != mpf::SourceLanguage::python ||
+      mpf::parse_source_language("py").has_value() ||
+      mpf::parse_target_language("cpp") != mpf::TargetLanguage::cpp ||
+      mpf::parse_target_language("c++").has_value()) {
     return 5;
   }
 

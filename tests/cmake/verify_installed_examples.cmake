@@ -14,6 +14,25 @@ if(NOT install_status EQUAL 0)
   message(FATAL_ERROR "installed example staging failed:\n${install_output}\n${install_error}")
 endif()
 
+set(incompatible_source "${BUILD_DIR}/incompatible-version-source")
+set(incompatible_build "${BUILD_DIR}/incompatible-version-build")
+file(MAKE_DIRECTORY "${incompatible_source}")
+file(WRITE "${incompatible_source}/CMakeLists.txt"
+  "cmake_minimum_required(VERSION 3.20)\n"
+  "project(mpf-incompatible-version-probe LANGUAGES NONE)\n"
+  "find_package(mpf 0.0.1 EXACT CONFIG REQUIRED)\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -S "${incompatible_source}" -B "${incompatible_build}"
+    -DCMAKE_PREFIX_PATH=${STAGE}
+  RESULT_VARIABLE incompatible_status
+  OUTPUT_VARIABLE incompatible_output
+  ERROR_VARIABLE incompatible_error)
+if(incompatible_status EQUAL 0)
+  message(FATAL_ERROR
+    "installed package accepted obsolete MPF 0.0.1 request despite exact-version policy:\n"
+    "${incompatible_output}\n${incompatible_error}")
+endif()
+
 foreach(example IN ITEMS frontend backend)
   set(example_build "${BUILD_DIR}/${example}")
   execute_process(

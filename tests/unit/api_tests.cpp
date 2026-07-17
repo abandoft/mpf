@@ -5,24 +5,26 @@
 #include "test_framework.hpp"
 
 TEST_CASE("language names round-trip") {
-  REQUIRE(mpf::language_from_name("python") == mpf::SourceLanguage::python);
-  REQUIRE(mpf::language_from_name("MATLAB") == mpf::SourceLanguage::matlab);
-  REQUIRE(mpf::language_from_name("f90") == mpf::SourceLanguage::fortran);
-  REQUIRE(mpf::language_from_name("TS") == mpf::SourceLanguage::typescript);
+  REQUIRE(mpf::parse_source_language("python") == mpf::SourceLanguage::python);
+  REQUIRE(mpf::parse_source_language("MATLAB") == mpf::SourceLanguage::matlab);
+  REQUIRE(mpf::parse_source_language("Fortran") == mpf::SourceLanguage::fortran);
+  REQUIRE(mpf::parse_source_language("TypeScript") == mpf::SourceLanguage::typescript);
+  REQUIRE(!mpf::parse_source_language("py").has_value());
+  REQUIRE(!mpf::parse_source_language("f90").has_value());
+  REQUIRE(!mpf::parse_source_language("ts").has_value());
   REQUIRE(std::string(mpf::to_string(mpf::SourceLanguage::fortran)) == "fortran");
   REQUIRE(std::string(mpf::to_string(mpf::SourceLanguage::typescript)) == "typescript");
-  REQUIRE(mpf::target_from_name("cpp") == mpf::TargetLanguage::cpp);
-  REQUIRE(mpf::target_from_name("JavaScript") == mpf::TargetLanguage::javascript);
+  REQUIRE(mpf::parse_target_language("cpp") == mpf::TargetLanguage::cpp);
+  REQUIRE(mpf::parse_target_language("JavaScript") == mpf::TargetLanguage::javascript);
+  REQUIRE(!mpf::parse_target_language("c++").has_value());
+  REQUIRE(!mpf::parse_target_language("js").has_value());
   REQUIRE(std::string(mpf::to_string(mpf::TargetLanguage::cpp)) == "cpp");
-  REQUIRE(mpf::fortran_source_form_from_name("FREE") == mpf::FortranSourceForm::free);
-  REQUIRE(mpf::fortran_source_form_from_name("fixed") == mpf::FortranSourceForm::fixed);
+  REQUIRE(mpf::parse_fortran_source_form("FREE") == mpf::FortranSourceForm::free);
+  REQUIRE(mpf::parse_fortran_source_form("fixed") == mpf::FortranSourceForm::fixed);
+  REQUIRE(!mpf::parse_fortran_source_form("legacy").has_value());
   REQUIRE(std::string(mpf::to_string(mpf::FortranSourceForm::automatic)) == "auto");
   REQUIRE(mpf::frontend_available(mpf::SourceLanguage::python));
   REQUIRE(mpf::frontend_available(mpf::SourceLanguage::typescript));
-  REQUIRE(mpf::source_language_name_known("PY"));
-  REQUIRE(!mpf::source_language_name_known("unknown"));
-  REQUIRE(mpf::target_language_name_known("JS"));
-  REQUIRE(!mpf::target_language_name_known("unknown"));
   REQUIRE(mpf::registered_source_languages().size() == 4);
   REQUIRE(mpf::registered_target_languages().size() == 2);
   REQUIRE(mpf::backend_available(mpf::TargetLanguage::javascript));
@@ -30,18 +32,19 @@ TEST_CASE("language names round-trip") {
 }
 
 TEST_CASE("language versions round-trip and gate version-specific syntax") {
-  mpf::LanguageVersion version;
-  REQUIRE(mpf::parse_language_version("3.14", version));
+  auto version = mpf::parse_language_version("3.14");
   REQUIRE((version == mpf::LanguageVersion{3, 14}));
-  REQUIRE(mpf::to_string(version, mpf::SourceLanguage::python) == "3.14");
-  REQUIRE(mpf::parse_language_version("R2024b", version));
+  REQUIRE(mpf::to_string(*version, mpf::SourceLanguage::python) == "3.14");
+  version = mpf::parse_language_version("R2024b");
   REQUIRE((version == mpf::LanguageVersion{2024, 2}));
-  REQUIRE(mpf::to_string(version, mpf::SourceLanguage::matlab) == "R2024b");
+  REQUIRE(mpf::to_string(*version, mpf::SourceLanguage::matlab) == "R2024b");
   REQUIRE(mpf::to_string({6, 0}, mpf::SourceLanguage::typescript) == "6.0");
-  REQUIRE(mpf::parse_language_version("latest", version));
-  REQUIRE(version.automatic());
-  REQUIRE(!mpf::parse_language_version("3.14.1", version));
-  REQUIRE(!mpf::parse_language_version("99999999999999999999", version));
+  version = mpf::parse_language_version("latest");
+  REQUIRE(version.has_value());
+  REQUIRE(version->automatic());
+  REQUIRE(!mpf::parse_language_version("default").has_value());
+  REQUIRE(!mpf::parse_language_version("3.14.1").has_value());
+  REQUIRE(!mpf::parse_language_version("99999999999999999999").has_value());
 
   mpf::TranspileOptions options;
   options.language = mpf::SourceLanguage::python;

@@ -1,11 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
 project(mpf-backend-configuration-consumer LANGUAGES CXX)
 
+if(NOT DEFINED MPF_EXPECT_VERSION)
+  message(FATAL_ERROR "MPF_EXPECT_VERSION is required")
+endif()
 if(NOT DEFINED MPF_REQUIRED_COMPONENTS)
   set(MPF_REQUIRED_COMPONENTS core)
 endif()
 
-find_package(mpf CONFIG REQUIRED COMPONENTS ${MPF_REQUIRED_COMPONENTS})
+find_package(mpf ${MPF_EXPECT_VERSION} EXACT CONFIG REQUIRED
+  COMPONENTS ${MPF_REQUIRED_COMPONENTS})
 
 add_executable(mpf-backend-configuration-consumer main.cpp)
 target_link_libraries(mpf-backend-configuration-consumer PRIVATE mpf::mpf)

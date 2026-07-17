@@ -25,16 +25,18 @@ const mpf::detail::TargetProfile& wrong_target_profile() noexcept {
 
 }  // namespace
 
-TEST_CASE("frontend registry owns aliases extensions probes and parser callbacks") {
+TEST_CASE("frontend registry owns canonical names extensions probes and parser callbacks") {
   const mpf::detail::FrontendDescriptor* descriptors[]{
       &mpf::detail::matlab_frontend(), &mpf::detail::python_frontend(),
       &mpf::detail::fortran_frontend(), &mpf::detail::typescript_frontend()};
   REQUIRE(mpf::detail::validate_frontend_catalog(descriptors, std::size(descriptors)));
-  REQUIRE(mpf::detail::find_frontend("PY") == &mpf::detail::python_frontend());
+  REQUIRE(mpf::detail::find_frontend("PYTHON") == &mpf::detail::python_frontend());
+  REQUIRE(mpf::detail::find_frontend("py") == nullptr);
   REQUIRE(mpf::detail::detect_frontend("value = 1\n", "CALCULATION.PY") ==
           &mpf::detail::python_frontend());
   REQUIRE(mpf::detail::detect_frontend("implicit none\n", "") == &mpf::detail::fortran_frontend());
-  REQUIRE(mpf::detail::find_frontend("TS") == &mpf::detail::typescript_frontend());
+  REQUIRE(mpf::detail::find_frontend("TYPESCRIPT") == &mpf::detail::typescript_frontend());
+  REQUIRE(mpf::detail::find_frontend("ts") == nullptr);
   REQUIRE(mpf::detail::detect_frontend("const answer: number = 42;\n", "answer.mts") ==
           &mpf::detail::typescript_frontend());
   REQUIRE(mpf::detail::detect_frontend("import values\ndisp(values)\n", "") == nullptr);
@@ -112,7 +114,7 @@ TEST_CASE("frontend parser sessions negotiate features and resource contracts") 
   REQUIRE(exhausted.diagnostics.front().code == "MPF0010");
 }
 
-TEST_CASE("backend registry owns target aliases availability and callback contracts") {
+TEST_CASE("backend registry owns canonical names availability and callback contracts") {
   const mpf::detail::BackendDescriptor* descriptors[]{
       mpf::detail::find_backend(mpf::TargetLanguage::javascript),
       mpf::detail::find_backend(mpf::TargetLanguage::cpp)};
@@ -120,8 +122,11 @@ TEST_CASE("backend registry owns target aliases availability and callback contra
   REQUIRE(descriptors[0]->manifest.configuration.field_count == 2);
   REQUIRE(descriptors[0]->manifest.runtime.component_count == 1);
   REQUIRE(descriptors[0]->dump != nullptr);
-  REQUIRE(mpf::detail::find_backend_descriptor("JS")->target == mpf::TargetLanguage::javascript);
-  REQUIRE(mpf::detail::find_backend_descriptor("c++")->target == mpf::TargetLanguage::cpp);
+  REQUIRE(mpf::detail::find_backend_descriptor("JAVASCRIPT")->target ==
+          mpf::TargetLanguage::javascript);
+  REQUIRE(mpf::detail::find_backend_descriptor("CPP")->target == mpf::TargetLanguage::cpp);
+  REQUIRE(mpf::detail::find_backend_descriptor("js") == nullptr);
+  REQUIRE(mpf::detail::find_backend_descriptor("c++") == nullptr);
   const mpf::detail::BackendDescriptor* duplicate[]{descriptors[0], descriptors[0]};
   REQUIRE(!mpf::detail::validate_backend_catalog(duplicate, std::size(duplicate)));
 

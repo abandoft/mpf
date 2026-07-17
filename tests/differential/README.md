@@ -10,7 +10,7 @@ CTest 的 `mpf.differential.*` runner 对每个 case 执行：
 4. Fortran case 在 gfortran 可用时以可配置的严格标准模式（当前默认 `-std=f2018`）及 `-Wall -Wextra -Werror` 编译执行；
 5. 直接比较所有可用路径，并再次与 corpus oracle 比较。
 
-每次运行在 `build/<preset>/differential/<case>/` 保存生成源码、嵌套 C++ 构建树和 `differential-result.txt`。Compatibility workflow 在失败时上传结果文件与生成源码，可直接检查路径差异。
+每次运行在 `build/<preset>/differential/<case>/` 保存生成源码、嵌套 C++ 构建树和 `differential-result.txt`。Portability workflow 在失败时上传结果文件与生成源码，可直接检查路径差异。
 
 输出模式：
 

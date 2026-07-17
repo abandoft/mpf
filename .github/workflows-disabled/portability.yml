@@ -1,4 +1,4 @@
-name: Compatibility
+name: Portability
 
 on:
   push:
@@ -51,7 +51,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes gfortran
       - name: Configure
         run: >-
-          cmake -S . -B build/compatibility
+          cmake -S . -B build/portability
           -DCMAKE_BUILD_TYPE=Release
           -DMPF_ENABLE_WERROR=ON
           -DMPF_BUILD_TESTS=ON
@@ -59,24 +59,24 @@ jobs:
           -DMPF_FORTRAN_REFERENCE_STANDARD=f2018
           ${{ matrix.compiler }}
       - name: Build
-        run: cmake --build build/compatibility --config Release --parallel
+        run: cmake --build build/portability --config Release --parallel
       - name: Test complete platform contract
         run: >-
-          ctest --test-dir build/compatibility -C Release --output-on-failure
+          ctest --test-dir build/portability -C Release --output-on-failure
           --label-exclude performance --parallel 2
       - name: Verify install layout
         run: >-
-          cmake --install build/compatibility --config Release
+          cmake --install build/portability --config Release
           --prefix build/stage
       - name: Preserve differential diagnostics
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: compatibility-${{ matrix.os }}-${{ strategy.job-index }}
+          name: portability-${{ matrix.os }}-${{ strategy.job-index }}
           if-no-files-found: ignore
           retention-days: 7
           path: |
-            build/compatibility/Testing/Temporary/LastTest.log
-            build/compatibility/differential/*/differential-result.txt
-            build/compatibility/differential/*/generated.mjs
-            build/compatibility/differential/*/generated.cpp
+            build/portability/Testing/Temporary/LastTest.log
+            build/portability/differential/*/differential-result.txt
+            build/portability/differential/*/generated.mjs
+            build/portability/differential/*/generated.cpp

@@ -9,7 +9,7 @@ checks，不再依赖历史上责任混杂的 `ci.yml`。
 | Workflow | 唯一职责 | 触发时机 |
 |---|---|---|
 | `Validation / Fast` | Linux GCC 构建、核心测试、生成 C++ 编译契约和安装布局 | 每次 push/PR |
-| `Compatibility` | GCC、Clang、macOS 和 MSVC 上的平台/语言 CTest 与全量差分（性能另立） | 每次 push/PR |
+| `Portability` | GCC、Clang、macOS 和 MSVC 上的平台/语言 CTest 与全量差分（性能另立） | 每次 push/PR |
 | `Quality` | clang-format 与 clang-tidy/warnings-as-errors | 每次 push/PR |
 | `Sanitizers` | ASan/UBSan 下的 compiler、unit/integration 和 fuzz-smoke 路径 | push/PR + 每周 |
 | `Coverage` | 生产源码覆盖率报告和 85% 硬门槛 | 每次 push/PR |

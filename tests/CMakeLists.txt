@@ -158,6 +158,7 @@ function(mpf_add_backend_isolation_test name javascript cpp)
       -DBUILD_DIR=${CMAKE_BINARY_DIR}/backend-isolation-${name}
       -DENABLE_JAVASCRIPT=${javascript}
       -DENABLE_CPP=${cpp}
+      -DPROJECT_VERSION=${PROJECT_VERSION}
       -DCONFIG=Release
       -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_backend_isolation.cmake)
   set_tests_properties(mpf.backend-isolation.${name} PROPERTIES
