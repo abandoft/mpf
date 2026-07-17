@@ -60,6 +60,29 @@ std::optional<semantic::IndexSelectorKind> expected_index_selector(
   return std::nullopt;
 }
 
+void collect_index_extent(const Program& program, const Expression& expression,
+                          std::optional<semantic::IndexExtentSource>& source, bool& valid) {
+  const auto* facts = attributes(program, expression.id);
+  if (expression.kind == ExpressionKind::end_index) {
+    if (facts == nullptr || !semantic::requires_runtime_extent(facts->index_extent) ||
+        (source.has_value() && *source != facts->index_extent)) {
+      valid = false;
+      return;
+    }
+    source = facts->index_extent;
+    return;
+  }
+  for (const auto child_id : expression.children) {
+    if (!child_id.valid()) continue;
+    const auto* child = mir::expression(program, child_id);
+    if (child == nullptr) {
+      valid = false;
+      continue;
+    }
+    collect_index_extent(program, *child, source, valid);
+  }
+}
+
 StorageId storage_root(const Program& program, StorageId storage) noexcept {
   for (std::size_t depth = 0; depth < program.storages.size(); ++depth) {
     if (!valid_index(storage, program.storages)) return {};
@@ -317,7 +340,10 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->comparison != ComparisonOperator::none ||
         !retired_attributes->comparisons.empty() ||
         retired_attributes->array_operation != semantic::ArrayOperation::native ||
-        retired_attributes->broadcast.valid || retired_attributes->matrix_operation.valid() ||
+        retired_attributes->broadcast.valid ||
+        retired_attributes->broadcast.shape_source !=
+            semantic::BroadcastShapeSource::static_extents ||
+        retired_attributes->matrix_operation.valid() ||
         retired_attributes->matrix_operation.solve != semantic::MatrixSolveKind::none ||
         retired_attributes->matrix_operation.left_shape.valid() ||
         retired_attributes->matrix_operation.right_shape.valid() ||
@@ -329,7 +355,9 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->requested_results != 1U || retired_attributes->multi_result_call ||
         retired_attributes->procedure_has_result || retired_attributes->index_base != 0U ||
         retired_attributes->allow_negative_index || retired_attributes->slice_stop_inclusive ||
-        !retired_attributes->index_selectors.empty() || retired_attributes->lazy_cfg ||
+        semantic::requires_runtime_extent(retired_attributes->index_extent) ||
+        !retired_attributes->index_selectors.empty() ||
+        !retired_attributes->index_extents.empty() || retired_attributes->lazy_cfg ||
         retired_attributes->storage_region.kind != StorageRegionKind::unknown) {
       add_error(diagnostics, expression.location, stage,
                 "retired expression does not satisfy its tombstone contract");
@@ -424,6 +452,11 @@ void verify_expression(const Expression& expression, const Program& program,
     add_error(diagnostics, expression.location, stage,
               "expression operation attributes have an invalid result/binding contract");
   }
+  if ((expression.kind == ExpressionKind::end_index) !=
+      semantic::requires_runtime_extent(expression_attributes->index_extent)) {
+    add_error(diagnostics, expression.location, stage,
+              "runtime index-extent attribute has invalid expression ownership");
+  }
   if (!valid_storage_region(expression_attributes->storage_region) ||
       (expression_attributes->storage_region.kind != StorageRegionKind::unknown &&
        !expression.storage_id.valid())) {
@@ -431,9 +464,11 @@ void verify_expression(const Expression& expression, const Program& program,
               "expression operation attributes contain an invalid storage region");
   }
   if (expression.kind == ExpressionKind::index) {
-    if (expression_attributes->index_selectors.size() + 1U != expression.children.size()) {
+    if (expression_attributes->index_selectors.size() + 1U != expression.children.size() ||
+        expression_attributes->index_extents.size() !=
+            expression_attributes->index_selectors.size()) {
       add_error(diagnostics, expression.location, stage,
-                "index selector attributes disagree with the expression arity");
+                "index selector or extent attributes disagree with the expression arity");
     } else {
       for (std::size_t selector_index = 0;
            selector_index < expression_attributes->index_selectors.size(); ++selector_index) {
@@ -446,16 +481,31 @@ void verify_expression(const Expression& expression, const Program& program,
                     "index selector attribute disagrees with its MIR child");
           break;
         }
+        std::optional<semantic::IndexExtentSource> extent;
+        bool valid_extent = selector != nullptr;
+        if (selector != nullptr) collect_index_extent(program, *selector, extent, valid_extent);
+        const auto expected_extent = extent.value_or(semantic::IndexExtentSource::none);
+        if (!valid_extent ||
+            expression_attributes->index_extents[selector_index] != expected_extent) {
+          add_error(diagnostics, expression.location, stage,
+                    "index runtime-extent attribute disagrees with its MIR child");
+          break;
+        }
       }
     }
-  } else if (!expression_attributes->index_selectors.empty()) {
+  } else if (!expression_attributes->index_selectors.empty() ||
+             !expression_attributes->index_extents.empty()) {
     add_error(diagnostics, expression.location, stage,
-              "non-index MIR expression retains selector attributes");
+              "non-index MIR expression retains selector or extent attributes");
   }
   const bool requires_matlab_array_operation =
       program.source_language == SourceLanguage::matlab &&
       expression.kind == ExpressionKind::binary &&
-      value_type(program, expression.type_id) == ValueType::list;
+      (value_type(program, expression.type_id) == ValueType::list ||
+       (value_type(program, expression.type_id) == ValueType::unknown &&
+        expression_attributes->broadcast.valid &&
+        expression_attributes->broadcast.shape_source ==
+            semantic::BroadcastShapeSource::runtime_operands));
   if ((expression_attributes->array_operation == semantic::ArrayOperation::matlab) !=
       requires_matlab_array_operation) {
     add_error(diagnostics, expression.location, stage,
@@ -470,8 +520,13 @@ void verify_expression(const Expression& expression, const Program& program,
                               result_shape != nullptr &&
                               broadcast.result_shape == expression.shape_id;
     const auto rank = broadcast.axes.size();
+    const bool runtime = broadcast.shape_source == semantic::BroadcastShapeSource::runtime_operands;
+    const bool valid_unknown_rank = runtime && rank == 0U && valid_shapes &&
+                                    left_shape->extents.empty() && right_shape->extents.empty() &&
+                                    result_shape->extents.empty();
     if (expression_attributes->array_operation != semantic::ArrayOperation::matlab ||
-        expression.kind != ExpressionKind::binary || !valid_shapes || rank == 0U ||
+        expression.kind != ExpressionKind::binary || !valid_shapes ||
+        (!valid_unknown_rank && rank == 0U) ||
         (valid_shapes &&
          (left_shape->extents.size() != rank || right_shape->extents.size() != rank ||
           result_shape->extents.size() != rank))) {
@@ -483,19 +538,34 @@ void verify_expression(const Expression& expression, const Program& program,
         const auto right = right_shape->extents[axis];
         const auto result = result_shape->extents[axis];
         const auto mode = broadcast.axes[axis];
+        const auto runtime_result = [&] {
+          const auto known = left == dynamic_extent ? right : left;
+          return known == dynamic_extent || known == 1U ? dynamic_extent : known;
+        }();
         const bool valid_axis =
             (mode == semantic::BroadcastAxis::match && left == right && result == left) ||
             (mode == semantic::BroadcastAxis::expand_left && left == 1U && result == right) ||
             (mode == semantic::BroadcastAxis::expand_right && right == 1U && result == left) ||
-            (mode == semantic::BroadcastAxis::runtime &&
-             (left == dynamic_extent || right == dynamic_extent));
+            (runtime && mode == semantic::BroadcastAxis::runtime &&
+             (left == dynamic_extent || right == dynamic_extent) && result == runtime_result);
         if (!valid_axis) {
           add_error(diagnostics, expression.location, stage,
                     "expression broadcast axis is incompatible with its shape contract");
           break;
         }
       }
+      const bool has_runtime_axis =
+          std::find(broadcast.axes.begin(), broadcast.axes.end(),
+                    semantic::BroadcastAxis::runtime) != broadcast.axes.end();
+      if (rank != 0U && runtime != has_runtime_axis) {
+        add_error(diagnostics, expression.location, stage,
+                  "expression broadcast axes disagree with their shape-source contract");
+      }
     }
+  } else if (expression_attributes->broadcast.shape_source !=
+             semantic::BroadcastShapeSource::static_extents) {
+    add_error(diagnostics, expression.location, stage,
+              "inactive expression broadcast attributes retain a runtime shape source");
   }
   const auto& matrix = expression_attributes->matrix_operation;
   const auto expected_matrix =

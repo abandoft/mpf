@@ -164,7 +164,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v4 hir-nodes=" << table.hir_node_count
+  output << "semantic-v6 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -188,6 +188,36 @@ std::string dump_semantics(const hir::SemanticTable& table) {
           output << enum_value(facts.index_selectors[selector]);
         }
         output << ']';
+      }
+      if (!facts.index_extents.empty()) {
+        output << " extents=[";
+        for (std::size_t selector = 0; selector < facts.index_extents.size(); ++selector) {
+          if (selector != 0U) output << ',';
+          output << enum_value(facts.index_extents[selector]);
+        }
+        output << ']';
+      }
+      if (semantic::requires_runtime_extent(facts.index_extent)) {
+        output << " index-extent=" << enum_value(facts.index_extent);
+      }
+      if (facts.broadcast.valid) {
+        const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
+          output << '[';
+          for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+            if (axis != 0U) output << ',';
+            output << shape[axis];
+          }
+          output << ']';
+        };
+        output << " broadcast="
+               << (facts.broadcast.shape_source == semantic::BroadcastShapeSource::runtime_operands
+                       ? "runtime:"
+                       : "static:");
+        dump_shape(facts.broadcast.left_shape);
+        output << ',';
+        dump_shape(facts.broadcast.right_shape);
+        output << "->";
+        dump_shape(facts.broadcast.result_shape);
       }
       if (facts.matrix_operation.valid()) {
         const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
@@ -230,7 +260,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v9 language=" << enum_value(program.source_language)
+  output << "mir-v11 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -275,8 +305,24 @@ std::string dump_mir(const mir::Program& program) {
         }
         output << ']';
       }
+      if (!attributes->index_extents.empty()) {
+        output << " extents=[";
+        for (std::size_t selector = 0; selector < attributes->index_extents.size(); ++selector) {
+          if (selector != 0U) output << ',';
+          output << enum_value(attributes->index_extents[selector]);
+        }
+        output << ']';
+      }
+      if (semantic::requires_runtime_extent(attributes->index_extent)) {
+        output << " index-extent=" << enum_value(attributes->index_extent);
+      }
       if (attributes->broadcast.valid) {
-        output << " broadcast=!s" << attributes->broadcast.left_shape.value() << ",!s"
+        output << " broadcast="
+               << (attributes->broadcast.shape_source ==
+                           semantic::BroadcastShapeSource::runtime_operands
+                       ? "runtime:"
+                       : "static:")
+               << "!s" << attributes->broadcast.left_shape.value() << ",!s"
                << attributes->broadcast.right_shape.value() << "->!s"
                << attributes->broadcast.result_shape.value() << " axes=[";
         for (std::size_t axis = 0; axis < attributes->broadcast.axes.size(); ++axis) {

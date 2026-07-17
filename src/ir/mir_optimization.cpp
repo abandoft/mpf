@@ -384,7 +384,9 @@ bool fold_expression(Program& program, const MirExpressionId id, OptimizationSta
   facts->index_base = 0U;
   facts->allow_negative_index = false;
   facts->slice_stop_inclusive = false;
+  facts->index_extent = semantic::IndexExtentSource::none;
   facts->index_selectors.clear();
+  facts->index_extents.clear();
   facts->lazy_cfg = false;
   facts->storage_region = {};
   instruction.opcode = Opcode::literal;
