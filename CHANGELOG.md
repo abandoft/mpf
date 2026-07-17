@@ -1,3 +1,18 @@
+## 0.4.5
+
+- 新增强类型 `MemoryDependenceId`、`MemoryAccessSite`、flow/anti/output hazard 分类和独立 `MemoryDependenceTable` v1；分析结果不侵入结构 MIR 或任一目标 LIR，并以最终优化后的 `Program::revision` 拒绝 stale facts。
+- 每个函数现在执行确定性的 CFG memory frontier fixed point；prior write→read 形成 RAW/flow，prior read→write 形成 WAR/anti，prior write→write 形成 WAW/output，read-write access 可同时保留三种真实依赖。
+- memory frontier 直接消费 alias/effect v3 的 instruction access inventory；同根 N 维 disjoint region 不产生伪依赖，identical region 的 must-alias write 裁剪已覆盖历史，而一般 may-alias 不被乐观 kill。
+- unknown-memory read/write 合并为每条指令唯一的保守 site，并与所有潜在冲突形成显式 `may_alias` barrier；同一指令内并列 access 不制造虚假顺序，回边带回的同 site 允许形成 loop-carried 自依赖。
+- CFG 图分析使用非递归、线性空间的确定性 DFS cycle cut 标记反馈边，既覆盖自然循环也保守覆盖不可归约环而不构造平方级 reachability/dominator matrix；frontier provenance 区分普通与 loop-carried 到达，分支合流可以为同一读取保存多个 reaching write。
+- instruction dependence facts 按 `InstructionId` 稠密保存排序后的 incoming/outgoing `MemoryDependenceId`，edge inventory 使用零号哨兵和连续 ID；独立 verifier 重算 fixed point 并检查 revision/count/sentinel/site ordinal/mode/adjacency/relation/barrier/loop/hazard 全部契约。
+- MIR deterministic dump 新增 `memory-dependence-v1` schema，公开每条 instruction adjacency 和完整 source/target/kind/relation/barrier/loop-carried edge；原 MIR v6 与 alias-effect v3 schema 保持兼容。
+- 生产驱动在共享 MIR 优化和 alias/effect 验证后、目标分叉前通过 `AnalysisManager` 缓存并验证 memory dependence；分析缓存改用引用稳定的 entry 存储，新增第二种分析不会使已经返回的 alias/effect 引用悬空。JavaScript 与 `cpp` 仍只接收同一 MIR/alias contract，生成任一目标不需要另一目标产物。
+- 公共 `CompilationReport` 与 JSON 新增 `mirMemoryDependences`，输出 flow、anti、output、barrier、loop-carried、涉及指令和总依赖数，并记录独立 `mir-memory-dependence` stage 的节点数与耗时。
+- 单元与损坏输入覆盖 RAW/WAR/WAW、分支多定义合流、自然与不可归约循环携带、同根 disjoint index、unknown external barrier、cache、deterministic dump、损坏 edge/sentinel 和公共报告，内部测试增至 180 项。
+- 新增 Python branch/loop/index-write memory-dependence fuzz seed；第八个版本化性能场景要求最低依赖规模与非零 loop-carried fact，并继续执行双目标确定性重放和八路并发。
+- 性能门禁定位并消除两处平方级实现：edge 去重从逐边全表扫描改为一次收集、排序和相邻 canonicalization，循环识别从 reachability/dominator matrix 改为非递归 DFS；专属场景延迟由约 354 ms 降至约 43 ms，且不放宽一秒延迟、10 KB/s 吞吐、64 MiB arena 或产物大小阈值。CTest 强制该发布门禁独占运行，避免并发重型用例争抢 CPU 制造伪回归。项目版本与全部现行文档同步到 0.4.5，`CHANGELOG.md` 继续直接以具体版本开头；当前为 180 项内部测试、55 个差分 case 和 66 项 CTest，Debug/Release 66/66、ASan/UBSan 65/65、format/clang-tidy、fuzz、隔离、安装、差分和八场景性能门禁通过，生产代码行覆盖率为 89.77%（22295/24836）。
+
 ## 0.4.4
 
 - MIR textual schema 升至 v6，在 revision-bound `OperationAttributeTable` 中新增按 `InstructionId` 稠密的 `InstructionAttributes`；每条指令可持有零到多个目标无关 `MemoryAccess`，显式保存 storage、最终 root、normalized region 和 read/write/read-write mode，而不把分析 payload 耦合回结构 `Instruction`。

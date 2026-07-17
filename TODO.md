@@ -1,6 +1,6 @@
 # MPF 持续建设路线图
 
-本路线图同时记录 **0.4.4 已发布基线** 与后续交付目标的真实状态。历史交付细节见
+本路线图同时记录 **0.4.5 已发布基线** 与后续交付目标的真实状态。历史交付细节见
 [CHANGELOG.md](CHANGELOG.md)，当前可依赖的语言子集见
 [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 已有独立、可执行且包含 lexical block/canonical `for` 的子集，但完整 grammar 仍未完成。
 
@@ -12,12 +12,12 @@
 |---|---|
 | 实现与构建 | CMake 3.20+；配置固定 C17/C++17；当前生产源码和公共 API 使用 C++17，尚无稳定 C API |
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；`cpp` 当前生成严格 C++17 translation unit |
-| 前后端边界 | 四语言 parser session 直接构造并发布各自 arena AST artifact，不经过共享递归 syntax tree 或整树复制；生产驱动随后固定经过 HIR→MIR→共享优化→优化后 alias/effect→目标私有 semantic plan/LIR→emitter，两个目标不读取彼此产物 |
+| 前后端边界 | 四语言 parser session 直接构造并发布各自 arena AST artifact，不经过共享递归 syntax tree 或整树复制；生产驱动随后固定经过 HIR→MIR→共享优化→优化后 alias/effect→CFG memory-dependence→目标私有 semantic plan/LIR→emitter，两个目标不读取彼此产物 |
 | 扩展架构 | frontend descriptor API v5、backend descriptor API v5；parser session/feature/resource contract、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
-| IR 架构 | 四种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有，profile 驱动的 `NameScopeEdges` 为 function/statement/body/alternative 建立稠密 scope graph；MIR v6 使用 `MirExpressionId`/`MirStatementId` 稠密 arena、revision-bound `OperationAttributeTable` 与显式 retired tombstone，结构节点不再镜像宽语义 payload；同一属性表按 `InstructionId` 稠密保存零到多个 storage/root/region/mode `MemoryAccess`，指令压缩同步重映射；conditional/短路/comparison chain 和 TypeScript canonical `for` 已产生显式 CFG、typed edge merge 和 runtime-independent store；默认共享 pass 已接通 shape canonicalization、相同 edge-actual copy propagation、精确整数/布尔 constant folding、dead-pure elimination 和保守 CFG cleanup，每个 pass 后验证并同步 revision；tuple/function/reference type/shape 签名、stride/view/lifetime 与 call argument transfer 可验证；静态已知 shape 的 identifier/element/N 维矩形及列主序线性 section 由 HIR/MIR `StorageRegion` side table 规范化，alias/effect v3 在优化后统一直接访问与跨函数 actual-region 实例化并提供访问级冲突查询；双目标 LIR v12 以 `SymbolId` 保存名称身份，并显式保存 lexical scope/declaration、ABI、source export、临时值、顶层拓扑、expression/statement、强类型比较、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
+| IR 架构 | 四种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有，profile 驱动的 `NameScopeEdges` 为 function/statement/body/alternative 建立稠密 scope graph；MIR v6 使用 `MirExpressionId`/`MirStatementId` 稠密 arena、revision-bound `OperationAttributeTable` 与显式 retired tombstone，结构节点不再镜像宽语义 payload；同一属性表按 `InstructionId` 稠密保存零到多个 storage/root/region/mode `MemoryAccess`，指令压缩同步重映射；conditional/短路/comparison chain 和 TypeScript canonical `for` 已产生显式 CFG、typed edge merge 和 runtime-independent store；默认共享 pass 已接通 shape canonicalization、相同 edge-actual copy propagation、精确整数/布尔 constant folding、dead-pure elimination 和保守 CFG cleanup，每个 pass 后验证并同步 revision；tuple/function/reference type/shape 签名、stride/view/lifetime 与 call argument transfer 可验证；静态已知 shape 的 identifier/element/N 维矩形及列主序线性 section 由 HIR/MIR `StorageRegion` side table 规范化，alias/effect v3 在优化后统一直接访问与跨函数 actual-region 实例化并提供访问级冲突查询；`MemoryDependenceTable` v1 在函数 CFG 上建立 region-refined flow/anti/output、unknown barrier 与 loop-carried adjacency，拥有独立 revision、verifier、dump、cache 和报告；双目标 LIR v12 以 `SymbolId` 保存名称身份，并显式保存 lexical scope/declaration、ABI、source export、临时值、顶层拓扑、expression/statement、强类型比较、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
 | Python 最新能力 | relational/equality/identity/membership 比较链、右结合条件表达式、短路/惰性/单次求值；list/tuple 种类相等规则、singleton/reference identity、string/list/tuple membership；基础参数关联和递归固定序列解包 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流；已知静态 shape 下可证明不相交的同根连续、步长与 N 维矩形 writable section actual |
-| 工程门禁 | 177 项内部测试；55 个差分 case、155 条工具完整环境执行路径；66 项 CTest；四语言 fuzz smoke、可选 libFuzzer、七场景版本化性能阈值、逐 pass/优化统计报告；生产代码行覆盖率实测 89.56%（21863/24412），硬门槛 85% |
+| 工程门禁 | 180 项内部测试；55 个差分 case、155 条工具完整环境执行路径；66 项 CTest；四语言 fuzz smoke、可选 libFuzzer、八场景版本化性能阈值、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率 89.77%（22295/24836），硬门槛 85% |
 | 发布状态 | 0.x；没有长期 API/ABI 或完整语言兼容承诺 |
 
 ## 本轮商业级收尾验收（完成）
@@ -35,7 +35,7 @@
 
 ### 0.3.5：商业级前后端与五层编译器管线继续收敛（已发布）
 
-0.3.5 以 16 条独立更新完成封版，交付窄 HIR + semantic seed、独立 name/flow/alias-effect side table、跨函数 MIR call contract 和双目标 LIR v9。下列已勾选项是该版本及此前版本的实际能力；未勾选项继续作为 0.4.4 及后续版本的架构 backlog。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
+0.3.5 以 16 条独立更新完成封版，交付窄 HIR + semantic seed、独立 name/flow/alias-effect side table、跨函数 MIR call contract 和双目标 LIR v9。下列已勾选项是该版本及此前版本的实际能力；未勾选项继续作为 0.4.5 及后续版本的架构 backlog。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
 
 #### P0：基线、指标与依赖规则
 
@@ -250,11 +250,22 @@
 - [x] MIR/alias deterministic dump 公开 direct/transitive memory access；编译器分层门禁固定公共 contract，并继续禁止目标后端重算区域语义
 - [x] 单元与损坏输入覆盖 copy/writeback、跨函数 disjoint actual、访问冲突、stale/invalid row 和优化重映射；新增 Python memory-region fuzz seed，既有七场景性能门禁覆盖新路径
 
-### 0.4.5 及后续：官方 grammar、对象语义与 memory 优化继续扩展
+### 0.4.5：CFG memory dependence 基础（已发布）
+
+- [x] 新增强类型 `MemoryDependenceId`/`MemoryAccessSite` 和独立、revision-bound 的 `MemoryDependenceTable` v1；instruction adjacency 与 edge inventory 均为零号哨兵的稠密表
+- [x] 在每个函数 CFG 上做确定性 fixed point，建立 RAW/flow、WAR/anti、WAW/output；同一 read-write pair 可保留多类 hazard
+- [x] 使用访问级 storage root/region alias 证明消除 disjoint edge；must-alias write 裁剪 frontier，may-alias 保守保留，unknown-memory 形成 barrier
+- [x] 以非递归确定性 DFS cycle cut 标记自然/不可归约反馈边并传播 loop-carried provenance，避免平方级 CFG matrix，支持循环携带的同 site 自依赖与分支多定义合流
+- [x] verifier 独立重算并拒绝 stale/incomplete revision、损坏 sentinel/ID/site/mode/adjacency/relation/barrier/loop facts；deterministic dump 公开完整边
+- [x] `AnalysisManager` 缓存和生产驱动在优化后 alias/effect 与后端分叉之间实际运行分析；公共编译报告输出分类、barrier、loop、涉及指令和总数
+- [x] 单元测试覆盖 cache、RAW/WAR/WAW、branch merge、loop-carried、region no-alias、unknown barrier 和损坏输入；Python fuzz corpus 新增分支/循环/区域访问 seed
+- [x] 第八个版本化性能场景要求依赖规模和 loop-carried 事实，并将 edge 去重改为统一 sort/canonicalize、循环识别改为线性空间非递归 DFS；专属场景约 354 ms→43 ms，不通过放宽阈值隐藏回退
+
+### 0.4.6 及后续：官方 grammar、对象语义与 memory 优化继续扩展
 
 - [ ] 按 Matlab/Python/Fortran/TypeScript 官方 grammar 选择下一批可独立验收的纵切面；每累计 8—20 条独立更新形成下一版本
 - [ ] 继续完成动态 rank/extent、广播、跨一般 view/pointer 的 region/alias 证明和目标 typed-array/ownership 策略
-- [ ] 在区域化 memory-access contract 上建立可扩展 memory-dependence/MemorySSA，并以负向 verifier、差分、fuzz 和性能门禁后再启用 region-aware DCE/store forwarding
+- [ ] 在已交付的区域化 memory-dependence contract 上建立 memory version、memory phi、rename/def-use 的完整 MemorySSA；以负向 verifier、差分、fuzz 和性能门禁后再启用 region-aware DCE/store forwarding
 
 ## M0：工程与端到端基础（完成）
 
@@ -299,7 +310,8 @@
 - [x] 静态已知 shape、同一 storage root 的 element/连续/步长/N 维矩形 section overlap 与多 writable actual alias 证明
 - [x] 将直接 load/store/copy/writeback 与跨函数参数 effect 统一为按 `InstructionId` 稠密的区域化 memory-access fact，并提供访问级 alias/conflict 查询
 - [ ] 动态 rank/extent、广播、跨一般 view/pointer/storage association 的完整 region 证明
-- [ ] memory-dependence/MemorySSA、region-aware DCE/store forwarding 与循环内存优化
+- [x] revision-bound CFG memory-dependence v1：区域精化 RAW/WAR/WAW、unknown barrier、loop-carried、稠密 adjacency、verifier/dump/cache/report 与生产调用
+- [ ] MemorySSA 的 memory version/phi/rename/def-use、region-aware DCE/store forwarding 与循环内存优化
 - [x] source map v3、输入文件身份、生成文件身份和 LIR-origin 位置映射；banner 独立控制
 - [x] 全管线 fuzz harness、拒绝/成功 corpus、确定性 mutation、libFuzzer 崩溃复现与最小化工作流
 

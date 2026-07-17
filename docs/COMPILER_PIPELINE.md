@@ -2,7 +2,7 @@
 
 本文是 MPF 前端、公共中间表示、分析/优化基础设施和后端的权威架构规范，也是重构验收依据。若其他文档与本文的层级职责冲突，以本文和 [TODO](../TODO.md) 的逐项状态为准。
 
-> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 原子产出窄 HIR 与 revision-bound `SemanticTable` seed；0.3.6 的双目标 LIR v10 固化 call ownership/writeback、目标求值、强类型比较和 source segment；0.3.7 让三个 statement parser 直接构造语言专属 arena；0.3.8 删除 MIR 的递归 HIR 兼容 ownership；0.3.9 进一步删除 flat MIR 宽语义 payload，以 revision-bound `OperationAttributeTable` 和驻留 type/shape/storage 作为唯一事实。0.4.0 以同一 contract 接入第四个 TypeScript parser/arena/lowering，并让 explicit export policy 从 semantic profile/side-table 进入 MIR function 和 JavaScript LIR ABI。0.4.1 以 profile 驱动 `NameScopeEdges`、Analyzer block state、显式 `for` CFG、`SymbolId` target identity 和 LIR v12 lexical `ScopePlan` 贯通源块到两个目标。0.4.2 在后端分叉前接入共享 MIR 默认优化、逐 pass verifier/revision/instrumentation、MIR v4 tombstone ownership 与优化后 alias/effect 重算。0.4.3 新增 semantic v2/MIR v5/alias-effect v2 的规范化 `StorageRegion` side table，为静态已知 shape 的同根 element、连续/步长、N 维矩形与列主序线性 section 提供精确 overlap 证明。0.4.4 以 MIR v6 的稠密 `InstructionAttributes` 将直接 load/store/copy/writeback 和循环写入统一为区域化 `MemoryAccess`，alias-effect v3 再把跨函数参数 fixed point 实例化成相同事实并提供访问级冲突查询。后续迁移集中在完整独立 target AST、一般 RAII/copy-move/runtime ABI node、完整四语言官方 grammar、动态 rank/广播、跨一般 view/pointer 的区域组合、memory SSA 和插件 ABI；不能把当前 TypeScript 子集等同于完整 TypeScript 6 兼容。
+> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 原子产出窄 HIR 与 revision-bound `SemanticTable` seed；0.3.6 的双目标 LIR v10 固化 call ownership/writeback、目标求值、强类型比较和 source segment；0.3.7 让三个 statement parser 直接构造语言专属 arena；0.3.8 删除 MIR 的递归 HIR 兼容 ownership；0.3.9 进一步删除 flat MIR 宽语义 payload，以 revision-bound `OperationAttributeTable` 和驻留 type/shape/storage 作为唯一事实。0.4.0 以同一 contract 接入第四个 TypeScript parser/arena/lowering，并让 explicit export policy 从 semantic profile/side-table 进入 MIR function 和 JavaScript LIR ABI。0.4.1 以 profile 驱动 `NameScopeEdges`、Analyzer block state、显式 `for` CFG、`SymbolId` target identity 和 LIR v12 lexical `ScopePlan` 贯通源块到两个目标。0.4.2 在后端分叉前接入共享 MIR 默认优化、逐 pass verifier/revision/instrumentation、MIR v4 tombstone ownership 与优化后 alias/effect 重算。0.4.3 新增 semantic v2/MIR v5/alias-effect v2 的规范化 `StorageRegion` side table，为静态已知 shape 的同根 element、连续/步长、N 维矩形与列主序线性 section 提供精确 overlap 证明。0.4.4 以 MIR v6 的稠密 `InstructionAttributes` 将直接 load/store/copy/writeback 和循环写入统一为区域化 `MemoryAccess`，alias-effect v3 再把跨函数参数 fixed point 实例化成相同事实并提供访问级冲突查询。0.4.5 新增 revision-bound `MemoryDependenceTable` v1，在函数 CFG 上建立区域精化的 RAW/WAR/WAW、unknown barrier 和 loop-carried 依赖，并接入生产驱动、verifier、dump、报告、fuzz 与性能门禁。后续迁移集中在完整独立 target AST、一般 RAII/copy-move/runtime ABI node、完整四语言官方 grammar、动态 rank/广播、跨一般 view/pointer 的区域组合、MemorySSA/region-aware optimization 和插件 ABI；不能把当前 TypeScript 子集等同于完整 TypeScript 6 兼容。
 
 ## 目标与永久约束
 
@@ -199,6 +199,20 @@ external_unknown
 
 公共优化只有在 effect、alias 和 evaluation-order 证明允许时才能重排或删除指令。外部未知调用默认读写未知存储并可能失败，除非 binding manifest 提供更强保证。
 
+### CFG 内存依赖
+
+`MemoryDependenceTable` 是 alias/effect 之后的独立只读分析，不是 `Instruction` 字段，也不是任一后端的私有数据。它必须满足以下 contract：
+
+- 表与最终优化后的 `Program::revision` 绑定；按 `InstructionId` 稠密保存 incoming/outgoing `MemoryDependenceId`，边表使用零号哨兵和连续强类型 ID；`AnalysisManager` 的 entry 存储必须保证新增其他分析时已返回引用仍稳定，只能在显式 invalidation 时失效；
+- 每个 `MemoryAccessSite` 指向 alias/effect instruction 中确定 ordinal 的区域访问，或指向该指令唯一合并的 unknown-memory site，并携带 read/write/read-write mode；
+- CFG fixed point 只为不能证明 `no_alias` 的访问对建立依赖：prior write→current read 为 flow/RAW，prior read→current write 为 anti/WAR，prior write→current write 为 output/WAW；read-write 可同时形成三类边；
+- must-alias write 在 transfer 后裁剪已覆盖 frontier，避免无界历史累积；may-alias 不得被乐观 kill；同一指令内的并列访问不互相制造顺序，但回边带回的同一 site 可以形成 loop-carried 自依赖；
+- 使用按稳定 block/successor 顺序运行的非递归 DFS cycle cut 标记反馈边；有向 CFG 的每个环至少跨越一个 gray-edge feedback edge，因而自然循环与不可归约环都能保守传播 loop-carried provenance，同时避免全图 reachability/dominator 的平方空间。unknown access 与任意潜在冲突形成 `may_alias` barrier；
+- verifier 必须先要求当前 alias/effect 表，再独立重算 expected fixed point，拒绝 stale/incomplete 表、损坏哨兵、非稠密 ID、错误 site ordinal/mode、无别名边、adjacency 不一致以及错误 barrier/loop/hazard facts；
+- dump 与公共 `CompilationReport` 分别稳定公开完整依赖边，以及 flow/anti/output/barrier/loop-carried/涉及指令/总数。分析复杂度必须由版本化性能场景约束，不允许用放宽超时掩盖退化。
+
+这一级是 MemorySSA 的输入，而不是 MemorySSA 本身。memory version、memory phi、rename/def-use 以及消费它们的 region-aware DCE/store forwarding 只有在各自 verifier、差分、fuzz 和性能门禁完成后才能标记为已交付。
+
 ### MIR pass 与 verifier
 
 HIR→MIR lowering 必须显式生成 CFG 和 evaluation order。结构 verifier 与 alias/effect verifier 分责，合计至少检查：
@@ -211,14 +225,14 @@ HIR→MIR lowering 必须显式生成 CFG 和 evaluation order。结构 verifier
 - effect 与 instruction kind 的最低约束；
 - return/call signature、多结果和异常/失败边一致性。
 
-0.4.4 延续的默认公共管线按固定顺序运行，并在每个变换后提升 `Program::revision`、同步 `OperationAttributeTable::mir_revision`、失效未声明保留的分析、记录耗时和执行完整 MIR verifier；instruction compaction 必须与稠密 `InstructionAttributes` 同步重映射：
+0.4.5 延续的默认公共管线按固定顺序运行，并在每个变换后提升 `Program::revision`、同步 `OperationAttributeTable::mir_revision`、失效未声明保留的分析、记录耗时和执行完整 MIR verifier；instruction compaction 必须与稠密 `InstructionAttributes` 同步重映射：
 
 1. `mir-shape-canonicalization` 重新计算静态 row/column-major canonical stride，按 rank/layout/extent/stride 去重 shape，并一次性重写所有强类型 `ShapeId` 引用；dynamic-rank 的运行时 stride 不被臆测。
 2. `mir-copy-propagation` 只删除带 storage 身份、且每条 incoming edge 的 actual 完全相同的 block argument；同时按同一 ordinal 删除所有前驱 actual，其他 phi-equivalent 合并不做猜测。
 3. `mir-constant-folding-dce` 只折叠同时落在 `int64` 与 ECMAScript safe-integer 共同精确域的 checked 加减乘/正负号、布尔非和可证明整数/布尔比较；溢出、目标共同精度外整数、除法、实数、identity/membership 和 lazy CFG 保持不动。折叠后仅回收 opcode contract 已证明纯的 literal/unary/binary 子树，保留稳定 expression tombstone 并紧凑重映射 resident instruction。
 4. `mir-cfg-cleanup` 只删除非 entry、无参数、无 instruction 的单目标 forwarding block，以及无前驱的空 unreachable block；随后紧凑重映射 `BlockId`、successor 和函数 block inventory。
 
-默认管线先验证 lowering 输出，再执行上述保守变换；alias/effect 分析只在最终优化 revision 上计算，capability、binding 和两个目标 lowering 因而消费完全相同的 MIR。后端不得复制一份目标专属常量折叠或要求先生成另一目标。涉及 effect 重排、浮点代数、跨调用传播、一般 phi、循环、memory SSA 或 region-aware DCE 的优化仍未启用，必须先补证明、负向 verifier、差分、fuzz 和性能基准。
+默认管线先验证 lowering 输出，再执行上述保守变换；alias/effect 和 CFG memory-dependence 分析只在最终优化 revision 上依次计算并验证，capability、binding 和两个目标 lowering 因而消费完全相同的 MIR。后端不得复制一份目标专属常量折叠或要求先生成另一目标。涉及 effect 重排、浮点代数、跨调用传播、一般 phi、MemorySSA、region-aware DCE/store forwarding 的优化仍未启用，必须先补证明、负向 verifier、差分、fuzz 和性能基准。
 
 ## 第四层：分层的目标后端
 
