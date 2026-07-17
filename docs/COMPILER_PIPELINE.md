@@ -2,7 +2,7 @@
 
 本文是 MPF 前端、公共中间表示、分析/优化基础设施和后端的权威架构规范，也是重构验收依据。若其他文档与本文的层级职责冲突，以本文和 [TODO](../TODO.md) 的逐项状态为准。
 
-> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 原子产出窄 HIR 与 revision-bound `SemanticTable` seed；0.3.6 的双目标 LIR v10 固化 call ownership/writeback、目标求值、强类型比较和 source segment；0.3.7 让三个 statement parser 直接构造语言专属 arena；0.3.8 删除 MIR 的递归 HIR 兼容 ownership；0.3.9 进一步删除 flat MIR 宽语义 payload，以 revision-bound `OperationAttributeTable` 和驻留 type/shape/storage 作为唯一事实。0.4.0 以同一 contract 接入第四个 TypeScript parser/arena/lowering，并让 explicit export policy 从 semantic profile/side-table 进入 MIR function 和 JavaScript LIR ABI。0.4.1 以 profile 驱动 `NameScopeEdges`、Analyzer block state、显式 `for` CFG、`SymbolId` target identity 和 LIR v12 lexical `ScopePlan` 贯通源块到两个目标。0.4.2 在后端分叉前接入共享 MIR 默认优化、逐 pass verifier/revision/instrumentation、MIR v4 tombstone ownership 与优化后 alias/effect 重算，并公开机器可读变换统计。后续迁移集中在完整独立 target AST、一般 RAII/copy-move/runtime ABI node、完整四语言官方 grammar、动态 rank/广播、精确 N 维 overlap 和插件 ABI；不能把当前 TypeScript 子集等同于完整 TypeScript 6 兼容。
+> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 原子产出窄 HIR 与 revision-bound `SemanticTable` seed；0.3.6 的双目标 LIR v10 固化 call ownership/writeback、目标求值、强类型比较和 source segment；0.3.7 让三个 statement parser 直接构造语言专属 arena；0.3.8 删除 MIR 的递归 HIR 兼容 ownership；0.3.9 进一步删除 flat MIR 宽语义 payload，以 revision-bound `OperationAttributeTable` 和驻留 type/shape/storage 作为唯一事实。0.4.0 以同一 contract 接入第四个 TypeScript parser/arena/lowering，并让 explicit export policy 从 semantic profile/side-table 进入 MIR function 和 JavaScript LIR ABI。0.4.1 以 profile 驱动 `NameScopeEdges`、Analyzer block state、显式 `for` CFG、`SymbolId` target identity 和 LIR v12 lexical `ScopePlan` 贯通源块到两个目标。0.4.2 在后端分叉前接入共享 MIR 默认优化、逐 pass verifier/revision/instrumentation、MIR v4 tombstone ownership 与优化后 alias/effect 重算。0.4.3 新增 semantic v2/MIR v5/alias-effect v2 的规范化 `StorageRegion` side table，为静态已知 shape 的同根 element、连续/步长、N 维矩形与列主序线性 section 提供精确 overlap 证明。后续迁移集中在完整独立 target AST、一般 RAII/copy-move/runtime ABI node、完整四语言官方 grammar、动态 rank/广播、跨一般 view/pointer 的区域证明和插件 ABI；不能把当前 TypeScript 子集等同于完整 TypeScript 6 兼容。
 
 ## 目标与永久约束
 
@@ -158,6 +158,7 @@ arena 只通过强类型 ID 连接，目标后端必须 O(1) lookup 后构造自
 - `TypeId` 描述标量、tuple、sequence、array、function/reference 等逻辑类型。
 - `ShapeId` 独立描述 rank、静态/动态 extent、stride、layout 和 section view。
 - `StorageId` 表示可能共享或重叠的存储区域；view、optional parameter、copy-in/copy-out、writable actual 和 lifetime 必须显式关联。
+- `StorageRegion` 是不修改 HIR 结构节点的稠密 semantic/operation side-table fact：`rectangular` 保存 root shape 及每维零基 `first/stride/count`，`linearized` 保存列主序单 selector 的线性 progression，`unknown` 明确表示不能作精确结论。
 - alias 结果不内嵌 `StorageData`，而在稀疏 side table 中使用 `no_alias`、`may_alias`、`must_alias` 等保守格；未知时不能假设不重叠。
 - mutable aggregate 不强行伪装为纯 SSA 值；通过 value SSA 加显式 memory/storage effect 表达，后续可演进 memory SSA。
 
@@ -169,11 +170,14 @@ CallArgument
 ├── actual StorageId + root StorageId
 ├── ParameterIntent + writability
 ├── view kind + actual lifetime
+├── normalized StorageRegion
 └── transfer: value | read-only borrow | mutable OUT/INOUT borrow
               | copy-out | copy-in/out | optional forward | omitted
 ```
 
-section writable actual 的 copy transfer 在 MIR 中确定，并在 call 前后生成带 expression-lifetime temporary 的 `copy`/`writeback`；copy-out 没有输入值，copy-in/out 读取原 section，两者都以 transfer mode、type/shape 和目标 storage 接受 verifier 与 alias/effect 检查。目标 lowering 只能选择 box、reference、temporary 或 runtime ABI 等表示，不能重新根据 AST 形状判断是否 copy-out。精确 N 维 selector region 与部分重叠证明仍是独立的后续 alias 精化，不影响当前未知重叠必须保守处理的规则。
+section writable actual 的 copy transfer 在 MIR 中确定，并在 call 前后生成带 expression-lifetime temporary 的 `copy`/`writeback`；copy-out 没有输入值，copy-in/out 读取原 section，两者都以 transfer mode、type/shape、目标 storage 和 region 接受 verifier 与 alias/effect 检查。目标 lowering 只能选择 box、reference、temporary 或 runtime ABI 等表示，不能重新根据 AST 形状判断是否 copy-out 或重算 selector overlap。
+
+静态 region 关系按 N 维笛卡尔积计算：root shape/kind 不同或任一事实 unknown 时返回 unknown；相同非空事实返回 identical；任一空集或任一维 progression 被证明不相交时整体 disjoint；其余返回 overlaps。单维证明先做范围和单点检查，再用 stride 的 gcd 同余快速排除交错序列，并只在较小 progression 不超过固定上限时枚举；大规模同余兼容但无法在常数资源内证明的关系保守视为 overlap。Fortran 多个 writable actual 只有在当前 region 与所有既有同根 region 都为 disjoint 时放行，动态 bound/extent 不会被猜测为安全。
 
 ### 副作用模型
 
@@ -190,7 +194,7 @@ control
 external_unknown
 ```
 
-函数摘要只把 global/unknown memory 与非 memory effect 直接传播到调用点；参数读写/逃逸通过 call-site actual storage 实例化，纯函数局部 storage 访问不得伪装成调用者可见写入。每个 call effect fact 同时保存 argument transfer 和成对 overlap relation；多个 writable actual 若不是 `no_alias` 则失败关闭。全局 storage 由 name analysis 的 `SymbolId` 统一身份，参数 storage 与潜在实参之间保持保守 `may_alias`。
+函数摘要只把 global/unknown memory 与非 memory effect 直接传播到调用点；参数读写/逃逸通过 call-site actual storage 实例化，纯函数局部 storage 访问不得伪装成调用者可见写入。每个 call effect fact 同时保存 argument transfer、normalized region 和成对 overlap relation；同根 storage 先按 region 将基础关系精化为 `no_alias`/`must_alias`，未决关系仍保持 `may_alias`，多个 writable actual 若不是 `no_alias` 则失败关闭。全局 storage 由 name analysis 的 `SymbolId` 统一身份，参数 storage 与潜在实参之间保持保守 `may_alias`。
 
 公共优化只有在 effect、alias 和 evaluation-order 证明允许时才能重排或删除指令。外部未知调用默认读写未知存储并可能失败，除非 binding manifest 提供更强保证。
 
@@ -206,7 +210,7 @@ HIR→MIR lowering 必须显式生成 CFG 和 evaluation order。结构 verifier
 - effect 与 instruction kind 的最低约束；
 - return/call signature、多结果和异常/失败边一致性。
 
-0.4.2 的默认公共管线按固定顺序运行，并在每个变换后提升 `Program::revision`、同步 `OperationAttributeTable::mir_revision`、失效未声明保留的分析、记录耗时和执行完整 MIR verifier：
+0.4.3 延续的默认公共管线按固定顺序运行，并在每个变换后提升 `Program::revision`、同步 `OperationAttributeTable::mir_revision`、失效未声明保留的分析、记录耗时和执行完整 MIR verifier：
 
 1. `mir-shape-canonicalization` 重新计算静态 row/column-major canonical stride，按 rank/layout/extent/stride 去重 shape，并一次性重写所有强类型 `ShapeId` 引用；dynamic-rank 的运行时 stride 不被臆测。
 2. `mir-copy-propagation` 只删除带 storage 身份、且每条 incoming edge 的 actual 完全相同的 block argument；同时按同一 ordinal 删除所有前驱 actual，其他 phi-equivalent 合并不做猜测。

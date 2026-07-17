@@ -1,3 +1,19 @@
+## 0.4.3
+
+- 新增目标无关的 `StorageRegion`、`StorageRegionDimension` 与 `StorageRegionRelation`，以 `unknown`、N 维 `rectangular` 和列主序 `linearized` 三种形式统一描述 identifier、element 与 section 相对根 storage 的区域。
+- Analyzer 将静态 shape 与 selector 规范化为零基、正 stride、有限 count 的 HIR `SemanticTable` side-table fact；连续、缺省 bound、正负 step、空 section、N 维 block 与列主序线性选择共享同一表示，动态 bound/extent 保持 unknown 而不伪造精确性，并在进入有符号转换前拒绝 `2^63` 与不可表示的 step。
+- region relation 使用空集/区间/单点检查、stride gcd 同余和 4096 元素上限的有界精确枚举；相同非空事实返回 identical，任一空集或任一维不相交即可证明 N 维笛卡尔积 disjoint，大规模同余兼容但未决的关系保守返回 overlap，避免不受控分析成本。
+- Fortran 调用不再按 root `SymbolId` 一律拒绝多个 writable actual；已知静态 shape 下，两两不相交的连续区间、交错 stride、负 stride 与二维 block 可安全通过，真实重叠或动态边界继续以 `MPF2038` 失败关闭。
+- MIR textual schema 升至 v5：revision-bound expression attribute 和单一 `CallSite::Argument` 同时保存 normalized region，HIR→MIR lowering 只复制经验证的 side-table fact，constant-folding tombstone 同步清空 region。
+- alias/effect schema 升至 v2：call argument effect fact 携带 region，同一 root 的基础 storage alias 会按 disjoint/identical 区域精化为 `no_alias`/`must_alias`，未决关系保持 `may_alias`，writable-conflict verifier 继续拒绝任何非 `no_alias` 组合。
+- semantic dump 升至 v2，并与 MIR/alias dump 一起确定性公开完整 root shape 和每维 `first:stride:count`；修复 `uint8_t` 枚举被流输出为控制字符的问题，所有 schema enum 现在稳定输出十进制值。
+- MIR 与 semantic verifier 新增 region validity、表达式 storage、call-child side-table 一致性、storage-free/omitted contract 和 retired tombstone 检查；双目标只消费既定 transfer/writeback，架构门禁禁止 JavaScript/`cpp` lowering 或 renderer 重算公共 overlap 语义。
+- 内部测试增至 177 项，新增 rectangular/linearized/unknown、空集、同一/不相交/重叠 progression、二维区域、非法 bounds、stale call region、alias conflict，以及 JavaScript/`cpp` 连续/正负步长/二维写回的正负向覆盖。
+- 新增 `examples/fortran/disjoint_regions.f90` 四路差分：gfortran 严格 `-std=f2018` source、生成 JavaScript/Node.js、生成 C++17 与声明式 oracle 共同验证交错 stride 和二维同根 writable block，corpus 增至 55 项、工具完整环境执行路径增至 155 条。
+- 新增 Fortran disjoint-region fuzz seed；编译器分层门禁要求共享 region contract、HIR/MIR 稠密 side table 与 alias refinement，同时禁止目标后端恢复 storage-region 分析。
+- 性能发布门禁新增 128 个同根交错 section 调用的 `storage-regions` 场景，并修正 benchmark 的语言扩展名选择；七场景继续限制延迟、吞吐、峰值 arena、生成大小、确定性重放和八路并发，当前场景实测约 45.5 ms。
+- 项目版本、性能基线、README、架构、管线、扩展、语言边界、诊断、测试与 TODO 同步到 0.4.3，`CHANGELOG.md` 继续直接以具体正式版本开头。当前为 177 项内部测试、55 个差分 case 和 66 项 CTest；Debug/Release 66/66、ASan/UBSan 65/65、format/clang-tidy、fuzz、隔离、安装、差分和性能门禁通过，生产代码行覆盖率为 89.49%（21617/24156）。
+
 ## 0.4.2
 
 - 新增后端无关的默认 MIR 优化管线，并在 JavaScript/`cpp` 分叉之前接入唯一生产驱动；优化完成后才重算 alias/effect，binding、capability 和两个目标 lowering 始终消费同一份 revision，生成 `cpp` 不依赖 JavaScript 产物。

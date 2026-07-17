@@ -1,6 +1,6 @@
 # MPF 持续建设路线图
 
-本路线图同时记录 **0.4.2 已发布基线** 与后续交付目标的真实状态。历史交付细节见
+本路线图同时记录 **0.4.3 已发布基线** 与后续交付目标的真实状态。历史交付细节见
 [CHANGELOG.md](CHANGELOG.md)，当前可依赖的语言子集见
 [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 已有独立、可执行且包含 lexical block/canonical `for` 的子集，但完整 grammar 仍未完成。
 
@@ -14,10 +14,10 @@
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；`cpp` 当前生成严格 C++17 translation unit |
 | 前后端边界 | 四语言 parser session 直接构造并发布各自 arena AST artifact，不经过共享递归 syntax tree 或整树复制；生产驱动随后固定经过 HIR→MIR→共享优化→优化后 alias/effect→目标私有 semantic plan/LIR→emitter，两个目标不读取彼此产物 |
 | 扩展架构 | frontend descriptor API v5、backend descriptor API v5；parser session/feature/resource contract、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
-| IR 架构 | 四种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有，profile 驱动的 `NameScopeEdges` 为 function/statement/body/alternative 建立稠密 scope graph；MIR v4 使用 `MirExpressionId`/`MirStatementId` 稠密 arena、revision-bound `OperationAttributeTable` 与显式 retired tombstone，结构节点不再镜像宽语义 payload；conditional/短路/comparison chain 和 TypeScript canonical `for` 已产生显式 CFG、typed edge merge 和 runtime-independent store；默认共享 pass 已接通 shape canonicalization、相同 edge-actual copy propagation、精确整数/布尔 constant folding、dead-pure elimination 和保守 CFG cleanup，每个 pass 后验证并同步 revision；tuple/function/reference type/shape 签名、stride/view/lifetime 和单对象 call argument region/transfer 可验证；alias/effect 在优化后由独立 `AliasEffectTable` 重算；双目标 LIR v12 以 `SymbolId` 保存名称身份，并显式保存 lexical scope/declaration、ABI、source export、临时值、顶层拓扑、expression/statement、强类型比较、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
+| IR 架构 | 四种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有，profile 驱动的 `NameScopeEdges` 为 function/statement/body/alternative 建立稠密 scope graph；MIR v5 使用 `MirExpressionId`/`MirStatementId` 稠密 arena、revision-bound `OperationAttributeTable` 与显式 retired tombstone，结构节点不再镜像宽语义 payload；conditional/短路/comparison chain 和 TypeScript canonical `for` 已产生显式 CFG、typed edge merge 和 runtime-independent store；默认共享 pass 已接通 shape canonicalization、相同 edge-actual copy propagation、精确整数/布尔 constant folding、dead-pure elimination 和保守 CFG cleanup，每个 pass 后验证并同步 revision；tuple/function/reference type/shape 签名、stride/view/lifetime 与 call argument transfer 可验证；静态已知 shape 的 identifier/element/N 维矩形及列主序线性 section 由 HIR/MIR `StorageRegion` side table 规范化，alias/effect v2 在优化后按同根区域精化；双目标 LIR v12 以 `SymbolId` 保存名称身份，并显式保存 lexical scope/declaration、ABI、source export、临时值、顶层拓扑、expression/statement、强类型比较、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
 | Python 最新能力 | relational/equality/identity/membership 比较链、右结合条件表达式、短路/惰性/单次求值；list/tuple 种类相等规则、singleton/reference identity、string/list/tuple membership；基础参数关联和递归固定序列解包 |
-| Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流 |
-| 工程门禁 | 175 项内部测试；54 个差分 case、152 条工具完整环境执行路径；65 项 CTest；四语言 fuzz smoke、可选 libFuzzer、六场景版本化性能阈值、逐 pass/优化统计报告；生产代码行覆盖率实测 89.44%（21331/23849），硬门槛 85% |
+| Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流；已知静态 shape 下可证明不相交的同根连续、步长与 N 维矩形 writable section actual |
+| 工程门禁 | 177 项内部测试；55 个差分 case、155 条工具完整环境执行路径；66 项 CTest；四语言 fuzz smoke、可选 libFuzzer、七场景版本化性能阈值、逐 pass/优化统计报告；生产代码行覆盖率实测 89.49%（21617/24156），硬门槛 85% |
 | 发布状态 | 0.x；没有长期 API/ABI 或完整语言兼容承诺 |
 
 ## 本轮商业级收尾验收（完成）
@@ -29,13 +29,13 @@
 - [x] 四语言/双目标 fuzz smoke、Clang/libFuzzer、资源耗尽、确定性重放、崩溃复现与最小化工作流落地
 - [x] 延迟、吞吐、深 CFG、大 shape、函数图、八路并发、峰值 arena 和产物大小纳入版本化 JSON 发布门禁与 CI 报告
 
-这里的“完成”只指上述架构与工程闭环；各语言官方 grammar、完整对象模型、动态 rank/广播、精确 N 维 overlap/alias 和稳定插件 ABI 仍由后续条目跟踪。
+这里的“完成”只指上述架构与工程闭环；各语言官方 grammar、完整对象模型、动态 rank/广播、跨动态 extent、一般 view/pointer 的完整 overlap/alias 和稳定插件 ABI 仍由后续条目跟踪。
 
 ## 版本化交付与持续收敛
 
 ### 0.3.5：商业级前后端与五层编译器管线继续收敛（已发布）
 
-0.3.5 以 16 条独立更新完成封版，交付窄 HIR + semantic seed、独立 name/flow/alias-effect side table、跨函数 MIR call contract 和双目标 LIR v9。下列已勾选项是该版本及此前版本的实际能力；未勾选项继续作为 0.4.3 及后续版本的架构 backlog。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
+0.3.5 以 16 条独立更新完成封版，交付窄 HIR + semantic seed、独立 name/flow/alias-effect side table、跨函数 MIR call contract 和双目标 LIR v9。下列已勾选项是该版本及此前版本的实际能力；未勾选项继续作为 0.4.4 及后续版本的架构 backlog。详细职责和禁止依赖见 [商业级编译器管线方案](docs/COMPILER_PIPELINE.md)。
 
 #### P0：基线、指标与依赖规则
 
@@ -75,7 +75,7 @@
 - [x] 建立独立 `ShapeId`，表达当前 rank、静态/动态 extent 与 layout
 - [x] 增加 row/column-major canonical stride、dynamic-rank 标记、section view storage 与 shape canonicalization
 - [x] 建立 `StorageId` 和 `no_alias`/`may_alias`/`must_alias` 基础模型
-- [x] 显式建模 view、optional parameter storage、copy-in/copy-out、writable actual、保守 overlap 与 storage lifetime；`CallSite` 使用单一参数对象而非并行数组，参数保存 type/storage/root/intent/transfer/view/lifetime/writability，精确 N 维 region overlap 仍由后续条目跟踪
+- [x] 显式建模 view、optional parameter storage、copy-in/copy-out、writable actual 与 storage lifetime；`CallSite` 使用单一参数对象而非并行数组，参数保存 type/storage/root/intent/transfer/view/lifetime/writability/region；静态已知 shape 的 element、连续/步长、N 维矩形与列主序线性 region 可精确证明 identical/disjoint/overlap，未知关系保守处理
 - [x] 建立结构化 `EffectSet`：read、write、allocate、io、may-fail、control、external-unknown
 - [x] HIR→MIR 显式固定左到右 evaluation order、conditional/逻辑/比较链短路、循环/选择 CFG、多结果，以及 load/allocate/store/copy/writeback runtime-independent semantic operation
 - [x] MIR verifier 检查稠密表、函数/块/指令唯一所有权、函数内 edge、terminator arity、值唯一定义及 definition-dominates-use
@@ -228,10 +228,21 @@
 - [x] `CompilationReport`/JSON 公开每类优化计数和 instruction/block before/after，stage report 单独记录四个 pass 与优化后 alias/effect 分析耗时
 - [x] MIR textual dump 升至 v4；单元、负向、幂等、双目标 API、source/JavaScript/C++ 差分和 fuzz seed 固定优化边界
 
-### 0.4.3 及后续：官方 grammar 与对象语义继续扩展
+### 0.4.3：静态 N 维 storage region 与 writable alias 精化（已发布）
+
+- [x] 新增目标无关的 `StorageRegion`/`StorageRegionDimension`/`StorageRegionRelation`，统一表达 rectangular、column-major linearized 与 unknown 区域
+- [x] Analyzer 将静态 identifier、element 和 section selector 规范化为零基、正步长、有限 count 的稠密 HIR semantic fact；动态 bound/extent 不伪造精确结论
+- [x] MIR v5 的 expression attribute、单一 call argument 与 verifier 携带并交叉校验 region；优化产生 tombstone 时同步清空事实
+- [x] alias/effect v2 在同一 storage root 内按 N 维笛卡尔积精化 no/must/may alias，并把规范化 region 写入确定性 dump
+- [x] Fortran 多 writable actual 允许静态可证明不相交的连续、交错步长和二维 block；重叠或无法证明时继续以 `MPF2038` 失败关闭
+- [x] gcd 同余、区间/单点检查和有界精确枚举共同限制重叠证明成本；大规模未决关系保守返回 overlap
+- [x] 双后端继续只消费 MIR transfer/writeback，编译器分层门禁禁止目标 lowering/renderer 重算 storage-region 语义
+- [x] 新增双后端集成、MIR/side-table/verifier 负向、gfortran/Node.js/生成 `cpp` 差分、fuzz seed 与七场景性能发布门禁
+
+### 0.4.4 及后续：官方 grammar 与对象语义继续扩展
 
 - [ ] 按 Matlab/Python/Fortran/TypeScript 官方 grammar 选择下一批可独立验收的纵切面；每累计 8—20 条独立更新形成下一版本
-- [ ] 继续完成动态 rank/extent、广播、精确 N 维 selector region overlap 和目标 typed-array/ownership 策略
+- [ ] 继续完成动态 rank/extent、广播、跨一般 view/pointer 的 region/alias 证明和目标 typed-array/ownership 策略
 
 ## M0：工程与端到端基础（完成）
 
@@ -273,7 +284,8 @@
 - [x] 删除 flat MIR 剩余源语义 payload 镜像；更细粒度 parser recovery 随官方 grammar 继续扩展
 - [ ] 完整嵌套作用域、常量折叠、完整 CFG、参数敏感跨函数数据流
 - [x] 跨语言一般 N 维静态 shape、声明、RESHAPE、直接 index/section 读取写入，以及 JavaScript/C++ 递归运行时；三维 Fortran/gfortran/Node.js/生成 C++ 差分已入门禁
-- [ ] 动态 rank、广播、跨 view/storage 的精确 N 维 section overlap 与多 writable actual alias 证明
+- [x] 静态已知 shape、同一 storage root 的 element/连续/步长/N 维矩形 section overlap 与多 writable actual alias 证明
+- [ ] 动态 rank/extent、广播、跨一般 view/pointer/storage association 的完整 region 证明
 - [x] source map v3、输入文件身份、生成文件身份和 LIR-origin 位置映射；banner 独立控制
 - [x] 全管线 fuzz harness、拒绝/成功 corpus、确定性 mutation、libFuzzer 崩溃复现与最小化工作流
 
@@ -352,7 +364,7 @@
 - [ ] 预处理、`INCLUDE`、tab-form 和更完整历史 source-form
 - [ ] 完整 declaration、kind/len、allocatable/pointer、derived type 和 generic interface
 - [ ] module/submodule、module procedure、嵌套 procedure 和完整 interface association
-- [ ] assumed-rank、assumed-size、动态 extent 组合和更精确的 N 维 storage/alias/overlap 规则
+- [ ] assumed-rank、assumed-size、动态 extent、pointer/target association 与跨 view 的完整 N 维 storage/alias/overlap 规则
 - [ ] DO CONCURRENT、SELECT TYPE/RANK、WHERE、FORALL 与更完整 I/O
 - [ ] COMMON/EQUIVALENCE/SAVE 等历史 storage 语义
 - [ ] ISO_C_BINDING、外部库、BLAS/LAPACK 调用和链接适配策略

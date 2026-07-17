@@ -1,8 +1,8 @@
 # 扩展前端、后端与代码绑定
 
-0.4.2 使用对称的 descriptor/registry 架构接入四种内置源语言和两个输出目标。当前核心驱动执行“选择 descriptor → 创建 parser session → parser 直接构造语言 arena AST → AST verifier → AST→窄 HIR + semantic seed → HIR/seed verifier → NameTable/FlowTable → Analyzer → flat MIR value/operation arena + revision-bound attributes + lazy/memory CFG → 共享 MIR 默认优化 + 逐 pass verifier → 优化后 alias/effect → capability/legalization → 私有 semantic plan/LIR → LIR verifier/dump → printer”，不按具体语言或目标硬编码分派。TypeScript 证明了同一扩展边界既可承载独立 token stream/arena 和 explicit export policy，也可通过 semantic profile 选择 lexical-block scope model，而无需修改 emitter 分派。当前 contract 面向同一源码树中的编译期组件；descriptor 带 API version，但尚不承诺跨动态库的稳定插件 ABI。
+0.4.3 使用对称的 descriptor/registry 架构接入四种内置源语言和两个输出目标。当前核心驱动执行“选择 descriptor → 创建 parser session → parser 直接构造语言 arena AST → AST verifier → AST→窄 HIR + semantic seed → HIR/seed verifier → NameTable/FlowTable → Analyzer + normalized storage-region side table → flat MIR value/operation arena + revision-bound attributes + lazy/memory CFG → 共享 MIR 默认优化 + 逐 pass verifier → 优化后 alias/effect → capability/legalization → 私有 semantic plan/LIR → LIR verifier/dump → printer”，不按具体语言或目标硬编码分派。TypeScript 证明了同一扩展边界既可承载独立 token stream/arena 和 explicit export policy，也可通过 semantic profile 选择 lexical-block scope model，而无需修改 emitter 分派。当前 contract 面向同一源码树中的编译期组件；descriptor 带 API version，但尚不承诺跨动态库的稳定插件 ABI。
 
-本页记录当前可执行的 frontend API v5/backend API v5 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、direct arena builder、窄 HIR + frontend semantic seed、Analyzer 直写 side table、profile 驱动 `NameScopeEdges`、独立 flow/alias-effect、MIR resident instruction + ID arena、共享默认优化、call argument borrow/copy/optional-forward contract、当前控制结构 CFG、`SymbolId` target inventory、LIR v12 lexical `ScopePlan`、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；完整官方 grammar、独立 target AST 与精确 N 维 selector region overlap 不是已经完成的扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
+本页记录当前可执行的 frontend API v5/backend API v5 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、direct arena builder、窄 HIR + frontend semantic seed、Analyzer 直写 side table、profile 驱动 `NameScopeEdges`、独立 flow/alias-effect、MIR resident instruction + ID arena、共享默认优化、call argument borrow/copy/optional-forward/normalized-region contract、当前控制结构 CFG、`SymbolId` target inventory、LIR v12 lexical `ScopePlan`、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；静态已知 shape 的同根 N 维 selector overlap 已由公共 Analyzer/MIR/alias 层完成，动态 extent、一般 pointer/view association、完整官方 grammar 与独立 target AST 仍不是已经完成的扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
 
 ## 设计约束
 
@@ -136,7 +136,7 @@ descriptor API 升级时必须保留 catalog validation 和禁用组件 metadata
 - descriptor/configuration/capability manifest；
 - 全量 intrinsic binding 的 direct/custom/unavailable 明确选择；
 - capability/legalization 完整性、MIR→target semantic IR→LIR golden、逐层 verifier negative case 和缺失 binding 失败关闭；
-- call argument transfer/lifetime、writable overlap 失败关闭，目标 LIR 不重新携带源 call intent 并实际消费 transfer plan，以及 ABI/temporary/scope/declaration inventory 的 dense、arity、碰撞、类型 probe 和缺失负向测试；
+- call argument transfer/lifetime/normalized region、writable overlap 失败关闭，动态/未知区域保持保守，目标 LIR 不重新携带源 call intent 或计算 overlap 并实际消费 transfer plan，以及 ABI/temporary/scope/declaration inventory 的 dense、arity、碰撞、类型 probe 和缺失负向测试；
 - emitter 确定性、语法/编译、source map 与 dependency manifest；
 - target-only、其他后端关闭、core-only 构建/安装/外部消费隔离。
 

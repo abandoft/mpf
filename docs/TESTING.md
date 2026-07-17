@@ -10,28 +10,28 @@ MPF 的验证体系分为七层：
 6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖四种前端、两个目标、资源耗尽和确定性重放；
 7. 小文件延迟、吞吐、深 CFG、大 shape、跨函数图、峰值 arena、产物大小和并发 session 进入发布性能门禁。
 
-0.4.2 在既有 stage/include、AST/HIR/MIR/双目标 LIR verifier、golden、analysis revision、source map、resource、fuzz 和性能门禁上新增默认 MIR pipeline 的 pass 顺序/revision/instrumentation、shape 去重、block-argument propagation、checked folding/overflow 拒绝、dead-pure tombstone/instruction compaction、人工 forwarding CFG cleanup、二次运行幂等和优化后 alias/effect 验证。公共 API 证明 JavaScript 与 `cpp` 输出都消费折叠结果并公开相同统计；新增 Python source/Node.js/严格生成 C++/oracle 四路差分和 fuzz seed。flat-MIR v4 contract 继续要求 expression/operation child 与 roots 只保存强类型 ID，并进一步验证 auxiliary instruction/terminator/edge actual 可达根、共享引用、cycle 与 retired tombstone；目标 LIR builder 只按 ID/type/shape/storage/symbol 查询，renderer 不得恢复公共优化。更广四语言官方 grammar、动态 rank/广播和精确 N 维 selector region overlap 继续按 [TODO](../TODO.md) 推进。
+0.4.3 在既有 stage/include、AST/HIR/MIR/双目标 LIR verifier、共享优化、source map、resource、fuzz 和性能门禁上新增静态 N 维 storage-region 纵切面。单元/负向测试覆盖 rectangular/linearized/unknown、空集、identical、连续/交错 progression、二维笛卡尔积、非法 bounds、`2^63`/最小 step 转换边界、HIR/MIR side-table 不一致和 writable conflict；集成测试覆盖双后端连续、负步长、交错 stride 与二维 block writeback，并固定重叠或动态边界的 `MPF2038` fail-closed。semantic v2、MIR v5 和 alias-effect v2 dump 公开完整 root shape 与 `first:stride:count`；架构门禁要求公共 region contract 并禁止目标 lowering/renderer 重算。新增 gfortran source、Node.js、严格生成 C++ 与 oracle 四路差分、Fortran fuzz seed，以及第七个 `storage-regions` 性能场景。更广四语言官方 grammar、动态 rank/广播和跨一般 pointer/view 的区域证明继续按 [TODO](../TODO.md) 推进。
 
 ## 当前开发分支与发布基线
 
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 175 项，零失败 |
-| CTest | 65 项，包含 54 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
-| Differential corpus | Python 22、Fortran 18、Matlab 10、TypeScript 4，共 54 个 case |
-| 工具完整环境执行路径 | 152 条程序路径，另有每 case 一条 oracle |
-| 生产代码行覆盖率 | 89.44%（21331/23849），门槛 85% |
+| C++ 单元与集成测试 | 177 项，零失败 |
+| CTest | 66 项，包含 55 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
+| Differential corpus | Python 22、Fortran 19、Matlab 10、TypeScript 4，共 55 个 case |
+| 工具完整环境执行路径 | 155 条程序路径，另有每 case 一条 oracle |
+| 生产代码行覆盖率 | 89.49%（21617/24156），门槛 85% |
 
 ## Differential corpus
 
 权威清单位于 [`tests/differential/corpus.cmake`](../tests/differential/corpus.cmake)。当前包含：
 
 - 22 个 Python case：CPython 3.14、Node.js、生成 C++17 与 oracle 四路比较；
-- 18 个 Fortran case：gfortran 严格 `-std=f2018` reference mode、Node.js、生成 C++17 与 oracle 四路比较；`MPF_FORTRAN_REFERENCE_STANDARD` 可在工具链支持后切换到 `f2023`；
+- 19 个 Fortran case：gfortran 严格 `-std=f2018` reference mode、Node.js、生成 C++17 与 oracle 四路比较；`MPF_FORTRAN_REFERENCE_STANDARD` 可在工具链支持后切换到 `f2023`；
 - 10 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较；
 - 4 个 TypeScript case：Node.js 24 直接执行可擦除类型的 source、生成 JavaScript、生成 C++17 与声明式 oracle 四路比较；覆盖 basic、typed array、lexical block 和 canonical `for`，完整 type-check 仍待接入与 manifest 匹配的 `tsc`。
 
-在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 54 个 case 共执行 152 条程序输出路径：54 条生成 JavaScript/Node.js、54 条生成 C++17、22 条 CPython、18 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。runner 不仅分别检查 oracle，还直接比较可用执行路径。Python optimization case 固定 checked constant folding 在 source、生成 JavaScript 与生成 C++17 间的结果等价；comparisons case 四路覆盖 equality/identity/membership、list/tuple 种类差异、递归布尔/数值相等和混合 comparison chain；TypeScript 四路覆盖 default/control/export、strict equality、typed array/零基 mutation、block-local 混合类型遮蔽、外层赋值以及 canonical-for 的 break/continue/update/退出值。Fortran tensor、SELECT CASE、structured-unpacking、argument association 和 optional writeback cases 继续覆盖原契约。
+在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 55 个 case 共执行 155 条程序输出路径：55 条生成 JavaScript/Node.js、55 条生成 C++17、22 条 CPython、19 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。runner 不仅分别检查 oracle，还直接比较可用执行路径。Python optimization case 固定 checked constant folding 在 source、生成 JavaScript 与生成 C++17 间的结果等价；comparisons case 四路覆盖 equality/identity/membership、list/tuple 种类差异、递归布尔/数值相等和混合 comparison chain；TypeScript 四路覆盖 default/control/export、strict equality、typed array/零基 mutation、block-local 混合类型遮蔽、外层赋值以及 canonical-for 的 break/continue/update/退出值。Fortran disjoint-regions case 四路覆盖交错 stride 与二维同根 writable block，tensor、SELECT CASE、structured-unpacking、argument association 和 optional writeback cases 继续覆盖原契约。
 
 每个 case 在 `build/<preset>/differential/<case>/` 保存：
 
@@ -69,7 +69,7 @@ build/fuzz/tests/mpf-transpiler-fuzzer build/fuzz/corpus
 
 ## 性能发布门禁
 
-`mpf.performance.release-gate` 运行两个目标的五类编译场景和八路并发 session，重复编译还会逐字节比较代码与 source map。结果写入 `build/<preset>/performance-report.json`，并由 [`tests/performance/baseline.json`](../tests/performance/baseline.json) 的版本化上限/下限检查延迟、吞吐、峰值 arena 和最大生成大小。该 Release 性能门禁不在 ASan/UBSan 配置中注册，避免用插桩开销污染发布阈值；独立 `Performance` workflow 显式运行非插桩 `mpf-performance` 并归档机器可读报告。
+`mpf.performance.release-gate` 运行两个目标的七类编译场景和八路并发 session，重复编译还会逐字节比较代码与 source map。场景覆盖 small、吞吐、深 CFG、大 shape、函数图、TypeScript 吞吐，以及 128 个同根交错 section 调用的 storage-region 分析。结果写入 `build/<preset>/performance-report.json`，并由 [`tests/performance/baseline.json`](../tests/performance/baseline.json) 的版本化上限/下限检查延迟、吞吐、峰值 arena 和最大生成大小。该 Release 性能门禁不在 ASan/UBSan 配置中注册，避免用插桩开销污染发布阈值；独立 `Performance` workflow 显式运行非插桩 `mpf-performance` 并归档机器可读报告。
 
 质量与覆盖率门禁：
 
