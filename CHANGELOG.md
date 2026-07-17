@@ -1,3 +1,23 @@
+## 0.5.0
+
+- Matlab compatible-size arithmetic and relational comparisons now support operands whose rank and extents are available only when a local function is instantiated or executed.
+- Runtime broadcast dispatch preserves scalar results, scalar expansion, row-vector normalization, missing trailing singleton dimensions, and general rectangular nested arrays.
+- HIR, MIR, JavaScript LIR, and `cpp` LIR now carry a verified `static_extents` or `runtime_operands` broadcast shape source; unknown rank is explicit rather than encoded as a static empty shape.
+- Generated JavaScript derives and validates rectangular operand shapes once before its column-major flatten/stride kernel; incompatible extents fail with a stable runtime error.
+- Generated C++17 combines template-known rank with runtime extents, returns the correct scalar or nested `std::vector` type, and rejects ragged or incompatible operands without depending on JavaScript output.
+- C++ logical-array `sum` now returns a numeric count instead of collapsing all nonzero counts to `true`.
+- Matlab `end` now works when an array extent is known only at runtime, including local-function parameters and computed selectors.
+- Runtime-sized `end` supports linear column-major indexing, per-dimension indexing, colon bounds, arithmetic such as `end - 1`, and numeric selector arrays such as `[1 end]`.
+- Dynamic `end` reads and writes now execute independently in generated JavaScript and C++17 for scalar elements and N-dimensional sections.
+- Static extents retain their constant-folded fast path, so existing fixed-shape indexing does not pay for runtime extent resolution.
+- HIR, MIR, JavaScript LIR, and `cpp` LIR now carry verified runtime-axis or runtime-linear extent plans instead of asking emitters to infer source semantics.
+- Semantic, MIR, and target LIR debug schemas advance to v6, v11, and v17 with explicit broadcast-shape sources and per-selector extent identities.
+- Generated JavaScript resolves selector closures against the active axis length or column-major element count while evaluating the indexed container only once.
+- Generated C++17 uses typed selector callables and a generalized column-major element accessor, including a C++17-safe type-probe path without lambdas in unevaluated operands.
+- Added cross-layer corruption tests, source-map assertions, generated-code checks, and a two-target executable differential example for dynamic `end` reads and writes.
+- Added a dedicated dynamic-`end` fuzz seed and compilation-performance scenario; read-only memory frontiers with no compatible function write are now pruned, retaining the existing release thresholds.
+- Added executable scalar/array dynamic-broadcast differential coverage, cross-layer corruption rejection, source-map checks, a fuzz seed, and a dedicated compilation-performance scenario.
+
 ## 0.4.9
 
 - Matlab matrix left division now solves static full-rank dense real square, overdetermined, and underdetermined systems with one or more right-hand-side columns.

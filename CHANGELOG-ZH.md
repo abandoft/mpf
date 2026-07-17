@@ -1,3 +1,23 @@
+## 0.5.0
+
+- Matlab compatible-size 算术和关系比较现支持 rank 与 extent 只能在 local function 实例化或执行时取得的操作数。
+- 运行时广播分派可同时保持标量结果、scalar expansion、row-vector 规范化、缺失尾随 singleton 维和一般矩形嵌套数组。
+- HIR、MIR、JavaScript LIR 与 `cpp` LIR 现在以可验证的 `static_extents` 或 `runtime_operands` 保存广播 shape 来源；未知 rank 不再伪装成静态空 shape。
+- 生成的 JavaScript 在列主序 flatten/stride 内核前一次性推导并验证矩形 operand shape，不兼容 extent 以稳定 runtime 错误失败。
+- 生成的 C++17 将模板期 rank 与运行时 extent 组合，返回正确的标量或嵌套 `std::vector` 类型，并独立拒绝 ragged 或不兼容操作数。
+- C++ logical array 的 `sum` 现在返回数值计数，不再把全部非零计数折叠为 `true`。
+- Matlab `end` 现可用于数组 extent 只能在运行时确定的场景，包括 local function 参数和组合 selector。
+- 运行时 `end` 支持列主序线性索引、逐维索引、colon bound、`end - 1` 等算术，以及 `[1 end]` 形式的 numeric selector array。
+- 动态 `end` 的 scalar element 与 N 维 section 读取和写入现可在生成的 JavaScript 与 C++17 中独立执行。
+- 静态 extent 继续使用编译期常量快路径，固定 shape 索引不会承担运行时 extent 解析成本。
+- HIR、MIR、JavaScript LIR 与 `cpp` LIR 现在保存并验证 runtime-axis 或 runtime-linear extent plan，Emitter 不再推断源语言语义。
+- Semantic、MIR 与目标 LIR 调试 schema 分别升级到 v6、v11 和 v17，并公开广播 shape 来源与逐 selector extent identity。
+- 生成的 JavaScript 按当前轴长度或列主序元素总数解析 selector closure，同时保证被索引容器只求值一次。
+- 生成的 C++17 使用类型化 selector callable 和通用列主序 element accessor，并以无 unevaluated lambda 的类型探针保持严格 C++17。
+- 新增跨层 plan 损坏拒绝、source map 断言、生成代码检查，以及覆盖动态 `end` 读写的双目标可执行差分示例。
+- 新增动态 `end` 专用 fuzz seed 和编译性能场景；函数内没有兼容写入时会裁剪只读 memory frontier，并继续使用现有发布阈值。
+- 新增标量/数组动态广播的双目标可执行差分、跨层损坏拒绝、source map 检查、fuzz seed 和专用编译性能场景。
+
 ## 0.4.9
 
 - Matlab 矩阵左除现可求解静态满秩稠密实数方阵、超定和欠定系统，并支持一列或多列右端项。
