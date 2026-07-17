@@ -114,17 +114,13 @@ function(mpf_configure_compilation target visibility)
   endif()
 endfunction()
 
-add_library(mpf_core
+add_library(mpf_core STATIC
   src/core/compilation_report.cpp
   src/core/diagnostic.cpp
   src/source/source_text.cpp
   src/source/source_manager.cpp
   src/lexer/lexer.cpp
   src/lexer/scanner.cpp
-  src/lexer/python_statement_lexer.cpp
-  src/lexer/matlab_statement_lexer.cpp
-  src/lexer/fortran_statement_lexer.cpp
-  src/lexer/typescript_statement_lexer.cpp
   src/compiler/expression.cpp
   src/compiler/intrinsic.cpp
   src/compiler/code_binding.cpp
@@ -141,24 +137,28 @@ add_library(mpf_core
   src/semantic/expression_analyzer.cpp
   src/semantic/flow_analysis.cpp
   src/semantic/name_analysis.cpp
-  src/lexers/python_lexer.cpp
-  src/lexers/matlab_lexer.cpp
-  src/lexers/fortran_lexer.cpp
-  src/lexers/typescript_lexer.cpp
-  src/frontends/python_logical_source.cpp
-  src/frontends/frontend_ast.cpp
-  src/frontends/frontend_conformance.cpp
-  src/frontends/frontend_registry.cpp
-  src/frontends/matlab_logical_source.cpp
-  src/frontends/python_statement_parser.cpp
-  src/frontends/matlab_statement_parser.cpp
-  src/frontends/fortran_statement_parser.cpp
-  src/frontends/typescript_statement_parser.cpp
-  src/frontends/python_frontend.cpp
-  src/frontends/matlab_frontend.cpp
-  src/frontends/fortran_source_form.cpp
-  src/frontends/fortran_frontend.cpp
-  src/frontends/typescript_frontend.cpp)
+  src/frontends/common/ast.cpp
+  src/frontends/common/conformance.cpp
+  src/frontends/common/registry.cpp
+  src/frontends/python/expression_lexer.cpp
+  src/frontends/python/logical_source.cpp
+  src/frontends/python/statement_lexer.cpp
+  src/frontends/python/statement_parser.cpp
+  src/frontends/python/frontend.cpp
+  src/frontends/matlab/expression_lexer.cpp
+  src/frontends/matlab/logical_source.cpp
+  src/frontends/matlab/statement_lexer.cpp
+  src/frontends/matlab/statement_parser.cpp
+  src/frontends/matlab/frontend.cpp
+  src/frontends/fortran/expression_lexer.cpp
+  src/frontends/fortran/source_form.cpp
+  src/frontends/fortran/statement_lexer.cpp
+  src/frontends/fortran/statement_parser.cpp
+  src/frontends/fortran/frontend.cpp
+  src/frontends/typescript/expression_lexer.cpp
+  src/frontends/typescript/statement_lexer.cpp
+  src/frontends/typescript/statement_parser.cpp
+  src/frontends/typescript/frontend.cpp)
 add_library(mpf::core ALIAS mpf_core)
 set_target_properties(mpf_core PROPERTIES OUTPUT_NAME mpf-core EXPORT_NAME core)
 mpf_configure_compilation(mpf_core PUBLIC)
@@ -166,10 +166,10 @@ mpf_configure_compilation(mpf_core PUBLIC)
 set(MPF_INSTALL_TARGETS mpf_core)
 
 if(MPF_ENABLE_JAVASCRIPT_BACKEND OR MPF_ENABLE_CPP_BACKEND)
-  add_library(mpf_backend_common
-    src/backends/backend_artifact.cpp
-    src/backends/backend_pipeline.cpp
-    src/backends/identifier_mangler.cpp)
+  add_library(mpf_backend_common STATIC
+    src/backends/common/artifact.cpp
+    src/backends/common/pipeline.cpp
+    src/backends/common/identifier_mangler.cpp)
   add_library(mpf::backend-common ALIAS mpf_backend_common)
   set_target_properties(mpf_backend_common PROPERTIES
     OUTPUT_NAME mpf-backend-common
@@ -180,7 +180,7 @@ if(MPF_ENABLE_JAVASCRIPT_BACKEND OR MPF_ENABLE_CPP_BACKEND)
 endif()
 
 if(MPF_ENABLE_JAVASCRIPT_BACKEND)
-  add_library(mpf_backend_javascript
+  add_library(mpf_backend_javascript STATIC
     src/backends/javascript/backend.cpp
     src/backends/javascript/bindings.cpp
     src/backends/javascript/emitter.cpp
@@ -200,7 +200,7 @@ if(MPF_ENABLE_JAVASCRIPT_BACKEND)
 endif()
 
 if(MPF_ENABLE_CPP_BACKEND)
-  add_library(mpf_backend_cpp
+  add_library(mpf_backend_cpp STATIC
     src/backends/cpp/backend.cpp
     src/backends/cpp/bindings.cpp
     src/backends/cpp/emitter.cpp
@@ -219,9 +219,9 @@ if(MPF_ENABLE_CPP_BACKEND)
   list(APPEND MPF_INSTALL_TARGETS mpf_backend_cpp)
 endif()
 
-add_library(mpf
-  src/backends/backend_conformance.cpp
-  src/core/backend_registry.cpp
+add_library(mpf STATIC
+  src/backends/common/conformance.cpp
+  src/backends/common/registry.cpp
   src/core/source_map.cpp
   src/core/transpiler.cpp)
 add_library(mpf::mpf ALIAS mpf)
