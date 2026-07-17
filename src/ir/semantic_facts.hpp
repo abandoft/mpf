@@ -7,6 +7,7 @@
 
 #include "../compiler/assignment_pattern.hpp"
 #include "ids.hpp"
+#include "storage_region.hpp"
 
 namespace mpf::detail::hir {
 
@@ -34,6 +35,7 @@ struct ExpressionFacts {
   bool allow_negative_index{false};
   bool column_major{false};
   bool slice_stop_inclusive{false};
+  StorageRegion storage_region;
 };
 
 struct StatementFacts {

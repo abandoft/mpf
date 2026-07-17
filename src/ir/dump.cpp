@@ -9,7 +9,7 @@ namespace {
 
 template <typename Enum>
 constexpr auto enum_value(const Enum value) noexcept {
-  return static_cast<std::underlying_type_t<Enum>>(value);
+  return +static_cast<std::underlying_type_t<Enum>>(value);
 }
 
 void dump_hir_expression(std::ostringstream& output, const hir::Expression& expression,
@@ -110,6 +110,21 @@ void dump_flags(std::ostringstream& output, const std::vector<bool>& flags) {
   output << ']';
 }
 
+void dump_storage_region(std::ostringstream& output, const StorageRegion& region) {
+  output << "{kind=" << enum_value(region.kind) << " shape=[";
+  for (std::size_t index = 0; index < region.root_shape.size(); ++index) {
+    if (index != 0) output << ',';
+    output << region.root_shape[index];
+  }
+  output << "] dimensions=[";
+  for (std::size_t index = 0; index < region.dimensions.size(); ++index) {
+    if (index != 0) output << ',';
+    const auto& dimension = region.dimensions[index];
+    output << dimension.first << ':' << dimension.stride << ':' << dimension.count;
+  }
+  output << "]}";
+}
+
 }  // namespace
 
 std::string dump_hir(const hir::Program& program) {
@@ -135,7 +150,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v1 hir-nodes=" << table.hir_node_count
+  output << "semantic-v2 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -151,7 +166,8 @@ std::string dump_semantics(const hir::SemanticTable& table) {
         if (extent != 0) output << ',';
         output << facts.shape[extent];
       }
-      output << "] outputs=" << facts.requested_outputs;
+      output << "] outputs=" << facts.requested_outputs << " region=";
+      dump_storage_region(output, facts.storage_region);
     } else if (slot.kind == hir::SemanticNodeKind::statement &&
                slot.offset < table.statements.size()) {
       const auto& facts = table.statements[slot.offset];
@@ -172,7 +188,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v4 language=" << enum_value(program.source_language)
+  output << "mir-v5 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -187,7 +203,10 @@ std::string dump_mir(const mir::Program& program) {
            << expression.instruction.value() << " kind=" << enum_value(expression.kind)
            << " retired=" << expression.retired << " spelling="
            << std::quoted(attributes == nullptr ? std::string{} : attributes->spelling)
-           << " children=";
+           << " region=";
+    dump_storage_region(output,
+                        attributes == nullptr ? StorageRegion{} : attributes->storage_region);
+    output << " children=";
     dump_ids(output, expression.children, "%mexpr");
     output << " result=%v" << expression.value_id.value() << " type=!t"
            << expression.type_id.value() << " shape=!s" << expression.shape_id.value()
@@ -338,7 +357,9 @@ std::string dump_mir(const mir::Program& program) {
              << " transfer=" << enum_value(argument.transfer)
              << " view=" << enum_value(argument.view)
              << " lifetime=" << enum_value(argument.lifetime) << " writable=" << argument.writable
-             << '}';
+             << " region=";
+      dump_storage_region(output, argument.region);
+      output << '}';
     }
     output << "] result=!t" << call.result_type.value() << " requested=" << call.requested_results
            << " origin=%h" << call.origin.value() << '\n';
@@ -349,7 +370,7 @@ std::string dump_mir(const mir::Program& program) {
 std::string dump_mir(const mir::Program& program, const mir::AliasEffectTable& analysis) {
   std::ostringstream output;
   output << dump_mir(program);
-  output << "alias-effect-v1 revision=" << analysis.mir_revision << '\n';
+  output << "alias-effect-v2 revision=" << analysis.mir_revision << '\n';
   for (std::size_t index = 1; index < analysis.storages.size(); ++index) {
     const auto& facts = analysis.storages[index];
     output << "storage-alias !m" << facts.origin.value() << " root=!m" << facts.root.value()
@@ -394,7 +415,9 @@ std::string dump_mir(const mir::Program& program, const mir::AliasEffectTable& a
     for (const auto& argument : facts.arguments) {
       output << "  argument " << argument.ordinal << " storage=!m" << argument.storage.value()
              << " root=!m" << argument.root.value() << " transfer=" << enum_value(argument.transfer)
-             << " reads=" << argument.reads << " writes=" << argument.writes
+             << " region=";
+      dump_storage_region(output, argument.region);
+      output << " reads=" << argument.reads << " writes=" << argument.writes
              << " escapes=" << argument.escapes << '\n';
     }
     for (const auto& overlap : facts.overlaps) {

@@ -212,7 +212,8 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->requested_results != 1U || retired_attributes->multi_result_call ||
         retired_attributes->procedure_has_result || retired_attributes->index_base != 0U ||
         retired_attributes->allow_negative_index || retired_attributes->slice_stop_inclusive ||
-        retired_attributes->lazy_cfg) {
+        retired_attributes->lazy_cfg ||
+        retired_attributes->storage_region.kind != StorageRegionKind::unknown) {
       add_error(diagnostics, expression.location, stage,
                 "retired expression does not satisfy its tombstone contract");
     }
@@ -305,6 +306,26 @@ void verify_expression(const Expression& expression, const Program& program,
        (expression_attributes->intrinsic != IntrinsicId::none))) {
     add_error(diagnostics, expression.location, stage,
               "expression operation attributes have an invalid result/binding contract");
+  }
+  if (!valid_storage_region(expression_attributes->storage_region) ||
+      (expression_attributes->storage_region.kind != StorageRegionKind::unknown &&
+       !expression.storage_id.valid())) {
+    add_error(diagnostics, expression.location, stage,
+              "expression operation attributes contain an invalid storage region");
+  }
+  if (expression.kind == ExpressionKind::call && expression.instruction.valid() &&
+      expression.instruction.value() < index.calls_by_instruction.size()) {
+    const auto* call = index.calls_by_instruction[expression.instruction.value()];
+    if (call != nullptr && expression.children.size() == call->arguments.size() + 1U) {
+      for (std::size_t argument = 0; argument < call->arguments.size(); ++argument) {
+        const auto* child_attributes = attributes(program, expression.children[argument + 1U]);
+        if (child_attributes == nullptr ||
+            call->arguments[argument].region != child_attributes->storage_region) {
+          add_error(diagnostics, expression.location, stage,
+                    "call argument storage region disagrees with its expression side table");
+        }
+      }
+    }
   }
   const auto* expression_type = type_data(program, expression.type_id);
   if (!expression_attributes->tuple_shapes.empty() &&
@@ -1047,7 +1068,12 @@ void verify_function_types_and_calls(const Program& program, std::vector<Diagnos
           add_error(diagnostics, instruction.location, stage,
                     "call argument storage region metadata is stale or inconsistent");
         }
-      } else if (actual.root.valid() || actual.view != StorageViewKind::none || actual.writable) {
+        if (!valid_storage_region(actual.region)) {
+          add_error(diagnostics, instruction.location, stage,
+                    "call argument contains an invalid N-dimensional storage region");
+        }
+      } else if (actual.root.valid() || actual.view != StorageViewKind::none || actual.writable ||
+                 actual.region.kind != StorageRegionKind::unknown) {
         add_error(diagnostics, instruction.location, stage,
                   "storage-free call argument has storage region metadata");
       }

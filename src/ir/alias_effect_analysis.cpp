@@ -280,8 +280,8 @@ bool same_call(const CallEffectFacts& left, const CallEffectFacts& right) noexce
     const auto& expected = right.arguments[index];
     if (actual.ordinal != expected.ordinal || actual.storage != expected.storage ||
         actual.root != expected.root || actual.transfer != expected.transfer ||
-        actual.reads != expected.reads || actual.writes != expected.writes ||
-        actual.escapes != expected.escapes) {
+        actual.region != expected.region || actual.reads != expected.reads ||
+        actual.writes != expected.writes || actual.escapes != expected.escapes) {
       return false;
     }
   }
@@ -527,14 +527,24 @@ AliasEffectTable analyze_alias_effects(const Program& program) {
       const auto escapes = callee != nullptr && index < callee->parameter_escapes.size() &&
                            callee->parameter_escapes[index];
       facts.arguments.push_back({static_cast<std::uint32_t>(index), argument.storage, argument.root,
-                                 argument.transfer, reads, writes, escapes});
+                                 argument.transfer, argument.region, reads, writes, escapes});
     }
     for (std::size_t left = 0; left < call.arguments.size(); ++left) {
       if (!call.arguments[left].storage.valid()) continue;
       for (std::size_t right = left + 1U; right < call.arguments.size(); ++right) {
         if (!call.arguments[right].storage.valid()) continue;
-        const auto relation =
+        auto relation =
             alias_between(result, call.arguments[left].storage, call.arguments[right].storage);
+        if (relation != AliasClass::no_alias &&
+            call.arguments[left].root == call.arguments[right].root) {
+          const auto region_relation =
+              storage_region_relation(call.arguments[left].region, call.arguments[right].region);
+          if (region_relation == StorageRegionRelation::disjoint) {
+            relation = AliasClass::no_alias;
+          } else if (region_relation == StorageRegionRelation::identical) {
+            relation = AliasClass::must_alias;
+          }
+        }
         if (relation == AliasClass::no_alias) continue;
         facts.overlaps.push_back({static_cast<std::uint32_t>(left),
                                   static_cast<std::uint32_t>(right), relation,

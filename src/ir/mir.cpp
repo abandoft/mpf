@@ -734,6 +734,7 @@ class Builder final {
       result_attributes.index_base = semantic_facts->index_base;
       result_attributes.allow_negative_index = semantic_facts->allow_negative_index;
       result_attributes.slice_stop_inclusive = semantic_facts->slice_stop_inclusive;
+      result_attributes.storage_region = semantic_facts->storage_region;
     }
     result.children.reserve(source.children.size());
     std::vector<ValueId> operands;
@@ -1142,6 +1143,8 @@ class Builder final {
     result.intent = intent;
     result.transfer = argument_transfer(intent, result.storage, optional_forward,
                                         expression.kind == ExpressionKind::omitted_argument);
+    const auto* expression_attributes = mir::attributes(program_, expression.id);
+    if (expression_attributes != nullptr) result.region = expression_attributes->storage_region;
     if (result.storage.valid() && result.storage.value() < program_.storages.size()) {
       const auto& metadata = program_.storages[result.storage.value()];
       result.view = metadata.view;

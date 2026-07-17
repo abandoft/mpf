@@ -32,6 +32,13 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
   if (facts->requested_outputs == 0) {
     add_error(diagnostics, expression.location, stage, "expression requests zero outputs");
   }
+  if (!valid_storage_region(facts->storage_region) ||
+      (facts->storage_region.kind != StorageRegionKind::unknown &&
+       expression.kind != ExpressionKind::identifier && expression.kind != ExpressionKind::index &&
+       expression.kind != ExpressionKind::slice)) {
+    add_error(diagnostics, expression.location, stage,
+              "expression storage-region fact is invalid for its expression kind");
+  }
   if (facts->tuple_types.size() != facts->tuple_element_types.size() ||
       facts->tuple_types.size() != facts->tuple_shapes.size()) {
     add_error(diagnostics, expression.location, stage,

@@ -366,6 +366,7 @@ bool fold_expression(Program& program, const MirExpressionId id, OptimizationSta
   facts->allow_negative_index = false;
   facts->slice_stop_inclusive = false;
   facts->lazy_cfg = false;
+  facts->storage_region = {};
   instruction.opcode = Opcode::literal;
   instruction.callee = {};
   instruction.intrinsic = IntrinsicId::none;

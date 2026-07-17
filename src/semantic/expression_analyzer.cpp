@@ -1,15 +1,109 @@
 #include <algorithm>
+#include <climits>
 #include <cstdlib>
 #include <limits>
 #include <optional>
 #include <string>
-#include <unordered_set>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "analyzer_internal.hpp"
 
 namespace mpf::detail::semantic_internal {
+namespace {
+
+std::optional<long long> integral_constant(const Expression& expression) {
+  const auto value = numeric_constant(expression);
+  const auto minimum = static_cast<double>(std::numeric_limits<long long>::min());
+  const auto upper_exclusive = -minimum;
+  if (!value.has_value() || *value < minimum || *value >= upper_exclusive) {
+    return std::nullopt;
+  }
+  const auto integral = static_cast<long long>(*value);
+  return static_cast<double>(integral) == *value ? std::optional<long long>{integral}
+                                                 : std::nullopt;
+}
+
+std::optional<std::size_t> normalized_index(const long long value, const std::size_t extent,
+                                            const std::size_t base, const bool allow_negative) {
+  if (extent == dynamic_extent) return std::nullopt;
+  if (allow_negative && value < 0) {
+    const auto magnitude = static_cast<unsigned long long>(-(value + 1LL)) + 1ULL;
+    if (magnitude > static_cast<unsigned long long>(extent)) return std::nullopt;
+    return extent - static_cast<std::size_t>(magnitude);
+  }
+  if (value < 0) return std::nullopt;
+  const auto unsigned_value = static_cast<unsigned long long>(value);
+  if (unsigned_value < base) return std::nullopt;
+  const auto result = unsigned_value - base;
+  return result < extent ? std::optional<std::size_t>{static_cast<std::size_t>(result)}
+                         : std::nullopt;
+}
+
+std::optional<StorageRegionDimension> scalar_region_dimension(const Expression& index,
+                                                              const std::size_t extent,
+                                                              const std::size_t base,
+                                                              const bool allow_negative) {
+  if (extent == dynamic_extent) return std::nullopt;
+  const auto constant = integral_constant(index);
+  if (!constant.has_value()) return std::nullopt;
+  const auto normalized = normalized_index(*constant, extent, base, allow_negative);
+  return normalized.has_value() ? std::optional<StorageRegionDimension>{{*normalized, 1U, 1U}}
+                                : std::nullopt;
+}
+
+std::optional<StorageRegionDimension> slice_region_dimension(const Expression& slice,
+                                                             const hir::ExpressionFacts& facts,
+                                                             const std::size_t extent,
+                                                             const std::size_t count) {
+  if (slice.children.size() != 3U || extent == dynamic_extent ||
+      extent > static_cast<std::size_t>(LLONG_MAX) ||
+      facts.index_base > static_cast<std::size_t>(LLONG_MAX)) {
+    return std::nullopt;
+  }
+  const auto optional_bound = [&](const Expression& bound) -> std::optional<long long> {
+    return bound.valid() ? integral_constant(bound) : std::optional<long long>{};
+  };
+  const auto start_value = optional_bound(slice.children[0]);
+  const auto stop_value = optional_bound(slice.children[1]);
+  const auto step_value = optional_bound(slice.children[2]);
+  if ((slice.children[0].valid() && !start_value.has_value()) ||
+      (slice.children[1].valid() && !stop_value.has_value()) ||
+      (slice.children[2].valid() && !step_value.has_value())) {
+    return std::nullopt;
+  }
+  const auto step = step_value.value_or(1);
+  if (step == 0 || step == LLONG_MIN) return std::nullopt;
+  if (count == 0U) return StorageRegionDimension{0U, 1U, 0U};
+
+  long long first = 0;
+  if (!facts.slice_stop_inclusive) {
+    const auto size = static_cast<long long>(extent);
+    first = start_value.value_or(step > 0 ? 0 : size - 1);
+    if (start_value.has_value() && first < 0) first += size;
+    first =
+        step > 0 ? std::max(0LL, std::min(first, size)) : std::max(-1LL, std::min(first, size - 1));
+  } else {
+    first = start_value.value_or(step > 0 ? static_cast<long long>(facts.index_base)
+                                          : static_cast<long long>(extent - 1U) +
+                                                static_cast<long long>(facts.index_base));
+    first -= static_cast<long long>(facts.index_base);
+  }
+  if (first < 0) return std::nullopt;
+  const auto distance = static_cast<unsigned long long>(count - 1U);
+  const auto magnitude = static_cast<unsigned long long>(step > 0 ? step : -step);
+  if (distance != 0U && magnitude > static_cast<unsigned long long>(LLONG_MAX) / distance) {
+    return std::nullopt;
+  }
+  const auto offset = static_cast<long long>(distance * magnitude);
+  const auto lowest = step > 0 ? first : first - offset;
+  if (lowest < 0) return std::nullopt;
+  return StorageRegionDimension{static_cast<std::size_t>(lowest),
+                                static_cast<std::size_t>(magnitude), count};
+}
+
+}  // namespace
 
 ValueType Analyzer::analyze_expression(Expression& expression) {
   switch (expression.kind) {
@@ -43,6 +137,9 @@ ValueType Analyzer::analyze_expression(Expression& expression) {
         semantic(semantics_, expression).tuple_shapes = symbol->tuple_shapes;
         semantic(semantics_, expression).sequence_is_list = symbol->sequence_is_list;
         semantic(semantics_, expression).sequence_elements = symbol->sequence_elements;
+        if (symbol->binding == BindingKind::variable) {
+          semantic(semantics_, expression).storage_region = full_storage_region(symbol->shape);
+        }
         if (symbol->binding == BindingKind::variable) {
           mark_fortran_parameter_read(use->symbol);
         }
@@ -613,7 +710,7 @@ ValueType Analyzer::analyze_call(Expression& expression) {
     return semantic(semantics_, expression).inferred_type = ValueType::boolean;
   }
   ValueType argument_type = ValueType::unknown;
-  std::unordered_set<SymbolId> reference_actuals;
+  std::unordered_map<SymbolId, std::vector<StorageRegion>> reference_actuals;
   for (std::size_t index = 1; index < expression.children.size(); ++index) {
     auto& argument = expression.children[index];
     const auto intent_index = index - 1;
@@ -651,10 +748,6 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       }
       const auto* root_use = names_.reference(root->id);
       const auto root_symbol = root_use == nullptr ? SymbolId{} : root_use->symbol;
-      if (!reference_actuals.insert(root_symbol).second) {
-        diagnose(argument.location.line, "MPF2038",
-                 "aliased Fortran OUT/INOUT actual argument storage is not supported");
-      }
       auto* symbol = lookup(*root);
       if (symbol == nullptr || symbol->binding != BindingKind::variable) {
         if (argument.kind == ExpressionKind::identifier) analyze_expression(argument);
@@ -671,9 +764,21 @@ ValueType Analyzer::analyze_call(Expression& expression) {
           argument_facts.inferred_type = symbol->type;
           argument_facts.element_type = symbol->element_type;
           argument_facts.shape = symbol->shape;
+          argument_facts.storage_region = full_storage_region(symbol->shape);
           argument_type = join_types(argument_type, symbol->type);
         }
       }
+      auto& regions = reference_actuals[root_symbol];
+      const auto& region = semantic(semantics_, argument).storage_region;
+      const auto conflicts =
+          std::any_of(regions.begin(), regions.end(), [&](const StorageRegion& previous) {
+            return storage_region_relation(previous, region) != StorageRegionRelation::disjoint;
+          });
+      if (conflicts) {
+        diagnose(argument.location.line, "MPF2038",
+                 "Fortran writable actual argument regions overlap or cannot be proven disjoint");
+      }
+      regions.push_back(region);
       diagnose_fortran_parameter_write(root_symbol, argument.location.line);
       symbol->assigned = true;
     } else {
@@ -865,6 +970,13 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
   }
   bool has_slice = false;
   std::vector<std::size_t> result_shape;
+  StorageRegion storage_region;
+  storage_region.kind = semantic(semantics_, expression).column_major && index_count == 1U &&
+                                container_facts.shape.size() > 1U
+                            ? StorageRegionKind::linearized
+                            : StorageRegionKind::rectangular;
+  storage_region.root_shape = container_facts.shape;
+  bool exact_region = known_shape(container_facts.shape);
   for (std::size_t position = 0; position < index_count; ++position) {
     auto& index = expression.children[position + 1];
     std::size_t extent = dynamic_extent;
@@ -888,17 +1000,20 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
     }
     if (index.kind == ExpressionKind::slice) {
       has_slice = true;
-      result_shape.push_back(analyze_slice(index, extent));
+      const auto count = analyze_slice(index, extent);
+      result_shape.push_back(count);
+      const auto dimension =
+          slice_region_dimension(index, semantic(semantics_, index), extent, count);
+      if (dimension.has_value())
+        storage_region.dimensions.push_back(*dimension);
+      else
+        exact_region = false;
       continue;
     }
     const auto index_type = analyze_expression(index);
-    const auto constant = numeric_constant(index);
-    const bool typescript_integral_number =
-        program_.language == SourceLanguage::typescript && index_type == ValueType::real &&
-        constant.has_value() &&
-        *constant >= static_cast<double>(std::numeric_limits<long long>::min()) &&
-        *constant <= static_cast<double>(std::numeric_limits<long long>::max()) &&
-        static_cast<double>(static_cast<long long>(*constant)) == *constant;
+    const bool typescript_integral_number = program_.language == SourceLanguage::typescript &&
+                                            index_type == ValueType::real &&
+                                            integral_constant(index).has_value();
     if (index_type != ValueType::integer && index_type != ValueType::unknown &&
         !typescript_integral_number) {
       diagnose(index.location.line, "MPF2023", "array/list index must be an integer");
@@ -906,6 +1021,23 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
     validate_static_index(index.location.line, index, extent,
                           semantic(semantics_, expression).index_base,
                           semantic(semantics_, expression).allow_negative_index);
+    const auto dimension =
+        scalar_region_dimension(index, extent, semantic(semantics_, expression).index_base,
+                                semantic(semantics_, expression).allow_negative_index);
+    if (dimension.has_value())
+      storage_region.dimensions.push_back(*dimension);
+    else
+      exact_region = false;
+  }
+  if (storage_region.kind == StorageRegionKind::rectangular && exact_region) {
+    for (std::size_t position = index_count; position < container_facts.shape.size(); ++position) {
+      storage_region.dimensions.push_back({0U, 1U, container_facts.shape[position]});
+    }
+  }
+  if (exact_region && valid_storage_region(storage_region)) {
+    semantic(semantics_, expression).storage_region = std::move(storage_region);
+  } else {
+    semantic(semantics_, expression).storage_region = {};
   }
   semantic(semantics_, expression).element_type = container_facts.element_type;
   if (container_facts.shape.empty()) {
@@ -992,19 +1124,12 @@ std::size_t Analyzer::analyze_slice(Expression& slice, const std::size_t extent)
     }
   }
   if (slice.children.size() != 3 || extent == dynamic_extent) return dynamic_extent;
-  const auto constant = [](const Expression& expression) -> std::optional<long long> {
-    if (!expression.valid()) return std::nullopt;
-    const auto value = numeric_constant(expression);
-    if (!value.has_value() || *value < static_cast<double>(std::numeric_limits<long long>::min()) ||
-        *value > static_cast<double>(std::numeric_limits<long long>::max()))
-      return std::nullopt;
-    const auto integral = static_cast<long long>(*value);
-    if (static_cast<double>(integral) != *value) return std::nullopt;
-    return integral;
-  };
-  const auto start_value = constant(slice.children[0]);
-  const auto stop_value = constant(slice.children[1]);
-  const auto step_value = constant(slice.children[2]);
+  const auto start_value =
+      slice.children[0].valid() ? integral_constant(slice.children[0]) : std::optional<long long>{};
+  const auto stop_value =
+      slice.children[1].valid() ? integral_constant(slice.children[1]) : std::optional<long long>{};
+  const auto step_value =
+      slice.children[2].valid() ? integral_constant(slice.children[2]) : std::optional<long long>{};
   for (std::size_t position = 0; position < slice.children.size(); ++position) {
     const auto& bound = slice.children[position];
     const auto normalized = position == 0 ? start_value : position == 1 ? stop_value : step_value;
@@ -1020,6 +1145,10 @@ std::size_t Analyzer::analyze_slice(Expression& slice, const std::size_t extent)
   if (step == 0) {
     diagnose(slice.location.line, "MPF2030", "slice step cannot be zero");
     return 0;
+  }
+  if (step == LLONG_MIN) {
+    diagnose(slice.location.line, "MPF2027", "slice step exceeds target integer range");
+    return dynamic_extent;
   }
   if (extent == 0) return 0;
 
@@ -1068,16 +1197,14 @@ void Analyzer::validate_static_index(const std::size_t line, const Expression& i
   if (extent == dynamic_extent) return;
   const auto constant = numeric_constant(index);
   if (!constant.has_value()) return;
-  if (*constant < static_cast<double>(std::numeric_limits<long long>::min()) ||
-      *constant > static_cast<double>(std::numeric_limits<long long>::max())) {
+  const auto integral = integral_constant(index);
+  const auto minimum = static_cast<double>(std::numeric_limits<long long>::min());
+  if (!integral.has_value() && (*constant < minimum || *constant >= -minimum)) {
     diagnose(line, "MPF2021", "constant array/list index is out of bounds");
     return;
   }
-  const auto integral = static_cast<long long>(*constant);
-  if (static_cast<double>(integral) != *constant) return;
-  long long normalized = integral - static_cast<long long>(base);
-  if (allow_negative && integral < 0) normalized = static_cast<long long>(extent) + integral;
-  if (normalized < 0 || static_cast<std::size_t>(normalized) >= extent) {
+  if (!integral.has_value()) return;
+  if (!normalized_index(*integral, extent, base, allow_negative).has_value()) {
     diagnose(line, "MPF2021", "constant array/list index is out of bounds");
   }
 }

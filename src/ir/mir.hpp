@@ -11,6 +11,7 @@
 #include "hir.hpp"
 #include "ids.hpp"
 #include "semantic_table.hpp"
+#include "storage_region.hpp"
 
 namespace mpf::detail {
 struct NameTable;
@@ -206,6 +207,7 @@ struct CallSite {
     ArgumentTransfer transfer{ArgumentTransfer::value};
     StorageViewKind view{StorageViewKind::none};
     StorageLifetime lifetime{StorageLifetime::expression};
+    StorageRegion region;
     bool writable{false};
   };
 
@@ -308,6 +310,7 @@ struct ExpressionAttributes {
   bool allow_negative_index{false};
   bool slice_stop_inclusive{false};
   bool lazy_cfg{false};
+  StorageRegion storage_region;
 };
 
 struct TargetAttributes {
@@ -401,6 +404,7 @@ struct CallArgumentEffectFacts {
   StorageId storage{};
   StorageId root{};
   ArgumentTransfer transfer{ArgumentTransfer::value};
+  StorageRegion region;
   bool reads{false};
   bool writes{false};
   bool escapes{false};

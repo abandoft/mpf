@@ -132,6 +132,7 @@ add_library(mpf_core
   src/ir/hir.cpp
   src/ir/alias_effect_analysis.cpp
   src/ir/semantic_table.cpp
+  src/ir/storage_region.cpp
   src/ir/mir.cpp
   src/ir/mir_optimization.cpp
   src/ir/mir_verifier.cpp
