@@ -133,14 +133,22 @@ std::string matlab_array_workload(const std::size_t width, const std::size_t rou
     source += std::to_string(row + 1U);
   }
   source += "];\n";
+  source += "row_mask = [";
+  for (std::size_t row = 0; row < width; ++row) {
+    if (row != 0U) source += ' ';
+    source += row % 2U == 0U ? "true" : "false";
+  }
+  source += "];\n";
   for (std::size_t round = 0; round < rounds; ++round) {
     source += "matrix = matrix + row;\n";
     source += "matrix = matrix + column;\n";
   }
   source +=
       "transposed = matrix.';\n"
-      "selected = transposed(transposed > row);\n"
-      "disp(sum(selected))\n";
+      "selected = transposed(transposed > row);\n";
+  source += "permuted = matrix(row_mask, [" + std::to_string(width) + " 1 1]);\n";
+  source += "matrix(row_mask, [1 " + std::to_string(width) + "]) = 0;\n";
+  source += "disp(sum(selected))\n";
   return source;
 }
 
@@ -159,6 +167,28 @@ std::string matlab_tensor_workload(const std::size_t pages) {
   }
   source += "], 1, 1, " + std::to_string(pages) + ");\n";
   source += "result = tensor + offsets;\ndisp(result(end, end, end))\n";
+  return source;
+}
+
+std::string matlab_matrix_solve_workload(const std::size_t rounds) {
+  std::string source =
+      "coefficient = [4 1 0 0; 2 5 1 0; 0 1 6 2; 0 0 2 7];\n"
+      "right_hand_side = [9; 8; 7; 6];\n"
+      "tall = [1 0 0; 0 1 0; 0 0 1; 1 1 0; 0 1 1];\n"
+      "tall_rhs = [1 2; 2 3; 3 4; 4 5; 5 6];\n"
+      "wide = [1 0 0 1 0; 0 1 0 0 1; 0 0 1 1 1];\n"
+      "wide_rhs = [1 2; 2 3; 3 4];\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "solution = coefficient \\ right_hand_side;\n";
+    source += "quotient = [1 2 3 4] / coefficient;\n";
+    source += "powered = coefficient ^ 3;\n";
+    source += "least_squares = tall \\ tall_rhs;\n";
+    source += "minimum_norm = wide \\ wide_rhs;\n";
+    source += "rectangular_right = [1 2 3] / tall;\n";
+  }
+  source +=
+      "disp(solution(1) + quotient(4) + powered(1, 1) + "
+      "least_squares(1, 1) + minimum_norm(1, 1) + rectangular_right(1))\n";
   return source;
 }
 
@@ -249,7 +279,8 @@ int main() {
       {"storage-regions", storage_region_workload(128), mpf::SourceLanguage::fortran},
       {"memory-dependence", memory_dependence_workload(16), mpf::SourceLanguage::python, 32U, true},
       {"matlab-array-kernel", matlab_array_workload(24, 24), mpf::SourceLanguage::matlab},
-      {"matlab-tensor-kernel", matlab_tensor_workload(24), mpf::SourceLanguage::matlab}};
+      {"matlab-tensor-kernel", matlab_tensor_workload(24), mpf::SourceLanguage::matlab},
+      {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
     Measurement measurement;
