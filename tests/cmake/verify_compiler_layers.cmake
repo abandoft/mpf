@@ -237,6 +237,11 @@ foreach(required IN ITEMS
     "OperationAttributeTable"
     "ExpressionAttributes"
     "StatementAttributes"
+    "InstructionAttributes"
+    "MemoryAccessMode"
+    "MemoryAccess"
+    "std::vector<MemoryAccess> memory_accesses"
+    "std::vector<InstructionAttributes> instructions"
     "std::vector<ShapeId> parameter_shapes"
     "std::vector<ShapeId> result_shapes"
     "bool lazy_cfg"
@@ -281,6 +286,7 @@ if(mir_contract MATCHES "argument_(types|storages|omitted)")
 endif()
 file(READ "${SOURCE_DIR}/src/ir/alias_effect_analysis.cpp" alias_effect_contract)
 if(NOT alias_effect_contract MATCHES "storage_region_relation" OR
+   NOT alias_effect_contract MATCHES "memory_accesses_conflict" OR
    NOT alias_effect_contract MATCHES "writable_conflict")
   message(FATAL_ERROR "MIR alias/effect analysis does not refine calls with storage regions")
 endif()

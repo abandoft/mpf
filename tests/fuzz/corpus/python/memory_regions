@@ -1,0 +1,4 @@
+values = [1, 2, 3, 4, 5, 6]
+values[1:5:2] = [8, 9]
+head = values[:3]
+print(values[1], sum(head))

@@ -125,6 +125,20 @@ void dump_storage_region(std::ostringstream& output, const StorageRegion& region
   output << "]}";
 }
 
+void dump_memory_accesses(std::ostringstream& output,
+                          const std::vector<mir::MemoryAccess>& accesses) {
+  output << '[';
+  for (std::size_t index = 0; index < accesses.size(); ++index) {
+    if (index != 0) output << ',';
+    const auto& access = accesses[index];
+    output << "{storage=!m" << access.storage.value() << " root=!m" << access.root.value()
+           << " mode=" << enum_value(access.mode) << " region=";
+    dump_storage_region(output, access.region);
+    output << '}';
+  }
+  output << ']';
+}
+
 }  // namespace
 
 std::string dump_hir(const hir::Program& program) {
@@ -188,7 +202,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v5 language=" << enum_value(program.source_language)
+  output << "mir-v6 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -245,7 +259,8 @@ std::string dump_mir(const mir::Program& program) {
   }
   output << "attributes revision=" << program.attributes.mir_revision
          << " expressions=" << program.attributes.expression_count
-         << " operations=" << program.attributes.statement_count << '\n';
+         << " operations=" << program.attributes.statement_count
+         << " instructions=" << program.attributes.instruction_count << '\n';
   for (std::size_t index = 1; index < program.types.size(); ++index) {
     const auto& type = program.types[index];
     output << "type !t" << index << " kind=" << enum_value(type.kind)
@@ -330,7 +345,12 @@ std::string dump_mir(const mir::Program& program) {
           output << '-';
         else
           output << instruction.result_index;
-        output << " origin=%h" << instruction.origin.value() << '\n';
+        const auto* instruction_attributes = mir::attributes(program, instruction.id);
+        output << " origin=%h" << instruction.origin.value() << " memory-accesses=";
+        dump_memory_accesses(output, instruction_attributes == nullptr
+                                         ? std::vector<mir::MemoryAccess>{}
+                                         : instruction_attributes->memory_accesses);
+        output << '\n';
       }
       output << "    terminator op" << enum_value(block.terminator.kind) << " operands=";
       dump_ids(output, block.terminator.operands, "%v");
@@ -370,7 +390,7 @@ std::string dump_mir(const mir::Program& program) {
 std::string dump_mir(const mir::Program& program, const mir::AliasEffectTable& analysis) {
   std::ostringstream output;
   output << dump_mir(program);
-  output << "alias-effect-v2 revision=" << analysis.mir_revision << '\n';
+  output << "alias-effect-v3 revision=" << analysis.mir_revision << '\n';
   for (std::size_t index = 1; index < analysis.storages.size(); ++index) {
     const auto& facts = analysis.storages[index];
     output << "storage-alias !m" << facts.origin.value() << " root=!m" << facts.root.value()
@@ -388,6 +408,8 @@ std::string dump_mir(const mir::Program& program, const mir::AliasEffectTable& a
     dump_ids(output, facts.reads, "!m");
     output << " writes=";
     dump_ids(output, facts.writes, "!m");
+    output << " memory-accesses=";
+    dump_memory_accesses(output, facts.memory_accesses);
     output << " unknown-read=" << facts.reads_unknown << " unknown-write=" << facts.writes_unknown
            << '\n';
   }

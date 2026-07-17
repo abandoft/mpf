@@ -228,8 +228,9 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v5") != std::string::npos);
-  REQUIRE(first_mir.find("alias-effect-v2") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v6") != std::string::npos);
+  REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
+  REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
   REQUIRE(first_mir.find("terminator op") != std::string::npos);
   REQUIRE(first_mir.find("expression %mexpr") != std::string::npos);
@@ -338,6 +339,11 @@ TEST_CASE("default MIR optimization is verified deterministic and analysis-safe"
   REQUIRE(optimized.instrumentation[3].name == "mir-cfg-cleanup");
   REQUIRE(mir.program.revision == revision + 4U);
   REQUIRE(mir.program.attributes.mir_revision == mir.program.revision);
+  REQUIRE(mir.program.attributes.instruction_count + 1U == mir.program.instructions.size());
+  REQUIRE(mir.program.attributes.instructions.size() == mir.program.instructions.size());
+  for (std::size_t index = 1; index < mir.program.attributes.instructions.size(); ++index) {
+    REQUIRE(mir.program.attributes.instructions[index].origin.value() == index);
+  }
   REQUIRE(optimized.statistics.folded_expressions == 3U);
   REQUIRE(optimized.statistics.retired_expressions != 0U);
   REQUIRE(optimized.statistics.removed_instructions != 0U);
@@ -906,8 +912,10 @@ TEST_CASE("MIR owns dense flat value and operation arenas tied to instructions")
   REQUIRE(program.attributes.mir_revision == program.revision);
   REQUIRE(program.attributes.expression_count + 1U == program.expressions.size());
   REQUIRE(program.attributes.statement_count + 1U == program.statements.size());
+  REQUIRE(program.attributes.instruction_count + 1U == program.instructions.size());
   REQUIRE(program.attributes.expressions.size() == program.expressions.size());
   REQUIRE(program.attributes.statements.size() == program.statements.size());
+  REQUIRE(program.attributes.instructions.size() == program.instructions.size());
   for (std::size_t index = 1; index < program.expressions.size(); ++index) {
     const auto& expression = program.expressions[index];
     REQUIRE(expression.id.value() == index);
@@ -922,6 +930,9 @@ TEST_CASE("MIR owns dense flat value and operation arenas tied to instructions")
     REQUIRE(statement.instruction.valid());
     REQUIRE(statement.instruction.value() < program.instructions.size());
     REQUIRE(program.attributes.statements[index].origin == statement.id);
+  }
+  for (std::size_t index = 1; index < program.instructions.size(); ++index) {
+    REQUIRE(program.attributes.instructions[index].origin == program.instructions[index].id);
   }
 
   auto bad_expression_edge = program;
@@ -948,6 +959,24 @@ TEST_CASE("MIR owns dense flat value and operation arenas tied to instructions")
   auto invalid_attribute_type = program;
   invalid_attribute_type.attributes.statements[1].previous_type = mpf::detail::TypeId{999999};
   REQUIRE(!mpf::detail::mir::verify(invalid_attribute_type, "bad-attribute-type").empty());
+
+  auto invalid_instruction_attribute_origin = program;
+  invalid_instruction_attribute_origin.attributes.instructions[1].origin =
+      mpf::detail::InstructionId{999999};
+  REQUIRE(!mpf::detail::mir::verify(invalid_instruction_attribute_origin,
+                                    "bad-instruction-attribute-origin")
+               .empty());
+
+  auto invalid_memory_access = program;
+  const auto memory_instruction =
+      std::find_if(invalid_memory_access.attributes.instructions.begin() + 1,
+                   invalid_memory_access.attributes.instructions.end(),
+                   [](const mpf::detail::mir::InstructionAttributes& attributes) {
+                     return !attributes.memory_accesses.empty();
+                   });
+  REQUIRE(memory_instruction != invalid_memory_access.attributes.instructions.end());
+  memory_instruction->memory_accesses.front().mode = mpf::detail::mir::MemoryAccessMode::none;
+  REQUIRE(!mpf::detail::mir::verify(invalid_memory_access, "bad-memory-access").empty());
 }
 
 TEST_CASE("MIR owns lazy evaluation CFG and explicit memory operations") {
@@ -1243,6 +1272,17 @@ TEST_CASE("MIR call regions model borrow copy forwarding lifetime and overlap") 
           mpf::detail::mir::StorageKind::temporary);
   REQUIRE(writeback->storage == section.storage);
   REQUIRE(writeback->operands == std::vector<mpf::detail::ValueId>{copy->result});
+  const auto* copy_attributes = mpf::detail::mir::attributes(mir.program, copy->id);
+  const auto* writeback_attributes = mpf::detail::mir::attributes(mir.program, writeback->id);
+  REQUIRE(copy_attributes != nullptr);
+  REQUIRE(writeback_attributes != nullptr);
+  REQUIRE(copy_attributes->memory_accesses.size() == 1U);
+  REQUIRE(writeback_attributes->memory_accesses.size() == 1U);
+  REQUIRE(copy_attributes->memory_accesses.front().region == section.region);
+  REQUIRE(writeback_attributes->memory_accesses.front().region == section.region);
+  REQUIRE(mpf::detail::mir::memory_access_reads(copy_attributes->memory_accesses.front().mode));
+  REQUIRE(
+      mpf::detail::mir::memory_access_writes(writeback_attributes->memory_accesses.front().mode));
   const auto output_copy =
       std::find_if(mir.program.instructions.begin() + 1, mir.program.instructions.end(),
                    [](const mpf::detail::mir::Instruction& instruction) {
@@ -1251,6 +1291,7 @@ TEST_CASE("MIR call regions model borrow copy forwarding lifetime and overlap") 
                    });
   REQUIRE(output_copy != mir.program.instructions.end());
   REQUIRE(output_copy->operands.empty());
+  REQUIRE(mpf::detail::mir::attributes(mir.program, output_copy->id)->memory_accesses.empty());
   const auto transfer_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto* copy_effects = transfer_effects.instruction(copy->id);
   const auto* writeback_effects = transfer_effects.instruction(writeback->id);
@@ -1259,6 +1300,8 @@ TEST_CASE("MIR call regions model borrow copy forwarding lifetime and overlap") 
   REQUIRE(mpf::detail::mir::has_effect(copy_effects->effects, mpf::detail::mir::Effect::allocate));
   REQUIRE(
       mpf::detail::mir::has_effect(writeback_effects->effects, mpf::detail::mir::Effect::write));
+  REQUIRE(copy_effects->memory_accesses == copy_attributes->memory_accesses);
+  REQUIRE(writeback_effects->memory_accesses == writeback_attributes->memory_accesses);
 
   auto invalid_copy = mir.program;
   invalid_copy.instructions[copy->id.value()].transfer = mpf::detail::ArgumentTransfer::value;
@@ -1345,11 +1388,41 @@ TEST_CASE("MIR call regions model borrow copy forwarding lifetime and overlap") 
           disjoint_mir.program.calls.front().arguments[1].root);
   const auto disjoint_effects = mpf::detail::mir::analyze_alias_effects(disjoint_mir.program);
   REQUIRE(disjoint_effects.calls.front().overlaps.empty());
+  const auto* disjoint_call_effects =
+      disjoint_effects.instruction(disjoint_mir.program.calls.front().instruction);
+  REQUIRE(disjoint_call_effects != nullptr);
+  REQUIRE(disjoint_call_effects->memory_accesses.size() == 2U);
+  REQUIRE(mpf::detail::mir::alias_between(
+              disjoint_effects, disjoint_call_effects->memory_accesses[0],
+              disjoint_call_effects->memory_accesses[1]) == mpf::detail::mir::AliasClass::no_alias);
+  REQUIRE(!mpf::detail::mir::memory_accesses_conflict(disjoint_effects,
+                                                      disjoint_call_effects->memory_accesses[0],
+                                                      disjoint_call_effects->memory_accesses[1]));
+  auto stale_access = disjoint_call_effects->memory_accesses[0];
+  stale_access.root = {};
+  REQUIRE(mpf::detail::mir::alias_between(disjoint_effects, stale_access,
+                                          disjoint_call_effects->memory_accesses[1]) ==
+          mpf::detail::mir::AliasClass::may_alias);
+  REQUIRE(mpf::detail::mir::memory_accesses_conflict(disjoint_effects, stale_access,
+                                                     disjoint_call_effects->memory_accesses[1]));
   REQUIRE(mpf::detail::mir::verify_alias_effects(disjoint_mir.program, disjoint_effects,
                                                  "disjoint-regions")
               .empty());
   REQUIRE(mpf::detail::dump_mir(disjoint_mir.program)
               .find("region={kind=1 shape=[6] dimensions=[0:2:3]}") != std::string::npos);
+
+  auto invalid_instruction_region = disjoint_mir.program;
+  const auto region_instruction =
+      std::find_if(invalid_instruction_region.attributes.instructions.begin() + 1,
+                   invalid_instruction_region.attributes.instructions.end(),
+                   [](const mpf::detail::mir::InstructionAttributes& attributes) {
+                     return !attributes.memory_accesses.empty() &&
+                            attributes.memory_accesses.front().region.kind !=
+                                mpf::detail::StorageRegionKind::unknown;
+                   });
+  REQUIRE(region_instruction != invalid_instruction_region.attributes.instructions.end());
+  region_instruction->memory_accesses.front().region.dimensions.front().stride = 0U;
+  REQUIRE(!mpf::detail::mir::verify(invalid_instruction_region, "invalid-memory-region").empty());
 
   auto stale_region = disjoint_mir.program;
   stale_region.calls.front().arguments[1].region = stale_region.calls.front().arguments[0].region;
