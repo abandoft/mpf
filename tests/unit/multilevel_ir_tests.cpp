@@ -249,6 +249,169 @@ TEST_CASE("Matlab binary operator identity remains typed through HIR and MIR") {
   REQUIRE(!mpf::detail::mir::verify(missing_array_semantics, "missing-array-semantics").empty());
 }
 
+TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MIR") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "coefficient = [4 1; 2 3];\n"
+                              "right_hand_side = [9; 8];\n"
+                              "solution = coefficient \\ right_hand_side;\n"
+                              "quotient = [5 7] / coefficient;\n"
+                              "least_squares = [1 0; 0 1; 1 1] \\ [1; 2; 4];\n"
+                              "minimum_norm = [1 0 1; 0 1 1] \\ [2; 3];\n"
+                              "powered = coefficient ^ -2;\n",
+                              "matrix_solve.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+
+  std::vector<mpf::detail::semantic::MatrixOperation> hir_plans;
+  std::vector<mpf::detail::semantic::MatrixSolveKind> solve_plans;
+  for (const auto& facts : analysis.semantics.expressions) {
+    if (facts.matrix_operation.valid()) {
+      hir_plans.push_back(facts.matrix_operation.operation);
+      if (facts.matrix_operation.solve != mpf::detail::semantic::MatrixSolveKind::none) {
+        solve_plans.push_back(facts.matrix_operation.solve);
+      }
+    }
+  }
+  REQUIRE(std::find(hir_plans.begin(), hir_plans.end(),
+                    mpf::detail::semantic::MatrixOperation::left_divide) != hir_plans.end());
+  REQUIRE(std::find(hir_plans.begin(), hir_plans.end(),
+                    mpf::detail::semantic::MatrixOperation::right_divide) != hir_plans.end());
+  REQUIRE(std::find(hir_plans.begin(), hir_plans.end(),
+                    mpf::detail::semantic::MatrixOperation::integer_power) != hir_plans.end());
+  REQUIRE(std::find(solve_plans.begin(), solve_plans.end(),
+                    mpf::detail::semantic::MatrixSolveKind::square) != solve_plans.end());
+  REQUIRE(std::find(solve_plans.begin(), solve_plans.end(),
+                    mpf::detail::semantic::MatrixSolveKind::overdetermined) != solve_plans.end());
+  REQUIRE(std::find(solve_plans.begin(), solve_plans.end(),
+                    mpf::detail::semantic::MatrixSolveKind::underdetermined) != solve_plans.end());
+
+  auto contradictory_hir_solve = analysis.semantics;
+  const auto hir_rectangular =
+      std::find_if(contradictory_hir_solve.expressions.begin(),
+                   contradictory_hir_solve.expressions.end(), [](const auto& facts) {
+                     return facts.matrix_operation.solve ==
+                            mpf::detail::semantic::MatrixSolveKind::overdetermined;
+                   });
+  REQUIRE(hir_rectangular != contradictory_hir_solve.expressions.end());
+  hir_rectangular->matrix_operation.solve = mpf::detail::semantic::MatrixSolveKind::square;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir_solve,
+                                              "matrix-solve-kind-mismatch")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "matrix-operation-plan").empty());
+  const auto dump = mpf::detail::dump_mir(mir.program);
+  REQUIRE(dump.find("matrix-operation=") != std::string::npos);
+  REQUIRE(dump.find("solve=2") != std::string::npos);
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("matrix-operation 2 solve 2") !=
+          std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("matrix-operation 2 solve 2") != std::string::npos);
+
+  auto missing_plan = mir.program;
+  const auto found =
+      std::find_if(missing_plan.attributes.expressions.begin() + 1,
+                   missing_plan.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.matrix_operation.operation ==
+                            mpf::detail::semantic::MatrixOperation::left_divide;
+                   });
+  REQUIRE(found != missing_plan.attributes.expressions.end());
+  found->matrix_operation = {};
+  REQUIRE(!mpf::detail::mir::verify(missing_plan, "missing-matrix-plan").empty());
+
+  auto contradictory_shape = mir.program;
+  const auto contradictory =
+      std::find_if(contradictory_shape.attributes.expressions.begin() + 1,
+                   contradictory_shape.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.matrix_operation.operation ==
+                            mpf::detail::semantic::MatrixOperation::right_divide;
+                   });
+  REQUIRE(contradictory != contradictory_shape.attributes.expressions.end());
+  contradictory->matrix_operation.result_shape = contradictory->matrix_operation.right_shape;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_shape, "matrix-shape-mismatch").empty());
+
+  auto contradictory_solve = mir.program;
+  const auto rectangular =
+      std::find_if(contradictory_solve.attributes.expressions.begin() + 1,
+                   contradictory_solve.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.matrix_operation.solve ==
+                            mpf::detail::semantic::MatrixSolveKind::overdetermined;
+                   });
+  REQUIRE(rectangular != contradictory_solve.attributes.expressions.end());
+  rectangular->matrix_operation.solve = mpf::detail::semantic::MatrixSolveKind::square;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_solve, "matrix-solve-kind-mismatch").empty());
+}
+
+TEST_CASE("Matlab generalized selector plans remain explicit and reject cross-layer corruption") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "values = [10 20 30 40];\n"
+                              "numeric = values([4 2 2]);\n"
+                              "empty = values([]);\n"
+                              "mask = values > 15;\n"
+                              "logical = values(mask);\n"
+                              "matrix = [1 2 3; 4 5 6];\n"
+                              "rows = [true false];\n"
+                              "block = matrix(rows, [3 1]);\n",
+                              "generalized_indexing.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  const auto contains_hir_plan =
+      [&](const std::vector<mpf::detail::semantic::IndexSelectorKind>& expected) {
+        return std::any_of(analysis.semantics.expressions.begin(),
+                           analysis.semantics.expressions.end(),
+                           [&](const auto& facts) { return facts.index_selectors == expected; });
+      };
+  using Selector = mpf::detail::semantic::IndexSelectorKind;
+  REQUIRE(contains_hir_plan({Selector::numeric}));
+  REQUIRE(contains_hir_plan({Selector::logical}));
+  REQUIRE(contains_hir_plan({Selector::empty}));
+  REQUIRE(contains_hir_plan({Selector::logical, Selector::numeric}));
+
+  auto contradictory_hir = analysis.semantics;
+  const auto hir_numeric = std::find_if(
+      contradictory_hir.expressions.begin(), contradictory_hir.expressions.end(),
+      [](const auto& facts) { return facts.index_selectors == std::vector{Selector::numeric}; });
+  REQUIRE(hir_numeric != contradictory_hir.expressions.end());
+  hir_numeric->index_selectors.front() = Selector::logical;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
+                                              "selector-kind-mismatch")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "selector-plan").empty());
+  const auto mir_dump = mpf::detail::dump_mir(mir.program);
+  REQUIRE(mir_dump.find("selectors=[2]") != std::string::npos);
+  REQUIRE(mir_dump.find("selectors=[3,2]") != std::string::npos);
+
+  auto contradictory_mir = mir.program;
+  const auto mir_numeric =
+      std::find_if(contradictory_mir.attributes.expressions.begin() + 1,
+                   contradictory_mir.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.index_selectors == std::vector{Selector::numeric};
+                   });
+  REQUIRE(mir_numeric != contradictory_mir.attributes.expressions.end());
+  mir_numeric->index_selectors.front() = Selector::logical;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "selector-kind-mismatch").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("selectors [3,2]") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("selectors [3,2]") != std::string::npos);
+}
+
 TEST_CASE("Matlab transpose identity remains typed through HIR and MIR") {
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "values = [1 2; 3 4];\n"
@@ -339,7 +502,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(first_hir.find("stmt %h") != std::string::npos);
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v2") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v4") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -347,7 +510,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v6") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v9") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -1816,9 +1979,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v12") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v15") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v12") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v15") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -2033,7 +2196,13 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   REQUIRE((cpp.translation_unit.entry_statements == std::vector<std::size_t>{0}));
   REQUIRE(cpp.translation_unit.emit_entry_function);
   REQUIRE(cpp.translation_unit.emit_main);
+  REQUIRE(cpp.translation_unit.entry_error_policy ==
+          mpf::detail::cpp::lir::EntryErrorPolicy::report_standard_exception);
   REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  cpp.translation_unit.entry_error_policy = mpf::detail::cpp::lir::EntryErrorPolicy::none;
+  REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  cpp.translation_unit.entry_error_policy =
+      mpf::detail::cpp::lir::EntryErrorPolicy::report_standard_exception;
   cpp.emission.padded_character_selection = true;
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
   cpp.emission.padded_character_selection = false;
@@ -2076,6 +2245,9 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   javascript_selector.value = "1";
   javascript_index_statement.expression.children = {
       std::move(javascript_container), std::move(javascript_slice), std::move(javascript_selector)};
+  javascript_index_statement.expression.index_selectors = {
+      mpf::detail::semantic::IndexSelectorKind::slice,
+      mpf::detail::semantic::IndexSelectorKind::scalar};
   javascript.statements.push_back(std::move(javascript_index_statement));
   mpf::detail::javascript::lir::Statement javascript_comparison_statement;
   javascript_comparison_statement.expression.kind = mpf::detail::ExpressionKind::binary;
@@ -2099,7 +2271,9 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
           mpf::detail::javascript::lir::WritebackForm::direct);
   const auto& javascript_index_plan = javascript.statements[1].expression.plan;
   REQUIRE(javascript_index_plan.index == mpf::detail::javascript::lir::IndexForm::section);
-  REQUIRE((javascript_index_plan.selector_slices == std::vector<bool>{true, false}));
+  REQUIRE((javascript_index_plan.index_selectors ==
+           std::vector{mpf::detail::semantic::IndexSelectorKind::slice,
+                       mpf::detail::semantic::IndexSelectorKind::scalar}));
   const auto& javascript_comparison_plan = javascript.statements[2].expression.plan;
   REQUIRE(javascript_comparison_plan.form ==
           mpf::detail::javascript::lir::ExpressionForm::binary_comparison);
@@ -2149,6 +2323,10 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   cpp_selector.value = "1";
   cpp_index_statement.expression.children = {std::move(cpp_container), std::move(cpp_slice),
                                              cpp_selector, std::move(cpp_selector)};
+  cpp_index_statement.expression.index_selectors = {
+      mpf::detail::semantic::IndexSelectorKind::slice,
+      mpf::detail::semantic::IndexSelectorKind::scalar,
+      mpf::detail::semantic::IndexSelectorKind::scalar};
   cpp.statements.push_back(std::move(cpp_index_statement));
   mpf::detail::cpp::lir::Statement cpp_call_statement;
   cpp_call_statement.expression.kind = mpf::detail::ExpressionKind::call;
@@ -2166,6 +2344,7 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   cpp_section_slice.kind = mpf::detail::ExpressionKind::slice;
   cpp_section_slice.children.resize(3);
   cpp_section.children = {std::move(cpp_section_base), std::move(cpp_section_slice)};
+  cpp_section.index_selectors = {mpf::detail::semantic::IndexSelectorKind::slice};
   cpp_call_statement.expression.children = {std::move(cpp_callee), std::move(cpp_section)};
   cpp.statements.push_back(std::move(cpp_call_statement));
   mpf::detail::cpp::lir::Statement cpp_comparison_statement;
@@ -2182,7 +2361,10 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   REQUIRE((cpp_plan.widen_children == std::vector<bool>{true, true}));
   const auto& cpp_index_plan = cpp.statements[1].expression.plan;
   REQUIRE(cpp_index_plan.index == mpf::detail::cpp::lir::IndexForm::section_nd);
-  REQUIRE((cpp_index_plan.selector_slices == std::vector<bool>{true, false, false}));
+  REQUIRE((cpp_index_plan.index_selectors ==
+           std::vector{mpf::detail::semantic::IndexSelectorKind::slice,
+                       mpf::detail::semantic::IndexSelectorKind::scalar,
+                       mpf::detail::semantic::IndexSelectorKind::scalar}));
   const auto& cpp_call_plan = cpp.statements[2].expression.plan;
   REQUIRE(cpp_call_plan.evaluation ==
           mpf::detail::cpp::lir::EvaluationForm::copy_call_reference_lambda_iife);

@@ -411,7 +411,7 @@ foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir
      NOT target_lir_contract MATCHES "CallForm" OR
      NOT target_lir_contract MATCHES "CallArgumentForm" OR
      NOT target_lir_contract MATCHES "IndexForm" OR
-     NOT target_lir_contract MATCHES "selector_slices" OR
+     NOT target_lir_contract MATCHES "index_selectors" OR
      NOT target_lir_contract MATCHES "offsets" OR
      target_lir_contract MATCHES "argument_intents")
     message(FATAL_ERROR "target LIR does not own a lowered argument transfer plan: ${target_lir}")
