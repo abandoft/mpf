@@ -1141,7 +1141,8 @@ TEST_CASE("TypeScript lexical blocks preserve shadowing and assignments to outer
   REQUIRE(cpp.success());
   REQUIRE(javascript.code.find("if (true) {\n  let value;") != std::string::npos);
   REQUIRE(javascript.code.find("value = \"inner\";") != std::string::npos);
-  REQUIRE(cpp.code.find("if (true) {\n      std::string value{};") != std::string::npos);
+  REQUIRE(cpp.code.find("if (true) {\n      std::string value_1{};") != std::string::npos);
+  REQUIRE(cpp.code.find("value_1 = std::string{\"inner\"};") != std::string::npos);
   REQUIRE(cpp.code.find("value = 42;") != std::string::npos);
 }
 

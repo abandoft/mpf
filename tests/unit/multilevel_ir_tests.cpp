@@ -1824,6 +1824,16 @@ TEST_CASE("target identifier inventory preserves SymbolId identity and scoped sp
   mpf::detail::IdentifierMangler mangler(plan);
   REQUIRE(mangler.name(mpf::detail::SymbolId{1}, "class") ==
           mangler.name(mpf::detail::SymbolId{2}, "class"));
+
+  auto cpp_inventory = inventory;
+  cpp_inventory.require_unique_symbol_names = true;
+  const auto cpp_plan = mpf::detail::allocate_identifiers(mpf::TargetLanguage::cpp, cpp_inventory);
+  REQUIRE(mpf::detail::identifier_plan_complete(cpp_plan, cpp_inventory));
+  REQUIRE(cpp_plan.symbols.at(mpf::detail::SymbolId{1}) !=
+          cpp_plan.symbols.at(mpf::detail::SymbolId{2}));
+  REQUIRE(cpp_plan.symbols.at(mpf::detail::SymbolId{1}) != cpp_plan.names.at("mpf_class"));
+  REQUIRE(cpp_plan.symbols.at(mpf::detail::SymbolId{2}) != cpp_plan.names.at("mpf_class"));
+
   auto invalid = inventory;
   mpf::detail::add_identifier(invalid, mpf::detail::SymbolId{1}, "different");
   REQUIRE(!invalid.valid);

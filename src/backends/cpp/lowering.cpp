@@ -277,7 +277,8 @@ std::vector<Diagnostic> verify_lir(const lir::SemanticProgram& program) {
   if (program.emission.module_top_level == program.emission.entry_function_top_level) {
     add_error(diagnostics, {1, 1}, "cpp LIR must select exactly one top-level storage plan");
   }
-  if (!identifier_plan_complete(program.identifiers, collect_identifier_inventory(program))) {
+  if (program.identifiers.target != TargetLanguage::cpp ||
+      !identifier_plan_complete(program.identifiers, collect_identifier_inventory(program))) {
     add_error(diagnostics, {1, 1}, "cpp LIR identifier allocation plan is incomplete");
   }
   std::vector<bool> seen(program.node_count + 1, false);

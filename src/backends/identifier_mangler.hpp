@@ -14,6 +14,8 @@
 namespace mpf::detail {
 
 struct IdentifierPlan {
+  TargetLanguage target{TargetLanguage::javascript};
+  bool unique_symbol_names{false};
   std::unordered_map<std::string, std::string> names;
   std::unordered_map<SymbolId, std::string> symbols;
   std::set<std::string> used;
@@ -23,6 +25,7 @@ struct IdentifierInventory {
   std::map<SymbolId, std::string> symbols;
   std::set<std::string> names;
   bool valid{true};
+  bool require_unique_symbol_names{false};
 };
 
 struct IdentifierReference {
@@ -127,6 +130,7 @@ void collect_identifier_statements(const std::vector<Statement>& statements,
 template <typename Program>
 IdentifierInventory collect_identifier_inventory(const Program& program) {
   IdentifierInventory identifiers;
+  identifiers.require_unique_symbol_names = program.emission.lexical_block_scopes;
   collect_identifier_statements(program.statements, identifiers);
   return identifiers;
 }

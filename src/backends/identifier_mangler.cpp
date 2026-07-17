@@ -99,6 +99,7 @@ std::string allocate_name(const TargetLanguage target, const std::string& origin
 IdentifierPlan allocate_identifiers(const TargetLanguage target,
                                     const std::set<std::string>& originals) {
   IdentifierPlan plan;
+  plan.target = target;
   for (const auto& original : originals) {
     plan.names.emplace(original, allocate_name(target, original, originals, plan.used));
   }
@@ -108,6 +109,8 @@ IdentifierPlan allocate_identifiers(const TargetLanguage target,
 IdentifierPlan allocate_identifiers(const TargetLanguage target,
                                     const IdentifierInventory& originals) {
   IdentifierPlan plan;
+  plan.target = target;
+  plan.unique_symbol_names = target == TargetLanguage::cpp && originals.require_unique_symbol_names;
   if (!originals.valid) return plan;
   std::set<std::string> source_names = originals.names;
   for (const auto& [symbol, spelling] : originals.symbols) {
@@ -123,7 +126,11 @@ IdentifierPlan allocate_identifiers(const TargetLanguage target,
     return inserted.first->second;
   };
   for (const auto& [symbol, spelling] : originals.symbols) {
-    plan.symbols.emplace(symbol, target_name(spelling));
+    if (plan.unique_symbol_names) {
+      plan.symbols.emplace(symbol, allocate_name(target, spelling, source_names, plan.used));
+    } else {
+      plan.symbols.emplace(symbol, target_name(spelling));
+    }
   }
   for (const auto& spelling : originals.names) {
     plan.names.emplace(spelling, target_name(spelling));
@@ -162,13 +169,22 @@ bool identifier_plan_complete(const IdentifierPlan& plan,
     (void)symbol;
     source_names.insert(spelling);
   }
+  if (plan.unique_symbol_names !=
+      (plan.target == TargetLanguage::cpp && originals.require_unique_symbol_names)) {
+    return false;
+  }
+  const auto expected_target_count = plan.unique_symbol_names
+                                         ? originals.names.size() + originals.symbols.size()
+                                         : source_names.size();
   if (plan.names.size() != originals.names.size() ||
-      plan.symbols.size() != originals.symbols.size() || plan.used.size() != source_names.size()) {
+      plan.symbols.size() != originals.symbols.size() ||
+      plan.used.size() != expected_target_count) {
     return false;
   }
   std::unordered_map<std::string, std::string> targets_by_source;
   std::set<std::string> referenced_targets;
   const auto consistent = [&](const std::string& source, const std::string& target) {
+    if (plan.unique_symbol_names) return referenced_targets.insert(target).second;
     const auto inserted = targets_by_source.emplace(source, target);
     if (!inserted.second && inserted.first->second != target) return false;
     referenced_targets.insert(target);
