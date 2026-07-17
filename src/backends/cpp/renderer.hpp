@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../backend_artifact.hpp"
+#include "backends/common/artifact.hpp"
 #include "lir.hpp"
 
 namespace mpf::detail {

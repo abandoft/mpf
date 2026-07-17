@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include "../identifier_mangler.hpp"
+#include "backends/common/identifier_mangler.hpp"
 #include "lir.hpp"
 #include "runtime.hpp"
 

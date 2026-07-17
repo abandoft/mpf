@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-#include "../../semantic/analyzer.hpp"
+#include "semantic/analyzer.hpp"
 
 namespace mpf::detail {
 namespace {

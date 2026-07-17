@@ -3,9 +3,9 @@
 #include <string_view>
 #include <vector>
 
-#include "../../ir/mir.hpp"
-#include "../backend_artifact.hpp"
-#include "../backend_pipeline.hpp"
+#include "backends/common/artifact.hpp"
+#include "backends/common/pipeline.hpp"
+#include "ir/mir.hpp"
 #include "lir.hpp"
 
 namespace mpf::detail::cpp {

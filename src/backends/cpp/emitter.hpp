@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "../backend_artifact.hpp"
+#include "backends/common/artifact.hpp"
 
 namespace mpf::detail {
 

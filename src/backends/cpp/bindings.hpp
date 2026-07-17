@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../compiler/binding.hpp"
+#include "compiler/binding.hpp"
 
 namespace mpf::detail {
 
