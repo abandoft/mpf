@@ -2,24 +2,6 @@
 
 namespace mpf::detail {
 
-LexerResult lex_expression(const std::string_view input, const SourceLanguage language,
-                           const std::size_t line, const std::size_t column) {
-  switch (language) {
-    case SourceLanguage::python: return lex_python_expression(input, line, column);
-    case SourceLanguage::matlab: return lex_matlab_expression(input, line, column);
-    case SourceLanguage::fortran: return lex_fortran_expression(input, line, column);
-    case SourceLanguage::typescript: return lex_typescript_expression(input, line, column);
-    case SourceLanguage::automatic: break;
-  }
-  LexerResult result;
-  result.diagnostics.push_back({DiagnosticSeverity::error,
-                                "MPF1000",
-                                "cannot lex an expression without a source language",
-                                {line, column}});
-  result.tokens.push_back({TokenKind::end, {}, {line, column}});
-  return result;
-}
-
 const char* to_string(const TokenKind kind) noexcept {
   switch (kind) {
     case TokenKind::end: return "end of expression";

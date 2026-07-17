@@ -5,7 +5,7 @@
 
 namespace mpf::detail {
 
-struct StringViewList {
+struct StaticStringList {
   const std::string_view* data{nullptr};
   std::size_t size{0};
 };

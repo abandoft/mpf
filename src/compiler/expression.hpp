@@ -1,10 +1,9 @@
 #pragma once
 
-#include <cstddef>
-#include <string_view>
 #include <vector>
 
 #include "expression_ast.hpp"
+#include "lexer/lexer.hpp"
 #include "mpf/diagnostic.hpp"
 #include "mpf/transpiler.hpp"
 
@@ -15,8 +14,6 @@ struct ExpressionParseResult {
   std::vector<Diagnostic> diagnostics;
 };
 
-[[nodiscard]] ExpressionParseResult parse_expression(std::string_view expression,
-                                                     SourceLanguage language, std::size_t line,
-                                                     std::size_t column = 1);
+[[nodiscard]] ExpressionParseResult parse_expression(LexerResult lexed, SourceLanguage language);
 
 }  // namespace mpf::detail

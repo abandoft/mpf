@@ -65,47 +65,40 @@ std::string portable_string_literal(const std::string_view content, const bool p
   return result;
 }
 
-TokenKind identifier_kind(const std::string& word, const SourceLanguage language) {
-  if (language == SourceLanguage::typescript) {
-    if (word == "true") return TokenKind::true_keyword;
-    if (word == "false") return TokenKind::false_keyword;
-    if (word == "null") return TokenKind::null_keyword;
-    return TokenKind::identifier;
+bool equals_ci(const std::string_view left, const std::string_view right) noexcept {
+  if (left.size() != right.size()) return false;
+  for (std::size_t index = 0; index < left.size(); ++index) {
+    if (std::tolower(static_cast<unsigned char>(left[index])) !=
+        std::tolower(static_cast<unsigned char>(right[index]))) {
+      return false;
+    }
   }
-  const auto key = lower(word);
-  if ((language == SourceLanguage::python && key == "true") ||
-      (language == SourceLanguage::matlab && key == "true")) {
-    return TokenKind::true_keyword;
-  }
-  if ((language == SourceLanguage::python && key == "false") ||
-      (language == SourceLanguage::matlab && key == "false")) {
-    return TokenKind::false_keyword;
-  }
-  if (language == SourceLanguage::python && key == "none") {
-    return TokenKind::null_keyword;
-  }
-  if (language == SourceLanguage::python && key == "and") {
-    return TokenKind::logical_and;
-  }
-  if (language == SourceLanguage::python && key == "or") {
-    return TokenKind::logical_or;
-  }
-  if (language == SourceLanguage::python && key == "not") {
-    return TokenKind::logical_not;
-  }
-  if (language == SourceLanguage::python && key == "is") {
-    return TokenKind::identity_is;
-  }
-  if (language == SourceLanguage::python && key == "in") {
-    return TokenKind::membership_in;
-  }
-  if (language == SourceLanguage::python && key == "if") {
-    return TokenKind::conditional_if;
-  }
-  if (language == SourceLanguage::python && key == "else") {
-    return TokenKind::conditional_else;
+  return true;
+}
+
+TokenKind identifier_kind(const std::string_view word,
+                          const ExpressionScannerProfile& profile) noexcept {
+  for (std::size_t index = 0; index < profile.keyword_count; ++index) {
+    const auto& keyword = profile.keywords[index];
+    const auto matches = profile.case_sensitive_keywords ? word == keyword.spelling
+                                                         : equals_ci(word, keyword.spelling);
+    if (matches) return keyword.kind;
   }
   return TokenKind::identifier;
+}
+
+const ExpressionSymbol* match_symbol(const std::string_view input, const std::size_t offset,
+                                     const ExpressionScannerProfile& profile) noexcept {
+  const ExpressionSymbol* best = nullptr;
+  for (std::size_t index = 0; index < profile.symbol_count; ++index) {
+    const auto& symbol = profile.symbols[index];
+    if (symbol.spelling.empty() || symbol.spelling.size() > input.size() - offset ||
+        input.substr(offset, symbol.spelling.size()) != symbol.spelling) {
+      continue;
+    }
+    if (best == nullptr || symbol.spelling.size() > best->spelling.size()) best = &symbol;
+  }
+  return best;
 }
 
 bool token_ends_matlab_vector_element(const TokenKind kind) noexcept {
@@ -124,7 +117,7 @@ bool starts_matlab_vector_element(const unsigned char character) noexcept {
 
 }  // namespace
 
-LexerResult scan_expression(const std::string_view input, const SourceLanguage language,
+LexerResult scan_expression(const std::string_view input, const ExpressionScannerProfile& profile,
                             const std::size_t line, const std::size_t base_column) {
   LexerResult result;
   std::size_t index = 0;
@@ -136,8 +129,9 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
       while (index < input.size() && std::isspace(static_cast<unsigned char>(input[index])) != 0) {
         ++index;
       }
-      if (language == SourceLanguage::matlab && bracket_depth > 0 && !result.tokens.empty() &&
-          index < input.size() && token_ends_matlab_vector_element(result.tokens.back().kind) &&
+      if (profile.matrix_whitespace_separates_elements && bracket_depth > 0 &&
+          !result.tokens.empty() && index < input.size() &&
+          token_ends_matlab_vector_element(result.tokens.back().kind) &&
           starts_matlab_vector_element(static_cast<unsigned char>(input[index]))) {
         result.tokens.push_back(
             {TokenKind::comma, ",", {line, column_at(input, whitespace_begin, base_column)}});
@@ -146,7 +140,7 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
     }
     const auto token_column = column_at(input, index, base_column);
 
-    if (language == SourceLanguage::fortran && character == '.') {
+    if (profile.dotted_operators && character == '.') {
       const auto closing = input.find('.', index + 1);
       if (closing != std::string_view::npos) {
         const auto dotted = lower(std::string(input.substr(index, closing - index + 1)));
@@ -172,8 +166,8 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
         ++index;
       }
       auto word = std::string(input.substr(begin, index - begin));
-      const auto kind = identifier_kind(word, language);
-      if (language == SourceLanguage::fortran) {
+      const auto kind = identifier_kind(word, profile);
+      if (profile.normalize_identifiers_to_lowercase) {
         word = lower(std::move(word));
       }
       result.tokens.push_back({kind, std::move(word), {line, token_column}});
@@ -201,7 +195,7 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
       }
       if (index < input.size() &&
           (input[index] == 'e' || input[index] == 'E' ||
-           (language == SourceLanguage::fortran && (input[index] == 'd' || input[index] == 'D')))) {
+           (profile.fortran_numeric_literals && (input[index] == 'd' || input[index] == 'D')))) {
         ++index;
         if (index < input.size() && (input[index] == '+' || input[index] == '-')) {
           ++index;
@@ -215,14 +209,14 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
           add_error(result, line, token_column, "MPF1005", "numeric exponent requires digits");
         }
       }
-      if (language == SourceLanguage::fortran && index < input.size() && input[index] == '_') {
+      if (profile.fortran_numeric_literals && index < input.size() && input[index] == '_') {
         ++index;
         while (index < input.size() && word_continue(static_cast<unsigned char>(input[index]))) {
           ++index;
         }
       }
       auto number = std::string(input.substr(begin, index - begin));
-      if (language == SourceLanguage::fortran) {
+      if (profile.fortran_numeric_literals) {
         const auto kind_separator = number.find('_');
         if (kind_separator != std::string::npos) {
           number.erase(kind_separator);
@@ -234,13 +228,13 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
       continue;
     }
 
-    if (language == SourceLanguage::matlab && character == '.' && index + 1 < input.size() &&
+    if (profile.transpose_operators && character == '.' && index + 1 < input.size() &&
         input[index + 1] == '\'') {
       result.tokens.push_back({TokenKind::transpose, ".'", {line, token_column}});
       index += 2;
       continue;
     }
-    if (language == SourceLanguage::matlab && character == '\'' && !result.tokens.empty() &&
+    if (profile.transpose_operators && character == '\'' && !result.tokens.empty() &&
         token_ends_matlab_vector_element(result.tokens.back().kind)) {
       result.tokens.push_back({TokenKind::conjugate_transpose, "'", {line, token_column}});
       ++index;
@@ -254,7 +248,7 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
       bool closed = false;
       while (index < input.size()) {
         if (input[index] == quote) {
-          if (language != SourceLanguage::python && language != SourceLanguage::typescript &&
+          if (profile.string_escape_mode == StringEscapeMode::doubled_quote &&
               index + 1 < input.size() && input[index + 1] == quote) {
             content.push_back(quote);
             index += 2;
@@ -264,8 +258,7 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
           closed = true;
           break;
         }
-        if (input[index] == '\\' &&
-            (language == SourceLanguage::python || language == SourceLanguage::typescript) &&
+        if (input[index] == '\\' && profile.string_escape_mode == StringEscapeMode::backslash &&
             index + 1 < input.size()) {
           content.push_back(input[index++]);
           content.push_back(input[index++]);
@@ -276,111 +269,26 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
       if (!closed) {
         add_error(result, line, token_column, "MPF1002", "unterminated string literal");
       }
-      result.tokens.push_back(
-          {TokenKind::string_literal,
-           portable_string_literal(content, language == SourceLanguage::python ||
-                                                language == SourceLanguage::typescript),
-           {line, token_column}});
-      continue;
-    }
-
-    const auto three = index + 2 < input.size() ? input.substr(index, 3) : std::string_view{};
-    if (language == SourceLanguage::typescript && (three == "===" || three == "!==")) {
-      result.tokens.push_back({three == "===" ? TokenKind::equal_equal : TokenKind::not_equal,
-                               std::string(three),
+      result.tokens.push_back({TokenKind::string_literal,
+                               portable_string_literal(content, profile.string_escape_mode ==
+                                                                    StringEscapeMode::backslash),
                                {line, token_column}});
-      index += 3;
-      continue;
-    }
-    const auto two = index + 1 < input.size() ? input.substr(index, 2) : std::string_view{};
-    TokenKind kind = TokenKind::end;
-    if (language == SourceLanguage::fortran && two == "(/")
-      kind = TokenKind::left_bracket;
-    else if (language == SourceLanguage::fortran && two == "/)")
-      kind = TokenKind::right_bracket;
-    else if (language == SourceLanguage::matlab && two == ".*")
-      kind = TokenKind::dot_star;
-    else if (language == SourceLanguage::matlab && two == "./")
-      kind = TokenKind::dot_slash;
-    else if (language == SourceLanguage::matlab && two == ".\\")
-      kind = TokenKind::dot_backslash;
-    else if (language == SourceLanguage::matlab && two == ".^")
-      kind = TokenKind::dot_power;
-    else if (two == "**")
-      kind = TokenKind::power;
-    else if (two == "//" && language == SourceLanguage::python)
-      kind = TokenKind::floor_slash;
-    else if (two == "==")
-      kind = TokenKind::equal_equal;
-    else if (two == "!=" || two == "~=" || two == "/=")
-      kind = TokenKind::not_equal;
-    else if (two == "<=")
-      kind = TokenKind::less_equal;
-    else if (two == ">=")
-      kind = TokenKind::greater_equal;
-    else if (two == "&&")
-      kind = TokenKind::logical_and;
-    else if (two == "||")
-      kind = TokenKind::logical_or;
-    if (kind != TokenKind::end) {
-      result.tokens.push_back({kind, std::string(two), {line, token_column}});
-      index += 2;
       continue;
     }
 
-    switch (static_cast<char>(character)) {
-      case '+': kind = TokenKind::plus; break;
-      case '-': kind = TokenKind::minus; break;
-      case '*': kind = TokenKind::star; break;
-      case '/': kind = TokenKind::slash; break;
-      case '\\':
-        kind = language == SourceLanguage::matlab ? TokenKind::backslash : TokenKind::end;
-        break;
-      case '%': kind = TokenKind::percent; break;
-      case '^':
-        kind = language == SourceLanguage::matlab ? TokenKind::power : TokenKind::end;
-        break;
-      case '<': kind = TokenKind::less; break;
-      case '>': kind = TokenKind::greater; break;
-      case '!': kind = TokenKind::logical_not; break;
-      case '=':
-        kind = language == SourceLanguage::fortran || language == SourceLanguage::python
-                   ? TokenKind::equal
-                   : TokenKind::end;
-        break;
-      case '~':
-        kind = language == SourceLanguage::matlab ? TokenKind::logical_not : TokenKind::end;
-        break;
-      case '&':
-        kind = language == SourceLanguage::matlab ? TokenKind::logical_and : TokenKind::end;
-        break;
-      case '|':
-        kind = language == SourceLanguage::matlab ? TokenKind::logical_or : TokenKind::end;
-        break;
-      case '(': kind = TokenKind::left_parenthesis; break;
-      case ')': kind = TokenKind::right_parenthesis; break;
-      case '[': kind = TokenKind::left_bracket; break;
-      case ']': kind = TokenKind::right_bracket; break;
-      case ',': kind = TokenKind::comma; break;
-      case ':': kind = TokenKind::colon; break;
-      case ';':
-        kind = language == SourceLanguage::matlab ? TokenKind::semicolon : TokenKind::end;
-        break;
-      case '.': kind = TokenKind::dot; break;
-      default: break;
-    }
-    if (kind == TokenKind::end) {
-      add_error(result, line, token_column, "MPF1001",
-                std::string("unexpected character in expression: '") +
-                    static_cast<char>(character) + "'");
-    } else {
-      result.tokens.push_back(
-          {kind, std::string(1, static_cast<char>(character)), {line, token_column}});
-      if (kind == TokenKind::left_bracket)
+    if (const auto* symbol = match_symbol(input, index, profile); symbol != nullptr) {
+      result.tokens.push_back({symbol->kind, std::string(symbol->spelling), {line, token_column}});
+      index += symbol->spelling.size();
+      if (symbol->kind == TokenKind::left_bracket)
         ++bracket_depth;
-      else if (kind == TokenKind::right_bracket)
+      else if (symbol->kind == TokenKind::right_bracket)
         --bracket_depth;
+      continue;
     }
+
+    add_error(
+        result, line, token_column, "MPF1001",
+        std::string("unexpected character in expression: '") + static_cast<char>(character) + "'");
     ++index;
   }
   result.tokens.push_back(

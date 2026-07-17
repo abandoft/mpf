@@ -4,8 +4,6 @@
 #include <string>
 #include <utility>
 
-#include "../lexer/lexer.hpp"
-
 namespace mpf::detail {
 namespace {
 
@@ -483,10 +481,8 @@ class Parser final {
 
 }  // namespace
 
-ExpressionParseResult parse_expression(const std::string_view expression,
-                                       const SourceLanguage language, const std::size_t line,
-                                       const std::size_t column) {
-  return Parser(lex_expression(expression, language, line, column), language).parse();
+ExpressionParseResult parse_expression(LexerResult lexed, const SourceLanguage language) {
+  return Parser(std::move(lexed), language).parse();
 }
 
 }  // namespace mpf::detail
