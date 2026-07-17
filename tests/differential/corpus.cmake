@@ -9,6 +9,7 @@ mpf_add_differential_case(fortran-procedures fortran examples/fortran/procedures
 mpf_add_differential_case(fortran-reference-arguments fortran examples/fortran/reference_arguments.f90 "42 42 42 42 42 41")
 mpf_add_differential_case(fortran-array-reference-arguments fortran examples/fortran/array_reference_arguments.f90 "2 4 6 20 22 42")
 mpf_add_differential_case(fortran-section-reference-arguments fortran examples/fortran/section_reference_arguments.f90 "42 11 14 24 15 53 20 22 30 32 40 42")
+mpf_add_differential_case(fortran-disjoint-regions fortran examples/fortran/disjoint_regions.f90 "40 2 41 1")
 mpf_add_differential_case(fortran-argument-association fortran examples/fortran/argument_association.f90 "42 41 42 41 42 30")
 mpf_add_differential_case(fortran-optional-writeback fortran examples/fortran/optional_writeback.f90 "44 22 2 6 20 22 5 20 22 42 42")
 mpf_add_differential_case(fortran-select-case fortran examples/fortran/select_case.f90 "7 42")

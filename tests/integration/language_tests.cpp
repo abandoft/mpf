@@ -682,7 +682,7 @@ TEST_CASE("Fortran scalar OUT and INOUT arguments lower to references and writeb
   REQUIRE(cpp.code.find("compute(const T0& input, T1& output)") != std::string::npos);
 }
 
-TEST_CASE("Fortran reference actuals enforce definability assignment and alias rules") {
+TEST_CASE("Fortran reference actuals enforce definability and precise region alias rules") {
   const auto literal = transpile(
       "program bad\n"
       "call produce(1)\n"
@@ -705,10 +705,35 @@ TEST_CASE("Fortran reference actuals enforce definability assignment and alias r
       "end subroutine update\n"
       "end program bad\n",
       mpf::SourceLanguage::fortran);
-  const auto section_alias = transpile(
+  const auto disjoint_sections = transpile(
       "program bad\n"
       "integer :: values(4) = [1,2,3,4]\n"
       "call update(values(1:2), values(3:4))\n"
+      "contains\n"
+      "subroutine update(left, right)\n"
+      "integer, intent(inout) :: left(:), right(:)\n"
+      "left(1) = 8\n"
+      "right(1) = 9\n"
+      "end subroutine update\n"
+      "end program bad\n",
+      mpf::SourceLanguage::fortran);
+  const auto overlapping_sections = transpile(
+      "program bad\n"
+      "integer :: values(6) = [1,2,3,4,5,6]\n"
+      "call update(values(1:4:2), values(3:6:2))\n"
+      "contains\n"
+      "subroutine update(left, right)\n"
+      "integer, intent(inout) :: left(:), right(:)\n"
+      "left(1) = 8\n"
+      "right(1) = 9\n"
+      "end subroutine update\n"
+      "end program bad\n",
+      mpf::SourceLanguage::fortran);
+  const auto dynamic_sections = transpile(
+      "program bad\n"
+      "integer :: values(6) = [1,2,3,4,5,6]\n"
+      "integer :: split = 3\n"
+      "call update(values(1:split), values(split+1:6))\n"
       "contains\n"
       "subroutine update(left, right)\n"
       "integer, intent(inout) :: left(:), right(:)\n"
@@ -730,12 +755,70 @@ TEST_CASE("Fortran reference actuals enforce definability assignment and alias r
       mpf::SourceLanguage::fortran);
   REQUIRE(!literal.success());
   REQUIRE(!alias.success());
-  REQUIRE(!section_alias.success());
+  REQUIRE(disjoint_sections.success());
+  REQUIRE(!overlapping_sections.success());
+  REQUIRE(!dynamic_sections.success());
   REQUIRE(!missing_output.success());
   REQUIRE(literal.diagnostics.front().code == "MPF2038");
   REQUIRE(alias.diagnostics.front().code == "MPF2038");
-  REQUIRE(section_alias.diagnostics.front().code == "MPF2038");
+  REQUIRE(overlapping_sections.diagnostics.front().code == "MPF2038");
+  REQUIRE(dynamic_sections.diagnostics.front().code == "MPF2038");
   REQUIRE(missing_output.diagnostics.front().code == "MPF2036");
+}
+
+TEST_CASE("Fortran disjoint strided and rank-two writable regions lower to both targets") {
+  const std::string strided =
+      "program regions\n"
+      "integer :: values(6) = [1,2,3,4,5,6]\n"
+      "call update(values(1:6:2), values(2:6:2))\n"
+      "print *, values(1), values(2)\n"
+      "contains\n"
+      "subroutine update(left, right)\n"
+      "integer, intent(inout) :: left(:), right(:)\n"
+      "left(1) = 40\n"
+      "right(1) = 2\n"
+      "end subroutine update\n"
+      "end program regions\n";
+  const std::string rank_two =
+      "program regions\n"
+      "integer :: values(2,4) = reshape([1,2,3,4,5,6,7,8], [2,4])\n"
+      "call update(values(:,1:2), values(:,3:4))\n"
+      "print *, values(1,1), values(1,3)\n"
+      "contains\n"
+      "subroutine update(left, right)\n"
+      "integer, intent(inout) :: left(:,:), right(:,:)\n"
+      "left(1,1) = 40\n"
+      "right(1,1) = 2\n"
+      "end subroutine update\n"
+      "end program regions\n";
+  const std::string descending =
+      "program regions\n"
+      "integer :: values(6) = [1,2,3,4,5,6]\n"
+      "call update(values(6:1:-2), values(5:1:-2))\n"
+      "contains\n"
+      "subroutine update(left, right)\n"
+      "integer, intent(inout) :: left(:), right(:)\n"
+      "left(1) = 40\n"
+      "right(1) = 2\n"
+      "end subroutine update\n"
+      "end program regions\n";
+  for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+    const auto strided_result = transpile(strided, mpf::SourceLanguage::fortran, target);
+    const auto rank_two_result = transpile(rank_two, mpf::SourceLanguage::fortran, target);
+    const auto descending_result = transpile(descending, mpf::SourceLanguage::fortran, target);
+    REQUIRE(strided_result.success());
+    REQUIRE(rank_two_result.success());
+    REQUIRE(descending_result.success());
+    const auto strided_writeback = target == mpf::TargetLanguage::javascript
+                                       ? "__mpf_set_section(values"
+                                       : "mpf_runtime::assign_slice(values";
+    const auto block_writeback = target == mpf::TargetLanguage::javascript
+                                     ? "__mpf_set_section(values"
+                                     : "mpf_runtime::assign_block(values";
+    REQUIRE(strided_result.code.find(strided_writeback) != std::string::npos);
+    REQUIRE(rank_two_result.code.find(block_writeback) != std::string::npos);
+    REQUIRE(descending_result.code.find(strided_writeback) != std::string::npos);
+  }
 }
 
 TEST_CASE("Fortran procedure keywords remain contextual entity names") {

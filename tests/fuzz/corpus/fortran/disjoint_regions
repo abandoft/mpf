@@ -1,0 +1,10 @@
+program disjoint_regions
+integer :: values(6) = [1,2,3,4,5,6]
+call update(values(1:6:2), values(2:6:2))
+contains
+subroutine update(odd, even)
+integer, intent(inout) :: odd(:), even(:)
+odd(1) = 40
+even(1) = 2
+end subroutine update
+end program disjoint_regions

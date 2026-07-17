@@ -92,7 +92,8 @@ foreach(forbidden IN ITEMS
     "multi_output_call"
     "procedure_has_result"
     "column_major"
-    "slice_stop_inclusive")
+    "slice_stop_inclusive"
+    "storage_region")
   if(hir_contract MATCHES "${forbidden}")
     message(FATAL_ERROR "HIR contract regained semantic payload: ${forbidden}")
   endif()
@@ -107,6 +108,27 @@ if(NOT hir_lowering_contract MATCHES "struct LoweringResult" OR
 endif()
 mpf_assert_file_excludes("src/ir/hir.cpp" "lower_from_syntax|lower_expression|lower_statement"
   "shared syntax-to-HIR compatibility lowering was restored")
+
+if(NOT EXISTS "${SOURCE_DIR}/src/ir/storage_region.hpp" OR
+   NOT EXISTS "${SOURCE_DIR}/src/ir/storage_region.cpp")
+  message(FATAL_ERROR "shared N-dimensional storage-region contract is missing")
+endif()
+file(READ "${SOURCE_DIR}/src/ir/storage_region.hpp" storage_region_contract)
+foreach(required_region IN ITEMS
+    "StorageRegionKind"
+    "StorageRegionDimension"
+    "StorageRegionRelation"
+    "full_storage_region"
+    "valid_storage_region"
+    "storage_region_relation")
+  if(NOT storage_region_contract MATCHES "${required_region}")
+    message(FATAL_ERROR "storage-region contract is incomplete: ${required_region}")
+  endif()
+endforeach()
+file(READ "${SOURCE_DIR}/src/ir/semantic_facts.hpp" semantic_facts_contract)
+if(NOT semantic_facts_contract MATCHES "StorageRegion storage_region")
+  message(FATAL_ERROR "HIR semantic side table does not own normalized storage regions")
+endif()
 
 foreach(lowering IN ITEMS
     src/backends/javascript_lowering.cpp
@@ -210,6 +232,8 @@ foreach(required IN ITEMS
     "ArgumentTransfer"
     "StorageLifetime"
     "StorageViewKind"
+    "StorageRegion storage_region"
+    "StorageRegion region"
     "OperationAttributeTable"
     "ExpressionAttributes"
     "StatementAttributes"
@@ -255,6 +279,21 @@ endif()
 if(mir_contract MATCHES "argument_(types|storages|omitted)")
   message(FATAL_ERROR "MIR call sites regressed to parallel argument arrays")
 endif()
+file(READ "${SOURCE_DIR}/src/ir/alias_effect_analysis.cpp" alias_effect_contract)
+if(NOT alias_effect_contract MATCHES "storage_region_relation" OR
+   NOT alias_effect_contract MATCHES "writable_conflict")
+  message(FATAL_ERROR "MIR alias/effect analysis does not refine calls with storage regions")
+endif()
+foreach(target_region_consumer IN ITEMS
+    src/backends/javascript_lowering.cpp
+    src/backends/cpp_lowering.cpp
+    src/backends/javascript_lir_representation.cpp
+    src/backends/cpp_lir_representation.cpp
+    src/backends/javascript_renderer.cpp
+    src/backends/cpp_renderer.cpp)
+  mpf_assert_file_excludes("${target_region_consumer}" "StorageRegion|storage_region_relation"
+    "target backend recomputes shared storage-region semantics")
+endforeach()
 
 foreach(target_lir IN ITEMS src/backends/javascript_lir.hpp src/backends/cpp_lir.hpp)
   file(READ "${SOURCE_DIR}/${target_lir}" target_lir_contract)

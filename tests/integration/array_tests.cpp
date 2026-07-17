@@ -82,10 +82,15 @@ TEST_CASE("shape analysis rejects static out-of-bounds indexes") {
                                       mpf::SourceLanguage::python, mpf::TargetLanguage::javascript);
   const auto matlab = transpile_array("values = [1 2];\ndisp(values(0))\n",
                                       mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto integer_limit =
+      transpile_array("values = [1, 2]\nprint(values[9223372036854775808])\n",
+                      mpf::SourceLanguage::python, mpf::TargetLanguage::javascript);
   REQUIRE(!python.success());
   REQUIRE(!matlab.success());
+  REQUIRE(!integer_limit.success());
   REQUIRE(python.diagnostics.front().code == "MPF2021");
   REQUIRE(matlab.diagnostics.front().code == "MPF2021");
+  REQUIRE(integer_limit.diagnostics.front().code == "MPF2021");
 }
 
 TEST_CASE("heterogeneous Python lists remain valid in JavaScript and fail closed in C++17") {
@@ -316,6 +321,9 @@ TEST_CASE("slice analysis rejects zero steps, scalar Python replacement and inva
   const auto zero_step =
       transpile_array("values = [1, 2, 3]\nprint(values[::0])\n", mpf::SourceLanguage::python,
                       mpf::TargetLanguage::javascript);
+  const auto extreme_step =
+      transpile_array("values = [1, 2, 3]\nprint(values[::-9223372036854775808])\n",
+                      mpf::SourceLanguage::python, mpf::TargetLanguage::javascript);
   const auto section_write =
       transpile_array("values = [1, 2, 3]\nvalues[1:] = 0\n", mpf::SourceLanguage::python,
                       mpf::TargetLanguage::javascript);
@@ -330,11 +338,13 @@ TEST_CASE("slice analysis rejects zero steps, scalar Python replacement and inva
       "row = matrix(2,:)\nend program bad\n",
       mpf::SourceLanguage::fortran, mpf::TargetLanguage::javascript);
   REQUIRE(!zero_step.success());
+  REQUIRE(!extreme_step.success());
   REQUIRE(!section_write.success());
   REQUIRE(!matlab_bounds.success());
   REQUIRE(!empty_bounds.success());
   REQUIRE(!fortran_shape.success());
   REQUIRE(zero_step.diagnostics.front().code == "MPF2030");
+  REQUIRE(extreme_step.diagnostics.front().code == "MPF2027");
   REQUIRE(section_write.diagnostics.front().code == "MPF2031");
   REQUIRE(matlab_bounds.diagnostics.front().code == "MPF2021");
   REQUIRE(empty_bounds.diagnostics.front().code == "MPF2021");

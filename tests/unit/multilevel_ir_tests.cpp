@@ -220,7 +220,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(first_hir.find("stmt %h") != std::string::npos);
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v1") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v2") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -228,8 +228,8 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v4") != std::string::npos);
-  REQUIRE(first_mir.find("alias-effect-v1") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v5") != std::string::npos);
+  REQUIRE(first_mir.find("alias-effect-v2") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
   REQUIRE(first_mir.find("terminator op") != std::string::npos);
   REQUIRE(first_mir.find("expression %mexpr") != std::string::npos);
@@ -1145,6 +1145,47 @@ TEST_CASE("MIR interns tuple function and reference signatures across call sites
   REQUIRE(!mpf::detail::mir::verify(missing_call_edge, "missing-call-edge").empty());
 }
 
+TEST_CASE("storage regions prove exact N-dimensional and strided relationships") {
+  using mpf::detail::StorageRegion;
+  using mpf::detail::StorageRegionDimension;
+  using mpf::detail::StorageRegionKind;
+  using mpf::detail::StorageRegionRelation;
+
+  const auto full = mpf::detail::full_storage_region({2U, 4U});
+  REQUIRE(mpf::detail::valid_storage_region(full));
+  REQUIRE(full.kind == StorageRegionKind::rectangular);
+  REQUIRE((full.dimensions == std::vector<StorageRegionDimension>{{0U, 1U, 2U}, {0U, 1U, 4U}}));
+  REQUIRE(mpf::detail::storage_region_relation(full, full) == StorageRegionRelation::identical);
+
+  const StorageRegion first_columns{
+      StorageRegionKind::rectangular, {2U, 4U}, {{0U, 1U, 2U}, {0U, 1U, 2U}}};
+  const StorageRegion last_columns{
+      StorageRegionKind::rectangular, {2U, 4U}, {{0U, 1U, 2U}, {2U, 1U, 2U}}};
+  REQUIRE(mpf::detail::valid_storage_region(first_columns));
+  REQUIRE(mpf::detail::valid_storage_region(last_columns));
+  REQUIRE(mpf::detail::storage_region_relation(first_columns, last_columns) ==
+          StorageRegionRelation::disjoint);
+
+  const StorageRegion odd{StorageRegionKind::rectangular, {6U}, {{0U, 2U, 3U}}};
+  const StorageRegion even{StorageRegionKind::rectangular, {6U}, {{1U, 2U, 3U}}};
+  const StorageRegion odd_tail{StorageRegionKind::rectangular, {6U}, {{2U, 2U, 2U}}};
+  REQUIRE(mpf::detail::storage_region_relation(odd, even) == StorageRegionRelation::disjoint);
+  REQUIRE(mpf::detail::storage_region_relation(odd, odd_tail) == StorageRegionRelation::overlaps);
+
+  const StorageRegion linear_odd{StorageRegionKind::linearized, {2U, 4U}, {{0U, 2U, 4U}}};
+  const StorageRegion linear_even{StorageRegionKind::linearized, {2U, 4U}, {{1U, 2U, 4U}}};
+  REQUIRE(mpf::detail::storage_region_relation(linear_odd, linear_even) ==
+          StorageRegionRelation::disjoint);
+
+  const StorageRegion empty{StorageRegionKind::rectangular, {6U}, {{0U, 1U, 0U}}};
+  const StorageRegion invalid{StorageRegionKind::rectangular, {6U}, {{5U, 2U, 2U}}};
+  REQUIRE(mpf::detail::empty_storage_region(empty));
+  REQUIRE(mpf::detail::storage_region_relation(empty, odd) == StorageRegionRelation::disjoint);
+  REQUIRE(!mpf::detail::valid_storage_region(invalid));
+  REQUIRE(mpf::detail::storage_region_relation(StorageRegion{}, odd) ==
+          StorageRegionRelation::unknown);
+}
+
 TEST_CASE("MIR call regions model borrow copy forwarding lifetime and overlap") {
   auto lowered = lower_source(mpf::SourceLanguage::fortran,
                               "program transfer_contract\n"
@@ -1274,6 +1315,48 @@ TEST_CASE("MIR call regions model borrow copy forwarding lifetime and overlap") 
           mpf::detail::ArgumentTransfer::optional_forward_inout);
   const auto forwarded_storage = optional_mir.program.calls[1].arguments.front().storage;
   REQUIRE(optional_mir.program.storages[forwarded_storage.value()].optional);
+
+  auto disjoint = lower_source(mpf::SourceLanguage::fortran,
+                               "program precise_regions\n"
+                               "integer :: values(6) = [1,2,3,4,5,6]\n"
+                               "call update(values(1:6:2), values(2:6:2))\n"
+                               "contains\n"
+                               "subroutine update(first, second)\n"
+                               "integer, intent(inout) :: first(:), second(:)\n"
+                               "first(1) = first(1) + 1\n"
+                               "second(1) = second(1) + 1\n"
+                               "end subroutine update\n"
+                               "end program precise_regions\n",
+                               "precise_regions.f90");
+  auto disjoint_analysis =
+      mpf::detail::analyze_program(disjoint.program, std::move(disjoint.semantics));
+  REQUIRE(disjoint_analysis.empty());
+  auto disjoint_mir = mpf::detail::mir::lower_from_hir(
+      std::move(disjoint.program), std::move(disjoint_analysis.semantics), disjoint_analysis.names);
+  REQUIRE(disjoint_mir.diagnostics.empty());
+  REQUIRE(disjoint_mir.program.calls.size() == 1U);
+  REQUIRE(disjoint_mir.program.calls.front().arguments.size() == 2U);
+  const auto& first_region = disjoint_mir.program.calls.front().arguments[0].region;
+  const auto& second_region = disjoint_mir.program.calls.front().arguments[1].region;
+  REQUIRE(first_region.kind == mpf::detail::StorageRegionKind::rectangular);
+  REQUIRE((first_region.dimensions.front() == mpf::detail::StorageRegionDimension{0U, 2U, 3U}));
+  REQUIRE((second_region.dimensions.front() == mpf::detail::StorageRegionDimension{1U, 2U, 3U}));
+  REQUIRE(disjoint_mir.program.calls.front().arguments[0].root ==
+          disjoint_mir.program.calls.front().arguments[1].root);
+  const auto disjoint_effects = mpf::detail::mir::analyze_alias_effects(disjoint_mir.program);
+  REQUIRE(disjoint_effects.calls.front().overlaps.empty());
+  REQUIRE(mpf::detail::mir::verify_alias_effects(disjoint_mir.program, disjoint_effects,
+                                                 "disjoint-regions")
+              .empty());
+  REQUIRE(mpf::detail::dump_mir(disjoint_mir.program)
+              .find("region={kind=1 shape=[6] dimensions=[0:2:3]}") != std::string::npos);
+
+  auto stale_region = disjoint_mir.program;
+  stale_region.calls.front().arguments[1].region = stale_region.calls.front().arguments[0].region;
+  REQUIRE(!mpf::detail::mir::verify(stale_region, "stale-call-region").empty());
+  const auto stale_region_effects = mpf::detail::mir::analyze_alias_effects(stale_region);
+  REQUIRE(!stale_region_effects.calls.front().overlaps.empty());
+  REQUIRE(stale_region_effects.calls.front().overlaps.front().writable_conflict);
 
   auto distinct = lower_source(mpf::SourceLanguage::fortran,
                                "program overlap_contract\n"

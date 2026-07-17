@@ -79,12 +79,41 @@ std::string typescript_workload(const std::size_t statements) {
   return source;
 }
 
+std::string storage_region_workload(const std::size_t calls) {
+  std::string source =
+      "program storage_regions\n"
+      "integer :: values(1024)\n";
+  for (std::size_t index = 0; index < calls; ++index) {
+    source += "call update(values(1:1024:2), values(2:1024:2))\n";
+  }
+  source +=
+      "print *, values(1), values(2)\n"
+      "contains\n"
+      "subroutine update(odd, even)\n"
+      "integer, intent(out) :: odd(:), even(:)\n"
+      "odd(1) = 40\n"
+      "even(1) = 2\n"
+      "end subroutine update\n"
+      "end program storage_regions\n";
+  return source;
+}
+
+std::string source_extension(const mpf::SourceLanguage language) {
+  switch (language) {
+    case mpf::SourceLanguage::python: return ".py";
+    case mpf::SourceLanguage::matlab: return ".m";
+    case mpf::SourceLanguage::fortran: return ".f90";
+    case mpf::SourceLanguage::typescript: return ".ts";
+    case mpf::SourceLanguage::automatic: return ".txt";
+  }
+  return ".txt";
+}
+
 mpf::TranspileResult compile(const Scenario& scenario, const mpf::TargetLanguage target) {
   mpf::TranspileOptions options;
   options.language = scenario.language;
   options.target = target;
-  options.filename =
-      scenario.name + (scenario.language == mpf::SourceLanguage::typescript ? ".ts" : ".py");
+  options.filename = scenario.name + source_extension(scenario.language);
   options.emit_source_banner = false;
   return mpf::Transpiler{}.transpile(scenario.source, options);
 }
@@ -147,7 +176,8 @@ int main() {
       {"cfg", control_flow_workload(80)},
       {"shape", shape_workload(16)},
       {"function-graph", function_workload(40)},
-      {"typescript-throughput", typescript_workload(300), mpf::SourceLanguage::typescript}};
+      {"typescript-throughput", typescript_workload(300), mpf::SourceLanguage::typescript},
+      {"storage-regions", storage_region_workload(128), mpf::SourceLanguage::fortran}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
     Measurement measurement;
