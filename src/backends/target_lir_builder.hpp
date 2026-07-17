@@ -71,6 +71,7 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
   result.kind = source.kind;
   result.value = attributes.spelling;
   result.symbol_id = source.symbol_id;
+  result.operation = attributes.operation;
   result.comparison = attributes.comparison;
   result.comparisons = attributes.comparisons;
   result.children.reserve(source.children.size());

@@ -280,6 +280,7 @@ ValueType Analyzer::analyze_expression(Expression& expression) {
 ValueType Analyzer::analyze_binary(Expression& expression) {
   const auto left = analyze_expression(expression.children[0]);
   const auto right = analyze_expression(expression.children[1]);
+  const auto operation = expression.operation;
   if (expression.comparison != ComparisonOperator::none) {
     if (program_.language == SourceLanguage::python) {
       validate_python_comparison(expression.comparison, expression.children[0], left,
@@ -301,7 +302,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
     return semantic(semantics_, expression).inferred_type = ValueType::boolean;
   }
   if (program_.semantics.logical_result == semantic::LogicalResult::operand &&
-      (expression.value == "&&" || expression.value == "||")) {
+      (operation == BinaryOperator::logical_and || operation == BinaryOperator::logical_or)) {
     semantic(semantics_, expression).inferred_type = join_types(left, right);
     if (left == ValueType::list && right == ValueType::list) {
       const auto& left_facts = semantic(semantics_, expression.children[0]);
@@ -317,7 +318,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
     }
     return semantic(semantics_, expression).inferred_type;
   }
-  if (expression.value == "&&" || expression.value == "||") {
+  if (operation == BinaryOperator::logical_and || operation == BinaryOperator::logical_or) {
     if (program_.language == SourceLanguage::typescript &&
         ((left != ValueType::boolean && left != ValueType::unknown) ||
          (right != ValueType::boolean && right != ValueType::unknown))) {
@@ -326,8 +327,103 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
     }
     return semantic(semantics_, expression).inferred_type = ValueType::boolean;
   }
-  if (expression.value == "+" && left == ValueType::string && right == ValueType::string) {
+  if (operation == BinaryOperator::add && left == ValueType::string && right == ValueType::string) {
     return semantic(semantics_, expression).inferred_type = ValueType::string;
+  }
+  if (program_.language == SourceLanguage::matlab) {
+    const auto& left_facts = semantic(semantics_, expression.children[0]);
+    const auto& right_facts = semantic(semantics_, expression.children[1]);
+    const bool left_array = left == ValueType::list;
+    const bool right_array = right == ValueType::list;
+    const bool has_array = left_array || right_array;
+    const auto left_element = left_array ? left_facts.element_type : left;
+    const auto right_element = right_array ? right_facts.element_type : right;
+    const auto numeric_or_unknown = [](const ValueType type) {
+      return numeric(type) || type == ValueType::unknown;
+    };
+    const bool elementwise = operation == BinaryOperator::add ||
+                             operation == BinaryOperator::subtract ||
+                             operation == BinaryOperator::elementwise_multiply ||
+                             operation == BinaryOperator::elementwise_divide ||
+                             operation == BinaryOperator::elementwise_left_divide ||
+                             operation == BinaryOperator::elementwise_power;
+    const bool scalar_scale = operation == BinaryOperator::multiply && left_array != right_array;
+
+    if ((elementwise || scalar_scale) &&
+        (!numeric_or_unknown(left_element) || !numeric_or_unknown(right_element))) {
+      diagnose(expression.location.line, "MPF2046",
+               "Matlab array operator '" + expression.value +
+                   "' requires numeric scalar or array operands");
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+    }
+    if (has_array && (elementwise || scalar_scale)) {
+      if (left_array && right_array && left_facts.shape != right_facts.shape) {
+        diagnose(expression.location.line, "MPF2046",
+                 "Matlab element-wise operands currently require identical shapes or a scalar "
+                 "operand");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      auto& facts = semantic(semantics_, expression);
+      facts.inferred_type = ValueType::list;
+      facts.element_type = operation == BinaryOperator::elementwise_divide ||
+                                   operation == BinaryOperator::elementwise_left_divide ||
+                                   operation == BinaryOperator::elementwise_power
+                               ? ValueType::real
+                               : join_types(left_element, right_element);
+      facts.shape = left_array ? left_facts.shape : right_facts.shape;
+      return facts.inferred_type;
+    }
+    if (has_array && operation == BinaryOperator::multiply && left_array && right_array) {
+      if (left_facts.shape.size() != 2U || right_facts.shape.size() != 2U) {
+        diagnose(expression.location.line, "MPF2046",
+                 "Matlab matrix multiplication currently requires rank-2 operands");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      const auto left_inner = left_facts.shape[1];
+      const auto right_inner = right_facts.shape[0];
+      if (left_inner != dynamic_extent && right_inner != dynamic_extent &&
+          left_inner != right_inner) {
+        diagnose(expression.location.line, "MPF2046",
+                 "Matlab matrix multiplication operands have incompatible inner extents");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      if (!numeric_or_unknown(left_element) || !numeric_or_unknown(right_element)) {
+        diagnose(expression.location.line, "MPF2046",
+                 "Matlab matrix multiplication requires numeric array operands");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      auto& facts = semantic(semantics_, expression);
+      facts.inferred_type = ValueType::list;
+      facts.element_type = join_types(left_element, right_element);
+      facts.shape = {left_facts.shape[0], right_facts.shape[1]};
+      return facts.inferred_type;
+    }
+    if (has_array &&
+        (operation == BinaryOperator::divide || operation == BinaryOperator::left_divide ||
+         operation == BinaryOperator::power)) {
+      diagnose(expression.location.line, "MPF2046",
+               "Matlab matrix operator '" + expression.value +
+                   "' is not yet supported for array operands");
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+    }
+    if (!has_array &&
+        (operation == BinaryOperator::elementwise_multiply ||
+         operation == BinaryOperator::elementwise_divide ||
+         operation == BinaryOperator::elementwise_left_divide ||
+         operation == BinaryOperator::elementwise_power ||
+         operation == BinaryOperator::left_divide || operation == BinaryOperator::power)) {
+      if ((!numeric(left) || !numeric(right)) && left != ValueType::unknown &&
+          right != ValueType::unknown) {
+        diagnose(expression.location.line, "MPF2002",
+                 "operator '" + expression.value + "' cannot be applied to " + to_string(left) +
+                     " and " + to_string(right));
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      if (operation == BinaryOperator::elementwise_multiply) {
+        return semantic(semantics_, expression).inferred_type = join_types(left, right);
+      }
+      return semantic(semantics_, expression).inferred_type = ValueType::real;
+    }
   }
   if ((!numeric(left) || !numeric(right)) && left != ValueType::unknown &&
       right != ValueType::unknown) {
@@ -336,12 +432,13 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
                  " and " + to_string(right));
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
-  if (expression.value == "//")
+  if (operation == BinaryOperator::floor_divide)
     return semantic(semantics_, expression).inferred_type = ValueType::integer;
-  if (expression.value == "/" && program_.semantics.division == semantic::Division::real_quotient) {
+  if (operation == BinaryOperator::divide &&
+      program_.semantics.division == semantic::Division::real_quotient) {
     return semantic(semantics_, expression).inferred_type = ValueType::real;
   }
-  if (expression.value == "**")
+  if (operation == BinaryOperator::power)
     return semantic(semantics_, expression).inferred_type = ValueType::real;
   return semantic(semantics_, expression).inferred_type = join_types(left, right);
 }

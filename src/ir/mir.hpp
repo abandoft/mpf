@@ -297,6 +297,7 @@ struct AssignmentPattern {
 struct ExpressionAttributes {
   MirExpressionId origin{};
   std::string spelling;
+  BinaryOperator operation{BinaryOperator::none};
   ComparisonOperator comparison{ComparisonOperator::none};
   std::vector<ComparisonOperator> comparisons;
   BindingKind binding{BindingKind::unresolved};

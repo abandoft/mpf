@@ -43,6 +43,7 @@ class FrontendAstBuilder final {
     node.location = source.location;
     node.kind = source.kind;
     node.value = std::move(source.value);
+    node.operation = source.operation;
     node.comparison = source.comparison;
     node.comparisons = std::move(source.comparisons);
     node.children.reserve(source.children.size());

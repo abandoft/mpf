@@ -15,5 +15,5 @@ stmt %l1 origin %h1 kind 4 line 1 name "" symbol @s0 plan 8 condition 0 target-a
 function-abis
 program-scope
 translation-unit banner=1 runtime-namespace "mpf_runtime" generated-namespace "mpf_generated" headers ["<algorithm>","<array>","<cmath>","<cstddef>","<cstdint>","<functional>","<iostream>","<limits>","<numeric>","<optional>","<stdexcept>","<string>","<type_traits>","<tuple>","<utility>","<vector>"] runtime [0,1] forward [] definitions [] entry [0] module-scope=1 entry-scope=0 emit-entry=1 emit-main=1
-emission dynamic-truthiness=1 operand-logical-result=1 real-division=1 lexical-block-scopes=0 resizable-sections=1 module-top-level=1 entry-function-top-level=0
+emission dynamic-truthiness=1 operand-logical-result=1 real-division=1 lexical-block-scopes=0 resizable-sections=1 padded-character-selection=0 module-top-level=1 entry-function-top-level=0
 function-order

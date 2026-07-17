@@ -52,26 +52,56 @@ int binding_power(const TokenKind kind) noexcept {
     case TokenKind::minus: return 4;
     case TokenKind::star:
     case TokenKind::slash:
+    case TokenKind::backslash:
+    case TokenKind::dot_star:
+    case TokenKind::dot_slash:
+    case TokenKind::dot_backslash:
     case TokenKind::floor_slash:
     case TokenKind::percent: return 5;
-    case TokenKind::power: return 7;
+    case TokenKind::power:
+    case TokenKind::dot_power: return 7;
     default: return -1;
   }
 }
 
-std::string canonical_operator(const TokenKind kind) {
+std::string canonical_operator(const TokenKind kind, const SourceLanguage language) {
   switch (kind) {
     case TokenKind::plus: return "+";
     case TokenKind::minus: return "-";
     case TokenKind::star: return "*";
     case TokenKind::slash: return "/";
+    case TokenKind::backslash: return "\\";
+    case TokenKind::dot_star: return ".*";
+    case TokenKind::dot_slash: return "./";
+    case TokenKind::dot_backslash: return ".\\";
+    case TokenKind::dot_power: return ".^";
     case TokenKind::floor_slash: return "//";
     case TokenKind::percent: return "%";
-    case TokenKind::power: return "**";
+    case TokenKind::power: return language == SourceLanguage::matlab ? "^" : "**";
     case TokenKind::logical_and: return "&&";
     case TokenKind::logical_or: return "||";
     case TokenKind::logical_not: return "!";
     default: return {};
+  }
+}
+
+BinaryOperator binary_operator(const TokenKind kind) noexcept {
+  switch (kind) {
+    case TokenKind::plus: return BinaryOperator::add;
+    case TokenKind::minus: return BinaryOperator::subtract;
+    case TokenKind::star: return BinaryOperator::multiply;
+    case TokenKind::slash: return BinaryOperator::divide;
+    case TokenKind::backslash: return BinaryOperator::left_divide;
+    case TokenKind::floor_slash: return BinaryOperator::floor_divide;
+    case TokenKind::percent: return BinaryOperator::remainder;
+    case TokenKind::power: return BinaryOperator::power;
+    case TokenKind::logical_and: return BinaryOperator::logical_and;
+    case TokenKind::logical_or: return BinaryOperator::logical_or;
+    case TokenKind::dot_star: return BinaryOperator::elementwise_multiply;
+    case TokenKind::dot_slash: return BinaryOperator::elementwise_divide;
+    case TokenKind::dot_backslash: return BinaryOperator::elementwise_left_divide;
+    case TokenKind::dot_power: return BinaryOperator::elementwise_power;
+    default: return BinaryOperator::none;
   }
 }
 
@@ -250,12 +280,15 @@ class Parser final {
         continue;
       }
       const auto operator_token = take();
-      const auto right_power = operator_token.kind == TokenKind::power ? power : power + 1;
+      const auto right_associative =
+          operator_token.kind == TokenKind::power || operator_token.kind == TokenKind::dot_power;
+      const auto right_power = right_associative ? power : power + 1;
       auto right = parse_precedence(right_power);
       Expression expression;
       expression.kind = ExpressionKind::binary;
       expression.location = operator_token.location;
-      expression.value = canonical_operator(operator_token.kind);
+      expression.value = canonical_operator(operator_token.kind, language_);
+      expression.operation = binary_operator(operator_token.kind);
       expression.children.push_back(std::move(left));
       expression.children.push_back(std::move(right));
       left = std::move(expression);
@@ -293,7 +326,7 @@ class Parser final {
       case TokenKind::minus:
       case TokenKind::logical_not:
         expression.kind = ExpressionKind::unary;
-        expression.value = canonical_operator(token.kind);
+        expression.value = canonical_operator(token.kind, language_);
         expression.children.push_back(parse_precedence(
             language_ == SourceLanguage::python && token.kind == TokenKind::logical_not ? 3 : 6));
         return expression;

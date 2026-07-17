@@ -4,10 +4,10 @@
 #include <cctype>
 
 #if MPF_HAS_JAVASCRIPT_BACKEND
-#include "../backends/javascript_backend.hpp"
+#include "../backends/javascript/backend.hpp"
 #endif
 #if MPF_HAS_CPP_BACKEND
-#include "../backends/cpp_backend.hpp"
+#include "../backends/cpp/backend.hpp"
 #endif
 
 namespace mpf::detail {

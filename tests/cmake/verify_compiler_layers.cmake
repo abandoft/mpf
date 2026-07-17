@@ -46,8 +46,8 @@ mpf_assert_file_excludes("src/core/diagnostic.cpp" "effective_end"
   "diagnostic renderer restored missing-range compatibility synthesis")
 
 foreach(emitter IN ITEMS
-    src/backends/javascript_emitter.cpp
-    src/backends/cpp_emitter.cpp)
+    src/backends/javascript/emitter.cpp
+    src/backends/cpp/emitter.cpp)
   mpf_assert_file_excludes("${emitter}" "SourceLanguage::"
     "target printer still branches on a source language identity")
   mpf_assert_file_excludes("${emitter}" "(javascript|cpp)_code_binding\\("
@@ -167,8 +167,8 @@ if(NOT semantic_facts_contract MATCHES "StorageRegion storage_region")
 endif()
 
 foreach(lowering IN ITEMS
-    src/backends/javascript_lowering.cpp
-    src/backends/cpp_lowering.cpp)
+    src/backends/javascript/lowering.cpp
+    src/backends/cpp/lowering.cpp)
   mpf_assert_file_excludes("${lowering}" "expression\\.argument_(intents|optional_forward)"
     "target lowering reinterprets source call intent instead of MIR transfer facts")
   file(READ "${SOURCE_DIR}/${lowering}" lowering_contents)
@@ -187,8 +187,8 @@ foreach(lowering IN ITEMS
 endforeach()
 
 foreach(representation IN ITEMS
-    src/backends/javascript_lir_representation.cpp
-    src/backends/cpp_lir_representation.cpp)
+    src/backends/javascript/lir_representation.cpp
+    src/backends/cpp/lir_representation.cpp)
   if(NOT EXISTS "${SOURCE_DIR}/${representation}")
     message(FATAL_ERROR "target LIR representation layer is missing: ${representation}")
   endif()
@@ -208,8 +208,8 @@ foreach(representation IN ITEMS
 endforeach()
 
 foreach(planning IN ITEMS
-    src/backends/javascript_lir_planning.cpp
-    src/backends/cpp_lir_planning.cpp)
+    src/backends/javascript/lir_planning.cpp
+    src/backends/cpp/lir_planning.cpp)
   if(NOT EXISTS "${SOURCE_DIR}/${planning}")
     message(FATAL_ERROR "target LIR planning layer is missing: ${planning}")
   endif()
@@ -226,8 +226,8 @@ foreach(planning IN ITEMS
 endforeach()
 
 foreach(renderer IN ITEMS
-    src/backends/javascript_renderer.cpp
-    src/backends/cpp_renderer.cpp)
+    src/backends/javascript/renderer.cpp
+    src/backends/cpp/renderer.cpp)
   mpf_assert_file_excludes("${renderer}"
     "mangler_->name\\((statement\\.name|expression\\.plan\\.token|statement\\.parameters\\[|statement\\.plan\\.targets\\[)"
     "target renderer bypasses SymbolId-aware identifier lookup")
@@ -359,17 +359,17 @@ foreach(required IN ITEMS
   endif()
 endforeach()
 foreach(target_region_consumer IN ITEMS
-    src/backends/javascript_lowering.cpp
-    src/backends/cpp_lowering.cpp
-    src/backends/javascript_lir_representation.cpp
-    src/backends/cpp_lir_representation.cpp
-    src/backends/javascript_renderer.cpp
-    src/backends/cpp_renderer.cpp)
+    src/backends/javascript/lowering.cpp
+    src/backends/cpp/lowering.cpp
+    src/backends/javascript/lir_representation.cpp
+    src/backends/cpp/lir_representation.cpp
+    src/backends/javascript/renderer.cpp
+    src/backends/cpp/renderer.cpp)
   mpf_assert_file_excludes("${target_region_consumer}" "StorageRegion|storage_region_relation"
     "target backend recomputes shared storage-region semantics")
 endforeach()
 
-foreach(target_lir IN ITEMS src/backends/javascript_lir.hpp src/backends/cpp_lir.hpp)
+foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir.hpp)
   file(READ "${SOURCE_DIR}/${target_lir}" target_lir_contract)
   if(NOT target_lir_contract MATCHES "argument_transfers" OR
      NOT target_lir_contract MATCHES "FunctionAbi" OR
@@ -400,7 +400,7 @@ foreach(target_lir IN ITEMS src/backends/javascript_lir.hpp src/backends/cpp_lir
   endif()
 endforeach()
 
-foreach(renderer IN ITEMS src/backends/javascript_renderer.cpp src/backends/cpp_renderer.cpp)
+foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
   file(READ "${SOURCE_DIR}/${renderer}" renderer_contract)
   if(NOT renderer_contract MATCHES "plan\\.call_arguments" OR
      NOT renderer_contract MATCHES "plan\\.form" OR
@@ -432,14 +432,14 @@ if(NOT source_segment_contract MATCHES "build_source_segment_plan" OR
   message(FATAL_ERROR "target source-map segments are not a dense LIR plan")
 endif()
 
-file(READ "${SOURCE_DIR}/src/backends/javascript_renderer.cpp" javascript_renderer_contract)
+file(READ "${SOURCE_DIR}/src/backends/javascript/renderer.cpp" javascript_renderer_contract)
 if(NOT javascript_renderer_contract MATCHES "program\\.module" OR
    NOT javascript_renderer_contract MATCHES "body_order" OR
    NOT javascript_renderer_contract MATCHES "emit_javascript_runtime_fragment")
   message(FATAL_ERROR "JavaScript renderer does not consume the module plan")
 endif()
 
-file(READ "${SOURCE_DIR}/src/backends/cpp_renderer.cpp" cpp_renderer_contract)
+file(READ "${SOURCE_DIR}/src/backends/cpp/renderer.cpp" cpp_renderer_contract)
 if(NOT cpp_renderer_contract MATCHES "program\\.translation_unit" OR
    NOT cpp_renderer_contract MATCHES "forward_declarations" OR
    NOT cpp_renderer_contract MATCHES "entry_statements" OR
@@ -447,7 +447,7 @@ if(NOT cpp_renderer_contract MATCHES "program\\.translation_unit" OR
   message(FATAL_ERROR "cpp renderer does not consume the translation-unit plan")
 endif()
 
-foreach(runtime IN ITEMS src/backends/javascript_runtime.cpp src/backends/cpp_runtime.cpp)
+foreach(runtime IN ITEMS src/backends/javascript/runtime.cpp src/backends/cpp/runtime.cpp)
   if(NOT EXISTS "${SOURCE_DIR}/${runtime}")
     message(FATAL_ERROR "target runtime catalog is missing: ${runtime}")
   endif()
@@ -455,7 +455,7 @@ foreach(runtime IN ITEMS src/backends/javascript_runtime.cpp src/backends/cpp_ru
     "target runtime catalog depends on source or target-independent compiler state")
 endforeach()
 
-file(READ "${SOURCE_DIR}/src/backends/cpp_lir.hpp" cpp_lir_contract)
+file(READ "${SOURCE_DIR}/src/backends/cpp/lir.hpp" cpp_lir_contract)
 if(NOT cpp_lir_contract MATCHES "DeclarationTypeKind" OR
    NOT cpp_lir_contract MATCHES "type_probe" OR
    NOT cpp_lir_contract MATCHES "fixed_shape" OR
@@ -476,7 +476,7 @@ if(NOT cpp_lir_contract MATCHES "TranslationUnitPlan" OR
   message(FATAL_ERROR "cpp LIR does not own translation-unit topology")
 endif()
 
-file(READ "${SOURCE_DIR}/src/backends/javascript_lir.hpp" javascript_lir_contract)
+file(READ "${SOURCE_DIR}/src/backends/javascript/lir.hpp" javascript_lir_contract)
 if(NOT javascript_lir_contract MATCHES "ModulePlan" OR
    NOT javascript_lir_contract MATCHES "directives" OR
    NOT javascript_lir_contract MATCHES "body_order")
@@ -494,14 +494,36 @@ foreach(comparison_ir IN ITEMS
     src/frontends/frontend_ast.hpp
     src/ir/hir.hpp
     src/ir/mir.hpp
-    src/backends/javascript_lir.hpp
-    src/backends/cpp_lir.hpp)
+    src/backends/javascript/lir.hpp
+    src/backends/cpp/lir.hpp)
   file(READ "${SOURCE_DIR}/${comparison_ir}" comparison_contract)
   if(NOT comparison_contract MATCHES "ComparisonOperator" OR
      comparison_contract MATCHES "vector<std::string> operators")
     message(FATAL_ERROR
       "comparison operators are not strongly typed through the pipeline: ${comparison_ir}")
   endif()
+endforeach()
+
+foreach(binary_operator_ir IN ITEMS
+    src/compiler/expression_ast.hpp
+    src/frontends/frontend_ast.hpp
+    src/ir/hir.hpp
+    src/ir/mir.hpp
+    src/backends/javascript/lir.hpp
+    src/backends/cpp/lir.hpp)
+  file(READ "${SOURCE_DIR}/${binary_operator_ir}" binary_operator_contract)
+  if(NOT binary_operator_contract MATCHES "BinaryOperator")
+    message(FATAL_ERROR
+      "binary operator identity is not strongly typed through ${binary_operator_ir}")
+  endif()
+endforeach()
+foreach(operator_consumer IN ITEMS
+    src/semantic/expression_analyzer.cpp
+    src/backends/javascript/lir_representation.cpp
+    src/backends/cpp/lir_representation.cpp)
+  mpf_assert_file_excludes("${operator_consumer}"
+    "expression\\.value == \\\"(\\.\\*|\\./|\\.\\\\\\\\|\\.\\^|\\\\\\\\|\\^)\\\""
+    "Matlab operator semantics regressed to source-spelling decisions")
 endforeach()
 
 mpf_assert_file_excludes("src/backends/identifier_mangler.hpp" "temporary\\("
@@ -526,8 +548,8 @@ if(NOT test_build_contract MATCHES
 endif()
 
 foreach(lir_header IN ITEMS
-    src/backends/javascript_lir.hpp
-    src/backends/cpp_lir.hpp)
+    src/backends/javascript/lir.hpp
+    src/backends/cpp/lir.hpp)
   mpf_assert_file_excludes("${lir_header}" "code_binding\\.hpp|[./]ir/(hir|mir)\\.hpp"
     "target LIR header imports an analysis/validation layer")
 endforeach()
@@ -557,23 +579,50 @@ foreach(file IN LISTS public_ir_files)
 endforeach()
 
 file(GLOB javascript_backend_files
-  "${SOURCE_DIR}/src/backends/javascript_*.cpp"
-  "${SOURCE_DIR}/src/backends/javascript_*.hpp")
+  "${SOURCE_DIR}/src/backends/javascript/*.cpp"
+  "${SOURCE_DIR}/src/backends/javascript/*.hpp")
 foreach(file IN LISTS javascript_backend_files)
   file(READ "${file}" contents)
-  if(contents MATCHES "cpp_(lir|lowering|renderer|emitter|validator|bindings|backend)")
+  if(contents MATCHES "[./]cpp/" OR
+     contents MATCHES "cpp_(lir|lowering|renderer|emitter|validator|bindings|backend)")
     message(FATAL_ERROR "JavaScript backend depends on cpp backend: ${file}")
   endif()
 endforeach()
 
 file(GLOB cpp_backend_files
-  "${SOURCE_DIR}/src/backends/cpp_*.cpp"
-  "${SOURCE_DIR}/src/backends/cpp_*.hpp")
+  "${SOURCE_DIR}/src/backends/cpp/*.cpp"
+  "${SOURCE_DIR}/src/backends/cpp/*.hpp")
 foreach(file IN LISTS cpp_backend_files)
   file(READ "${file}" contents)
-  if(contents MATCHES "javascript_(lir|lowering|renderer|emitter|validator|bindings|backend)")
+  if(contents MATCHES "[./]javascript/" OR
+     contents MATCHES "javascript_(lir|lowering|renderer|emitter|validator|bindings|backend)")
     message(FATAL_ERROR "cpp backend depends on JavaScript backend: ${file}")
   endif()
+endforeach()
+
+file(GLOB legacy_prefixed_backend_files
+  "${SOURCE_DIR}/src/backends/javascript_*.cpp"
+  "${SOURCE_DIR}/src/backends/javascript_*.hpp"
+  "${SOURCE_DIR}/src/backends/cpp_*.cpp"
+  "${SOURCE_DIR}/src/backends/cpp_*.hpp")
+if(legacy_prefixed_backend_files)
+  message(FATAL_ERROR
+    "target backend files must live in language directories without language filename prefixes: "
+    "${legacy_prefixed_backend_files}")
+endif()
+foreach(target_directory IN ITEMS javascript cpp)
+  foreach(required_component IN ITEMS
+      backend bindings emitter lir lir_planning lir_representation lowering renderer runtime validator)
+    if(NOT EXISTS "${SOURCE_DIR}/src/backends/${target_directory}/${required_component}.hpp")
+      message(FATAL_ERROR
+        "target backend directory is missing ${target_directory}/${required_component}.hpp")
+    endif()
+    if(NOT required_component STREQUAL "lir" AND
+       NOT EXISTS "${SOURCE_DIR}/src/backends/${target_directory}/${required_component}.cpp")
+      message(FATAL_ERROR
+        "target backend directory is missing ${target_directory}/${required_component}.cpp")
+    endif()
+  endforeach()
 endforeach()
 
 file(READ "${SOURCE_DIR}/src/core/transpiler.cpp" driver)

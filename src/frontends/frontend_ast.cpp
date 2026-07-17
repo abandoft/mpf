@@ -79,6 +79,7 @@ class HirLowerer final {
     result.location = node.location;
     result.kind = node.kind;
     result.value = std::move(node.value);
+    result.operation = node.operation;
     result.comparison = node.comparison;
     result.comparisons = std::move(node.comparisons);
     result.children.reserve(node.children.size());
@@ -247,9 +248,13 @@ std::vector<Diagnostic> verify_typed_ast(const ArenaProgram<Tag>& ast,
       if (node.kind == ExpressionKind::invalid || node.requested_outputs == 0) {
         add_error(node.location, "frontend AST expression payload is invalid");
       }
-      if (node.kind == ExpressionKind::binary &&
-          ((node.comparison != ComparisonOperator::none) == !node.value.empty())) {
-        add_error(node.location, "frontend AST binary operator representation is ambiguous");
+      if (node.kind == ExpressionKind::binary) {
+        const bool has_comparison = node.comparison != ComparisonOperator::none;
+        const bool has_operation = node.operation != BinaryOperator::none;
+        if (has_comparison == has_operation || (has_comparison && !node.value.empty()) ||
+            (has_operation && node.value.empty())) {
+          add_error(node.location, "frontend AST binary operator representation is ambiguous");
+        }
       }
       if (node.kind == ExpressionKind::comparison_chain &&
           (node.children.size() < 3U || node.comparisons.size() + 1U != node.children.size() ||

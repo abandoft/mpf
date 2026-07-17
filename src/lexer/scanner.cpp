@@ -284,6 +284,14 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
       kind = TokenKind::left_bracket;
     else if (language == SourceLanguage::fortran && two == "/)")
       kind = TokenKind::right_bracket;
+    else if (language == SourceLanguage::matlab && two == ".*")
+      kind = TokenKind::dot_star;
+    else if (language == SourceLanguage::matlab && two == "./")
+      kind = TokenKind::dot_slash;
+    else if (language == SourceLanguage::matlab && two == ".\\")
+      kind = TokenKind::dot_backslash;
+    else if (language == SourceLanguage::matlab && two == ".^")
+      kind = TokenKind::dot_power;
     else if (two == "**")
       kind = TokenKind::power;
     else if (two == "//" && language == SourceLanguage::python)
@@ -311,6 +319,9 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
       case '-': kind = TokenKind::minus; break;
       case '*': kind = TokenKind::star; break;
       case '/': kind = TokenKind::slash; break;
+      case '\\':
+        kind = language == SourceLanguage::matlab ? TokenKind::backslash : TokenKind::end;
+        break;
       case '%': kind = TokenKind::percent; break;
       case '^':
         kind = language == SourceLanguage::matlab ? TokenKind::power : TokenKind::end;

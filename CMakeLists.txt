@@ -181,15 +181,15 @@ endif()
 
 if(MPF_ENABLE_JAVASCRIPT_BACKEND)
   add_library(mpf_backend_javascript
-    src/backends/javascript_backend.cpp
-    src/backends/javascript_bindings.cpp
-    src/backends/javascript_emitter.cpp
-    src/backends/javascript_lir_planning.cpp
-    src/backends/javascript_lir_representation.cpp
-    src/backends/javascript_lowering.cpp
-    src/backends/javascript_renderer.cpp
-    src/backends/javascript_runtime.cpp
-    src/backends/javascript_validator.cpp)
+    src/backends/javascript/backend.cpp
+    src/backends/javascript/bindings.cpp
+    src/backends/javascript/emitter.cpp
+    src/backends/javascript/lir_planning.cpp
+    src/backends/javascript/lir_representation.cpp
+    src/backends/javascript/lowering.cpp
+    src/backends/javascript/renderer.cpp
+    src/backends/javascript/runtime.cpp
+    src/backends/javascript/validator.cpp)
   add_library(mpf::backend-javascript ALIAS mpf_backend_javascript)
   set_target_properties(mpf_backend_javascript PROPERTIES
     OUTPUT_NAME mpf-backend-javascript
@@ -201,15 +201,15 @@ endif()
 
 if(MPF_ENABLE_CPP_BACKEND)
   add_library(mpf_backend_cpp
-    src/backends/cpp_backend.cpp
-    src/backends/cpp_bindings.cpp
-    src/backends/cpp_emitter.cpp
-    src/backends/cpp_lir_planning.cpp
-    src/backends/cpp_lir_representation.cpp
-    src/backends/cpp_lowering.cpp
-    src/backends/cpp_renderer.cpp
-    src/backends/cpp_runtime.cpp
-    src/backends/cpp_validator.cpp)
+    src/backends/cpp/backend.cpp
+    src/backends/cpp/bindings.cpp
+    src/backends/cpp/emitter.cpp
+    src/backends/cpp/lir_planning.cpp
+    src/backends/cpp/lir_representation.cpp
+    src/backends/cpp/lowering.cpp
+    src/backends/cpp/renderer.cpp
+    src/backends/cpp/runtime.cpp
+    src/backends/cpp/validator.cpp)
   add_library(mpf::backend-cpp ALIAS mpf_backend_cpp)
   set_target_properties(mpf_backend_cpp PROPERTIES
     OUTPUT_NAME mpf-backend-cpp

@@ -717,6 +717,7 @@ class Builder final {
     result.location = source.location;
     result.kind = source.kind;
     result_attributes.spelling = std::move(source.value);
+    result_attributes.operation = source.operation;
     result_attributes.comparison = source.comparison;
     result_attributes.comparisons = std::move(source.comparisons);
     if (semantic_facts != nullptr) {
@@ -756,9 +757,10 @@ class Builder final {
     };
     const bool lazy_conditional =
         result.kind == ExpressionKind::conditional && source.children.size() == 3U;
-    const bool lazy_logical =
-        result.kind == ExpressionKind::binary && source.children.size() == 2U &&
-        (result_attributes.spelling == "&&" || result_attributes.spelling == "||");
+    const bool lazy_logical = result.kind == ExpressionKind::binary &&
+                              source.children.size() == 2U &&
+                              (result_attributes.operation == BinaryOperator::logical_and ||
+                               result_attributes.operation == BinaryOperator::logical_or);
     const bool lazy_comparison =
         result.kind == ExpressionKind::comparison_chain && source.children.size() >= 3U &&
         result_attributes.comparisons.size() + 1U == source.children.size();
@@ -795,7 +797,7 @@ class Builder final {
       const auto right_block = make_function_block();
       const auto bypass_block = make_function_block();
       lazy_merge = make_function_block();
-      const bool logical_and = result_attributes.spelling == "&&";
+      const bool logical_and = result_attributes.operation == BinaryOperator::logical_and;
       set_conditional(condition_value, logical_and ? right_block : bypass_block,
                       logical_and ? bypass_block : right_block, result.origin);
 

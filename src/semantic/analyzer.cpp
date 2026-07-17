@@ -1007,8 +1007,16 @@ void Analyzer::merge_select_flows(const ScopeState& before, const std::vector<Sc
 
 bool Analyzer::analyze_select_case(Statement& statement) {
   const auto selector_type = analyze_expression(statement.expression);
-  if (selector_type != ValueType::unknown && selector_type != ValueType::integer &&
-      selector_type != ValueType::string && selector_type != ValueType::boolean) {
+  const bool matlab_switch = program_.language == SourceLanguage::matlab;
+  if (matlab_switch) {
+    if (selector_type != ValueType::unknown && selector_type != ValueType::integer &&
+        selector_type != ValueType::real && selector_type != ValueType::string &&
+        selector_type != ValueType::boolean) {
+      diagnose(statement.line, "MPF2043",
+               "Matlab switch expression must be a supported scalar value");
+    }
+  } else if (selector_type != ValueType::unknown && selector_type != ValueType::integer &&
+             selector_type != ValueType::string && selector_type != ValueType::boolean) {
     diagnose(statement.line, "MPF2043",
              "Fortran SELECT CASE selector must be integer, character, or logical");
   }
@@ -1025,6 +1033,28 @@ bool Analyzer::analyze_select_case(Statement& statement) {
     current() = before;
     has_default = has_default || clause.default_case;
     for (auto& value : clause.case_selectors) {
+      if (matlab_switch) {
+        if (value.range || !value.has_lower || value.has_upper) {
+          diagnose(clause.line, "MPF2043",
+                   "Matlab case clause must contain one supported scalar expression");
+        }
+        if (value.has_lower) {
+          const auto type = analyze_expression(value.lower);
+          const bool numeric_match =
+              (selector_type == ValueType::integer || selector_type == ValueType::real) &&
+              (type == ValueType::integer || type == ValueType::real);
+          if (selector_type != ValueType::unknown && type != ValueType::unknown &&
+              selector_type != type && !numeric_match) {
+            diagnose(clause.line, "MPF2043",
+                     "Matlab case expression type does not match the switch expression");
+          }
+          if (type == ValueType::list || type == ValueType::tuple) {
+            diagnose(clause.line, "MPF2043",
+                     "Matlab cell-array case expressions are not supported yet");
+          }
+        }
+        continue;
+      }
       if (value.has_lower) {
         if (!safe_fortran_case_constant(value.lower)) {
           diagnose(clause.line, "MPF2043",

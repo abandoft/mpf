@@ -35,6 +35,46 @@ enum class ComparisonOperator : std::uint8_t {
   not_contains
 };
 
+enum class BinaryOperator : std::uint8_t {
+  none,
+  add,
+  subtract,
+  multiply,
+  divide,
+  left_divide,
+  floor_divide,
+  remainder,
+  power,
+  logical_and,
+  logical_or,
+  elementwise_multiply,
+  elementwise_divide,
+  elementwise_left_divide,
+  elementwise_power
+};
+
+[[nodiscard]] constexpr std::string_view binary_operator_spelling(
+    const BinaryOperator operation) noexcept {
+  switch (operation) {
+    case BinaryOperator::none: return {};
+    case BinaryOperator::add: return "+";
+    case BinaryOperator::subtract: return "-";
+    case BinaryOperator::multiply: return "*";
+    case BinaryOperator::divide: return "/";
+    case BinaryOperator::left_divide: return "\\";
+    case BinaryOperator::floor_divide: return "//";
+    case BinaryOperator::remainder: return "%";
+    case BinaryOperator::power: return "^";
+    case BinaryOperator::logical_and: return "&&";
+    case BinaryOperator::logical_or: return "||";
+    case BinaryOperator::elementwise_multiply: return ".*";
+    case BinaryOperator::elementwise_divide: return "./";
+    case BinaryOperator::elementwise_left_divide: return ".\\";
+    case BinaryOperator::elementwise_power: return ".^";
+  }
+  return {};
+}
+
 [[nodiscard]] constexpr std::string_view comparison_spelling(
     const ComparisonOperator operation) noexcept {
   switch (operation) {
@@ -99,6 +139,7 @@ struct Expression {
   ExpressionKind kind{ExpressionKind::invalid};
   SourceLocation location{};
   std::string value;
+  BinaryOperator operation{BinaryOperator::none};
   ComparisonOperator comparison{ComparisonOperator::none};
   std::vector<ComparisonOperator> comparisons;
   std::vector<Expression> children;

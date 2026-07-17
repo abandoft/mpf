@@ -33,6 +33,11 @@ const char* to_string(const TokenKind kind) noexcept {
     case TokenKind::minus: return "-";
     case TokenKind::star: return "*";
     case TokenKind::slash: return "/";
+    case TokenKind::backslash: return "\\";
+    case TokenKind::dot_star: return ".*";
+    case TokenKind::dot_slash: return "./";
+    case TokenKind::dot_backslash: return ".\\";
+    case TokenKind::dot_power: return ".^";
     case TokenKind::floor_slash: return "//";
     case TokenKind::percent: return "%";
     case TokenKind::power: return "**";

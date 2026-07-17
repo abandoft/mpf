@@ -2,8 +2,8 @@
 #include <string>
 #include <utility>
 
-#include "backends/cpp_bindings.hpp"
-#include "backends/javascript_bindings.hpp"
+#include "backends/cpp/bindings.hpp"
+#include "backends/javascript/bindings.hpp"
 #include "compiler/code_binding.hpp"
 #include "compiler/intrinsic.hpp"
 #include "core/backend_registry.hpp"

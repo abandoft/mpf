@@ -315,17 +315,17 @@ bool fold_expression(Program& program, const MirExpressionId id, OptimizationSta
           !comparison_is_membership(facts->comparison)) {
         result = Constant{ConstantKind::boolean_value, 0,
                           compare(facts->comparison, left->integer, right->integer)};
-      } else if (facts->spelling == "+") {
+      } else if (facts->operation == BinaryOperator::add) {
         const auto value = checked_add(left->integer, right->integer);
         if (value.has_value() && exactly_representable_by_all_targets(*value)) {
           result = Constant{ConstantKind::integer, *value, false};
         }
-      } else if (facts->spelling == "-") {
+      } else if (facts->operation == BinaryOperator::subtract) {
         const auto value = checked_subtract(left->integer, right->integer);
         if (value.has_value() && exactly_representable_by_all_targets(*value)) {
           result = Constant{ConstantKind::integer, *value, false};
         }
-      } else if (facts->spelling == "*") {
+      } else if (facts->operation == BinaryOperator::multiply) {
         const auto value = checked_multiply(left->integer, right->integer);
         if (value.has_value() && exactly_representable_by_all_targets(*value)) {
           result = Constant{ConstantKind::integer, *value, false};
@@ -355,6 +355,7 @@ bool fold_expression(Program& program, const MirExpressionId id, OptimizationSta
   facts->spelling = result->kind == ConstantKind::integer ? std::to_string(result->integer)
                     : result->boolean                     ? "true"
                                                           : "false";
+  facts->operation = BinaryOperator::none;
   facts->comparison = ComparisonOperator::none;
   facts->comparisons.clear();
   facts->binding = BindingKind::unresolved;

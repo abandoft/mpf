@@ -31,6 +31,7 @@ struct ArenaExpression {
   SourceLocation location{};
   ExpressionKind kind{ExpressionKind::invalid};
   std::string value;
+  BinaryOperator operation{BinaryOperator::none};
   ComparisonOperator comparison{ComparisonOperator::none};
   std::vector<ComparisonOperator> comparisons;
   std::vector<AstNodeId> children;

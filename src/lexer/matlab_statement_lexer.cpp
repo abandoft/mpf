@@ -34,13 +34,15 @@ MatlabStatementTokenKind keyword_kind(const std::string& word) {
       {"end", MatlabStatementTokenKind::keyword_end},
       {"while", MatlabStatementTokenKind::keyword_while},
       {"for", MatlabStatementTokenKind::keyword_for},
+      {"switch", MatlabStatementTokenKind::keyword_switch},
+      {"case", MatlabStatementTokenKind::keyword_case},
+      {"otherwise", MatlabStatementTokenKind::keyword_otherwise},
       {"break", MatlabStatementTokenKind::keyword_break},
       {"continue", MatlabStatementTokenKind::keyword_continue}};
   static const std::unordered_map<std::string, bool> unsupported{
-      {"switch", true}, {"case", true},        {"otherwise", true},  {"try", true},
-      {"catch", true},  {"classdef", true},    {"properties", true}, {"methods", true},
-      {"events", true}, {"enumeration", true}, {"global", true},     {"persistent", true},
-      {"parfor", true}, {"spmd", true},        {"arguments", true}};
+      {"try", true},        {"catch", true},  {"classdef", true},    {"properties", true},
+      {"methods", true},    {"events", true}, {"enumeration", true}, {"global", true},
+      {"persistent", true}, {"parfor", true}, {"spmd", true},        {"arguments", true}};
   const auto key = lower(word);
   const auto found = keywords.find(key);
   if (found != keywords.end()) return found->second;
@@ -108,7 +110,10 @@ MatlabStatementLine lex_line(SourceLine line, std::vector<Diagnostic>& diagnosti
       append_token(output, MatlabStatementTokenKind::number, text, begin, index);
       continue;
     }
-    if (text[index] == '\'' && !starts_character_vector(text, index)) {
+    const bool case_character_vector =
+        text[index] == '\'' && output.tokens.size() == 1 &&
+        output.tokens.front().kind == MatlabStatementTokenKind::keyword_case;
+    if (text[index] == '\'' && !case_character_vector && !starts_character_vector(text, index)) {
       ++index;
       append_token(output, MatlabStatementTokenKind::transpose, text, begin, index);
       continue;
@@ -203,6 +208,9 @@ const char* to_string(const MatlabStatementTokenKind kind) noexcept {
     case MatlabStatementTokenKind::keyword_end: return "end";
     case MatlabStatementTokenKind::keyword_while: return "while";
     case MatlabStatementTokenKind::keyword_for: return "for";
+    case MatlabStatementTokenKind::keyword_switch: return "switch";
+    case MatlabStatementTokenKind::keyword_case: return "case";
+    case MatlabStatementTokenKind::keyword_otherwise: return "otherwise";
     case MatlabStatementTokenKind::keyword_break: return "break";
     case MatlabStatementTokenKind::keyword_continue: return "continue";
     case MatlabStatementTokenKind::unsupported_keyword: return "unsupported keyword";

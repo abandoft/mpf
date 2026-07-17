@@ -113,6 +113,7 @@ class Parser final {
 
  private:
   using Statement = matlab::ast::Statement;
+  using CaseSelector = matlab::ast::CaseSelector;
 
   AstNodeId store(Statement statement) { return builder_.add_statement(std::move(statement)); }
 
@@ -137,7 +138,8 @@ class Parser final {
 
   bool is_terminator(const MatlabStatementLine& line) const noexcept {
     return starts_with(line, Kind::keyword_end) || starts_with(line, Kind::keyword_else) ||
-           starts_with(line, Kind::keyword_elseif);
+           starts_with(line, Kind::keyword_elseif) || starts_with(line, Kind::keyword_case) ||
+           starts_with(line, Kind::keyword_otherwise);
   }
 
   void expect_end(const std::size_t owner_line, const std::string_view owner) {
@@ -323,6 +325,70 @@ class Parser final {
     return statement;
   }
 
+  Statement parse_case_clause() {
+    const auto& line = lines_[index_];
+    const auto count = token_count(line);
+    Statement clause;
+    clause.kind = StatementKind::case_clause;
+    clause.line = line.source.number;
+    if (line.tokens[0].kind == Kind::keyword_otherwise) {
+      clause.default_case = true;
+      if (!exact_keyword(line, Kind::keyword_otherwise)) {
+        frontend::unsupported(diagnostics_, line.source.number,
+                              "malformed Matlab otherwise clause");
+      }
+    } else {
+      const auto expression = token_slice(line, 1, count);
+      if (expression.empty()) {
+        frontend::unsupported(diagnostics_, line.source.number,
+                              "Matlab case clause requires an expression");
+      } else {
+        CaseSelector selector;
+        append_expression(selector.lower, selector.has_lower, expression, line.source.number);
+        clause.case_selectors.push_back(selector);
+      }
+    }
+    ++index_;
+    clause.body = parse_block();
+    return clause;
+  }
+
+  Statement parse_switch() {
+    const auto line_number = lines_[index_].source.number;
+    Statement statement;
+    statement.kind = StatementKind::select_case;
+    statement.line = line_number;
+    const auto expression = token_slice(lines_[index_], 1, token_count(lines_[index_]));
+    if (expression.empty()) {
+      frontend::unsupported(diagnostics_, line_number,
+                            "Matlab switch statement requires an expression");
+    } else {
+      append_expression(statement, expression, line_number);
+    }
+    ++index_;
+
+    bool has_otherwise = false;
+    while (index_ < lines_.size() && (starts_with(lines_[index_], Kind::keyword_case) ||
+                                      starts_with(lines_[index_], Kind::keyword_otherwise))) {
+      const bool otherwise = starts_with(lines_[index_], Kind::keyword_otherwise);
+      if (otherwise && has_otherwise) {
+        frontend::unsupported(diagnostics_, lines_[index_].source.number,
+                              "Matlab switch statement contains more than one otherwise clause");
+      } else if (!otherwise && has_otherwise) {
+        frontend::unsupported(diagnostics_, lines_[index_].source.number,
+                              "Matlab case clause cannot follow otherwise");
+      }
+      has_otherwise = has_otherwise || otherwise;
+      statement.body.push_back(store(parse_case_clause()));
+    }
+    if (statement.body.empty()) {
+      frontend::unsupported(diagnostics_, line_number,
+                            "Matlab switch statement requires at least one case or otherwise");
+    }
+    expect_end(line_number, "switch statement");
+    return statement;
+  }
+
   bool is_display_call(const MatlabStatementLine& line, std::size_t& closing) const {
     const auto count = token_count(line);
     if (count < 3 || line.tokens[0].kind != Kind::identifier ||
@@ -411,7 +477,8 @@ class Parser final {
     }
 
     if (first == Kind::unsupported_keyword || first == Kind::keyword_function ||
-        first == Kind::keyword_if || first == Kind::keyword_while || first == Kind::keyword_for) {
+        first == Kind::keyword_if || first == Kind::keyword_while || first == Kind::keyword_for ||
+        first == Kind::keyword_switch) {
       frontend::unsupported(diagnostics_, line.source.number,
                             "unsupported Matlab statement in the current language subset: " +
                                 (count == 0 ? std::string{} : line.tokens[0].text));
@@ -448,6 +515,7 @@ class Parser final {
         case Kind::keyword_if: statements.push_back(store(parse_if())); break;
         case Kind::keyword_while: statements.push_back(store(parse_while())); break;
         case Kind::keyword_for: statements.push_back(store(parse_for())); break;
+        case Kind::keyword_switch: statements.push_back(store(parse_switch())); break;
         default: parse_simple_statement(statements); break;
       }
     }

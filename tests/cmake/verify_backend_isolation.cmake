@@ -33,10 +33,12 @@ endif()
 set(compile_commands "${BUILD_DIR}/compile_commands.json")
 if(EXISTS "${compile_commands}")
   file(READ "${compile_commands}" compilation_database)
-  if(NOT ENABLE_JAVASCRIPT AND compilation_database MATCHES "javascript_(emitter|renderer|backend|bindings|lowering|validator)\\.cpp")
+  if(NOT ENABLE_JAVASCRIPT AND
+     compilation_database MATCHES "backends[/\\\\]javascript[/\\\\](emitter|renderer|backend|bindings|lowering|validator)\\.cpp")
     message(FATAL_ERROR "disabled JavaScript backend was compiled")
   endif()
-  if(NOT ENABLE_CPP AND compilation_database MATCHES "cpp_(emitter|renderer|backend|bindings|lowering|validator)\\.cpp")
+  if(NOT ENABLE_CPP AND
+     compilation_database MATCHES "backends[/\\\\]cpp[/\\\\](emitter|renderer|backend|bindings|lowering|validator)\\.cpp")
     message(FATAL_ERROR "disabled C++17 backend was compiled")
   endif()
   if(NOT ENABLE_JAVASCRIPT AND NOT ENABLE_CPP AND

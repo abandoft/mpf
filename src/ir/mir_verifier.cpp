@@ -213,6 +213,7 @@ void verify_expression(const Expression& expression, const Program& program,
         expression.storage_id.valid() || expression.symbol_id.valid() ||
         !expression.children.empty() || retired_attributes == nullptr ||
         retired_attributes->origin != expression.id || !retired_attributes->spelling.empty() ||
+        retired_attributes->operation != BinaryOperator::none ||
         retired_attributes->comparison != ComparisonOperator::none ||
         !retired_attributes->comparisons.empty() ||
         retired_attributes->binding != BindingKind::unresolved ||
@@ -254,11 +255,11 @@ void verify_expression(const Expression& expression, const Program& program,
     }
     bool operands_match = instruction.operands == expected_operands;
     if (expression_attributes != nullptr && expression_attributes->lazy_cfg) {
-      const bool lazy_kind =
-          expression.kind == ExpressionKind::conditional ||
-          expression.kind == ExpressionKind::comparison_chain ||
-          (expression.kind == ExpressionKind::binary &&
-           (expression_attributes->spelling == "&&" || expression_attributes->spelling == "||"));
+      const bool lazy_kind = expression.kind == ExpressionKind::conditional ||
+                             expression.kind == ExpressionKind::comparison_chain ||
+                             (expression.kind == ExpressionKind::binary &&
+                              (expression_attributes->operation == BinaryOperator::logical_and ||
+                               expression_attributes->operation == BinaryOperator::logical_or));
       const auto merged_value =
           instruction.operands.size() == 1U ? instruction.operands.front() : ValueId{};
       const auto* merge_argument =
@@ -371,11 +372,15 @@ void verify_expression(const Expression& expression, const Program& program,
   for (const auto& metadata : expression_attributes->sequence_elements) {
     verify_value_metadata(metadata, program, diagnostics, expression.location, stage);
   }
-  if (expression.kind == ExpressionKind::binary &&
-      ((expression_attributes->comparison != ComparisonOperator::none) ==
-       !expression_attributes->spelling.empty())) {
-    add_error(diagnostics, expression.location, stage,
-              "binary expression has an ambiguous operator representation");
+  if (expression.kind == ExpressionKind::binary) {
+    const bool has_comparison = expression_attributes->comparison != ComparisonOperator::none;
+    const bool has_operation = expression_attributes->operation != BinaryOperator::none;
+    if (has_comparison == has_operation ||
+        (has_comparison && !expression_attributes->spelling.empty()) ||
+        (has_operation && expression_attributes->spelling.empty())) {
+      add_error(diagnostics, expression.location, stage,
+                "binary expression has an ambiguous operator representation");
+    }
   }
   if (expression.kind == ExpressionKind::comparison_chain &&
       (expression.children.size() < 3U ||
