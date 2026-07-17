@@ -113,6 +113,55 @@ std::string memory_dependence_workload(const std::size_t loops) {
   return source;
 }
 
+std::string matlab_array_workload(const std::size_t width, const std::size_t rounds) {
+  std::string source = "matrix = [";
+  for (std::size_t row = 0; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += std::to_string(row * width + column + 1U);
+    }
+  }
+  source += "];\nrow = [";
+  for (std::size_t column = 0; column < width; ++column) {
+    if (column != 0U) source += ' ';
+    source += std::to_string(column + 1U);
+  }
+  source += "];\ncolumn = [";
+  for (std::size_t row = 0; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    source += std::to_string(row + 1U);
+  }
+  source += "];\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "matrix = matrix + row;\n";
+    source += "matrix = matrix + column;\n";
+  }
+  source +=
+      "transposed = matrix.';\n"
+      "selected = transposed(transposed > row);\n"
+      "disp(sum(selected))\n";
+  return source;
+}
+
+std::string matlab_tensor_workload(const std::size_t pages) {
+  std::string source = "values = [";
+  const auto elements = pages * 16U;
+  for (std::size_t index = 0; index < elements; ++index) {
+    if (index != 0U) source += ' ';
+    source += std::to_string(index + 1U);
+  }
+  source += "];\ntensor = reshape(values, 4, 4, " + std::to_string(pages) + ");\n";
+  source += "offsets = reshape([";
+  for (std::size_t page = 0; page < pages; ++page) {
+    if (page != 0U) source += ' ';
+    source += std::to_string(page + 1U);
+  }
+  source += "], 1, 1, " + std::to_string(pages) + ");\n";
+  source += "result = tensor + offsets;\ndisp(result(end, end, end))\n";
+  return source;
+}
+
 std::string source_extension(const mpf::SourceLanguage language) {
   switch (language) {
     case mpf::SourceLanguage::python: return ".py";
@@ -198,8 +247,9 @@ int main() {
       {"function-graph", function_workload(40)},
       {"typescript-throughput", typescript_workload(300), mpf::SourceLanguage::typescript},
       {"storage-regions", storage_region_workload(128), mpf::SourceLanguage::fortran},
-      {"memory-dependence", memory_dependence_workload(16), mpf::SourceLanguage::python, 32U,
-       true}};
+      {"memory-dependence", memory_dependence_workload(16), mpf::SourceLanguage::python, 32U, true},
+      {"matlab-array-kernel", matlab_array_workload(24, 24), mpf::SourceLanguage::matlab},
+      {"matlab-tensor-kernel", matlab_tensor_workload(24), mpf::SourceLanguage::matlab}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
     Measurement measurement;
@@ -218,17 +268,29 @@ int main() {
   std::size_t min_throughput = static_cast<std::size_t>(-1);
   std::size_t max_arena = 0;
   std::size_t max_generated = 0;
+  std::size_t matlab_max_latency = 0;
+  std::size_t matlab_min_throughput = static_cast<std::size_t>(-1);
+  std::size_t matlab_max_generated = 0;
   for (const auto& measurement : measurements) {
     max_latency = std::max(max_latency, measurement.latency_nanoseconds);
     min_throughput = std::min(min_throughput, measurement.throughput_bytes_per_second);
     max_arena = std::max(max_arena, measurement.peak_arena_bytes);
     max_generated = std::max(max_generated, measurement.generated_bytes);
+    if (measurement.name.rfind("matlab-", 0U) == 0U) {
+      matlab_max_latency = std::max(matlab_max_latency, measurement.latency_nanoseconds);
+      matlab_min_throughput =
+          std::min(matlab_min_throughput, measurement.throughput_bytes_per_second);
+      matlab_max_generated = std::max(matlab_max_generated, measurement.generated_bytes);
+    }
   }
 
-  std::cout << "{\"schemaVersion\":1,\"projectVersion\":\"" << MPF_VERSION_STRING
+  std::cout << "{\"schemaVersion\":2,\"projectVersion\":\"" << MPF_VERSION_STRING
             << "\",\"maxLatencyNanoseconds\":" << max_latency
             << ",\"minThroughputBytesPerSecond\":" << min_throughput
             << ",\"maxPeakArenaBytes\":" << max_arena << ",\"maxGeneratedBytes\":" << max_generated
+            << ",\"matlabMaxLatencyNanoseconds\":" << matlab_max_latency
+            << ",\"matlabMinThroughputBytesPerSecond\":" << matlab_min_throughput
+            << ",\"matlabMaxGeneratedBytes\":" << matlab_max_generated
             << ",\"parallelCompilations\":8,\"scenarios\":[";
   for (std::size_t index = 0; index < measurements.size(); ++index) {
     if (index != 0) std::cout << ',';

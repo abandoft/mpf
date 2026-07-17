@@ -16,7 +16,7 @@ endif()
 file(READ "${BASELINE}" baseline_json)
 string(JSON baseline_schema GET "${baseline_json}" schemaVersion)
 string(JSON report_schema GET "${benchmark_output}" schemaVersion)
-if(NOT baseline_schema EQUAL 1 OR NOT report_schema EQUAL 1)
+if(NOT baseline_schema EQUAL 2 OR NOT report_schema EQUAL 2)
   message(FATAL_ERROR "performance report/baseline schema mismatch")
 endif()
 string(JSON baseline_version GET "${baseline_json}" projectVersion)
@@ -35,11 +35,28 @@ foreach(metric IN ITEMS maxLatencyNanoseconds maxPeakArenaBytes maxGeneratedByte
   endif()
 endforeach()
 
+foreach(metric IN ITEMS matlabMaxLatencyNanoseconds matlabMaxGeneratedBytes)
+  string(JSON actual GET "${benchmark_output}" "${metric}")
+  string(JSON limit GET "${baseline_json}" "${metric}")
+  if(actual GREATER limit)
+    message(FATAL_ERROR "Matlab performance regression: ${metric}=${actual}, limit=${limit}")
+  endif()
+endforeach()
+
 string(JSON actual_throughput GET "${benchmark_output}" minThroughputBytesPerSecond)
 string(JSON minimum_throughput GET "${baseline_json}" minThroughputBytesPerSecond)
 if(actual_throughput LESS minimum_throughput)
   message(FATAL_ERROR
     "performance regression: throughput=${actual_throughput}, minimum=${minimum_throughput}")
+endif()
+
+string(JSON matlab_throughput GET "${benchmark_output}" matlabMinThroughputBytesPerSecond)
+string(JSON matlab_minimum_throughput GET "${baseline_json}"
+  matlabMinThroughputBytesPerSecond)
+if(matlab_throughput LESS matlab_minimum_throughput)
+  message(FATAL_ERROR
+    "Matlab performance regression: throughput=${matlab_throughput}, "
+    "minimum=${matlab_minimum_throughput}")
 endif()
 
 file(WRITE "${REPORT}" "${benchmark_output}")

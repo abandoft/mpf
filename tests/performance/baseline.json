@@ -1,8 +1,11 @@
 {
-  "schemaVersion": 1,
-  "projectVersion": "0.4.7",
+  "schemaVersion": 2,
+  "projectVersion": "0.4.8",
   "maxLatencyNanoseconds": 1000000000,
   "minThroughputBytesPerSecond": 10000,
   "maxPeakArenaBytes": 67108864,
-  "maxGeneratedBytes": 8388608
+  "maxGeneratedBytes": 8388608,
+  "matlabMaxLatencyNanoseconds": 250000000,
+  "matlabMinThroughputBytesPerSecond": 50000,
+  "matlabMaxGeneratedBytes": 1048576
 }
