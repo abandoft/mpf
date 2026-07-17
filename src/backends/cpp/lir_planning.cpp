@@ -18,9 +18,9 @@ void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation locati
 
 const std::vector<std::string>& required_standard_headers() {
   static const std::vector<std::string> headers = {
-      "<algorithm>",   "<array>",  "<cmath>",   "<cstddef>",  "<cstdint>",   "<functional>",
-      "<iostream>",    "<limits>", "<numeric>", "<optional>", "<stdexcept>", "<string>",
-      "<type_traits>", "<tuple>",  "<utility>", "<vector>"};
+      "<algorithm>",  "<array>",       "<cmath>",  "<cstddef>", "<cstdint>",  "<exception>",
+      "<functional>", "<iostream>",    "<limits>", "<numeric>", "<optional>", "<stdexcept>",
+      "<string>",     "<type_traits>", "<tuple>",  "<utility>", "<vector>"};
   return headers;
 }
 
@@ -65,6 +65,9 @@ lir::TranslationUnitPlan expected_translation_unit(const lir::SemanticProgram& p
   result.entry_owns_program_scope = program.emission.entry_function_top_level;
   result.emit_entry_function = !result.entry_statements.empty();
   result.emit_main = result.emit_entry_function;
+  if (result.emit_main) {
+    result.entry_error_policy = lir::EntryErrorPolicy::report_standard_exception;
+  }
   return result;
 }
 
@@ -91,7 +94,8 @@ void verify_translation_unit(const lir::SemanticProgram& program,
       actual.emit_module_scope != expected.emit_module_scope ||
       actual.entry_owns_program_scope != expected.entry_owns_program_scope ||
       actual.emit_entry_function != expected.emit_entry_function ||
-      actual.emit_main != expected.emit_main) {
+      actual.emit_main != expected.emit_main ||
+      actual.entry_error_policy != expected.entry_error_policy) {
     add_error(diagnostics, {1, 1}, "cpp LIR translation-unit plan is inconsistent");
   }
 }

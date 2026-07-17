@@ -66,7 +66,19 @@ class Renderer final {
     indent_ = 0;
     output_ << "}  // namespace " << unit.generated_namespace << "\n";
     if (unit.emit_main) {
-      output_ << "\nint main() { return " << unit.generated_namespace << "::run(); }\n";
+      if (unit.entry_error_policy != cpp::lir::EntryErrorPolicy::report_standard_exception) {
+        throw std::logic_error("verified cpp entry error policy is missing");
+      }
+      output_ << "\nint main() {\n"
+                 "  try {\n"
+                 "    return "
+              << unit.generated_namespace
+              << "::run();\n"
+                 "  } catch (const std::exception& error) {\n"
+                 "    std::cerr << \"MPF runtime error: \" << error.what() << '\\n';\n"
+                 "    return 1;\n"
+                 "  }\n"
+                 "}\n";
     }
     return {output_.str(), std::move(markers_)};
   }
@@ -218,20 +230,42 @@ class Renderer final {
     output_ << "std::make_tuple(";
     for (std::size_t index = 1; index < expression.children.size(); ++index) {
       if (index != 1) output_ << ", ";
-      const auto& selector = expression.children[index];
-      if (expression.plan.selector_slices[index - 1U]) {
+      emit_selector(expression, index);
+    }
+    output_ << ')';
+  }
+
+  void emit_selector(const Expression& expression, const std::size_t child_index) {
+    const auto& selector = expression.children[child_index];
+    switch (expression.plan.index_selectors.at(child_index - 1U)) {
+      case semantic::IndexSelectorKind::slice:
         output_ << "mpf_runtime::slice_selector{";
         emit_slice_bounds(selector);
         output_ << ", " << expression.plan.index_base << ", "
                 << (expression.plan.allow_negative_index ? "true" : "false") << ", "
                 << (selector.plan.inclusive_slice_stop ? "true" : "false") << '}';
-      } else {
+        break;
+      case semantic::IndexSelectorKind::scalar:
         output_ << "mpf_runtime::scalar_selector{static_cast<std::int64_t>(";
         emit_expression(selector);
         output_ << ")}";
-      }
+        break;
+      case semantic::IndexSelectorKind::numeric:
+        output_ << "mpf_runtime::numeric_selector{";
+        emit_expression(selector);
+        output_ << '}';
+        break;
+      case semantic::IndexSelectorKind::logical:
+        output_ << "mpf_runtime::logical_selector{";
+        emit_expression(selector);
+        output_ << '}';
+        break;
+      case semantic::IndexSelectorKind::empty:
+        output_ << "mpf_runtime::empty_selector{";
+        emit_expression(selector);
+        output_ << '}';
+        break;
     }
-    output_ << ')';
   }
 
   void emit_runtime_index(const Expression& container, const Expression& index_expression,
@@ -265,6 +299,17 @@ class Renderer final {
   void emit_section_assignment(const Expression& target, const Expression& replacement,
                                const bool flatten_replacement = false,
                                const bool resizable_section = false) {
+    if (target.plan.index == cpp::lir::IndexForm::linear_section) {
+      output_ << "mpf_runtime::assign_linear_section_column_major(";
+      emit_expression(target.children[0]);
+      output_ << ", ";
+      emit_selector(target, 1U);
+      output_ << ", " << target.plan.index_base << ", "
+              << (target.plan.allow_negative_index ? "true" : "false") << ", ";
+      emit_section_replacement(replacement, flatten_replacement);
+      output_ << ')';
+      return;
+    }
     if (target.plan.index == cpp::lir::IndexForm::section_nd) {
       output_ << "mpf_runtime::assign_section_nd(";
       emit_expression(target.children[0]);
@@ -618,6 +663,14 @@ class Renderer final {
             output_ << ", " << expression.plan.index_base << ", "
                     << (expression.plan.allow_negative_index ? "true" : "false") << ')';
             break;
+          case cpp::lir::IndexForm::linear_section:
+            output_ << "mpf_runtime::linear_section_column_major(";
+            emit_expression(expression.children[0]);
+            output_ << ", ";
+            emit_selector(expression, 1U);
+            output_ << ", " << expression.plan.index_base << ", "
+                    << (expression.plan.allow_negative_index ? "true" : "false") << ')';
+            break;
           case cpp::lir::IndexForm::matrix_linear:
             output_ << "mpf_runtime::matrix_linear_index(";
             emit_expression(expression.children[0]);
@@ -636,17 +689,6 @@ class Renderer final {
               output_ << "), " << expression.plan.index_base << ", "
                       << (expression.plan.allow_negative_index ? "true" : "false") << ')';
             }
-            break;
-          case cpp::lir::IndexForm::logical:
-            output_ << "mpf_runtime::logical_index_nd(";
-            emit_expression(expression.children[0]);
-            output_ << ", ";
-            emit_expression(expression.children[1]);
-            output_ << ", ";
-            emit_shape_array(expression.plan.input_shape);
-            output_ << ", ";
-            emit_shape_array(expression.plan.result_shape);
-            output_ << ')';
             break;
           case cpp::lir::IndexForm::none: output_ << '0'; break;
         }
@@ -1024,20 +1066,6 @@ class Renderer final {
           emit_expression(statement.expression);
         }
         output_ << ";\n";
-        break;
-      case cpp::lir::StatementForm::indexed_logical_assignment:
-        indentation();
-        output_ << "mpf_runtime::assign_logical_nd(";
-        emit_expression(statement.target_expression.children[0]);
-        output_ << ", ";
-        emit_expression(statement.target_expression.children[1]);
-        output_ << ", ";
-        emit_expression(statement.expression);
-        output_ << ", ";
-        emit_shape_array(statement.target_expression.plan.input_shape);
-        output_ << ", ";
-        emit_shape_array(statement.target_expression.plan.result_shape);
-        output_ << ");\n";
         break;
       case cpp::lir::StatementForm::print_empty:
       case cpp::lir::StatementForm::print_value:

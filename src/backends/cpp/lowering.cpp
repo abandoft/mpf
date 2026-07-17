@@ -519,7 +519,9 @@ std::string lir::dump(const SemanticProgram& program) {
   output << "] module-scope=" << program.translation_unit.emit_module_scope
          << " entry-scope=" << program.translation_unit.entry_owns_program_scope
          << " emit-entry=" << program.translation_unit.emit_entry_function
-         << " emit-main=" << program.translation_unit.emit_main << '\n';
+         << " emit-main=" << program.translation_unit.emit_main
+         << " entry-error=" << static_cast<int>(program.translation_unit.entry_error_policy)
+         << '\n';
   output << "emission dynamic-truthiness=" << program.emission.dynamic_truthiness
          << " operand-logical-result=" << program.emission.operand_logical_result
          << " real-division=" << program.emission.real_division

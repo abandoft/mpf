@@ -1,7 +1,9 @@
 #include "lir_representation.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "backends/common/source_segments.hpp"
@@ -10,6 +12,21 @@ namespace mpf::detail::cpp {
 namespace {
 
 using AccessContext = std::vector<std::pair<std::string, lir::VariableAccess>>;
+
+std::optional<semantic::IndexSelectorKind> expected_index_selector(
+    const lir::Expression& selector) noexcept {
+  if (selector.kind == ExpressionKind::slice) return semantic::IndexSelectorKind::slice;
+  if (selector.inferred_type == ValueType::unknown) return std::nullopt;
+  if (selector.inferred_type != ValueType::list) return semantic::IndexSelectorKind::scalar;
+  if (std::find(selector.shape.begin(), selector.shape.end(), 0U) != selector.shape.end()) {
+    return semantic::IndexSelectorKind::empty;
+  }
+  if (selector.element_type == ValueType::boolean) return semantic::IndexSelectorKind::logical;
+  if (selector.element_type == ValueType::integer || selector.element_type == ValueType::real) {
+    return semantic::IndexSelectorKind::numeric;
+  }
+  return std::nullopt;
+}
 
 void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation location,
                std::string message) {
@@ -70,23 +87,44 @@ bool has_array_operand(const lir::Expression& expression) noexcept {
              [](const lir::Expression& child) { return child.inferred_type == ValueType::list; });
 }
 
+std::string matlab_solve_helper(const std::string_view operation,
+                                const semantic::MatrixSolveKind solve) {
+  std::string suffix;
+  switch (solve) {
+    case semantic::MatrixSolveKind::none: return {};
+    case semantic::MatrixSolveKind::square: suffix = "square"; break;
+    case semantic::MatrixSolveKind::overdetermined: suffix = "overdetermined"; break;
+    case semantic::MatrixSolveKind::underdetermined: suffix = "underdetermined"; break;
+  }
+  return "mpf_runtime::matlab_" + std::string(operation) + '_' + suffix;
+}
+
 std::string matlab_array_helper(const lir::Expression& expression) {
+  switch (expression.matrix_operation.operation) {
+    case semantic::MatrixOperation::multiply: return "mpf_runtime::matlab_mtimes";
+    case semantic::MatrixOperation::left_divide:
+      return matlab_solve_helper("mldivide", expression.matrix_operation.solve);
+    case semantic::MatrixOperation::right_divide:
+      return matlab_solve_helper("mrdivide", expression.matrix_operation.solve);
+    case semantic::MatrixOperation::integer_power: return "mpf_runtime::matlab_mpower";
+    case semantic::MatrixOperation::none: break;
+  }
   const bool both_arrays = expression.children.size() == 2U &&
                            expression.children[0].inferred_type == ValueType::list &&
                            expression.children[1].inferred_type == ValueType::list;
-  if (expression.operation == BinaryOperator::multiply && both_arrays) {
-    return "mpf_runtime::matlab_mtimes";
-  }
+  if (expression.operation == BinaryOperator::multiply && both_arrays) return {};
   if (expression.operation == BinaryOperator::add) return "mpf_runtime::matlab_add";
   if (expression.operation == BinaryOperator::subtract) return "mpf_runtime::matlab_subtract";
   if (expression.operation == BinaryOperator::multiply ||
       expression.operation == BinaryOperator::elementwise_multiply) {
     return "mpf_runtime::matlab_multiply";
   }
-  if (expression.operation == BinaryOperator::elementwise_divide) {
+  if (expression.operation == BinaryOperator::divide ||
+      expression.operation == BinaryOperator::elementwise_divide) {
     return "mpf_runtime::matlab_divide";
   }
-  if (expression.operation == BinaryOperator::elementwise_left_divide) {
+  if (expression.operation == BinaryOperator::left_divide ||
+      expression.operation == BinaryOperator::elementwise_left_divide) {
     return "mpf_runtime::matlab_left_divide";
   }
   if (expression.operation == BinaryOperator::elementwise_power) {
@@ -106,6 +144,59 @@ std::string matlab_array_helper(const lir::Expression& expression) {
     case ComparisonOperator::not_contains: break;
   }
   return {};
+}
+
+semantic::MatrixOperation expected_matrix_operation(const lir::Expression& expression) noexcept {
+  if (expression.children.size() != 2U) return semantic::MatrixOperation::none;
+  const bool left_array = expression.children[0].inferred_type == ValueType::list;
+  const bool right_array = expression.children[1].inferred_type == ValueType::list;
+  if (expression.operation == BinaryOperator::multiply && left_array && right_array) {
+    return semantic::MatrixOperation::multiply;
+  }
+  if (expression.operation == BinaryOperator::left_divide && left_array && right_array) {
+    return semantic::MatrixOperation::left_divide;
+  }
+  if (expression.operation == BinaryOperator::divide && left_array && right_array) {
+    return semantic::MatrixOperation::right_divide;
+  }
+  if (expression.operation == BinaryOperator::power && left_array && !right_array) {
+    return semantic::MatrixOperation::integer_power;
+  }
+  return semantic::MatrixOperation::none;
+}
+
+bool static_rank_two(const std::vector<std::size_t>& shape) noexcept {
+  return shape.size() == 2U && std::find(shape.begin(), shape.end(), dynamic_extent) == shape.end();
+}
+
+bool valid_matrix_shapes(const lir::MatrixOperationPlan& plan,
+                         const std::vector<std::size_t>& expression_shape) noexcept {
+  if (!static_rank_two(plan.left_shape) || !static_rank_two(plan.result_shape) ||
+      plan.result_shape != expression_shape) {
+    return false;
+  }
+  switch (plan.operation) {
+    case semantic::MatrixOperation::none: return false;
+    case semantic::MatrixOperation::multiply:
+      return plan.solve == semantic::MatrixSolveKind::none && static_rank_two(plan.right_shape) &&
+             plan.left_shape[1] == plan.right_shape[0] &&
+             plan.result_shape[0] == plan.left_shape[0] &&
+             plan.result_shape[1] == plan.right_shape[1];
+    case semantic::MatrixOperation::left_divide:
+      return static_rank_two(plan.right_shape) && plan.left_shape[0] == plan.right_shape[0] &&
+             plan.solve == semantic::matrix_solve_kind(plan.left_shape[0], plan.left_shape[1]) &&
+             plan.result_shape[0] == plan.left_shape[1] &&
+             plan.result_shape[1] == plan.right_shape[1];
+    case semantic::MatrixOperation::right_divide:
+      return static_rank_two(plan.right_shape) && plan.left_shape[1] == plan.right_shape[1] &&
+             plan.solve == semantic::matrix_solve_kind(plan.right_shape[1], plan.right_shape[0]) &&
+             plan.result_shape[0] == plan.left_shape[0] &&
+             plan.result_shape[1] == plan.right_shape[0];
+    case semantic::MatrixOperation::integer_power:
+      return plan.solve == semantic::MatrixSolveKind::none && plan.right_shape.empty() &&
+             plan.left_shape[0] == plan.left_shape[1] && plan.result_shape == plan.left_shape;
+  }
+  return false;
 }
 
 lir::ComparisonPlan comparison_plan(const ComparisonOperator operation,
@@ -328,31 +419,29 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
     case ExpressionKind::index:
       result.form = lir::ExpressionForm::index;
       result.precedence = 9;
-      result.selector_slices.reserve(
-          expression.children.size() > 0 ? expression.children.size() - 1U : 0U);
-      for (std::size_t index = 1; index < expression.children.size(); ++index) {
-        result.selector_slices.push_back(expression.children[index].kind == ExpressionKind::slice);
-      }
-      if (expression.index_selection == semantic::IndexSelection::logical) {
-        result.index = lir::IndexForm::logical;
-        if (!expression.children.empty()) result.input_shape = expression.children.front().shape;
-        if (expression.children.size() > 1U) result.result_shape = expression.children[1].shape;
-      } else if (std::any_of(result.selector_slices.begin(), result.selector_slices.end(),
-                             [](const bool slice) { return slice; })) {
-        if (result.selector_slices.size() == 1) {
+      result.index_selectors = expression.index_selectors;
+      if (std::any_of(result.index_selectors.begin(), result.index_selectors.end(),
+                      semantic::selector_preserves_dimension)) {
+        const bool general_selector = std::any_of(
+            result.index_selectors.begin(), result.index_selectors.end(), [](const auto selector) {
+              return selector != semantic::IndexSelectorKind::scalar &&
+                     selector != semantic::IndexSelectorKind::slice;
+            });
+        if (result.index_selectors.size() == 1 && expression.column_major &&
+            !expression.children.empty() && expression.children.front().shape.size() > 1U) {
+          result.index = lir::IndexForm::linear_section;
+        } else if (general_selector || result.index_selectors.size() > 2U) {
+          result.index = lir::IndexForm::section_nd;
+        } else if (result.index_selectors.size() == 1) {
           result.index = lir::IndexForm::slice;
-          result.flatten_base = expression.column_major && !expression.children.empty() &&
-                                expression.children.front().shape.size() > 1;
-        } else if (result.selector_slices.size() == 2) {
-          if (!result.selector_slices[0]) {
+        } else if (result.index_selectors.size() == 2) {
+          if (result.index_selectors[0] == semantic::IndexSelectorKind::scalar) {
             result.index = lir::IndexForm::row_slice;
-          } else if (!result.selector_slices[1]) {
+          } else if (result.index_selectors[1] == semantic::IndexSelectorKind::scalar) {
             result.index = lir::IndexForm::column;
           } else {
             result.index = lir::IndexForm::block;
           }
-        } else {
-          result.index = lir::IndexForm::section_nd;
         }
       } else if (expression.column_major && expression.children.size() == 2 &&
                  expression.children.front().shape.size() > 1) {
@@ -409,7 +498,7 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.evaluation != right.evaluation || left.call_value != right.call_value ||
       left.call_outcome != right.call_outcome ||
       left.call_arguments.size() != right.call_arguments.size() || left.index != right.index ||
-      left.selector_slices != right.selector_slices ||
+      left.index_selectors != right.index_selectors ||
       left.variable_access != right.variable_access || left.index_base != right.index_base ||
       left.allow_negative_index != right.allow_negative_index ||
       left.column_major != right.column_major ||
@@ -439,6 +528,23 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
                        const AccessContext& context, const SourceLanguage source_language,
                        std::vector<Diagnostic>& diagnostics) {
   if (!expression.valid()) return;
+  if (expression.kind == ExpressionKind::index) {
+    if (expression.index_selectors.size() + 1U != expression.children.size()) {
+      add_error(diagnostics, expression.location, "cpp LIR index selector arity is inconsistent");
+    } else {
+      for (std::size_t index = 0; index < expression.index_selectors.size(); ++index) {
+        const auto expected = expected_index_selector(expression.children[index + 1U]);
+        if (expected.has_value() && *expected != expression.index_selectors[index]) {
+          add_error(diagnostics, expression.location,
+                    "cpp LIR index selector identity is inconsistent");
+          break;
+        }
+      }
+    }
+  } else if (!expression.index_selectors.empty()) {
+    add_error(diagnostics, expression.location,
+              "cpp non-index LIR expression retains selector facts");
+  }
   const bool requires_matlab_array_operation = source_language == SourceLanguage::matlab &&
                                                expression.kind == ExpressionKind::binary &&
                                                expression.inferred_type == ValueType::list;
@@ -446,6 +552,22 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
       requires_matlab_array_operation) {
     add_error(diagnostics, expression.location,
               "cpp LIR Matlab array-operation identity is inconsistent");
+  }
+  const auto expected_matrix = source_language == SourceLanguage::matlab
+                                   ? expected_matrix_operation(expression)
+                                   : semantic::MatrixOperation::none;
+  if (expression.matrix_operation.operation != expected_matrix ||
+      (!expression.matrix_operation.valid() &&
+       (expression.matrix_operation.solve != semantic::MatrixSolveKind::none ||
+        !expression.matrix_operation.left_shape.empty() ||
+        !expression.matrix_operation.right_shape.empty() ||
+        !expression.matrix_operation.result_shape.empty())) ||
+      (expression.matrix_operation.valid() &&
+       (expression.array_operation != semantic::ArrayOperation::matlab ||
+        expression.broadcast.valid ||
+        !valid_matrix_shapes(expression.matrix_operation, expression.shape)))) {
+    add_error(diagnostics, expression.location,
+              "cpp LIR Matlab matrix-operation plan is inconsistent");
   }
   if (!same_plan(expression.plan, expected_expression_plan(expression, emission, context))) {
     add_error(diagnostics, expression.location,
@@ -514,13 +636,12 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
       }
       break;
     case StatementKind::indexed_assignment:
-      result.form = statement.target_expression.plan.index == lir::IndexForm::logical
-                        ? lir::StatementForm::indexed_logical_assignment
-                    : statement.target_expression.plan.index == lir::IndexForm::slice ||
+      result.form = statement.target_expression.plan.index == lir::IndexForm::slice ||
                             statement.target_expression.plan.index == lir::IndexForm::row_slice ||
                             statement.target_expression.plan.index == lir::IndexForm::column ||
                             statement.target_expression.plan.index == lir::IndexForm::block ||
-                            statement.target_expression.plan.index == lir::IndexForm::section_nd
+                            statement.target_expression.plan.index == lir::IndexForm::section_nd ||
+                            statement.target_expression.plan.index == lir::IndexForm::linear_section
                         ? lir::StatementForm::indexed_section_assignment
                         : lir::StatementForm::indexed_element_assignment;
       result.flatten_replacement =

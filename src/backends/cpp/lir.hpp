@@ -207,7 +207,7 @@ enum class IndexForm : std::uint8_t {
   column,
   block,
   section_nd,
-  logical
+  linear_section
 };
 
 enum class VariableAccess : std::uint8_t { direct, optional_value };
@@ -225,6 +225,16 @@ struct BroadcastPlan {
   std::vector<semantic::BroadcastAxis> axes;
 };
 
+struct MatrixOperationPlan {
+  semantic::MatrixOperation operation{semantic::MatrixOperation::none};
+  semantic::MatrixSolveKind solve{semantic::MatrixSolveKind::none};
+  std::vector<std::size_t> left_shape;
+  std::vector<std::size_t> right_shape;
+  std::vector<std::size_t> result_shape;
+
+  [[nodiscard]] bool valid() const noexcept { return operation != semantic::MatrixOperation::none; }
+};
+
 struct ExpressionPlan {
   bool valid{false};
   ExpressionForm form{ExpressionForm::invalid};
@@ -238,7 +248,7 @@ struct ExpressionPlan {
   CallOutcomeForm call_outcome{CallOutcomeForm::discard};
   std::vector<CallArgumentPlan> call_arguments;
   IndexForm index{IndexForm::none};
-  std::vector<bool> selector_slices;
+  std::vector<semantic::IndexSelectorKind> index_selectors;
   VariableAccess variable_access{VariableAccess::direct};
   std::size_t index_base{0};
   bool allow_negative_index{false};
@@ -276,8 +286,7 @@ enum class StatementForm : std::uint8_t {
   while_loop,
   range_loop,
   for_loop,
-  function,
-  indexed_logical_assignment
+  function
 };
 
 enum class SelectorForm : std::uint8_t { value, closed_range, lower_bound, upper_bound };
@@ -312,6 +321,7 @@ struct StatementPlan {
 };
 
 enum class RuntimeFragment : std::uint8_t { core, dynamic_values };
+enum class EntryErrorPolicy : std::uint8_t { none, report_standard_exception };
 
 struct TranslationUnitPlan {
   bool valid{false};
@@ -328,6 +338,7 @@ struct TranslationUnitPlan {
   bool entry_owns_program_scope{false};
   bool emit_entry_function{false};
   bool emit_main{false};
+  EntryErrorPolicy entry_error_policy{EntryErrorPolicy::none};
 };
 
 struct Expression {
@@ -350,6 +361,7 @@ struct Expression {
   std::vector<std::size_t> shape;
   semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
   BroadcastPlan broadcast;
+  MatrixOperationPlan matrix_operation;
   std::vector<ValueType> tuple_types;
   std::vector<ValueType> tuple_element_types;
   std::vector<std::vector<std::size_t>> tuple_shapes;
@@ -364,7 +376,7 @@ struct Expression {
   bool allow_negative_index{false};
   bool column_major{false};
   bool slice_stop_inclusive{false};
-  semantic::IndexSelection index_selection{semantic::IndexSelection::positional};
+  std::vector<semantic::IndexSelectorKind> index_selectors;
   ExpressionPlan plan;
 
   [[nodiscard]] bool valid() const noexcept { return kind != ExpressionKind::invalid; }
