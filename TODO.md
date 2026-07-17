@@ -1,7 +1,7 @@
 # MPF 持续建设路线图
 
 本路线图记录 **0.4.6 当前开发基线** 与后续交付目标的真实状态。历史交付细节见
-[CHANGELOG.md](CHANGELOG.md)，当前可依赖的语言子集见
+[CHANGELOG-ZH.md](CHANGELOG-ZH.md)，当前可依赖的语言子集见
 [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 已有独立、可执行且包含 lexical block/canonical `for` 的子集，但完整 grammar 仍未完成。
 
 前后端商业级重构的权威设计见 [docs/COMPILER_PIPELINE.md](docs/COMPILER_PIPELINE.md)。路线图中的“多层 IR”只能指语言 AST、HIR、MIR、JavaScript LIR/`cpp` LIR 五层均拥有独立强类型数据模型、verifier 和实际生产调用路径；不能用共享结构体 alias、stage flag 或未被 pipeline 消费的空壳类型标记完成。
@@ -33,7 +33,7 @@
 
 ## 当前迭代优先级
 
-已完成事项由 [CHANGELOG.md](CHANGELOG.md) 和架构文档记录；TODO 只保留仍需实施、仍需验证或需要持续维护的工作，不再按旧 MPF 版本复制完成项。当前优先顺序为：
+已完成事项由 [CHANGELOG-ZH.md](CHANGELOG-ZH.md) 和架构文档记录；TODO 只保留仍需实施、仍需验证或需要持续维护的工作，不再按旧 MPF 版本复制完成项。当前优先顺序为：
 
 - [x] 删除旧 MPF 包版本范围兼容、历史 consumer 版本请求、旧式包变量、descriptor 名称别名和歧义解析 API；安装包只接受当前精确版本，canonical 名称解析失败时显式返回空值
 - [ ] 按 Matlab/Python/Fortran/TypeScript 官方 grammar 选择下一批可独立验收的纵切面

@@ -14,11 +14,11 @@ if(NOT TAG STREQUAL "v${project_version}")
     "release tag '${TAG}' does not match configured MPF version 'v${project_version}'")
 endif()
 
-file(READ "${CMAKE_CURRENT_LIST_DIR}/../CHANGELOG.md" changelog)
+file(READ "${CMAKE_CURRENT_LIST_DIR}/../CHANGELOG-ZH.md" changelog)
 string(FIND "${changelog}" "## ${project_version}\n" release_heading)
 if(NOT release_heading EQUAL 0)
   message(FATAL_ERROR
-    "CHANGELOG.md must begin with the configured release section ## ${project_version}")
+    "CHANGELOG-ZH.md must begin with the configured release section ## ${project_version}")
 endif()
 string(SUBSTRING "${changelog}" ${release_heading} -1 release_and_history)
 string(FIND "${release_and_history}" "\n## " next_heading)

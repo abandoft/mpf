@@ -1,6 +1,5 @@
 ## 0.4.6
 
-- MPF 当前仍是开发中的 0.x 项目。本版本按全新项目整理接口，不再兼容早期开发快照。
 - CMake 安装包改为精确版本匹配；使用方需要通过 `find_package(mpf 0.4.6 EXACT ...)` 查找当前版本。
 - 源语言名称统一为 `matlab`、`python`、`fortran`、`typescript`，输出目标统一为 `javascript`、`cpp`。
 - 移除 `py`、`f90`、`ts`、`js`、`c++` 等名称缩写；文件扩展名自动识别不受影响。
