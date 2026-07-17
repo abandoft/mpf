@@ -77,6 +77,23 @@ std::optional<semantic::IndexSelectorKind> expected_index_selector(
   return std::nullopt;
 }
 
+void collect_index_extent(const Expression& expression, const SemanticTable& table,
+                          std::optional<semantic::IndexExtentSource>& source, bool& valid) {
+  const auto* facts = table.expression(expression.id);
+  if (expression.kind == ExpressionKind::end_index) {
+    if (facts == nullptr || !semantic::requires_runtime_extent(facts->index_extent) ||
+        (source.has_value() && *source != facts->index_extent)) {
+      valid = false;
+      return;
+    }
+    source = facts->index_extent;
+    return;
+  }
+  for (const auto& child : expression.children) {
+    collect_index_extent(child, table, source, valid);
+  }
+}
+
 bool valid_matrix_shapes(const MatrixOperationPlan& plan) noexcept {
   if (!static_rank_two(plan.left_shape) || !static_rank_two(plan.result_shape)) return false;
   switch (plan.operation) {
@@ -114,23 +131,59 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
     return;
   }
   seen[expression.id.value()] = true;
+  const bool analyzed = stage != "ast-to-hir" && stage != "frontend-seed" && stage != "conformance";
   if (facts->requested_outputs == 0) {
     add_error(diagnostics, expression.location, stage, "expression requests zero outputs");
+  }
+  if (analyzed && (expression.kind == ExpressionKind::end_index) !=
+                      semantic::requires_runtime_extent(facts->index_extent)) {
+    add_error(diagnostics, expression.location, stage,
+              "runtime index-extent fact has invalid expression ownership");
   }
   if (facts->array_operation == semantic::ArrayOperation::matlab &&
       expression.kind != ExpressionKind::binary) {
     add_error(diagnostics, expression.location, stage,
               "Matlab array-operation facts require a binary expression");
   }
-  if (facts->broadcast.valid &&
-      (facts->array_operation != semantic::ArrayOperation::matlab ||
-       expression.kind != ExpressionKind::binary || facts->broadcast.axes.empty() ||
-       facts->broadcast.left_shape.size() != facts->broadcast.axes.size() ||
-       facts->broadcast.right_shape.size() != facts->broadcast.axes.size() ||
-       facts->broadcast.result_shape.size() != facts->broadcast.axes.size() ||
-       facts->shape != facts->broadcast.result_shape)) {
+  if (facts->broadcast.valid) {
+    const auto& broadcast = facts->broadcast;
+    const auto rank = broadcast.axes.size();
+    const bool runtime = broadcast.shape_source == semantic::BroadcastShapeSource::runtime_operands;
+    const bool valid_unknown_rank = runtime && rank == 0U && broadcast.left_shape.empty() &&
+                                    broadcast.right_shape.empty() && broadcast.result_shape.empty();
+    if (facts->array_operation != semantic::ArrayOperation::matlab ||
+        expression.kind != ExpressionKind::binary || (!valid_unknown_rank && rank == 0U) ||
+        broadcast.left_shape.size() != rank || broadcast.right_shape.size() != rank ||
+        broadcast.result_shape.size() != rank || facts->shape != broadcast.result_shape) {
+      add_error(diagnostics, expression.location, stage,
+                "expression broadcast plan has an invalid kind, arity, or result shape");
+    } else {
+      bool has_runtime_axis = false;
+      bool valid_axes = true;
+      for (std::size_t axis = 0; axis < rank; ++axis) {
+        const auto left = broadcast.left_shape[axis];
+        const auto right = broadcast.right_shape[axis];
+        const auto result = broadcast.result_shape[axis];
+        const auto mode = broadcast.axes[axis];
+        const auto known = left == dynamic_extent ? right : left;
+        const auto runtime_result = known == dynamic_extent || known == 1U ? dynamic_extent : known;
+        valid_axes =
+            valid_axes &&
+            ((mode == semantic::BroadcastAxis::match && left == right && result == left) ||
+             (mode == semantic::BroadcastAxis::expand_left && left == 1U && result == right) ||
+             (mode == semantic::BroadcastAxis::expand_right && right == 1U && result == left) ||
+             (runtime && mode == semantic::BroadcastAxis::runtime &&
+              (left == dynamic_extent || right == dynamic_extent) && result == runtime_result));
+        has_runtime_axis = has_runtime_axis || mode == semantic::BroadcastAxis::runtime;
+      }
+      if (!valid_axes || (rank != 0U && runtime != has_runtime_axis)) {
+        add_error(diagnostics, expression.location, stage,
+                  "expression broadcast axes disagree with their shape-source contract");
+      }
+    }
+  } else if (facts->broadcast.shape_source != semantic::BroadcastShapeSource::static_extents) {
     add_error(diagnostics, expression.location, stage,
-              "expression broadcast plan has an invalid kind, arity, or result shape");
+              "inactive expression broadcast plan retains a runtime shape source");
   }
   const auto& matrix = facts->matrix_operation;
   const auto expected_matrix = expected_matrix_operation(expression, *facts, table);
@@ -151,9 +204,10 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
               "inactive matrix-operation plan retains shape facts");
   }
   if (expression.kind == ExpressionKind::index) {
-    if (facts->index_selectors.size() + 1U != expression.children.size()) {
+    if (facts->index_selectors.size() + 1U != expression.children.size() ||
+        facts->index_extents.size() != facts->index_selectors.size()) {
       add_error(diagnostics, expression.location, stage,
-                "index selector facts disagree with the expression arity");
+                "index selector or extent facts disagree with the expression arity");
     } else {
       for (std::size_t index = 0; index < facts->index_selectors.size(); ++index) {
         const auto expected = expected_index_selector(expression.children[index + 1U], table);
@@ -162,11 +216,22 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
                     "index selector kind disagrees with the source expression");
           break;
         }
+        if (analyzed) {
+          std::optional<semantic::IndexExtentSource> extent;
+          bool valid_extent = true;
+          collect_index_extent(expression.children[index + 1U], table, extent, valid_extent);
+          const auto expected_extent = extent.value_or(semantic::IndexExtentSource::none);
+          if (!valid_extent || facts->index_extents[index] != expected_extent) {
+            add_error(diagnostics, expression.location, stage,
+                      "index runtime-extent plan disagrees with the selector expression");
+            break;
+          }
+        }
       }
     }
-  } else if (!facts->index_selectors.empty()) {
+  } else if (!facts->index_selectors.empty() || !facts->index_extents.empty()) {
     add_error(diagnostics, expression.location, stage,
-              "non-index expression retains selector facts");
+              "non-index expression retains selector or extent facts");
   }
   if (!valid_storage_region(facts->storage_region) ||
       (facts->storage_region.kind != StorageRegionKind::unknown &&

@@ -129,7 +129,13 @@ std::optional<hir::BroadcastPlan> matlab_broadcast_plan(const std::vector<std::s
   for (std::size_t axis = 0; axis < rank; ++axis) {
     const auto left_extent = left[axis];
     const auto right_extent = right[axis];
-    if (left_extent == right_extent) {
+    if (left_extent == dynamic_extent || right_extent == dynamic_extent) {
+      result.shape_source = semantic::BroadcastShapeSource::runtime_operands;
+      const auto known = left_extent == dynamic_extent ? right_extent : left_extent;
+      result.result_shape.push_back(known == dynamic_extent || known == 1U ? dynamic_extent
+                                                                           : known);
+      result.axes.push_back(semantic::BroadcastAxis::runtime);
+    } else if (left_extent == right_extent) {
       result.result_shape.push_back(left_extent);
       result.axes.push_back(semantic::BroadcastAxis::match);
     } else if (left_extent == 1U) {
@@ -138,10 +144,6 @@ std::optional<hir::BroadcastPlan> matlab_broadcast_plan(const std::vector<std::s
     } else if (right_extent == 1U) {
       result.result_shape.push_back(left_extent);
       result.axes.push_back(semantic::BroadcastAxis::expand_right);
-    } else if (left_extent == dynamic_extent || right_extent == dynamic_extent) {
-      const auto known = left_extent == dynamic_extent ? right_extent : left_extent;
-      result.result_shape.push_back(known == dynamic_extent ? dynamic_extent : known);
-      result.axes.push_back(semantic::BroadcastAxis::runtime);
     } else {
       return std::nullopt;
     }
@@ -149,9 +151,11 @@ std::optional<hir::BroadcastPlan> matlab_broadcast_plan(const std::vector<std::s
   return result;
 }
 
-bool runtime_broadcast(const hir::BroadcastPlan& plan) {
-  return std::find(plan.axes.begin(), plan.axes.end(), semantic::BroadcastAxis::runtime) !=
-         plan.axes.end();
+hir::BroadcastPlan matlab_runtime_broadcast_plan() {
+  hir::BroadcastPlan result;
+  result.valid = true;
+  result.shape_source = semantic::BroadcastShapeSource::runtime_operands;
+  return result;
 }
 
 bool static_rank_two_shape(const std::vector<std::size_t>& shape) noexcept {
@@ -218,8 +222,11 @@ ValueType Analyzer::analyze_expression(Expression& expression) {
     case ExpressionKind::omitted_argument:
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     case ExpressionKind::end_index:
+      if (semantic::requires_runtime_extent(semantic(semantics_, expression).index_extent)) {
+        return semantic(semantics_, expression).inferred_type = ValueType::integer;
+      }
       diagnose(expression.location.line, "MPF2048",
-               "Matlab 'end' is only valid in an array index with a statically known extent");
+               "Matlab 'end' is only valid in an array index selector");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     case ExpressionKind::identifier: {
       const auto* use = names_.reference(expression.id);
@@ -410,7 +417,13 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
       const auto& right_facts = semantic(semantics_, expression.children[1]);
       const bool left_array = left == ValueType::list;
       const bool right_array = right == ValueType::list;
-      if (left_array || right_array) {
+      const bool runtime_operand = left == ValueType::unknown || right == ValueType::unknown;
+      const auto numeric_logical_or_unknown = [](const ValueType type) {
+        return type == ValueType::unknown || numeric(type) || type == ValueType::boolean;
+      };
+      const bool runtime_array_comparison =
+          runtime_operand && numeric_logical_or_unknown(left) && numeric_logical_or_unknown(right);
+      if (left_array || right_array || runtime_array_comparison) {
         const auto left_element = left_array ? left_facts.element_type : left;
         const auto right_element = right_array ? right_facts.element_type : right;
         if ((left_element != ValueType::unknown && !numeric(left_element) &&
@@ -423,22 +436,21 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
         }
         auto& facts = semantic(semantics_, expression);
         facts.array_operation = semantic::ArrayOperation::matlab;
-        if (left_array && right_array) {
+        if (runtime_operand) {
+          facts.broadcast = matlab_runtime_broadcast_plan();
+        } else if (left_array && right_array) {
           const auto broadcast = matlab_broadcast_plan(left_facts.shape, right_facts.shape);
           if (!broadcast.has_value()) {
             diagnose(expression.location.line, "MPF2046",
                      "Matlab array comparison operands have incompatible sizes");
             return facts.inferred_type = ValueType::unknown;
           }
-          if (runtime_broadcast(*broadcast)) {
-            diagnose(expression.location.line, "MPF2046",
-                     "Matlab runtime-sized implicit expansion is not yet representable by both "
-                     "targets");
-            return facts.inferred_type = ValueType::unknown;
+          if (left_facts.shape != right_facts.shape ||
+              broadcast->shape_source == semantic::BroadcastShapeSource::runtime_operands) {
+            facts.broadcast = *broadcast;
           }
-          if (left_facts.shape != right_facts.shape) facts.broadcast = *broadcast;
         }
-        facts.inferred_type = ValueType::list;
+        facts.inferred_type = left_array || right_array ? ValueType::list : ValueType::unknown;
         facts.element_type = ValueType::boolean;
         facts.shape = facts.broadcast.valid ? facts.broadcast.result_shape
                                             : (left_array ? left_facts.shape : right_facts.shape);
@@ -499,6 +511,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
     const bool left_array = left == ValueType::list;
     const bool right_array = right == ValueType::list;
     const bool has_array = left_array || right_array;
+    const bool runtime_operand = left == ValueType::unknown || right == ValueType::unknown;
     const auto left_element = left_array ? left_facts.element_type : left;
     const auto right_element = right_array ? right_facts.element_type : right;
     const auto numeric_or_unknown = [](const ValueType type) {
@@ -522,10 +535,13 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
                    "' requires numeric scalar or array operands");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
-    if (has_array && (elementwise || scalar_scale || scalar_matrix_division)) {
+    if ((has_array || (runtime_operand && elementwise)) &&
+        (elementwise || scalar_scale || scalar_matrix_division)) {
       auto& facts = semantic(semantics_, expression);
       facts.array_operation = semantic::ArrayOperation::matlab;
-      if (left_array && right_array) {
+      if (runtime_operand) {
+        facts.broadcast = matlab_runtime_broadcast_plan();
+      } else if (left_array && right_array) {
         const auto broadcast = matlab_broadcast_plan(left_facts.shape, right_facts.shape);
         if (!broadcast.has_value()) {
           diagnose(expression.location.line, "MPF2046",
@@ -533,17 +549,14 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
                    "be equal or singleton");
           return facts.inferred_type = ValueType::unknown;
         }
-        if (runtime_broadcast(*broadcast)) {
-          diagnose(expression.location.line, "MPF2046",
-                   "Matlab runtime-sized implicit expansion is not yet representable by both "
-                   "targets");
-          return facts.inferred_type = ValueType::unknown;
-        }
         // Preserve the direct same-shape runtime fast path. A side-table plan is needed only
         // when lowering must expand at least one compatible singleton dimension.
-        if (left_facts.shape != right_facts.shape) facts.broadcast = *broadcast;
+        if (left_facts.shape != right_facts.shape ||
+            broadcast->shape_source == semantic::BroadcastShapeSource::runtime_operands) {
+          facts.broadcast = *broadcast;
+        }
       }
-      facts.inferred_type = ValueType::list;
+      facts.inferred_type = has_array ? ValueType::list : ValueType::unknown;
       facts.element_type = operation == BinaryOperator::divide ||
                                    operation == BinaryOperator::left_divide ||
                                    operation == BinaryOperator::elementwise_divide ||
@@ -1234,7 +1247,9 @@ ValueType Analyzer::analyze_call(Expression& expression) {
         diagnose(expression.location.line, "MPF2028",
                  "multidimensional SUM semantics are not supported for this source language");
       }
-      return semantic(semantics_, expression).inferred_type = argument_facts.element_type;
+      return semantic(semantics_, expression).inferred_type =
+                 argument_facts.element_type == ValueType::boolean ? ValueType::integer
+                                                                   : argument_facts.element_type;
     }
     if (associated_callee_facts.intrinsic == IntrinsicId::sum && expression.children.size() != 2) {
       diagnose(expression.location.line, "MPF2026", "sum builtin requires one argument");
@@ -1339,6 +1354,9 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
   auto& index_selectors = semantic(semantics_, expression).index_selectors;
   index_selectors.clear();
   index_selectors.reserve(index_count);
+  auto& index_extents = semantic(semantics_, expression).index_extents;
+  index_extents.clear();
+  index_extents.reserve(index_count);
   StorageRegion storage_region;
   storage_region.kind = semantic(semantics_, expression).column_major && index_count == 1U &&
                                 container_facts.shape.size() > 1U
@@ -1367,13 +1385,19 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
     } else if (position < container_facts.shape.size()) {
       extent = container_facts.shape[position];
     }
+    semantic::IndexExtentSource selector_extent = semantic::IndexExtentSource::none;
+    const auto dynamic_source = semantic(semantics_, expression).column_major && index_count == 1U
+                                    ? semantic::IndexExtentSource::runtime_linear
+                                    : semantic::IndexExtentSource::runtime_axis;
     const auto resolve_end = [&](auto&& self, Expression& candidate) -> void {
       if (candidate.kind == ExpressionKind::end_index) {
         if (extent == dynamic_extent) {
-          diagnose(candidate.location.line, "MPF2048",
-                   "Matlab 'end' requires a statically known array extent in this release");
+          semantic(semantics_, candidate).index_extent = dynamic_source;
+          semantic(semantics_, candidate).inferred_type = ValueType::integer;
+          selector_extent = dynamic_source;
           return;
         }
+        semantic(semantics_, candidate).index_extent = semantic::IndexExtentSource::none;
         candidate.kind = ExpressionKind::number_literal;
         candidate.value = std::to_string(extent);
         candidate.unary_operation = UnaryOperator::none;
@@ -1383,12 +1407,14 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
         return;
       }
       if (candidate.kind != ExpressionKind::unary && candidate.kind != ExpressionKind::binary &&
-          candidate.kind != ExpressionKind::slice) {
+          candidate.kind != ExpressionKind::slice && candidate.kind != ExpressionKind::list &&
+          candidate.kind != ExpressionKind::tuple) {
         return;
       }
       for (auto& child : candidate.children) self(self, child);
     };
     resolve_end(resolve_end, index);
+    index_extents.push_back(selector_extent);
     if (index.kind == ExpressionKind::slice) {
       has_expanding_selector = true;
       index_selectors.push_back(semantic::IndexSelectorKind::slice);
