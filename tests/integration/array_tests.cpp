@@ -66,6 +66,135 @@ TEST_CASE("Matlab whitespace can separate signed vector elements") {
   REQUIRE(result.code.find("[1, -2, 3]") != std::string::npos);
 }
 
+TEST_CASE("Matlab compatible sizes lower through explicit N-dimensional broadcast plans") {
+  const std::string source =
+      "matrix = [10 20 30; 40 50 60];\n"
+      "row = [1 2 3];\n"
+      "column = [100; 200];\n"
+      "matrix_result = matrix + row;\n"
+      "outer_result = column + row;\n"
+      "cube = reshape([1 2 3 4 5 6], 2, 1, 3);\n"
+      "pages = reshape([10 20 30], 1, 1, 3);\n"
+      "cube_result = cube + pages;\n"
+      "explicit_row = reshape([1 2 3], 1, 3);\n"
+      "row_equivalent = row + explicit_row;\n"
+      "matrix_pages = reshape([1 2 3 4 5 6], 2, 3);\n"
+      "singleton_cube = reshape([10 11 12 13 14 15], 2, 3, 1);\n"
+      "rank_equivalent = matrix_pages + singleton_cube;\n"
+      "disp(matrix_result(2, 3) + outer_result(2, 3) + cube_result(2, 1, 3) + "
+      "row_equivalent(1, 3) + rank_equivalent(2, 3, 1))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_add(matrix, row, [2, 3], [1, 3], [2, 3])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_add(column, row, [2, 1], [1, 3], [2, 3])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_add(row, explicit_row, [1, 3], [1, 3], [1, 3])") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_add_broadcast") != std::string::npos);
+  REQUIRE(cpp.code.find("std::array<std::size_t, 3>{2, 1, 3}") != std::string::npos);
+}
+
+TEST_CASE("Matlab transpose identities preserve vector and matrix shape semantics") {
+  const std::string source =
+      "matrix = [1 2 3; 4 5 6];\n"
+      "plain = matrix.';\n"
+      "conjugating = matrix';\n"
+      "row = [7 8];\n"
+      "column = row';\n"
+      "disp(plain(3, 2) + conjugating(2, 1) + column(2, 1))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_transpose(matrix)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_transpose(row)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_transpose(matrix)") != std::string::npos);
+
+  const auto nd = transpile_array("cube = reshape([1 2 3 4], 2, 1, 2);\nbad = cube';\n",
+                                  mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  REQUIRE(!nd.success());
+  REQUIRE(nd.diagnostics.front().code == "MPF2047");
+}
+
+TEST_CASE("Matlab contextual end resolves per dimension and fails closed for growth") {
+  const std::string source =
+      "values = [10 20 30 40];\n"
+      "matrix = [1 2 3; 4 5 6];\n"
+      "tail = values(2:end);\n"
+      "disp(values(end) + values(end - 1) + tail(end) + matrix(end, end) + matrix(end))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_get(values, [4]") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_get(matrix, [2, 3]") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matrix_linear_index(matrix, static_cast<std::int64_t>(6)") !=
+          std::string::npos);
+
+  const auto growth = transpile_array("values = [1 2 3];\nvalues(end + 1) = 4;\n",
+                                      mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto outside = transpile_array("value = end;\n", mpf::SourceLanguage::matlab,
+                                       mpf::TargetLanguage::javascript);
+  REQUIRE(!growth.success());
+  REQUIRE(!outside.success());
+  REQUIRE(outside.diagnostics.front().code == "MPF2048");
+}
+
+TEST_CASE("Matlab logical indexing reads and writes in column-major linear order") {
+  const std::string source =
+      "values = [10 20 30 40];\n"
+      "mask = [true false true false];\n"
+      "selected = values(mask);\n"
+      "values(mask) = [1 2];\n"
+      "matrix = [1 2; 3 4];\n"
+      "matrix_mask = [true false; false true];\n"
+      "picked = matrix(matrix_mask);\n"
+      "disp(selected(1) + selected(2) + values(1) + values(3) + picked(1) + picked(2))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_logical_get(values, mask)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_set_logical(values, mask, [1, 2])") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::logical_index_nd") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::assign_logical_nd") != std::string::npos);
+
+  const auto mismatch =
+      transpile_array("values = [1 2 3];\nmask = [true false];\nbad = values(mask);\n",
+                      mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  REQUIRE(!mismatch.success());
+  REQUIRE(mismatch.diagnostics.front().code == "MPF2049");
+}
+
+TEST_CASE("Matlab array comparisons compose with broadcast logical indexing") {
+  const std::string source =
+      "values = [10 20 30 40];\n"
+      "selected = values(values >= 30);\n"
+      "values(values < 25) = 0;\n"
+      "matrix = [1 2 3; 4 5 6];\n"
+      "picked = matrix(matrix > [2 2 2]);\n"
+      "boolean_grid = [true false] == [true; false];\n"
+      "reshaped_mask = reshape(matrix >= 3, 6, 1);\n"
+      "disp(sum(selected) + sum(values) + sum(picked) + "
+      "numel(boolean_grid(boolean_grid)) + numel(reshaped_mask(reshaped_mask)))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_greater_equal(values, 30)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_greater(matrix, [2, 2, 2], [2, 3], [1, 3], "
+                               "[2, 3])") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_greater_broadcast") != std::string::npos);
+}
+
 TEST_CASE("Fortran constant-shape arrays retain element type and one-based indexing") {
   const std::string source =
       "program arrays\nimplicit none\ninteger :: values(3) = [1, 2, 3]\n"
