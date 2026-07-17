@@ -16,7 +16,7 @@ A modern, high-performance multilingual transpilation framework. MPF converts su
 
 | Input language | Recognized extensions | Current capabilities |
 |---|---|---|
-| Matlab | `.m` | Scripts and local functions, conditionals/loops/scalar `switch`, matrices, static N-D implicit expansion, array comparisons, `end`, logical indexing, transpose, sections, `reshape`, two-dimensional matrix multiplication, and multiple-output functions |
+| Matlab | `.m` | Scripts and local functions, conditionals/loops/scalar `switch`, matrices, static N-D implicit expansion, array comparisons, `end`, ordered/repeated/empty numeric and linear/per-dimension logical selectors, transpose, sections, `reshape`, two-dimensional matrix multiplication, static full-rank dense real square/rectangular solve, square integer power, and multiple-output functions |
 | Python | `.py`, `.pyw` | Functions and parameters, conditionals and loops, lists/tuples, unpacking, comparison chains, multidimensional arrays, indexing, and slicing |
 | Fortran | `.f`, `.for`, `.ftn`, `.f77`, `.f90`, and others | Free/fixed form, functions/subroutines, `INTENT`/`OPTIONAL`, arrays and sections, and `SELECT CASE` |
 | TypeScript | `.ts`, `.mts`, `.cts` | Typed scalars and arrays, functions, block scope, conditionals, `while`, and standard C-style `for` loops |
@@ -115,7 +115,7 @@ cmake --install build/release --prefix build/stage
 Find the exact current version in another project:
 
 ```cmake
-find_package(mpf 0.4.8 EXACT CONFIG REQUIRED COMPONENTS core cpp)
+find_package(mpf 0.4.9 EXACT CONFIG REQUIRED COMPONENTS core cpp)
 target_link_libraries(my_application PRIVATE mpf::mpf)
 ```
 

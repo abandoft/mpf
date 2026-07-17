@@ -1,6 +1,6 @@
 # 诊断与 CLI 契约
 
-MPF 当前为库调用、命令行、IDE 和 CI 使用同一个诊断模型；本文描述 0.4.8 源码树的唯一契约。每条诊断在构造时即包含 code、severity、消息、源文件身份以及完整的 1-based UTF-8 code-point range；renderer 不接收缺失结束位置的旧结构，也不合成兼容范围。
+MPF 当前为库调用、命令行、IDE 和 CI 使用同一个诊断模型；本文描述 0.4.9 源码树的唯一契约。每条诊断在构造时即包含 code、severity、消息、源文件身份以及完整的 1-based UTF-8 code-point range；renderer 不接收缺失结束位置的旧结构，也不合成兼容范围。
 
 ## 文本输出
 
@@ -124,9 +124,9 @@ TypeScript statement lexer 诊断使用 `MPF19xx`：`MPF1901` 表示 block comme
 | `MPF2043` | Matlab `switch/case` 或 Fortran `SELECT/CASE` 的 selector、case 类型、范围或选择关系无效 |
 | `MPF2044` | Python ordering 操作数不兼容，或 `cpp` 无法静态保持 comparison-chain、sequence identity、conditional-expression 等目标类型/对象语义组合 |
 | `MPF2045` | Python identity 使用不可移植的数值/string 对象驻留语义，或 membership container/string needle 不在当前 string/list/tuple 可保持边界内 |
-| `MPF2046` | Matlab 数组运算的 operand type、rank、shape 不相容，或请求了当前尚未实现的矩阵除法/幂语义 |
+| `MPF2046` | Matlab 数组运算的 operand type、rank、shape 不相容，或矩阵求解/幂超出当前静态满秩稠密实数矩阵与 safe-integer 方阵指数边界；数值秩亏在生成 runtime 中以稳定错误拒绝 |
 | `MPF2047` | Matlab 转置的 operand 超出当前 vector/rank-2、非 complex/character-array 可保持边界 |
 | `MPF2048` | Matlab `end` 不在索引上下文中，或其 extent 无法静态确定 |
-| `MPF2049` | Matlab 逻辑索引 mask 大小、selector 数量或 replacement shape 不符合当前线性逻辑索引 contract |
+| `MPF2049` | Matlab 线性/逐维 logical selector 的 shape/type 或 indexed replacement shape 不符合当前广义 selector contract |
 
 语义分析和 capability validator 必须在 emitter 前产生这些错误；失败结果不应包含可被误认为成功输出的目标代码。新增或重新定义稳定 code 时必须同步本表、测试和 changelog。
