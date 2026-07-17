@@ -29,6 +29,8 @@ mpf_add_differential_case(matlab-logical-lines matlab examples/matlab/logical_li
 mpf_add_differential_case(matlab-statement-tokens matlab examples/matlab/statement_tokens.m "42")
 mpf_add_differential_case(matlab-multi-output matlab examples/matlab/multi_output.m "97")
 mpf_add_differential_case(matlab-function-graph matlab examples/matlab/function_graph.m "61")
+mpf_add_differential_case(matlab-switch-case matlab examples/matlab/switch_case.m "42")
+mpf_add_differential_case(matlab-operators matlab examples/matlab/operators.m "101")
 
 mpf_add_differential_case(fortran-loops fortran examples/fortran/loops.f90 "12 -1")
 mpf_add_differential_case(python-loops python examples/python/loops.py "12 1")

@@ -1,0 +1,11 @@
+choice = 'beta';
+result = 0;
+switch choice
+case 'alpha'
+  result = 1;
+case 'beta'
+  result = 42;
+otherwise
+  result = -1;
+end
+disp(result)
