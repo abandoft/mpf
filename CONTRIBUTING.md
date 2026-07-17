@@ -31,7 +31,7 @@ cmake --build --preset coverage
 `build/coverage/coverage/html/` 和 `summary.json`，并强制生产代码行覆盖率不低于 85%。需要重写格式时运行
 `cmake --build build/dev --target mpf-format`。
 
-不要在根目录或源码子目录中生成构建文件；只使用 `build/<name>/`。不要修改、构建或引用废弃归档内容。公共 API 变更需说明兼容性影响。新增源语言语义必须在对应 frontend 中解析并 lowering 到公共 IR，不得在任一目标 emitter 中根据源文本猜测。语言能力原则上必须同时提供 JavaScript 和 C++17 后端测试；C++17 生成物测试必须真实编译。生成任一目标不得依赖另一目标的生成物。
+不要在根目录或源码子目录中生成构建文件；只使用 `build/<name>/`。不要修改、构建或引用废弃归档内容。公共 API 变更直接更新当前 producer、consumer、测试和文档，不保留旧接口适配层。新增源语言语义必须在对应 frontend 中解析并 lowering 到公共 IR，不得在任一目标 emitter 中根据源文本猜测。语言能力原则上必须同时提供 JavaScript 和 C++17 后端测试；C++17 生成物测试必须真实编译。生成任一目标不得依赖另一目标的生成物。
 
 版本号遵循 [版本策略](docs/VERSIONING.md)：从 `0.0.1` 开始，patch 只使用 `0`—`9`，
 因此 `0.2.9` 的下一个版本是 `0.3.0`。只修改 CMake `project(VERSION)`；公共头、CLI 和安装包

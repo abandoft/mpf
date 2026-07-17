@@ -10,9 +10,9 @@ MPF 的验证体系分为七层：
 6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖四种前端、两个目标、资源耗尽和确定性重放；
 7. 小文件延迟、吞吐、深 CFG、大 shape、跨函数图、区域访问、CFG memory dependence、峰值 arena、产物大小和并发 session 进入发布性能门禁。
 
-0.4.5 在 0.4.4 指令级 N 维 memory-access contract 上新增完整 CFG memory-dependence 门禁。单元/负向测试覆盖 revision/count/density/sentinel、强类型 access site、incoming/outgoing adjacency、RAW/flow、WAR/anti、WAW/output、分支多定义合流、自然/不可归约 loop-carried、自环、unknown-memory barrier、同根 disjoint region 消边、确定性 dump、`AnalysisManager` 缓存和损坏 edge 拒绝；既有 `InstructionAttributes`、copy/writeback、跨函数 actual region、alias/conflict 与优化重映射继续回归。生产 API 测试要求编译报告公开 `mir-memory-dependence` stage 和分类计数。新增带分支/循环/索引写入的 Python fuzz seed，第八个 `memory-dependence` 性能场景同时要求最低依赖规模和非零 loop-carried 事实；门禁捕获并修复了 edge 去重和 CFG 矩阵的两处平方级实现，专属场景约 354 ms→43 ms。MemorySSA/region-aware DCE/store forwarding 尚未启用，继续按 [TODO](../TODO.md) 推进。
+当前 CFG memory-dependence 单元/负向测试覆盖 revision/count/density/sentinel、强类型 access site、incoming/outgoing adjacency、RAW/flow、WAR/anti、WAW/output、分支多定义合流、自然/不可归约 loop-carried、自环、unknown-memory barrier、同根 disjoint region 消边、确定性 dump、`AnalysisManager` 缓存和损坏 edge 拒绝；`InstructionAttributes`、copy/writeback、跨函数 actual region、alias/conflict 与优化重映射继续回归。生产 API 测试要求编译报告公开 `mir-memory-dependence` stage 和分类计数。Python fuzz seed 覆盖分支/循环/索引写入，第八个 `memory-dependence` 性能场景同时要求最低依赖规模和非零 loop-carried 事实。0.4.6 额外由 API、架构和安装 conformance 门禁固定 canonical-only 名称解析、精确包版本和旧版本请求失败；MemorySSA/region-aware DCE/store forwarding 尚未启用，继续按 [TODO](../TODO.md) 推进。
 
-## 当前开发分支与发布基线
+## 当前开发分支基线
 
 | 指标 | 数量/结果 |
 |---|---:|
@@ -20,7 +20,7 @@ MPF 的验证体系分为七层：
 | CTest | 66 项，包含 55 项 differential、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
 | Differential corpus | Python 22、Fortran 19、Matlab 10、TypeScript 4，共 55 个 case |
 | 工具完整环境执行路径 | 155 条程序路径，另有每 case 一条 oracle |
-| 生产代码行覆盖率 | 89.77%（22295/24836），门槛 85% |
+| 生产代码行覆盖率 | 89.74%（22249/24793），门槛 85% |
 
 ## Differential corpus
 
@@ -67,9 +67,9 @@ build/fuzz/tests/mpf-transpiler-fuzzer build/fuzz/corpus
 
 崩溃输入可直接交给 smoke runner 重放，或使用 libFuzzer `-minimize_crash=1` 最小化；具体命令见 [`tests/fuzz/README.md`](../tests/fuzz/README.md)。
 
-## 性能发布门禁
+## 性能门禁
 
-`mpf.performance.release-gate` 运行两个目标的八类编译场景和八路并发 session，重复编译还会逐字节比较代码与 source map。场景覆盖 small、吞吐、深 CFG、大 shape、函数图、TypeScript 吞吐、128 个同根交错 section 调用的 storage-region 分析，以及 branch/loop/index-write memory-dependence fixed point。结果写入 `build/<preset>/performance-report.json`，并由 [`tests/performance/baseline.json`](../tests/performance/baseline.json) 的版本化上限/下限检查延迟、吞吐、峰值 arena 和最大生成大小。CTest 将该门禁标记为 `RUN_SERIAL`，避免其他重型测试争抢 CPU 后制造伪回归；该 Release 性能门禁不在 ASan/UBSan 配置中注册，避免用插桩开销污染发布阈值。独立 `Performance` workflow 显式运行非插桩 `mpf-performance` 并归档机器可读报告。
+`mpf.performance.release-gate` 运行两个目标的八类编译场景和八路并发 session，重复编译还会逐字节比较代码与 source map。场景覆盖 small、吞吐、深 CFG、大 shape、函数图、TypeScript 吞吐、128 个同根交错 section 调用的 storage-region 分析，以及 branch/loop/index-write memory-dependence fixed point。结果写入 `build/<preset>/performance-report.json`，并由 [`tests/performance/baseline.json`](../tests/performance/baseline.json) 的精确当前版本上限/下限检查延迟、吞吐、峰值 arena 和最大生成大小；不读取旧版本 baseline。CTest 将该门禁标记为 `RUN_SERIAL`，避免其他重型测试争抢 CPU 后制造伪回归；该非插桩性能门禁不在 ASan/UBSan 配置中注册。独立 `Performance` workflow 显式运行 `mpf-performance` 并归档机器可读报告。
 
 质量与覆盖率门禁：
 

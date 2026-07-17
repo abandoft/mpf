@@ -2,7 +2,7 @@
 
 本文是 MPF 前端、公共中间表示、分析/优化基础设施和后端的权威架构规范，也是重构验收依据。若其他文档与本文的层级职责冲突，以本文和 [TODO](../TODO.md) 的逐项状态为准。
 
-> 状态说明：0.3.4 已把生产路径切换为语言专属 PMR arena AST→HIR→Analyzer `SemanticTable`→MIR→目标 semantic IR/rendered LIR→纯 emitter，并落地强类型 ID、逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、parser-session/资源 contract、extension conformance、source map v3、编译报告、fuzz 与版本化性能发布门禁。0.3.5 原子产出窄 HIR 与 revision-bound `SemanticTable` seed；0.3.6 的双目标 LIR v10 固化 call ownership/writeback、目标求值、强类型比较和 source segment；0.3.7 让三个 statement parser 直接构造语言专属 arena；0.3.8 删除 MIR 的递归 HIR 兼容 ownership；0.3.9 进一步删除 flat MIR 宽语义 payload，以 revision-bound `OperationAttributeTable` 和驻留 type/shape/storage 作为唯一事实。0.4.0 以同一 contract 接入第四个 TypeScript parser/arena/lowering，并让 explicit export policy 从 semantic profile/side-table 进入 MIR function 和 JavaScript LIR ABI。0.4.1 以 profile 驱动 `NameScopeEdges`、Analyzer block state、显式 `for` CFG、`SymbolId` target identity 和 LIR v12 lexical `ScopePlan` 贯通源块到两个目标。0.4.2 在后端分叉前接入共享 MIR 默认优化、逐 pass verifier/revision/instrumentation、MIR v4 tombstone ownership 与优化后 alias/effect 重算。0.4.3 新增 semantic v2/MIR v5/alias-effect v2 的规范化 `StorageRegion` side table，为静态已知 shape 的同根 element、连续/步长、N 维矩形与列主序线性 section 提供精确 overlap 证明。0.4.4 以 MIR v6 的稠密 `InstructionAttributes` 将直接 load/store/copy/writeback 和循环写入统一为区域化 `MemoryAccess`，alias-effect v3 再把跨函数参数 fixed point 实例化成相同事实并提供访问级冲突查询。0.4.5 新增 revision-bound `MemoryDependenceTable` v1，在函数 CFG 上建立区域精化的 RAW/WAR/WAW、unknown barrier 和 loop-carried 依赖，并接入生产驱动、verifier、dump、报告、fuzz 与性能门禁。后续迁移集中在完整独立 target AST、一般 RAII/copy-move/runtime ABI node、完整四语言官方 grammar、动态 rank/广播、跨一般 view/pointer 的区域组合、MemorySSA/region-aware optimization 和插件 ABI；不能把当前 TypeScript 子集等同于完整 TypeScript 6 兼容。
+> 当前状态：生产路径固定为语言专属 PMR arena AST→窄 HIR + revision-bound semantic/name/flow side table→MIR→共享优化→区域化 alias/effect→CFG memory-dependence→目标 semantic IR/rendered LIR→纯 emitter，并实际执行逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、资源 contract、conformance、source map、编译报告、fuzz 与性能门禁。0.x 只维护这一份精确当前 contract：descriptor 只接受 canonical 名称，公共名称解析显式返回 `std::optional`，CMake package 只接受精确当前版本，不保留旧 MPF adapter、alias、overload、包变量或 schema reader。后续迁移集中在完整独立 target AST、一般 RAII/copy-move/runtime ABI node、完整四语言官方 grammar、动态 rank/广播、跨一般 view/pointer 的区域组合、MemorySSA/region-aware optimization 和插件 ABI；不能把当前 TypeScript 子集等同于完整 TypeScript 6 兼容。
 
 ## 目标与永久约束
 
@@ -225,7 +225,7 @@ HIR→MIR lowering 必须显式生成 CFG 和 evaluation order。结构 verifier
 - effect 与 instruction kind 的最低约束；
 - return/call signature、多结果和异常/失败边一致性。
 
-0.4.5 延续的默认公共管线按固定顺序运行，并在每个变换后提升 `Program::revision`、同步 `OperationAttributeTable::mir_revision`、失效未声明保留的分析、记录耗时和执行完整 MIR verifier；instruction compaction 必须与稠密 `InstructionAttributes` 同步重映射：
+默认公共管线按固定顺序运行，并在每个变换后提升 `Program::revision`、同步 `OperationAttributeTable::mir_revision`、失效未声明保留的分析、记录耗时和执行完整 MIR verifier；instruction compaction 必须与稠密 `InstructionAttributes` 同步重映射：
 
 1. `mir-shape-canonicalization` 重新计算静态 row/column-major canonical stride，按 rank/layout/extent/stride 去重 shape，并一次性重写所有强类型 `ShapeId` 引用；dynamic-rank 的运行时 stride 不被臆测。
 2. `mir-copy-propagation` 只删除带 storage 身份、且每条 incoming edge 的 actual 完全相同的 block argument；同时按同一 ordinal 删除所有前驱 actual，其他 phi-equivalent 合并不做猜测。
@@ -365,16 +365,16 @@ optional metrics hook
 
 ### 前端 descriptor
 
-目标 Frontend descriptor 负责 identity、alias、extension、probe、版本范围、feature manifest、parser factory 和 AST→HIR + semantic-seed lowering factory。descriptor 不拥有 compilation session，也不返回内部静态可变对象。
+目标 Frontend descriptor 负责 canonical identity、extension、probe、源语言版本范围、feature manifest、parser factory 和 AST→HIR + semantic-seed lowering factory。descriptor 不拥有名称 alias、compilation session，也不返回内部静态可变对象。
 
 ### 后端 descriptor
 
-目标 Backend descriptor 负责 target identity、alias、configuration schema、TargetProfile factory、MIR capability、legalization pipeline、target semantic IR/LIR factory、LIR verifier 和 emitter factory。核心只持有 opaque target artifact，不能依赖具体 LIR 类型。
+目标 Backend descriptor 负责 canonical target identity、configuration schema、TargetProfile factory、MIR capability、legalization pipeline、target semantic IR/LIR factory、LIR verifier 和 emitter factory。descriptor 不拥有目标名称 alias；核心只持有 opaque target artifact，不能依赖具体 LIR 类型。
 
 ### 版本和插件
 
 - 当前内置 descriptor 继续使用显式静态 catalog，以链接时可裁剪和零初始化顺序风险为优先。
-- 每次内部 descriptor contract 变更都提升 API version，并由 catalog validator 拒绝旧布局。
+- 每次内部 descriptor contract 变更都直接更新 API version、所有 producer/consumer 和 catalog validator；不保留旧布局 adapter。
 - 动态插件是独立里程碑：稳定 C17 ABI、size/version negotiation、allocator/ownership callback、线程模型、错误边界、签名和隔离策略完成前，不承诺二进制插件兼容性。
 
 ## CMake 与依赖方向
@@ -449,7 +449,7 @@ frontend-python  frontend-matlab  frontend-fortran  ...
 3. 冻结 HIR contract；Analyzer 改为读取 HIR、把结果写入语义 side table，不再原地混合语法和语义。
 4. 建立 MIR CFG、type/shape/storage/effect model；先以无优化 lowering 保持当前输出，再启用保守公共 pass。
 5. 为 JavaScript 与 `cpp` 分别建立 capability→legalization→target semantic IR→representation/ABI lowering→target AST/LIR→verifier 子管线；把 emitter 中的语义判断、runtime 扫描、binding lookup 和 target validation 迁出。
-6. Emitter 收口为纯 serialized-chunk 序列化器；删除旧 `Program` 直通后端兼容路径，并由 output-bundle assembler 生成 source map/dependency manifest。
+6. Emitter 只保留纯 serialized-chunk 序列化器；架构门禁禁止 `Program` 直通后端路径，并由 output-bundle assembler 生成 source map/dependency manifest。
 7. 拆分 CMake target、安装组件和 extension conformance harness，补齐 fuzz、资源、性能、确定性与隔离门禁。
 
 只有同时满足以下条件，TODO 才能把“商业级多层 IR 与可扩展前后端”标为完成：

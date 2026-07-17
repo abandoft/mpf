@@ -1,3 +1,16 @@
+## 0.4.6
+
+- 明确 MPF 尚未形成稳定产品：每个 0.x 版本只定义当前源码树的精确 API、ABI、CLI、CMake package、descriptor 与 schema contract；旧源语言标准支持继续作为产品语义，但不再与旧 MPF 兼容混为一谈。
+- CMake package version 从 `SameMajorVersion` 改为 `ExactVersion`，0.4.6 不再满足任意旧 0.x 请求；README 与三个官方安装/embedding consumer 全部要求 `find_package(mpf 0.4.6 EXACT ...)`。
+- 安装 conformance 新增旧版本负向配置，明确要求 staging package 拒绝 0.0.1；backend isolation consumer 同样从顶层接收并精确校验当前项目版本，防止示例或测试再次静默依赖历史包。
+- 删除包配置中未被当前标准 component contract 使用的 `MPF_JAVASCRIPT_BACKEND_AVAILABLE` 与 `MPF_CPP_BACKEND_AVAILABLE`；只保留 `mpf_<component>_FOUND` 和导出 target 作为唯一 CMake 查询面。
+- Frontend/Backend descriptor contract 升至 API v6 并删除名称 alias 字段，registry 只接受大小写不敏感的 canonical 名称：源语言固定为 `matlab`/`python`/`fortran`/`typescript`，目标固定为 `javascript`/`cpp`；文件扩展名自动探测保持独立。
+- 公共名称与版本解析 API 改为单一 `std::optional` 结果，删除“未知值回退到 automatic/JavaScript 再另行 known 检查”的双调用接口；`py`/`f90`/`ts`/`js`/`c++` 和语言版本 `default` 均显式拒绝。
+- `Diagnostic` 构造时立即生成完整的默认单字符 range，移除 renderer 对 `{0,0}` 结束位置的历史兼容合成；文本与 diagnostics JSON 只序列化当前完整 range contract。
+- 编译器分层门禁新增 no-compatibility contract，阻止版本范围、旧包变量、歧义解析 API、descriptor alias、历史 consumer 版本和诊断 fallback 回流；公共 API、extension registry 与独立安装 consumer 增加相应正负测试。
+- `TODO.md` 删除按 0.3.x—0.4.5 重复保存的已完成版本流水账，只保留当前基线、真实未完成项和优先级；架构、管线、扩展、诊断、测试与版本文档统一改为当前状态描述，历史工程变化只由 changelog 保存且不构成兼容承诺。
+- 停用流水线中的跨平台职责从容易误解的 `Compatibility` 改名为 `Portability`，同步构建目录、失败制品和差分文档。0.4.6 保持 180 项内部测试、55 个差分 case 和 66 项 CTest；精确包拒绝、Debug/Release、ASan/UBSan、format/clang-tidy、fuzz、性能与覆盖率门禁全部通过，生产代码行覆盖率为 89.74%（22249/24793）。
+
 ## 0.4.5
 
 - 新增强类型 `MemoryDependenceId`、`MemoryAccessSite`、flow/anti/output hazard 分类和独立 `MemoryDependenceTable` v1；分析结果不侵入结构 MIR 或任一目标 LIR，并以最终优化后的 `Program::revision` 拒绝 stale facts。
@@ -6,7 +19,7 @@
 - unknown-memory read/write 合并为每条指令唯一的保守 site，并与所有潜在冲突形成显式 `may_alias` barrier；同一指令内并列 access 不制造虚假顺序，回边带回的同 site 允许形成 loop-carried 自依赖。
 - CFG 图分析使用非递归、线性空间的确定性 DFS cycle cut 标记反馈边，既覆盖自然循环也保守覆盖不可归约环而不构造平方级 reachability/dominator matrix；frontier provenance 区分普通与 loop-carried 到达，分支合流可以为同一读取保存多个 reaching write。
 - instruction dependence facts 按 `InstructionId` 稠密保存排序后的 incoming/outgoing `MemoryDependenceId`，edge inventory 使用零号哨兵和连续 ID；独立 verifier 重算 fixed point 并检查 revision/count/sentinel/site ordinal/mode/adjacency/relation/barrier/loop/hazard 全部契约。
-- MIR deterministic dump 新增 `memory-dependence-v1` schema，公开每条 instruction adjacency 和完整 source/target/kind/relation/barrier/loop-carried edge；原 MIR v6 与 alias-effect v3 schema 保持兼容。
+- MIR deterministic dump 新增 `memory-dependence-v1` section，公开每条 instruction adjacency 和完整 source/target/kind/relation/barrier/loop-carried edge，并与 MIR v6、alias-effect v3 共同组成当时的调试输出。
 - 生产驱动在共享 MIR 优化和 alias/effect 验证后、目标分叉前通过 `AnalysisManager` 缓存并验证 memory dependence；分析缓存改用引用稳定的 entry 存储，新增第二种分析不会使已经返回的 alias/effect 引用悬空。JavaScript 与 `cpp` 仍只接收同一 MIR/alias contract，生成任一目标不需要另一目标产物。
 - 公共 `CompilationReport` 与 JSON 新增 `mirMemoryDependences`，输出 flow、anti、output、barrier、loop-carried、涉及指令和总依赖数，并记录独立 `mir-memory-dependence` stage 的节点数与耗时。
 - 单元与损坏输入覆盖 RAW/WAR/WAW、分支多定义合流、自然与不可归约循环携带、同根 disjoint index、unknown external barrier、cache、deterministic dump、损坏 edge/sentinel 和公共报告，内部测试增至 180 项。

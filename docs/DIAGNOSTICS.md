@@ -1,6 +1,6 @@
 # 诊断与 CLI 契约
 
-自 0.1.0 起，MPF 为库调用、命令行、IDE 和 CI 提供同一个诊断模型；本文索引已覆盖 0.4.5。每条诊断包含稳定 code、severity、消息、源文件身份以及 1-based UTF-8 code-point range。未显式提供结束位置的旧诊断会覆盖起始位置的一个字符。
+MPF 当前为库调用、命令行、IDE 和 CI 使用同一个诊断模型；本文描述 0.4.6 源码树的唯一契约。每条诊断在构造时即包含 code、severity、消息、源文件身份以及完整的 1-based UTF-8 code-point range；renderer 不接收缺失结束位置的旧结构，也不合成兼容范围。
 
 ## 文本输出
 
@@ -37,7 +37,7 @@ example.py:1:1: error MPF2001: undefined identifier 'missing'
 }
 ```
 
-规范文件为 [diagnostics-v1.schema.json](schemas/diagnostics-v1.schema.json)。`schemaVersion` 只在不兼容结构变更时递增；字段含义或稳定诊断码发生变化时必须记录在 changelog。
+规范文件为 [diagnostics-v1.schema.json](schemas/diagnostics-v1.schema.json)。`schemaVersion` 标识当前 JSON 结构，CLI、schema、测试和 consumer 必须同步更新；项目进入稳定产品阶段前不提供历史 schema reader、字段双写或诊断码迁移层。
 
 ## 退出状态
 

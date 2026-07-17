@@ -1,26 +1,25 @@
 # 版本策略
 
-MPF 的公开版本从 `0.0.1` 开始，使用三段十进制版本号 `MAJOR.MINOR.PATCH`。在 0.x 开发期，
-`PATCH` 只使用一位十进制数 `0`—`9`；递增 `0.x.9` 时必须进位到 `0.(x+1).0`。例如：
+MPF 的开发版本从 `0.0.1` 开始，使用三段十进制版本号 `MAJOR.MINOR.PATCH`。在 0.x 开发期，`PATCH` 只使用一位十进制数 `0`—`9`；递增 `0.x.9` 时必须进位到 `0.(x+1).0`。例如：
 
-- `0.0.1` 是首个版本；
+- `0.0.1` 是首个开发版本；
 - `0.0.9` 的下一个版本是 `0.1.0`；
 - `0.2.9` 的下一个版本是 `0.3.0`；
-- 当前发布版本是 `0.4.5`；下一开发版本按十进制规则从 `0.4.6` 开始。
+- 当前开发版本是 `0.4.6`；下一版本按十进制规则从 `0.4.7` 开始。
 
-CMake `project(VERSION)` 是源码树的唯一版本源。配置阶段由它生成公开
-`mpf/version.hpp`、CMake package version 和 CLI 版本；测试不得再复制硬编码版本字符串。
-配置会拒绝 `0.0.0` 以及 patch 大于 9 的版本。
+CMake `project(VERSION)` 是源码树的唯一版本源。配置阶段由它生成公开 `mpf/version.hpp`、CMake package version 和 CLI 版本；测试不得复制硬编码版本字符串。配置会拒绝 `0.0.0` 以及 patch 大于 9 的版本。
 
-Git tag 使用 `vMAJOR.MINOR.PATCH`。`CHANGELOG.md` 不设置待发布占位段，必须直接以当前
-CMake 项目版本的正式版本标题开头，并按时间倒序保存历史版本。发布时必须保证 tag、CMake、CLI、
-安装包和 changelog 版本完全一致；Release workflow 会在打包前拒绝版本标题不在文件首行或与
-CMake 项目版本不一致的 tag。
+## 0.x 开发快照策略
 
-每个正式版本的 changelog 应整理为 **8—20 条**用户可理解、可独立验证的更新。达到 8 条即可
-形成新版本，不要求为了凑齐某个大里程碑而继续堆积；超过 20 条时应拆分版本或合并过细条目。
-条目数量只是版本切分规则，不替代测试、兼容性、覆盖率、性能和发布制品门禁。Release workflow
-会拒绝少于 8 条或多于 20 条的版本段，并要求 `CHANGELOG.md` 首个版本与 CMake 项目版本一致。
+MPF 尚未形成可发布产品。每个 0.x 版本都是一个精确的开发快照，只定义该源码树当前唯一的 API、ABI、CLI、CMake package、descriptor 和 schema contract，不承诺兼容任何更早 MPF 版本：
 
-历史版本已按相同十进制序列重编号：原 `0.1.0`—`0.33.0` 对应
-`0.0.1`—`0.3.3`，不保留两套并行版本身份。
+- CMake package 使用 `ExactVersion`；consumer 必须写出当前完整版本，旧版本请求必须配置失败；
+- 破坏性重构直接替换当前接口，不保留 deprecated overload、旧名称 alias、旧包变量、兼容 facade、双写字段或 migration shim；
+- descriptor/API/schema 中的版本号用于验证当前数据身份，不表示实现能够读取历史格式；contract 变化时同步更新 producer、consumer、verifier、golden、fuzz、性能基线和文档；
+- 正式的稳定 C/C++ API/ABI、动态插件协商和数据迁移策略只能在产品完成并明确进入相应稳定里程碑后建立。
+
+Matlab、Python、Fortran 和 TypeScript 的旧语言标准支持是产品输入语义，不属于旧 MPF 兼容层；相关版本 gate 继续按语言 manifest 和官方 grammar 建设。
+
+Git tag 使用 `vMAJOR.MINOR.PATCH`。`CHANGELOG.md` 不设置待发布占位段，必须直接以当前 CMake 项目版本标题开头。changelog 保存开发快照的工程变化，但任何历史条目都不构成跨版本兼容承诺。发布检查必须保证 tag、CMake、CLI、安装包、性能基线和 changelog 版本完全一致。
+
+每个版本的 changelog 应整理为 **8—20 条**用户可理解、可独立验证的更新。达到 8 条即可形成新版本；超过 20 条时应拆分版本或合并过细条目。条目数量不替代测试、覆盖率、性能和制品门禁。Release workflow 会拒绝条目数量不合规、标题不在文件首行或版本身份不一致的源码树。

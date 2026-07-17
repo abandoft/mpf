@@ -1,8 +1,8 @@
 # 扩展前端、后端与代码绑定
 
-0.4.5 使用对称的 descriptor/registry 架构接入四种内置源语言和两个输出目标。当前核心驱动执行“选择 descriptor → 创建 parser session → parser 直接构造语言 arena AST → AST verifier → AST→窄 HIR + semantic seed → HIR/seed verifier → NameTable/FlowTable → Analyzer + normalized storage-region side table → flat MIR value/operation arena + revision-bound expression/statement/instruction attributes + lazy/memory CFG → 共享 MIR 默认优化 + 逐 pass verifier → 优化后区域化 alias/effect → CFG memory-dependence fixed point + verifier → capability/legalization → 私有 semantic plan/LIR → LIR verifier/dump → printer”，不按具体语言或目标硬编码分派。TypeScript 证明了同一扩展边界既可承载独立 token stream/arena 和 explicit export policy，也可通过 semantic profile 选择 lexical-block scope model，而无需修改 emitter 分派。新增源语言只负责产生同一 `MemoryAccess` contract；RAW/WAR/WAW、unknown barrier 与 loop-carried 分析继续由公共 MIR 层统一完成，前端和目标后端都不得复制。当前 descriptor contract 面向同一源码树中的编译期组件，尚不承诺跨动态库的稳定插件 ABI。
+0.4.6 使用对称的 descriptor/registry 架构接入四种内置源语言和两个输出目标。当前核心驱动执行“选择 descriptor → 创建 parser session → parser 直接构造语言 arena AST → AST verifier → AST→窄 HIR + semantic seed → HIR/seed verifier → NameTable/FlowTable → Analyzer + normalized storage-region side table → flat MIR value/operation arena + revision-bound expression/statement/instruction attributes + lazy/memory CFG → 共享 MIR 默认优化 + 逐 pass verifier → 优化后区域化 alias/effect → CFG memory-dependence fixed point + verifier → capability/legalization → 私有 semantic plan/LIR → LIR verifier/dump → printer”，不按具体语言或目标硬编码分派。TypeScript 证明了同一扩展边界既可承载独立 token stream/arena 和 explicit export policy，也可通过 semantic profile 选择 lexical-block scope model，而无需修改 emitter 分派。新增源语言只负责产生同一 `MemoryAccess` contract；RAW/WAR/WAW、unknown barrier 与 loop-carried 分析继续由公共 MIR 层统一完成，前端和目标后端都不得复制。当前 descriptor contract 面向同一源码树中的编译期组件，只接受 canonical name，并且不承诺跨版本 C++ 布局或动态库插件 ABI。
 
-本页记录当前可执行的 frontend API v5/backend API v5 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、direct arena builder、窄 HIR + frontend semantic seed、Analyzer 直写 side table、profile 驱动 `NameScopeEdges`、独立 flow/alias-effect、MIR resident instruction + ID arena、共享默认优化、call argument borrow/copy/optional-forward/normalized-region contract、按 `InstructionId` 稠密的区域化 `MemoryAccess`、当前控制结构 CFG、`SymbolId` target inventory、LIR v12 lexical `ScopePlan`、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；静态已知 shape 的同根 N 维 selector overlap 与直接/跨调用 memory effect 已由公共 Analyzer/MIR/alias 层完成，动态 extent、一般 pointer/view association 与 region 组合、完整官方 grammar 与独立 target AST 仍不是已经完成的扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
+本页记录当前可执行的 frontend API v6/backend API v6 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、direct arena builder、窄 HIR + frontend semantic seed、Analyzer 直写 side table、profile 驱动 `NameScopeEdges`、独立 flow/alias-effect、MIR resident instruction + ID arena、共享默认优化、call argument borrow/copy/optional-forward/normalized-region contract、按 `InstructionId` 稠密的区域化 `MemoryAccess`、当前控制结构 CFG、`SymbolId` target inventory、LIR v12 lexical `ScopePlan`、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；静态已知 shape 的同根 N 维 selector overlap 与直接/跨调用 memory effect 已由公共 Analyzer/MIR/alias 层完成，动态 extent、一般 pointer/view association 与 region 组合、完整官方 grammar 与独立 target AST 仍不是已经完成的扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
 
 ## 设计约束
 
@@ -20,7 +20,7 @@
 
 ```text
 language identity
-canonical name + aliases
+canonical name
 filename extensions
 allocation-free content probe
 language version + feature bitset + resource contract + AST schema manifest
@@ -38,7 +38,7 @@ AST-to-HIR + dense semantic-seed lowering callback
 4. 在 `frontend_registry.cpp` 的静态 catalog 增加一项，并将组件源码加入 `mpf-core`。
 5. 由 descriptor 显式选择一组有序 spelling → `IntrinsicId` 表；只有源语言确实提供相同全局拼写时才选择共享数学表，TypeScript 一类语言可以完全不选。语义相同的函数复用已有 ID，语义不同的函数必须新增 ID。
 6. 提供 AST verifier 和 AST→HIR lowering；每个有效 `HirNodeId` 必须同时拥有同 revision 的 semantic slot。运行 `run_frontend_conformance` 验证 descriptor、HIR/seed 完整性以及重复 parse/lowering 的逐字节确定性。
-7. 增加别名/扩展名冲突、探测优先级、parser 成功/拒绝、双后端行为和差分测试。
+7. 增加 canonical 名称/扩展名冲突、旧缩写拒绝、探测优先级、parser 成功/拒绝、双后端行为和差分测试。
 8. 更新语言支持矩阵、诊断索引和版本目标；CLI 帮助会从 registry 自动枚举 canonical name。
 
 `hir::LoweringResult` 中的窄 HIR + `SemanticTable` seed 是当前前端扩展边界。新语言特性若不能由这对产物无损表达，应先扩展公共 HIR/semantic/MIR contract 和两个后端的 capability contract，不得借用字符串标记或语言名布尔字段绕过语义层。新表面语法必须留在语言 AST；跨语言结构进入 HIR，规范语义 facts 进入 seed。
@@ -49,7 +49,7 @@ AST-to-HIR + dense semantic-seed lowering callback
 
 ```text
 target identity
-canonical name + aliases
+canonical name
 target standard + artifact schema + determinism/reentrancy manifest
 TargetProfile + dense MIR legalization table
 intrinsic code-binding lookup
@@ -109,7 +109,7 @@ read-only MIR + verified alias/effect table
 
 目标 descriptor contract 至少包括：
 
-- stable identity、canonical name、alias 和 configuration schema；
+- 当前 identity、canonical name 和 configuration schema；
 - 支持的 MIR feature/capability manifest；
 - TargetProfile、MIR capability 和 legalization-registry factory；
 - target semantic IR、representation/ABI lowering 和 target AST/LIR factory；
@@ -117,7 +117,7 @@ read-only MIR + verified alias/effect table
 - runtime dependency、license 和供应链 manifest；
 - descriptor API version、线程安全和确定性声明。
 
-descriptor API 升级时必须保留 catalog validation 和禁用组件 metadata 查询，但不要求为内部 0.x C++ 布局提供 ABI 兼容。动态插件需等待稳定 C17 ABI、allocator/ownership、version negotiation、错误边界、签名和隔离方案单独完成。
+descriptor API 升级时必须同步替换 catalog producer/consumer、validation 和禁用组件 metadata 查询；内部 0.x C++ 布局不提供 adapter 或 ABI 兼容。动态插件需等待稳定 C17 ABI、allocator/ownership、version negotiation、错误边界、签名和隔离方案单独完成。
 
 ## Extension conformance harness
 
@@ -125,7 +125,7 @@ descriptor API 升级时必须保留 catalog validation 和禁用组件 metadata
 
 前端 conformance 至少验证：
 
-- descriptor/alias/extension/probe/version manifest；
+- descriptor canonical name/extension/probe/version manifest；
 - AST ID/span/ownership 和 verifier negative case；
 - AST→HIR normalized golden、确定性和 resource limit；
 - 禁止依赖 MIR、LIR 或 backend target；
@@ -176,7 +176,7 @@ backends/<target>/
 注册测试至少覆盖：
 
 - descriptor API version、必需回调和非空 canonical name；
-- language/target identity、canonical name、alias 和 extension 冲突；
+- language/target identity、canonical name 和 extension 冲突，以及历史缩写拒绝；
 - 大小写不敏感名称查询与禁用后端 metadata；
 - 内容探测的唯一最高分和歧义失败关闭；
 - 全量 intrinsic 的目标绑定完整性；
