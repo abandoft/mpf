@@ -5,14 +5,14 @@
 #include <type_traits>
 
 #include "backends/backend_conformance.hpp"
-#include "backends/cpp_lir.hpp"
-#include "backends/cpp_lir_planning.hpp"
-#include "backends/cpp_lir_representation.hpp"
-#include "backends/cpp_lowering.hpp"
-#include "backends/javascript_lir.hpp"
-#include "backends/javascript_lir_planning.hpp"
-#include "backends/javascript_lir_representation.hpp"
-#include "backends/javascript_lowering.hpp"
+#include "backends/cpp/lir.hpp"
+#include "backends/cpp/lir_planning.hpp"
+#include "backends/cpp/lir_representation.hpp"
+#include "backends/cpp/lowering.hpp"
+#include "backends/javascript/lir.hpp"
+#include "backends/javascript/lir_planning.hpp"
+#include "backends/javascript/lir_representation.hpp"
+#include "backends/javascript/lowering.hpp"
 #include "core/backend_registry.hpp"
 #include "frontends/frontend_conformance.hpp"
 #include "frontends/frontend_registry.hpp"
@@ -81,6 +81,27 @@ void collect_identifiers(const std::vector<mpf::detail::hir::Statement>& stateme
     }
     collect_identifiers(statement.body, identifiers);
     collect_identifiers(statement.alternative, identifiers);
+  }
+}
+
+void collect_binary_operations(const mpf::detail::hir::Expression& expression,
+                               std::vector<mpf::detail::BinaryOperator>& operations) {
+  if (!expression.valid()) return;
+  if (expression.kind == mpf::detail::ExpressionKind::binary) {
+    operations.push_back(expression.operation);
+  }
+  for (const auto& child : expression.children) collect_binary_operations(child, operations);
+}
+
+void collect_binary_operations(const std::vector<mpf::detail::hir::Statement>& statements,
+                               std::vector<mpf::detail::BinaryOperator>& operations) {
+  for (const auto& statement : statements) {
+    collect_binary_operations(statement.expression, operations);
+    collect_binary_operations(statement.secondary_expression, operations);
+    collect_binary_operations(statement.tertiary_expression, operations);
+    collect_binary_operations(statement.target_expression, operations);
+    collect_binary_operations(statement.body, operations);
+    collect_binary_operations(statement.alternative, operations);
   }
 }
 
@@ -157,6 +178,43 @@ TEST_CASE("statement parsers construct language arenas directly and recover with
         parsed.ast);
     REQUIRE(owns_arena);
   }
+}
+
+TEST_CASE("Matlab binary operator identity remains typed through HIR and MIR") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "left = [1 2; 3 4];\nright = left .* 2;\nvalue = left * right;\n",
+                              "operators.m");
+  std::vector<mpf::detail::BinaryOperator> hir_operations;
+  collect_binary_operations(lowered.program.statements, hir_operations);
+  REQUIRE(std::find(hir_operations.begin(), hir_operations.end(),
+                    mpf::detail::BinaryOperator::elementwise_multiply) != hir_operations.end());
+  REQUIRE(std::find(hir_operations.begin(), hir_operations.end(),
+                    mpf::detail::BinaryOperator::multiply) != hir_operations.end());
+
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  std::vector<mpf::detail::BinaryOperator> mir_operations;
+  for (std::size_t index = 1; index < mir.program.attributes.expressions.size(); ++index) {
+    const auto operation = mir.program.attributes.expressions[index].operation;
+    if (operation != mpf::detail::BinaryOperator::none) mir_operations.push_back(operation);
+  }
+  REQUIRE(std::find(mir_operations.begin(), mir_operations.end(),
+                    mpf::detail::BinaryOperator::elementwise_multiply) != mir_operations.end());
+  REQUIRE(std::find(mir_operations.begin(), mir_operations.end(),
+                    mpf::detail::BinaryOperator::multiply) != mir_operations.end());
+
+  auto missing_operation = mir.program;
+  const auto found = std::find_if(
+      missing_operation.attributes.expressions.begin() + 1,
+      missing_operation.attributes.expressions.end(), [](const auto& attributes) {
+        return attributes.operation == mpf::detail::BinaryOperator::elementwise_multiply;
+      });
+  REQUIRE(found != missing_operation.attributes.expressions.end());
+  found->operation = mpf::detail::BinaryOperator::none;
+  REQUIRE(!mpf::detail::mir::verify(missing_operation, "missing-binary-operator").empty());
 }
 
 TEST_CASE("HIR pass manager verifies revisions and records instrumentation") {
@@ -1877,6 +1935,9 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
                mpf::detail::javascript::lir::RuntimeFragment::arrays}));
   REQUIRE((javascript.module.body_order == std::vector<std::size_t>{0}));
   REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript).empty());
+  javascript.emission.padded_character_selection = true;
+  REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
+  javascript.emission.padded_character_selection = false;
   std::reverse(javascript.module.runtime_fragments.begin(),
                javascript.module.runtime_fragments.end());
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
@@ -1902,6 +1963,9 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   REQUIRE(cpp.translation_unit.emit_entry_function);
   REQUIRE(cpp.translation_unit.emit_main);
   REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  cpp.emission.padded_character_selection = true;
+  REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  cpp.emission.padded_character_selection = false;
   std::swap(cpp.translation_unit.standard_headers.front(),
             cpp.translation_unit.standard_headers.back());
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
@@ -2180,6 +2244,7 @@ TEST_CASE("target LIR owns dense source segments and closure evaluation plans") 
   javascript_statement.expression.location = {7, 5};
   javascript_statement.expression.kind = mpf::detail::ExpressionKind::binary;
   javascript_statement.expression.value = "&&";
+  javascript_statement.expression.operation = mpf::detail::BinaryOperator::logical_and;
   mpf::detail::javascript::lir::Expression javascript_left;
   javascript_left.id = mpf::detail::LirNodeId{3};
   javascript_left.origin = mpf::detail::HirNodeId{12};

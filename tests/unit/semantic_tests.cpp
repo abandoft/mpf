@@ -14,6 +14,15 @@ mpf::TranspileResult python(const std::string& source,
   return mpf::Transpiler{}.transpile(source, options);
 }
 
+mpf::TranspileResult matlab(const std::string& source,
+                            const mpf::TargetLanguage target = mpf::TargetLanguage::javascript) {
+  mpf::TranspileOptions options;
+  options.language = mpf::SourceLanguage::matlab;
+  options.target = target;
+  options.emit_source_banner = false;
+  return mpf::Transpiler{}.transpile(source, options);
+}
+
 }  // namespace
 
 TEST_CASE("semantic analysis rejects undefined identifiers") {
@@ -136,6 +145,17 @@ TEST_CASE("Python float conversion validates arity and supported source types") 
   REQUIRE(!list.success());
   REQUIRE(missing.diagnostics.front().code == "MPF2033");
   REQUIRE(list.diagnostics.front().code == "MPF2033");
+}
+
+TEST_CASE("Matlab array operators reject incompatible and unsupported matrix semantics") {
+  const auto mismatched = matlab("value = [1 2] + [1; 2];\ndisp(value)\n");
+  const auto matrix_divide = matlab("value = [1 2; 3 4] / [1 0; 0 1];\ndisp(value)\n");
+  REQUIRE(!mismatched.success());
+  REQUIRE(!matrix_divide.success());
+  REQUIRE(mismatched.code.empty());
+  REQUIRE(matrix_divide.code.empty());
+  REQUIRE(mismatched.diagnostics.front().code == "MPF2046");
+  REQUIRE(matrix_divide.diagnostics.front().code == "MPF2046");
 }
 
 TEST_CASE("function bodies may bind globals initialized before the function is called") {

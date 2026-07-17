@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <string>
+#include <tuple>
 
 #include "compiler/expression.hpp"
 #include "compiler/function_graph_generic.hpp"
@@ -330,6 +331,22 @@ TEST_CASE("Matlab statement lexer diagnoses invalid token boundaries") {
   REQUIRE(result.diagnostics[1].code == "MPF1702");
 }
 
+TEST_CASE("Matlab statement lexer classifies switch case and otherwise") {
+  std::vector<mpf::detail::SourceLine> lines;
+  lines.push_back({1, 0, 0, "switch choice"});
+  lines.push_back({2, 14, 0, "case 'alpha'"});
+  lines.push_back({3, 27, 0, "otherwise"});
+  lines.push_back({4, 37, 0, "end"});
+  const auto result = mpf::detail::lex_matlab_statements(std::move(lines));
+  REQUIRE(result.diagnostics.empty());
+  REQUIRE(result.lines[0].tokens[0].kind == mpf::detail::MatlabStatementTokenKind::keyword_switch);
+  REQUIRE(result.lines[1].tokens[0].kind == mpf::detail::MatlabStatementTokenKind::keyword_case);
+  REQUIRE(result.lines[1].tokens[1].kind == mpf::detail::MatlabStatementTokenKind::string_literal);
+  REQUIRE(result.lines[2].tokens[0].kind ==
+          mpf::detail::MatlabStatementTokenKind::keyword_otherwise);
+  REQUIRE(result.lines[3].tokens[0].kind == mpf::detail::MatlabStatementTokenKind::keyword_end);
+}
+
 TEST_CASE("Fortran statement lexer preserves declarations delimiters and contextual names") {
   std::vector<mpf::detail::SourceLine> lines;
   lines.push_back({2, 0, 0, "INTEGER :: BLOCK(2, 2) = RESHAPE([1,2,3,4], [2,2])"});
@@ -497,6 +514,31 @@ TEST_CASE("Pratt parser preserves precedence and right associative power") {
   REQUIRE(result.expression.children[0].kind == mpf::detail::ExpressionKind::unary);
   REQUIRE(result.expression.children[0].children[0].value == "**");
   REQUIRE(result.expression.children[1].value == "*");
+}
+
+TEST_CASE("Matlab parser preserves matrix and element-wise operator identity") {
+  using mpf::detail::BinaryOperator;
+  const std::vector<std::tuple<std::string, std::string, BinaryOperator>> operators{
+      {"left * right", "*", BinaryOperator::multiply},
+      {"left / right", "/", BinaryOperator::divide},
+      {"left \\ right", "\\", BinaryOperator::left_divide},
+      {"left ^ right", "^", BinaryOperator::power},
+      {"left .* right", ".*", BinaryOperator::elementwise_multiply},
+      {"left ./ right", "./", BinaryOperator::elementwise_divide},
+      {"left .\\ right", ".\\", BinaryOperator::elementwise_left_divide},
+      {"left .^ right", ".^", BinaryOperator::elementwise_power}};
+  for (const auto& [source, expected, operation] : operators) {
+    const auto result = mpf::detail::parse_expression(source, mpf::SourceLanguage::matlab, 1);
+    REQUIRE(result.diagnostics.empty());
+    REQUIRE(result.expression.kind == mpf::detail::ExpressionKind::binary);
+    REQUIRE(result.expression.value == expected);
+    REQUIRE(result.expression.operation == operation);
+  }
+
+  const auto power = mpf::detail::parse_expression("2 .^ 3 .^ 2", mpf::SourceLanguage::matlab, 1);
+  REQUIRE(power.diagnostics.empty());
+  REQUIRE(power.expression.value == ".^");
+  REQUIRE(power.expression.children[1].value == ".^");
 }
 
 TEST_CASE("malformed expressions report stable parser diagnostics") {
