@@ -249,6 +249,115 @@ TEST_CASE("Matlab binary operator identity remains typed through HIR and MIR") {
   REQUIRE(!mpf::detail::mir::verify(missing_array_semantics, "missing-array-semantics").empty());
 }
 
+TEST_CASE("Matlab runtime broadcast shape source remains typed through every IR layer") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "function [expanded, mask] = expand_dynamic(left, right)\n"
+                              "  expanded = left + right;\n"
+                              "  mask = left < right;\n"
+                              "end\n",
+                              "dynamic_broadcast.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  using ShapeSource = mpf::detail::semantic::BroadcastShapeSource;
+  const auto runtime_hir =
+      std::find_if(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                   [](const auto& facts) {
+                     return facts.broadcast.valid &&
+                            facts.broadcast.shape_source == ShapeSource::runtime_operands;
+                   });
+  REQUIRE(runtime_hir != analysis.semantics.expressions.end());
+  REQUIRE(runtime_hir->broadcast.axes.empty());
+
+  auto contradictory_hir = analysis.semantics;
+  const auto corrupt_hir =
+      std::find_if(contradictory_hir.expressions.begin(), contradictory_hir.expressions.end(),
+                   [](const auto& facts) { return facts.broadcast.valid; });
+  REQUIRE(corrupt_hir != contradictory_hir.expressions.end());
+  corrupt_hir->broadcast.shape_source = ShapeSource::static_extents;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
+                                              "dynamic-broadcast-corruption")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "dynamic-broadcast").empty());
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("broadcast=runtime:") != std::string::npos);
+
+  auto contradictory_mir = mir.program;
+  const auto corrupt_mir =
+      std::find_if(contradictory_mir.attributes.expressions.begin() + 1,
+                   contradictory_mir.attributes.expressions.end(),
+                   [](const auto& attributes) { return attributes.broadcast.valid; });
+  REQUIRE(corrupt_mir != contradictory_mir.attributes.expressions.end());
+  corrupt_mir->broadcast.shape_source = ShapeSource::static_extents;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "dynamic-broadcast-corruption").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("broadcast runtime []") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("broadcast runtime []") != std::string::npos);
+}
+
+TEST_CASE("target LIR verifiers reject corrupted Matlab runtime broadcast sources") {
+  using ShapeSource = mpf::detail::semantic::BroadcastShapeSource;
+  const auto make_javascript_expression = [] {
+    mpf::detail::javascript::lir::Expression expression;
+    expression.kind = mpf::detail::ExpressionKind::binary;
+    expression.value = "+";
+    expression.operation = mpf::detail::BinaryOperator::add;
+    expression.array_operation = mpf::detail::semantic::ArrayOperation::matlab;
+    expression.broadcast.valid = true;
+    expression.broadcast.shape_source = ShapeSource::runtime_operands;
+    expression.children.resize(2);
+    expression.children[0].kind = mpf::detail::ExpressionKind::identifier;
+    expression.children[0].value = "left";
+    expression.children[1].kind = mpf::detail::ExpressionKind::identifier;
+    expression.children[1].value = "right";
+    return expression;
+  };
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.source_language = mpf::SourceLanguage::matlab;
+  javascript.statements.resize(1);
+  javascript.statements.front().expression = make_javascript_expression();
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  REQUIRE(javascript.statements.front().expression.plan.token == "__mpf_matlab_add_runtime");
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript.statements.front().expression.broadcast.shape_source = ShapeSource::static_extents;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.source_language = mpf::SourceLanguage::matlab;
+  cpp.statements.resize(1);
+  auto& cpp_expression = cpp.statements.front().expression;
+  cpp_expression.kind = mpf::detail::ExpressionKind::binary;
+  cpp_expression.value = "+";
+  cpp_expression.operation = mpf::detail::BinaryOperator::add;
+  cpp_expression.array_operation = mpf::detail::semantic::ArrayOperation::matlab;
+  cpp_expression.broadcast.valid = true;
+  cpp_expression.broadcast.shape_source = ShapeSource::runtime_operands;
+  cpp_expression.children.resize(2);
+  cpp_expression.children[0].kind = mpf::detail::ExpressionKind::identifier;
+  cpp_expression.children[0].value = "left";
+  cpp_expression.children[1].kind = mpf::detail::ExpressionKind::identifier;
+  cpp_expression.children[1].value = "right";
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  REQUIRE(cpp_expression.plan.token == "mpf_runtime::matlab_add_runtime");
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp_expression.broadcast.shape_source = ShapeSource::static_extents;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+}
+
 TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MIR") {
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "coefficient = [4 1; 2 3];\n"
@@ -412,6 +521,69 @@ TEST_CASE("Matlab generalized selector plans remain explicit and reject cross-la
   REQUIRE(cpp.artifact->debug_dump().find("selectors [3,2]") != std::string::npos);
 }
 
+TEST_CASE("Matlab dynamic end extent plans remain typed through every lowering layer") {
+  auto lowered =
+      lower_source(mpf::SourceLanguage::matlab,
+                   "function [last, corner, selected] = inspect_dynamic(values, matrix)\n"
+                   "  last = values(end);\n"
+                   "  corner = matrix(end, end);\n"
+                   "  selected = sum(values([1 end]));\n"
+                   "end\n",
+                   "dynamic_end.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  using Extent = mpf::detail::semantic::IndexExtentSource;
+  const auto contains_hir_extent = [&](const std::vector<Extent>& expected) {
+    return std::any_of(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                       [&](const auto& facts) { return facts.index_extents == expected; });
+  };
+  REQUIRE(contains_hir_extent({Extent::runtime_linear}));
+  REQUIRE(contains_hir_extent({Extent::runtime_axis, Extent::runtime_axis}));
+  REQUIRE(std::count_if(analysis.semantics.expressions.begin(),
+                        analysis.semantics.expressions.end(), [](const auto& facts) {
+                          return mpf::detail::semantic::requires_runtime_extent(facts.index_extent);
+                        }) >= 4);
+
+  auto contradictory_hir = analysis.semantics;
+  const auto hir_index = std::find_if(
+      contradictory_hir.expressions.begin(), contradictory_hir.expressions.end(),
+      [](const auto& facts) { return facts.index_extents == std::vector{Extent::runtime_linear}; });
+  REQUIRE(hir_index != contradictory_hir.expressions.end());
+  hir_index->index_extents.front() = Extent::none;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
+                                              "dynamic-end-corruption")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "dynamic-end").empty());
+  const auto mir_dump = mpf::detail::dump_mir(mir.program);
+  REQUIRE(mir_dump.find("extents=[2]") != std::string::npos);
+  REQUIRE(mir_dump.find("extents=[1,1]") != std::string::npos);
+
+  auto contradictory_mir = mir.program;
+  const auto mir_end =
+      std::find_if(contradictory_mir.attributes.expressions.begin() + 1,
+                   contradictory_mir.attributes.expressions.end(), [](const auto& attributes) {
+                     return mpf::detail::semantic::requires_runtime_extent(attributes.index_extent);
+                   });
+  REQUIRE(mir_end != contradictory_mir.attributes.expressions.end());
+  mir_end->index_extent = Extent::none;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "dynamic-end-corruption").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("extents [2]") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("extents [1,1]") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("extents [2]") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("extents [1,1]") != std::string::npos);
+}
+
 TEST_CASE("Matlab transpose identity remains typed through HIR and MIR") {
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "values = [1 2; 3 4];\n"
@@ -502,7 +674,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(first_hir.find("stmt %h") != std::string::npos);
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v4") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v6") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -510,7 +682,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v9") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v11") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -1979,9 +2151,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v15") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v17") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v15") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v17") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -2248,6 +2420,9 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   javascript_index_statement.expression.index_selectors = {
       mpf::detail::semantic::IndexSelectorKind::slice,
       mpf::detail::semantic::IndexSelectorKind::scalar};
+  javascript_index_statement.expression.index_extents = {
+      mpf::detail::semantic::IndexExtentSource::none,
+      mpf::detail::semantic::IndexExtentSource::none};
   javascript.statements.push_back(std::move(javascript_index_statement));
   mpf::detail::javascript::lir::Statement javascript_comparison_statement;
   javascript_comparison_statement.expression.kind = mpf::detail::ExpressionKind::binary;
@@ -2327,6 +2502,9 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
       mpf::detail::semantic::IndexSelectorKind::slice,
       mpf::detail::semantic::IndexSelectorKind::scalar,
       mpf::detail::semantic::IndexSelectorKind::scalar};
+  cpp_index_statement.expression.index_extents = {mpf::detail::semantic::IndexExtentSource::none,
+                                                  mpf::detail::semantic::IndexExtentSource::none,
+                                                  mpf::detail::semantic::IndexExtentSource::none};
   cpp.statements.push_back(std::move(cpp_index_statement));
   mpf::detail::cpp::lir::Statement cpp_call_statement;
   cpp_call_statement.expression.kind = mpf::detail::ExpressionKind::call;
@@ -2345,6 +2523,7 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   cpp_section_slice.children.resize(3);
   cpp_section.children = {std::move(cpp_section_base), std::move(cpp_section_slice)};
   cpp_section.index_selectors = {mpf::detail::semantic::IndexSelectorKind::slice};
+  cpp_section.index_extents = {mpf::detail::semantic::IndexExtentSource::none};
   cpp_call_statement.expression.children = {std::move(cpp_callee), std::move(cpp_section)};
   cpp.statements.push_back(std::move(cpp_call_statement));
   mpf::detail::cpp::lir::Statement cpp_comparison_statement;
@@ -2390,6 +2569,59 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
       mpf::detail::cpp::lir::ComparisonForm::identity;
   diagnostics.clear();
   cpp.statements.front().expression.plan.concrete_type = "std::vector<float>";
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+}
+
+TEST_CASE("target LIR verifiers reject corrupted dynamic index extent plans") {
+  using Extent = mpf::detail::semantic::IndexExtentSource;
+  using Selector = mpf::detail::semantic::IndexSelectorKind;
+
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  mpf::detail::javascript::lir::Statement javascript_statement;
+  javascript_statement.expression.kind = mpf::detail::ExpressionKind::index;
+  javascript_statement.expression.column_major = true;
+  javascript_statement.expression.index_selectors = {Selector::scalar};
+  javascript_statement.expression.index_extents = {Extent::runtime_linear};
+  javascript_statement.expression.children.resize(2);
+  javascript_statement.expression.children[0].kind = mpf::detail::ExpressionKind::identifier;
+  javascript_statement.expression.children[1].kind = mpf::detail::ExpressionKind::end_index;
+  javascript_statement.expression.children[1].inferred_type = mpf::detail::ValueType::integer;
+  javascript_statement.expression.children[1].index_extent = Extent::runtime_linear;
+  javascript.statements.push_back(std::move(javascript_statement));
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  REQUIRE(javascript.statements.front().expression.plan.index ==
+          mpf::detail::javascript::lir::IndexForm::element);
+  REQUIRE(javascript.statements.front().expression.children[1].plan.form ==
+          mpf::detail::javascript::lir::ExpressionForm::runtime_extent);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript.statements.front().expression.index_extents.front() = Extent::runtime_axis;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  mpf::detail::cpp::lir::Statement cpp_statement;
+  cpp_statement.expression.kind = mpf::detail::ExpressionKind::index;
+  cpp_statement.expression.column_major = true;
+  cpp_statement.expression.index_selectors = {Selector::scalar};
+  cpp_statement.expression.index_extents = {Extent::runtime_linear};
+  cpp_statement.expression.children.resize(2);
+  cpp_statement.expression.children[0].kind = mpf::detail::ExpressionKind::identifier;
+  cpp_statement.expression.children[1].kind = mpf::detail::ExpressionKind::end_index;
+  cpp_statement.expression.children[1].inferred_type = mpf::detail::ValueType::integer;
+  cpp_statement.expression.children[1].index_extent = Extent::runtime_linear;
+  cpp.statements.push_back(std::move(cpp_statement));
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  REQUIRE(cpp.statements.front().expression.plan.index ==
+          mpf::detail::cpp::lir::IndexForm::linear_element);
+  REQUIRE(cpp.statements.front().expression.children[1].plan.form ==
+          mpf::detail::cpp::lir::ExpressionForm::runtime_extent);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp.statements.front().expression.children[1].index_extent = Extent::none;
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
 }

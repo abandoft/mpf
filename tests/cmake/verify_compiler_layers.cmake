@@ -412,11 +412,24 @@ foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir
      NOT target_lir_contract MATCHES "CallArgumentForm" OR
      NOT target_lir_contract MATCHES "IndexForm" OR
      NOT target_lir_contract MATCHES "index_selectors" OR
+     NOT target_lir_contract MATCHES "IndexExtentSource" OR
+     NOT target_lir_contract MATCHES "index_extents" OR
      NOT target_lir_contract MATCHES "offsets" OR
      target_lir_contract MATCHES "argument_intents")
     message(FATAL_ERROR "target LIR does not own a lowered argument transfer plan: ${target_lir}")
   endif()
 endforeach()
+
+file(READ "${SOURCE_DIR}/src/ir/semantics.hpp" index_extent_contract)
+file(READ "${SOURCE_DIR}/src/ir/semantic_facts.hpp" hir_extent_contract)
+file(READ "${SOURCE_DIR}/src/ir/mir.hpp" mir_extent_contract)
+if(NOT index_extent_contract MATCHES "IndexExtentSource" OR
+   NOT index_extent_contract MATCHES "runtime_axis" OR
+   NOT index_extent_contract MATCHES "runtime_linear" OR
+   NOT hir_extent_contract MATCHES "index_extents" OR
+   NOT mir_extent_contract MATCHES "index_extents")
+  message(FATAL_ERROR "dynamic index extent is not a typed HIR/MIR contract")
+endif()
 
 foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
   file(READ "${SOURCE_DIR}/${renderer}" renderer_contract)
@@ -424,6 +437,7 @@ foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/
      NOT renderer_contract MATCHES "plan\\.form" OR
      NOT renderer_contract MATCHES "plan\\.token" OR
      NOT renderer_contract MATCHES "plan\\.index" OR
+     NOT renderer_contract MATCHES "plan\\.index_extents" OR
      NOT renderer_contract MATCHES "statement\\.plan\\.form" OR
      NOT renderer_contract MATCHES "statement\\.plan\\.condition" OR
      NOT renderer_contract MATCHES "statement\\.plan\\.target_access" OR
@@ -463,6 +477,10 @@ if(NOT cpp_renderer_contract MATCHES "program\\.translation_unit" OR
    NOT cpp_renderer_contract MATCHES "entry_statements" OR
    NOT cpp_renderer_contract MATCHES "emit_cpp_runtime")
   message(FATAL_ERROR "cpp renderer does not consume the translation-unit plan")
+endif()
+if(NOT javascript_renderer_contract MATCHES "__mpf_extent" OR
+   NOT cpp_renderer_contract MATCHES "__mpf_extent")
+  message(FATAL_ERROR "target renderers do not consume planned runtime index extents")
 endif()
 
 foreach(runtime IN ITEMS src/backends/javascript/runtime.cpp src/backends/cpp/runtime.cpp)
