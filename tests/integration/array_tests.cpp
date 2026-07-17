@@ -121,6 +121,73 @@ TEST_CASE("Matlab transpose identities preserve vector and matrix shape semantic
   REQUIRE(nd.diagnostics.front().code == "MPF2047");
 }
 
+TEST_CASE("Matlab static dense matrix solve and integer power use target-owned plans") {
+  const std::string source =
+      "coefficient = [4 1; 2 3];\n"
+      "right_hand_side = [9; 8];\n"
+      "solution = coefficient \\ right_hand_side;\n"
+      "right_solution = [5 7] / coefficient;\n"
+      "squared = coefficient ^ 2;\n"
+      "inverse = coefficient ^ -1;\n"
+      "scaled_right = coefficient / 2;\n"
+      "scaled_left = 2 \\ coefficient;\n"
+      "disp(solution(1) + right_solution(2) + squared(1, 1) + inverse(2, 2) + "
+      "scaled_right(1, 1) + scaled_left(2, 2))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_mldivide_square(coefficient, right_hand_side)") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mrdivide_square([5, 7], coefficient)") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mpower(coefficient, -1)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_divide(coefficient, 2)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_left_divide(2, coefficient)") != std::string::npos);
+  REQUIRE(javascript.code.find("matrix is singular to working precision") != std::string::npos);
+  REQUIRE(javascript.code.find("Number.isSafeInteger(exponent)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mldivide_square(coefficient, right_hand_side)") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_square") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mpower(coefficient, -1)") != std::string::npos);
+  REQUIRE(cpp.code.find("matrix is singular to working precision") != std::string::npos);
+  REQUIRE(cpp.code.find("maximum_safe_integer") != std::string::npos);
+  REQUIRE(cpp.code.find("MPF runtime error: ") != std::string::npos);
+  REQUIRE(javascript.source_map.segments.size() >= 6U);
+  REQUIRE(cpp.source_map.segments.size() >= 6U);
+}
+
+TEST_CASE("Matlab rectangular solve selects full-rank CPQR for both targets") {
+  const std::string source =
+      "over = [1 0; 0 1; 1 1] \\ [1; 2; 4];\n"
+      "under = [1 0 1; 0 1 1] \\ [2; 3];\n"
+      "right_over = [2 3 0] / [1 0 0; 0 1 0];\n"
+      "right_under = [1 2] / [1 0; 0 1; 1 1];\n"
+      "disp(over(1) + under(1) + right_over(1) + right_under(1))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_cpqr_factor") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_overdetermined_solve") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_underdetermined_solve") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mldivide_overdetermined") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mldivide_underdetermined") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mrdivide_overdetermined") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mrdivide_underdetermined") != std::string::npos);
+  REQUIRE(javascript.code.find("rank deficient to working precision") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_cpqr_factorization") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_overdetermined_solve") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_underdetermined_solve") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mldivide_overdetermined") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mldivide_underdetermined") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_overdetermined") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_underdetermined") != std::string::npos);
+  REQUIRE(cpp.code.find("rank deficient to working precision") != std::string::npos);
+}
+
 TEST_CASE("Matlab contextual end resolves per dimension and fails closed for growth") {
   const std::string source =
       "values = [10 20 30 40];\n"
@@ -161,16 +228,57 @@ TEST_CASE("Matlab logical indexing reads and writes in column-major linear order
   const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
-  REQUIRE(javascript.code.find("__mpf_logical_get(values, mask)") != std::string::npos);
-  REQUIRE(javascript.code.find("__mpf_set_logical(values, mask, [1, 2])") != std::string::npos);
-  REQUIRE(cpp.code.find("mpf_runtime::logical_index_nd") != std::string::npos);
-  REQUIRE(cpp.code.find("mpf_runtime::assign_logical_nd") != std::string::npos);
+  REQUIRE(javascript.code.find("{ kind: \"logical\", value: mask }") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_selector_indices") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::logical_selector{mask}") != std::string::npos);
+  REQUIRE(cpp.code.find("selector_indices(std::size_t size") != std::string::npos);
 
   const auto mismatch =
       transpile_array("values = [1 2 3];\nmask = [true false];\nbad = values(mask);\n",
                       mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
   REQUIRE(!mismatch.success());
   REQUIRE(mismatch.diagnostics.front().code == "MPF2049");
+}
+
+TEST_CASE("Matlab generalized selectors preserve order duplicates dimensions and emptiness") {
+  const std::string source =
+      "values = [10 20 30 40];\n"
+      "picked = values([4 2 2]);\n"
+      "values([1 1 3]) = [5 6 7];\n"
+      "empty = values([]);\n"
+      "matrix = [1 2 3; 4 5 6; 7 8 9];\n"
+      "rows = [true false true];\n"
+      "columns = [false true true];\n"
+      "block = matrix(rows, columns);\n"
+      "matrix(rows, [3 1]) = [30 10; 90 70];\n"
+      "mask = values > 6;\n"
+      "selected = values(mask);\n"
+      "disp(picked(1), picked(2), picked(3), length(empty), block(2, 2), "
+      "matrix(1, 1), matrix(3, 3), selected(2))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("{ kind: \"numeric\", value: [4, 2, 2] }") != std::string::npos);
+  REQUIRE(javascript.code.find("{ kind: \"logical\", value: rows }") != std::string::npos);
+  REQUIRE(javascript.code.find("{ kind: \"empty\", value: [] }") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::numeric_selector{") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::logical_selector{rows}") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::empty_selector{std::vector<double>{}}") != std::string::npos);
+  REQUIRE(javascript.source_map.segments.size() >= 10U);
+  REQUIRE(cpp.source_map.segments.size() >= 10U);
+
+  const auto fractional =
+      transpile_array("values = [1 2 3];\nbad = values([1 1.5]);\n", mpf::SourceLanguage::matlab,
+                      mpf::TargetLanguage::javascript);
+  const auto nonnumeric =
+      transpile_array("values = [1 2 3];\nbad = values(['x']);\n", mpf::SourceLanguage::matlab,
+                      mpf::TargetLanguage::javascript);
+  REQUIRE(!fractional.success());
+  REQUIRE(!nonnumeric.success());
+  REQUIRE(fractional.diagnostics.front().code == "MPF2023");
+  REQUIRE(nonnumeric.diagnostics.front().code == "MPF2023");
 }
 
 TEST_CASE("Matlab array comparisons compose with broadcast logical indexing") {
@@ -444,7 +552,7 @@ TEST_CASE("Matlab colon selection lowers rows, columns and rectangular blocks") 
   REQUIRE(javascript.code.find("inclusive: true") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::column(") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::columns(") != std::string::npos);
-  REQUIRE(cpp.code.find("mpf_runtime::flatten_column_major(") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::linear_section_column_major(") != std::string::npos);
 }
 
 TEST_CASE("Fortran array sections retain rank and declared shape") {
@@ -547,7 +655,8 @@ TEST_CASE("Matlab and Fortran section assignment support block vector and scalar
     REQUIRE(cpp.code.find("mpf_runtime::assign_block(matrix") != std::string::npos);
     REQUIRE(cpp.code.find("mpf_runtime::assign_column(matrix") != std::string::npos);
     if (language == mpf::SourceLanguage::matlab) {
-      REQUIRE(cpp.code.find("mpf_runtime::assign_linear_column_major(matrix") != std::string::npos);
+      REQUIRE(cpp.code.find("mpf_runtime::assign_linear_section_column_major(matrix") !=
+              std::string::npos);
     }
   }
 }
