@@ -2,7 +2,7 @@
 
 本文是 MPF 前端、公共中间表示、分析/优化基础设施和后端的权威架构规范，也是重构验收依据。若其他文档与本文的层级职责冲突，以本文和 [TODO](../TODO.md) 的逐项状态为准。
 
-> 当前状态：生产路径固定为语言专属 PMR arena AST→窄 HIR + revision-bound semantic/name/flow side table→MIR→共享优化→区域化 alias/effect→CFG memory-dependence→目标 semantic IR/rendered LIR→纯 emitter，并实际执行逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、资源 contract、conformance、source map、编译报告、fuzz 与性能门禁。0.x 只维护这一份精确当前 contract：descriptor 只接受 canonical 名称，公共名称解析显式返回 `std::optional`，CMake package 只接受精确当前版本，不保留旧 MPF adapter、alias、overload、包变量或 schema reader。后续迁移集中在完整独立 target AST、一般 RAII/copy-move/runtime ABI node、完整四语言官方 grammar、动态 rank/广播、跨一般 view/pointer 的区域组合、MemorySSA/region-aware optimization 和插件 ABI；不能把当前 TypeScript 子集等同于完整 TypeScript 6 兼容。
+> 当前状态：生产路径固定为语言专属 PMR arena AST→窄 HIR + revision-bound semantic/name/flow side table→MIR→共享优化→区域化 alias/effect→CFG memory-dependence→目标 semantic IR/rendered LIR→纯 emitter，并实际执行逐层 verifier、pass/analysis、TargetProfile/legalization、opaque artifact、确定性 dump/golden、资源 contract、conformance、source map、编译报告、fuzz 与性能门禁。0.x 只维护这一份精确当前 contract：descriptor 只接受 canonical 名称，公共名称解析显式返回 `std::optional`，CMake package 只接受精确当前版本，不保留旧 MPF adapter、alias、overload、包变量或 schema reader。后续迁移集中在完整独立 target AST、一般 RAII/copy-move/runtime ABI node、完整四语言官方 grammar、动态 rank/extent 广播、跨一般 view/pointer 的区域组合、MemorySSA/region-aware optimization 和插件 ABI；不能把当前 TypeScript 子集等同于完整 TypeScript 6 兼容。
 
 ## 目标与永久约束
 
