@@ -134,12 +134,13 @@ int main(int argc, char** argv) {
     }
     if ((argument == "-l" || argument == "--language") && index + 1 < argc) {
       const std::string value = argv[++index];
-      options.language = mpf::language_from_name(value);
-      if (!mpf::source_language_name_known(value)) {
+      const auto language = mpf::parse_source_language(value);
+      if (!language.has_value()) {
         return report_driver_error(diagnostic_format, "MPFCLI0001",
                                    "unknown source language: " + value,
                                    ExitCode::command_line_error);
       }
+      options.language = *language;
       continue;
     }
     if ((argument == "-m" || argument == "--module") && index + 1 < argc) {
@@ -156,32 +157,35 @@ int main(int argc, char** argv) {
     }
     if (argument == "--language-version" && index + 1 < argc) {
       const std::string value = argv[++index];
-      if (!mpf::parse_language_version(value, options.language_version)) {
+      const auto version = mpf::parse_language_version(value);
+      if (!version.has_value()) {
         return report_driver_error(diagnostic_format, "MPFCLI0001",
                                    "invalid language version: " + value,
                                    ExitCode::command_line_error);
       }
+      options.language_version = *version;
       continue;
     }
     if ((argument == "-t" || argument == "--target") && index + 1 < argc) {
       const std::string value = argv[++index];
-      if (!mpf::target_language_name_known(value)) {
+      const auto target = mpf::parse_target_language(value);
+      if (!target.has_value()) {
         return report_driver_error(diagnostic_format, "MPFCLI0001",
                                    "unknown target language: " + value,
                                    ExitCode::command_line_error);
       }
-      options.target = mpf::target_from_name(value);
+      options.target = *target;
       continue;
     }
     if (argument == "--fortran-form" && index + 1 < argc) {
       const std::string value = argv[++index];
-      options.fortran_source_form = mpf::fortran_source_form_from_name(value);
-      if (options.fortran_source_form == mpf::FortranSourceForm::automatic &&
-          lowercase(value) != "auto") {
+      const auto source_form = mpf::parse_fortran_source_form(value);
+      if (!source_form.has_value()) {
         return report_driver_error(diagnostic_format, "MPFCLI0001",
                                    "unknown Fortran source form: " + value,
                                    ExitCode::command_line_error);
       }
+      options.fortran_source_form = *source_form;
       continue;
     }
     if ((argument == "-o" || argument == "--output") && index + 1 < argc) {

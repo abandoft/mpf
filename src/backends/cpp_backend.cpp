@@ -8,7 +8,6 @@
 namespace mpf::detail {
 
 const BackendDescriptor& cpp_backend() noexcept {
-  static constexpr std::string_view aliases[]{"c++"};
   static constexpr BackendConfigurationField configuration[]{
       {"emit_source_banner", BackendOptionKind::boolean, "true", {}, true}};
   static constexpr RuntimeComponent runtime_components[]{
@@ -18,7 +17,6 @@ const BackendDescriptor& cpp_backend() noexcept {
       backend_descriptor_api_version,
       TargetLanguage::cpp,
       "cpp",
-      {aliases, std::size(aliases)},
       {"C++17",
        "mpf.cpp.lir.v12",
        {1, configuration, std::size(configuration)},

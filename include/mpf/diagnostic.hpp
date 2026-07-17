@@ -16,11 +16,16 @@ struct SourceLocation {
 };
 
 struct Diagnostic {
-  Diagnostic() = default;
   Diagnostic(DiagnosticSeverity diagnostic_severity, std::string diagnostic_code,
              std::string diagnostic_message, SourceLocation diagnostic_location,
-             SourceLocation diagnostic_end_location = {0, 0},
              std::string diagnostic_source_name = {}, std::size_t diagnostic_source_id = 0)
+      : Diagnostic(diagnostic_severity, std::move(diagnostic_code), std::move(diagnostic_message),
+                   diagnostic_location, {diagnostic_location.line, diagnostic_location.column + 1},
+                   std::move(diagnostic_source_name), diagnostic_source_id) {}
+  Diagnostic(DiagnosticSeverity diagnostic_severity, std::string diagnostic_code,
+             std::string diagnostic_message, SourceLocation diagnostic_location,
+             SourceLocation diagnostic_end_location, std::string diagnostic_source_name = {},
+             std::size_t diagnostic_source_id = 0)
       : severity(diagnostic_severity),
         code(std::move(diagnostic_code)),
         message(std::move(diagnostic_message)),
@@ -33,7 +38,7 @@ struct Diagnostic {
   std::string code;
   std::string message;
   SourceLocation location{};
-  SourceLocation end_location{0, 0};
+  SourceLocation end_location{1, 2};
   std::string source_name;
   std::size_t source_id{0};
 };

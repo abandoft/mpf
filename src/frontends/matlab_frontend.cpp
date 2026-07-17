@@ -60,7 +60,6 @@ int probe_matlab(const std::string_view source) noexcept {
   return 0;
 }
 
-constexpr std::string_view aliases[]{"m"};
 constexpr std::string_view extensions[]{".m"};
 constexpr SourceIntrinsicBinding intrinsic_bindings[]{{"length", IntrinsicId::matlab_length},
                                                       {"numel", IntrinsicId::element_count},
@@ -80,7 +79,6 @@ const FrontendDescriptor& matlab_frontend() noexcept {
   static const FrontendDescriptor descriptor{frontend_descriptor_api_version,
                                              SourceLanguage::matlab,
                                              "matlab",
-                                             {aliases, std::size(aliases)},
                                              {extensions, std::size(extensions)},
                                              {"Matlab-2024-versioned-subset",
                                               "mpf.matlab.ast.v3",

@@ -12,7 +12,7 @@
 
 namespace mpf::detail {
 
-inline constexpr std::uint32_t frontend_descriptor_api_version = 5;
+inline constexpr std::uint32_t frontend_descriptor_api_version = 6;
 
 enum class FrontendFeature : std::uint64_t {
   language_versioning = 1ULL << 0U,
@@ -110,7 +110,6 @@ struct FrontendDescriptor {
   std::uint32_t api_version{frontend_descriptor_api_version};
   SourceLanguage language{SourceLanguage::automatic};
   const char* name{"unknown"};
-  StringViewList aliases;
   StringViewList extensions;
   FrontendManifest manifest;
   const SourceIntrinsicTable* intrinsic_tables{nullptr};

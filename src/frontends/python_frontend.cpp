@@ -60,7 +60,6 @@ int probe_python(const std::string_view source) noexcept {
   return 0;
 }
 
-constexpr std::string_view aliases[]{"py"};
 constexpr std::string_view extensions[]{".py", ".pyw"};
 constexpr SourceIntrinsicBinding intrinsic_bindings[]{{"float", IntrinsicId::python_float},
                                                       {"len", IntrinsicId::python_length}};
@@ -80,7 +79,6 @@ const FrontendDescriptor& python_frontend() noexcept {
   static const FrontendDescriptor descriptor{frontend_descriptor_api_version,
                                              SourceLanguage::python,
                                              "python",
-                                             {aliases, std::size(aliases)},
                                              {extensions, std::size(extensions)},
                                              {"3.14-versioned-subset",
                                               "mpf.python.ast.v3",

@@ -117,31 +117,29 @@ SourceComplexity inspect_source(const std::string_view source, const SourceLangu
 
 }  // namespace
 
-bool parse_language_version(const std::string_view text, LanguageVersion& version) noexcept {
-  if (equals_ci(text, "latest") || equals_ci(text, "default")) {
-    version = {};
-    return true;
+std::optional<LanguageVersion> parse_language_version(const std::string_view text) noexcept {
+  if (equals_ci(text, "latest")) {
+    return LanguageVersion{};
   }
   if (text.size() == 6 && (text.front() == 'r' || text.front() == 'R') &&
       (text.back() == 'a' || text.back() == 'A' || text.back() == 'b' || text.back() == 'B')) {
     std::uint16_t year = 0;
-    if (!parse_component(text.substr(1, 4), year)) return false;
-    version = {year, static_cast<std::uint16_t>(text.back() == 'a' || text.back() == 'A' ? 1 : 2)};
-    return true;
+    if (!parse_component(text.substr(1, 4), year)) return std::nullopt;
+    return LanguageVersion{
+        year, static_cast<std::uint16_t>(text.back() == 'a' || text.back() == 'A' ? 1 : 2)};
   }
   const auto dot = text.find('.');
   if (dot != std::string_view::npos && text.find('.', dot + 1U) != std::string_view::npos) {
-    return false;
+    return std::nullopt;
   }
   std::uint16_t major = 0;
   std::uint16_t minor = 0;
   if (!parse_component(text.substr(0, dot), major) ||
       (dot != std::string_view::npos && !parse_component(text.substr(dot + 1U), minor)) ||
       major == 0) {
-    return false;
+    return std::nullopt;
   }
-  version = {major, minor};
-  return true;
+  return LanguageVersion{major, minor};
 }
 
 std::string to_string(const LanguageVersion version, const SourceLanguage language) {
@@ -471,18 +469,15 @@ const char* to_string(const SourceLanguage language) noexcept {
   return frontend == nullptr ? "auto" : frontend->name;
 }
 
-SourceLanguage language_from_name(const std::string_view name) noexcept {
+std::optional<SourceLanguage> parse_source_language(const std::string_view name) noexcept {
   if (equals_ci(name, "auto")) return SourceLanguage::automatic;
   const auto* frontend = detail::find_frontend(name);
-  return frontend == nullptr ? SourceLanguage::automatic : frontend->language;
+  if (frontend == nullptr) return std::nullopt;
+  return frontend->language;
 }
 
 bool frontend_available(const SourceLanguage language) noexcept {
   return detail::find_frontend(language) != nullptr;
-}
-
-bool source_language_name_known(const std::string_view name) noexcept {
-  return equals_ci(name, "auto") || detail::find_frontend(name) != nullptr;
 }
 
 std::vector<SourceLanguage> registered_source_languages() {
@@ -499,13 +494,10 @@ const char* to_string(const TargetLanguage language) noexcept {
   return backend == nullptr ? "javascript" : backend->name;
 }
 
-TargetLanguage target_from_name(const std::string_view name) noexcept {
+std::optional<TargetLanguage> parse_target_language(const std::string_view name) noexcept {
   const auto* backend = detail::find_backend_descriptor(name);
-  return backend == nullptr ? TargetLanguage::javascript : backend->target;
-}
-
-bool target_language_name_known(const std::string_view name) noexcept {
-  return detail::find_backend_descriptor(name) != nullptr;
+  if (backend == nullptr) return std::nullopt;
+  return backend->target;
 }
 
 std::vector<TargetLanguage> registered_target_languages() {
@@ -526,10 +518,11 @@ const char* to_string(const FortranSourceForm form) noexcept {
   return "auto";
 }
 
-FortranSourceForm fortran_source_form_from_name(const std::string_view name) noexcept {
+std::optional<FortranSourceForm> parse_fortran_source_form(const std::string_view name) noexcept {
+  if (equals_ci(name, "auto")) return FortranSourceForm::automatic;
   if (equals_ci(name, "free")) return FortranSourceForm::free;
   if (equals_ci(name, "fixed")) return FortranSourceForm::fixed;
-  return FortranSourceForm::automatic;
+  return std::nullopt;
 }
 
 bool backend_available(const TargetLanguage language) noexcept {

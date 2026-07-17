@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -142,18 +143,17 @@ class Transpiler final {
 };
 
 [[nodiscard]] const char* to_string(SourceLanguage language) noexcept;
-[[nodiscard]] SourceLanguage language_from_name(std::string_view name) noexcept;
+[[nodiscard]] std::optional<SourceLanguage> parse_source_language(std::string_view name) noexcept;
 [[nodiscard]] bool frontend_available(SourceLanguage language) noexcept;
-[[nodiscard]] bool source_language_name_known(std::string_view name) noexcept;
 [[nodiscard]] std::vector<SourceLanguage> registered_source_languages();
 [[nodiscard]] const char* to_string(TargetLanguage language) noexcept;
-[[nodiscard]] TargetLanguage target_from_name(std::string_view name) noexcept;
-[[nodiscard]] bool target_language_name_known(std::string_view name) noexcept;
+[[nodiscard]] std::optional<TargetLanguage> parse_target_language(std::string_view name) noexcept;
 [[nodiscard]] std::vector<TargetLanguage> registered_target_languages();
 [[nodiscard]] const char* to_string(FortranSourceForm form) noexcept;
-[[nodiscard]] FortranSourceForm fortran_source_form_from_name(std::string_view name) noexcept;
+[[nodiscard]] std::optional<FortranSourceForm> parse_fortran_source_form(
+    std::string_view name) noexcept;
 [[nodiscard]] bool backend_available(TargetLanguage language) noexcept;
-[[nodiscard]] bool parse_language_version(std::string_view text, LanguageVersion& version) noexcept;
+[[nodiscard]] std::optional<LanguageVersion> parse_language_version(std::string_view text) noexcept;
 [[nodiscard]] std::string to_string(LanguageVersion version, SourceLanguage language);
 
 }  // namespace mpf

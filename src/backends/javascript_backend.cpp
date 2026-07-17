@@ -8,7 +8,6 @@
 namespace mpf::detail {
 
 const BackendDescriptor& javascript_backend() noexcept {
-  static constexpr std::string_view aliases[]{"js"};
   static constexpr std::string_view module_kinds[]{"script", "esm"};
   static constexpr BackendConfigurationField configuration[]{
       {"module_kind",
@@ -24,7 +23,6 @@ const BackendDescriptor& javascript_backend() noexcept {
       backend_descriptor_api_version,
       TargetLanguage::javascript,
       "javascript",
-      {aliases, std::size(aliases)},
       {"ECMAScript-2020",
        "mpf.javascript.lir.v12",
        {1, configuration, std::size(configuration)},

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(mpf-installed-frontend-example LANGUAGES CXX)
 
-find_package(mpf 0.3.8 REQUIRED COMPONENTS core javascript)
+find_package(mpf 0.4.6 EXACT CONFIG REQUIRED COMPONENTS core javascript)
 
 add_executable(mpf-installed-frontend-example main.cpp)
 target_link_libraries(mpf-installed-frontend-example PRIVATE mpf::mpf)

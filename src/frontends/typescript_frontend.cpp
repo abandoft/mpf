@@ -60,7 +60,6 @@ int probe_typescript(const std::string_view source) noexcept {
   return 0;
 }
 
-constexpr std::string_view aliases[]{"ts"};
 constexpr std::string_view extensions[]{".ts", ".mts", ".cts"};
 constexpr FrontendFeatureSet features{
     static_cast<std::uint64_t>(FrontendFeature::language_versioning) |
@@ -73,7 +72,6 @@ const FrontendDescriptor& typescript_frontend() noexcept {
   static const FrontendDescriptor descriptor{frontend_descriptor_api_version,
                                              SourceLanguage::typescript,
                                              "typescript",
-                                             {aliases, std::size(aliases)},
                                              {extensions, std::size(extensions)},
                                              {"6.0-versioned-subset",
                                               "mpf.typescript.ast.v1",

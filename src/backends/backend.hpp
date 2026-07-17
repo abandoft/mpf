@@ -13,7 +13,7 @@
 
 namespace mpf::detail {
 
-inline constexpr std::uint32_t backend_descriptor_api_version = 5;
+inline constexpr std::uint32_t backend_descriptor_api_version = 6;
 
 enum class BackendOptionKind : std::uint8_t { boolean, enumeration, string };
 
@@ -60,7 +60,6 @@ struct BackendDescriptor {
   std::uint32_t api_version{backend_descriptor_api_version};
   TargetLanguage target{TargetLanguage::javascript};
   const char* name{"unknown"};
-  StringViewList aliases;
   BackendManifest manifest;
   const TargetProfile& (*profile)() noexcept {nullptr};
   const LegalizationTable& (*legalizations)() noexcept {nullptr};

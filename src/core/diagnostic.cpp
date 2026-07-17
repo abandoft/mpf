@@ -11,13 +11,6 @@
 namespace mpf {
 namespace {
 
-SourceLocation effective_end(const Diagnostic& diagnostic) noexcept {
-  if (diagnostic.end_location.line != 0 && diagnostic.end_location.column != 0) {
-    return diagnostic.end_location;
-  }
-  return {diagnostic.location.line, diagnostic.location.column + 1};
-}
-
 std::string json_escape(const std::string_view value) {
   std::ostringstream output;
   output << std::hex << std::setfill('0');
@@ -105,7 +98,7 @@ std::string render_diagnostic_text(const Diagnostic& diagnostic, const std::stri
          << caret_padding(line, std::max<std::size_t>(1, diagnostic.location.column));
   if (options.use_color) output << severity_color(diagnostic.severity);
   output << '^';
-  const auto end = effective_end(diagnostic);
+  const auto end = diagnostic.end_location;
   if (end.line == diagnostic.location.line && end.column > diagnostic.location.column + 1) {
     output << std::string(end.column - diagnostic.location.column - 1, '~');
   }
@@ -120,7 +113,7 @@ std::string render_diagnostics_json(const std::vector<Diagnostic>& diagnostics) 
   for (std::size_t index = 0; index < diagnostics.size(); ++index) {
     if (index != 0) output << ',';
     const auto& diagnostic = diagnostics[index];
-    const auto end = effective_end(diagnostic);
+    const auto end = diagnostic.end_location;
     output << "{\"severity\":\"" << to_string(diagnostic.severity) << "\",\"code\":\""
            << json_escape(diagnostic.code) << "\",\"message\":\"" << json_escape(diagnostic.message)
            << "\",\"source\":\"" << json_escape(diagnostic.source_name)

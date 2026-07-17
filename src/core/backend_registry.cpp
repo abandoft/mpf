@@ -13,8 +13,6 @@
 namespace mpf::detail {
 namespace {
 
-constexpr std::string_view javascript_aliases[]{"js"};
-constexpr std::string_view cpp_aliases[]{"c++"};
 constexpr std::string_view javascript_module_kinds[]{"script", "esm"};
 constexpr BackendConfigurationField javascript_configuration[]{
     {"module_kind",
@@ -36,7 +34,6 @@ const BackendDescriptor javascript_metadata{
     backend_descriptor_api_version,
     TargetLanguage::javascript,
     "javascript",
-    {javascript_aliases, std::size(javascript_aliases)},
     {"ECMAScript-2020",
      "mpf.javascript.lir.v12",
      {1, javascript_configuration, std::size(javascript_configuration)},
@@ -55,7 +52,6 @@ const BackendDescriptor cpp_metadata{
     backend_descriptor_api_version,
     TargetLanguage::cpp,
     "cpp",
-    {cpp_aliases, std::size(cpp_aliases)},
     {"C++17",
      "mpf.cpp.lir.v12",
      {1, cpp_configuration, std::size(cpp_configuration)},
@@ -107,15 +103,7 @@ bool equals_ci(const std::string_view left, const std::string_view right) noexce
 }
 
 bool has_name(const BackendDescriptor& descriptor, const std::string_view name) noexcept {
-  if (equals_ci(descriptor.name, name)) return true;
-  for (std::size_t index = 0; index < descriptor.aliases.size; ++index) {
-    if (equals_ci(descriptor.aliases.data[index], name)) return true;
-  }
-  return false;
-}
-
-std::string_view name_at(const BackendDescriptor& descriptor, const std::size_t index) noexcept {
-  return index == 0 ? std::string_view(descriptor.name) : descriptor.aliases.data[index - 1];
+  return equals_ci(descriptor.name, name);
 }
 
 }  // namespace
@@ -173,7 +161,6 @@ bool validate_backend_catalog(const BackendDescriptor* const* descriptors, const
         descriptor->manifest.runtime.components == nullptr ||
         descriptor->manifest.runtime.component_count == 0 || !descriptor->manifest.deterministic ||
         !descriptor->manifest.reentrant ||
-        (descriptor->aliases.size != 0 && descriptor->aliases.data == nullptr) ||
         (require_callbacks &&
          (descriptor->profile == nullptr || descriptor->legalizations == nullptr ||
           descriptor->binding == nullptr || descriptor->validate == nullptr ||
@@ -221,19 +208,11 @@ bool validate_backend_catalog(const BackendDescriptor* const* descriptors, const
                               !legalization_table_complete(descriptor->legalizations()))) {
       return false;
     }
-    for (std::size_t first = 0; first <= descriptor->aliases.size; ++first) {
-      if (name_at(*descriptor, first).empty()) return false;
-      for (std::size_t second = first + 1; second <= descriptor->aliases.size; ++second) {
-        if (equals_ci(name_at(*descriptor, first), name_at(*descriptor, second))) return false;
-      }
-    }
     for (std::size_t right = left + 1; right < count; ++right) {
       const auto* other = descriptors[right];
-      if (other == nullptr || descriptor->target == other->target) return false;
-      for (std::size_t first = 0; first <= descriptor->aliases.size; ++first) {
-        for (std::size_t second = 0; second <= other->aliases.size; ++second) {
-          if (equals_ci(name_at(*descriptor, first), name_at(*other, second))) return false;
-        }
+      if (other == nullptr || descriptor->target == other->target ||
+          equals_ci(descriptor->name, other->name)) {
+        return false;
       }
     }
   }

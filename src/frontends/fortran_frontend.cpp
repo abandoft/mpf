@@ -60,7 +60,6 @@ int probe_fortran(const std::string_view source) noexcept {
   return 0;
 }
 
-constexpr std::string_view aliases[]{"f", "f90"};
 constexpr std::string_view extensions[]{".f",   ".for", ".ftn", ".f77", ".f90",
                                         ".f95", ".f03", ".f08", ".f18", ".f23"};
 constexpr SourceIntrinsicBinding intrinsic_bindings[]{{"present", IntrinsicId::present},
@@ -84,7 +83,6 @@ const FrontendDescriptor& fortran_frontend() noexcept {
   static const FrontendDescriptor descriptor{frontend_descriptor_api_version,
                                              SourceLanguage::fortran,
                                              "fortran",
-                                             {aliases, std::size(aliases)},
                                              {extensions, std::size(extensions)},
                                              {"Fortran-2023-versioned-subset",
                                               "mpf.fortran.ast.v3",

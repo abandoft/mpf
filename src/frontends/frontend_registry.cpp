@@ -25,15 +25,7 @@ bool equals_ci(const std::string_view left, const std::string_view right) noexce
 }
 
 bool has_name(const FrontendDescriptor& descriptor, const std::string_view name) noexcept {
-  if (equals_ci(descriptor.name, name)) return true;
-  for (std::size_t index = 0; index < descriptor.aliases.size; ++index) {
-    if (equals_ci(descriptor.aliases.data[index], name)) return true;
-  }
-  return false;
-}
-
-std::string_view name_at(const FrontendDescriptor& descriptor, const std::size_t index) noexcept {
-  return index == 0 ? std::string_view(descriptor.name) : descriptor.aliases.data[index - 1];
+  return equals_ci(descriptor.name, name);
 }
 
 std::string_view extension_of(const std::string_view filename) noexcept {
@@ -167,16 +159,9 @@ bool validate_frontend_catalog(const FrontendDescriptor* const* descriptors,
         descriptor->manifest.resource_contract.bits() !=
             standard_frontend_resource_contract.bits() ||
         !descriptor->manifest.deterministic || !descriptor->manifest.reentrant ||
-        (descriptor->aliases.size != 0 && descriptor->aliases.data == nullptr) ||
         (descriptor->extensions.size != 0 && descriptor->extensions.data == nullptr) ||
         (descriptor->intrinsic_table_count != 0 && descriptor->intrinsic_tables == nullptr)) {
       return false;
-    }
-    for (std::size_t first = 0; first <= descriptor->aliases.size; ++first) {
-      if (name_at(*descriptor, first).empty()) return false;
-      for (std::size_t second = first + 1; second <= descriptor->aliases.size; ++second) {
-        if (equals_ci(name_at(*descriptor, first), name_at(*descriptor, second))) return false;
-      }
     }
     for (std::size_t index = 0; index < descriptor->extensions.size; ++index) {
       const auto extension = descriptor->extensions.data[index];
@@ -208,11 +193,9 @@ bool validate_frontend_catalog(const FrontendDescriptor* const* descriptors,
     }
     for (std::size_t right = left + 1; right < count; ++right) {
       const auto* other = descriptors[right];
-      if (other == nullptr || descriptor->language == other->language) return false;
-      for (std::size_t first = 0; first <= descriptor->aliases.size; ++first) {
-        for (std::size_t second = 0; second <= other->aliases.size; ++second) {
-          if (equals_ci(name_at(*descriptor, first), name_at(*other, second))) return false;
-        }
+      if (other == nullptr || descriptor->language == other->language ||
+          equals_ci(descriptor->name, other->name)) {
+        return false;
       }
       for (std::size_t first = 0; first < descriptor->extensions.size; ++first) {
         for (std::size_t second = 0; second < other->extensions.size; ++second) {
