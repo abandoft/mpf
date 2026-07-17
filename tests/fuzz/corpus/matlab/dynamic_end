@@ -1,0 +1,10 @@
+values = [10 20 30 40];
+matrix = [1 2 3; 4 5 6];
+[last, tail, corner, selected] = inspect_dynamic(values, matrix);
+disp(last + tail + corner + selected)
+function [last, tail, corner, selected] = inspect_dynamic(values, matrix)
+last = values(end);
+tail = sum(values(2:end));
+corner = matrix(end, end) + matrix(end);
+selected = sum(values([1 end]));
+end

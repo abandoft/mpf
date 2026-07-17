@@ -227,6 +227,9 @@ if(TARGET mpfc)
   mpf_add_generated_runtime_failure_test(
     matlab-dynamic-logical-mismatch tests/fixtures/matlab_dynamic_logical_mismatch.m
     "logical selector shape")
+  mpf_add_generated_runtime_failure_test(
+    matlab-dynamic-broadcast-mismatch tests/fixtures/matlab_dynamic_broadcast_mismatch.m
+    "broadcast sizes are incompatible")
 endif()
 
 mpf_add_backend_isolation_test(javascript-only ON OFF)

@@ -35,8 +35,11 @@ mpf_add_differential_case(matlab-matrix-solve matlab examples/matlab/matrix_solv
 mpf_add_differential_case(
   matlab-rectangular-solve matlab examples/matlab/rectangular_solve.m "4 7 1 4 5 2 3 1 1")
 mpf_add_differential_case(matlab-implicit-expansion matlab examples/matlab/implicit_expansion.m "329")
+mpf_add_differential_case(
+  matlab-dynamic-broadcast matlab examples/matlab/dynamic_broadcast.m "80 127 2")
 mpf_add_differential_case(matlab-transpose matlab examples/matlab/transpose.m "16")
 mpf_add_differential_case(matlab-end-indexing matlab examples/matlab/end_indexing.m "122")
+mpf_add_differential_case(matlab-dynamic-end matlab examples/matlab/dynamic_end.m "260")
 mpf_add_differential_case(matlab-logical-indexing matlab examples/matlab/logical_indexing.m "48")
 mpf_add_differential_case(matlab-logical-comparisons matlab examples/matlab/logical_comparisons.m "164")
 mpf_add_differential_case(

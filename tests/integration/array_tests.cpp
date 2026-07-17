@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <string>
 
 #include "mpf/transpiler.hpp"
@@ -98,6 +99,57 @@ TEST_CASE("Matlab compatible sizes lower through explicit N-dimensional broadcas
   REQUIRE(cpp.code.find("std::array<std::size_t, 3>{2, 1, 3}") != std::string::npos);
 }
 
+TEST_CASE("Matlab runtime-sized compatible operations derive typed operand shapes") {
+  const std::string source =
+      "column = [1; 2];\n"
+      "row = [10 20 30];\n"
+      "[expanded, mask, scaled] = expand_dynamic(column, row);\n"
+      "disp(expanded(2, 3) + sum(mask) + scaled(1, 2))\n"
+      "[scalar_sum, scalar_mask, scalar_scaled] = expand_dynamic(20, 22);\n"
+      "disp(scalar_sum + scalar_mask + scalar_scaled)\n"
+      "logical_total = sum([true true false]);\n"
+      "disp(logical_total)\n"
+      "function [expanded, mask, scaled] = expand_dynamic(left, right)\n"
+      "expanded = left + right;\n"
+      "mask = left < right;\n"
+      "scaled = expanded .* 2;\n"
+      "end\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_add_runtime(left, right)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_less_runtime(left, right)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_multiply_runtime(expanded, 2)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_add_runtime(left, right)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_less_runtime(left, right)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_multiply_runtime(expanded, 2)") != std::string::npos);
+  REQUIRE(cpp.code.find("using sum_result_t") != std::string::npos);
+  REQUIRE(cpp.code.find("std::int64_t logical_total") != std::string::npos);
+  REQUIRE(javascript.code.find("MPF Matlab broadcast sizes are incompatible") != std::string::npos);
+  REQUIRE(cpp.code.find("MPF Matlab broadcast operand must be rectangular") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 11U; }));
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 12U; }));
+  }
+
+  const std::string minimal =
+      "function result = expand_dynamic(left, right)\n"
+      "result = left + right;\n"
+      "end\n";
+  const auto minimal_javascript =
+      transpile_array(minimal, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto minimal_cpp =
+      transpile_array(minimal, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(minimal_javascript.success());
+  REQUIRE(minimal_cpp.success());
+  REQUIRE(minimal_javascript.code.find("function __mpf_matlab_add_runtime") != std::string::npos);
+  REQUIRE(minimal_cpp.code.find("auto matlab_add_runtime") != std::string::npos);
+}
+
 TEST_CASE("Matlab transpose identities preserve vector and matrix shape semantics") {
   const std::string source =
       "matrix = [1 2 3; 4 5 6];\n"
@@ -188,7 +240,7 @@ TEST_CASE("Matlab rectangular solve selects full-rank CPQR for both targets") {
   REQUIRE(cpp.code.find("rank deficient to working precision") != std::string::npos);
 }
 
-TEST_CASE("Matlab contextual end resolves per dimension and fails closed for growth") {
+TEST_CASE("Matlab contextual end uses static fast paths and typed dynamic extent plans") {
   const std::string source =
       "values = [10 20 30 40];\n"
       "matrix = [1 2 3; 4 5 6];\n"
@@ -203,6 +255,33 @@ TEST_CASE("Matlab contextual end resolves per dimension and fails closed for gro
   REQUIRE(javascript.code.find("__mpf_get(matrix, [2, 3]") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matrix_linear_index(matrix, static_cast<std::int64_t>(6)") !=
           std::string::npos);
+
+  const std::string dynamic_source =
+      "function [last, tail, corner, selected] = inspect_dynamic(values, matrix)\n"
+      "last = values(end);\n"
+      "tail = sum(values(2:end));\n"
+      "corner = matrix(end, end) + matrix(end);\n"
+      "selected = sum(values([1 end]));\n"
+      "end\n";
+  const auto dynamic_javascript =
+      transpile_array(dynamic_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto dynamic_cpp =
+      transpile_array(dynamic_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(dynamic_javascript.success());
+  REQUIRE(dynamic_cpp.success());
+  REQUIRE(dynamic_javascript.code.find("(__mpf_extent) =>") != std::string::npos);
+  REQUIRE(dynamic_javascript.code.find("__mpf_resolve_extent") != std::string::npos);
+  REQUIRE(dynamic_cpp.code.find("[&](std::size_t __mpf_extent)") != std::string::npos);
+  REQUIRE(dynamic_cpp.code.find("mpf_runtime::linear_index_column_major") != std::string::npos);
+  REQUIRE(dynamic_cpp.code.find("mpf_runtime::section_nd") != std::string::npos);
+  REQUIRE(dynamic_cpp.code.find("decltype(mpf_runtime::linear_index_column_major(values, [&]") ==
+          std::string::npos);
+  for (const auto* result : {&dynamic_javascript, &dynamic_cpp}) {
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 2U; }));
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 5U; }));
+  }
 
   const auto growth = transpile_array("values = [1 2 3];\nvalues(end + 1) = 4;\n",
                                       mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
