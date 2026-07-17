@@ -52,6 +52,7 @@ if(NOT MPF_ENABLE_SANITIZERS)
       -P ${PROJECT_SOURCE_DIR}/cmake/verify_performance.cmake)
   set_tests_properties(mpf.performance.release-gate PROPERTIES
     LABELS "performance;coverage-excluded"
+    RUN_SERIAL TRUE
     TIMEOUT 180)
 endif()
 add_custom_target(mpf-performance

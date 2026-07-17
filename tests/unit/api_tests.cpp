@@ -230,6 +230,8 @@ TEST_CASE(
       [](const mpf::StageReport& stage) { return stage.stage == "mir-constant-folding-dce"; }));
   REQUIRE(result.report.to_json().find("\"peakArenaBytes\":") != std::string::npos);
   REQUIRE(result.report.to_json().find("\"mirOptimization\":") != std::string::npos);
+  REQUIRE(result.report.to_json().find("\"mirMemoryDependences\":") != std::string::npos);
+  REQUIRE(result.report.to_json().find("\"mir-memory-dependence\"") != std::string::npos);
   REQUIRE(result.report.to_json().find("\"target-lir\"") != std::string::npos);
 }
 

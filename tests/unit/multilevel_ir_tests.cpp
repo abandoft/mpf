@@ -264,6 +264,14 @@ TEST_CASE("MIR alias and effect analysis is independent revision-bound and cache
   REQUIRE(&first == &second);
   REQUIRE(computations == 1U);
   REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, first, "cache").empty());
+  const auto& independent = analyses.get<std::size_t>(
+      mir.program, "independent-analysis",
+      [](const mpf::detail::mir::Program& program) { return program.instructions.size(); });
+  REQUIRE(independent == mir.program.instructions.size());
+  REQUIRE(first.mir_revision == mir.program.revision);
+  REQUIRE(&first ==
+          &analyses.get<mpf::detail::mir::AliasEffectTable>(mir.program, "alias-effect", compute));
+  REQUIRE(computations == 1U);
   const auto global = std::find_if(
       mir.program.storages.begin() + 1, mir.program.storages.end(),
       [](const mpf::detail::mir::StorageData& storage) { return storage.name == "base"; });
@@ -302,6 +310,207 @@ TEST_CASE("MIR alias and effect analysis is independent revision-bound and cache
   REQUIRE(write != weakened.instructions.end());
   write->effects = mpf::detail::mir::Effect::none;
   REQUIRE(!mpf::detail::mir::verify_alias_effects(mir.program, weakened, "weakened").empty());
+}
+
+TEST_CASE("MIR memory dependence analysis is CFG-aware revision-bound and cacheable") {
+  auto lowered = lower_python(
+      "value = 0\n"
+      "if True:\n"
+      "    value = 1\n"
+      "else:\n"
+      "    value = 2\n"
+      "print(value)\n"
+      "while value < 4:\n"
+      "    value = value + 1\n"
+      "print(value)\n");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, alias_effects, "dependence-input")
+              .empty());
+
+  mpf::detail::AnalysisManager<mpf::detail::mir::Program> analyses;
+  std::size_t computations = 0;
+  const auto compute = [&](const mpf::detail::mir::Program& program) {
+    ++computations;
+    return mpf::detail::mir::analyze_memory_dependences(program, alias_effects);
+  };
+  const auto& dependences = analyses.get<mpf::detail::mir::MemoryDependenceTable>(
+      mir.program, "memory-dependence", compute);
+  const auto& cached = analyses.get<mpf::detail::mir::MemoryDependenceTable>(
+      mir.program, "memory-dependence", compute);
+  REQUIRE(&dependences == &cached);
+  REQUIRE(computations == 1U);
+  REQUIRE(dependences.complete);
+  REQUIRE(dependences.instructions.size() == mir.program.instructions.size());
+  REQUIRE(dependences.dependence_count + 1U == dependences.dependences.size());
+  REQUIRE(mpf::detail::mir::verify_memory_dependences(mir.program, alias_effects, dependences,
+                                                      "cfg-memory-dependence")
+              .empty());
+  REQUIRE(std::any_of(dependences.dependences.begin() + 1, dependences.dependences.end(),
+                      [](const mpf::detail::mir::MemoryDependence& dependence) {
+                        return dependence.kind == mpf::detail::mir::MemoryDependenceKind::flow;
+                      }));
+  REQUIRE(std::any_of(dependences.dependences.begin() + 1, dependences.dependences.end(),
+                      [](const mpf::detail::mir::MemoryDependence& dependence) {
+                        return dependence.kind == mpf::detail::mir::MemoryDependenceKind::anti;
+                      }));
+  REQUIRE(std::any_of(dependences.dependences.begin() + 1, dependences.dependences.end(),
+                      [](const mpf::detail::mir::MemoryDependence& dependence) {
+                        return dependence.kind == mpf::detail::mir::MemoryDependenceKind::output;
+                      }));
+  REQUIRE(std::any_of(dependences.dependences.begin() + 1, dependences.dependences.end(),
+                      [](const mpf::detail::mir::MemoryDependence& dependence) {
+                        return dependence.loop_carried;
+                      }));
+  REQUIRE(std::any_of(
+      dependences.instructions.begin() + 1, dependences.instructions.end(),
+      [&](const mpf::detail::mir::InstructionMemoryDependenceFacts& facts) {
+        return std::count_if(facts.incoming.begin(), facts.incoming.end(), [&](const auto id) {
+                 const auto* dependence = dependences.dependence(id);
+                 return dependence != nullptr &&
+                        dependence->kind == mpf::detail::mir::MemoryDependenceKind::flow;
+               }) >= 2;
+      }));
+  const auto dumped = mpf::detail::dump_mir(mir.program, alias_effects, dependences);
+  REQUIRE(dumped.find("memory-dependence-v1") != std::string::npos);
+  REQUIRE(dumped.find("loop-carried=1") != std::string::npos);
+
+  auto corrupted = dependences;
+  corrupted.dependences[1].relation = mpf::detail::mir::AliasClass::no_alias;
+  REQUIRE(!mpf::detail::mir::verify_memory_dependences(mir.program, alias_effects, corrupted,
+                                                       "corrupt-memory-dependence")
+               .empty());
+  auto corrupt_sentinel = dependences;
+  corrupt_sentinel.instructions.front().origin = mpf::detail::InstructionId{1};
+  REQUIRE(!mpf::detail::mir::verify_memory_dependences(mir.program, alias_effects, corrupt_sentinel,
+                                                       "corrupt-memory-sentinel")
+               .empty());
+}
+
+TEST_CASE("MIR memory dependences refine disjoint regions and preserve unknown barriers") {
+  auto lowered = lower_python(
+      "values = [1, 2, 3, 4]\n"
+      "first = values[0]\n"
+      "values[1] = 7\n"
+      "print(first)\n");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto dependences = mpf::detail::mir::analyze_memory_dependences(mir.program, alias_effects);
+  REQUIRE(mpf::detail::mir::verify_memory_dependences(mir.program, alias_effects, dependences,
+                                                      "regional-memory-dependence")
+              .empty());
+  const auto read =
+      std::find_if(mir.program.instructions.begin() + 1, mir.program.instructions.end(),
+                   [](const mpf::detail::mir::Instruction& instruction) {
+                     return instruction.opcode == mpf::detail::mir::Opcode::index;
+                   });
+  const auto write =
+      std::find_if(mir.program.instructions.begin() + 1, mir.program.instructions.end(),
+                   [](const mpf::detail::mir::Instruction& instruction) {
+                     return instruction.opcode == mpf::detail::mir::Opcode::store_indexed;
+                   });
+  REQUIRE(read != mir.program.instructions.end());
+  REQUIRE(write != mir.program.instructions.end());
+  REQUIRE(std::none_of(dependences.dependences.begin() + 1, dependences.dependences.end(),
+                       [&](const mpf::detail::mir::MemoryDependence& dependence) {
+                         return dependence.source.instruction == read->id &&
+                                dependence.target.instruction == write->id;
+                       }));
+
+  auto external_program = mir.program;
+  const auto external =
+      std::find_if(external_program.instructions.begin() + 1, external_program.instructions.end(),
+                   [](const mpf::detail::mir::Instruction& instruction) {
+                     return instruction.opcode == mpf::detail::mir::Opcode::output;
+                   });
+  REQUIRE(external != external_program.instructions.end());
+  external->opcode = mpf::detail::mir::Opcode::call;
+  external->callee = {};
+  external->intrinsic = mpf::detail::IntrinsicId::none;
+  alias_effects = mpf::detail::mir::analyze_alias_effects(external_program);
+  REQUIRE(mpf::detail::mir::verify_alias_effects(external_program, alias_effects,
+                                                 "unknown-barrier-input")
+              .empty());
+  const auto barriers =
+      mpf::detail::mir::analyze_memory_dependences(external_program, alias_effects);
+  REQUIRE(mpf::detail::mir::verify_memory_dependences(external_program, alias_effects, barriers,
+                                                      "unknown-barrier")
+              .empty());
+  REQUIRE(std::any_of(barriers.dependences.begin() + 1, barriers.dependences.end(),
+                      [&](const mpf::detail::mir::MemoryDependence& dependence) {
+                        return dependence.target.instruction == external->id &&
+                               dependence.barrier && dependence.target.unknown &&
+                               dependence.relation == mpf::detail::mir::AliasClass::may_alias;
+                      }));
+}
+
+TEST_CASE("MIR memory dependences conservatively cut irreducible CFG cycles") {
+  mpf::detail::mir::Program program;
+  program.storages.resize(2);
+  program.storages[1].name = "shared";
+  program.storages[1].kind = mpf::detail::mir::StorageKind::local;
+  program.storages[1].lifetime = mpf::detail::mir::StorageLifetime::function;
+  program.instructions.resize(3);
+  program.instructions[1].id = mpf::detail::InstructionId{1};
+  program.instructions[1].opcode = mpf::detail::mir::Opcode::store;
+  program.instructions[1].location = {2, 1};
+  program.instructions[2].id = mpf::detail::InstructionId{2};
+  program.instructions[2].opcode = mpf::detail::mir::Opcode::load;
+  program.instructions[2].location = {3, 1};
+  program.attributes.instruction_count = 2;
+  program.attributes.instructions.resize(3);
+  program.attributes.instructions[1].origin = mpf::detail::InstructionId{1};
+  program.attributes.instructions[1].memory_accesses.push_back(
+      {mpf::detail::StorageId{1},
+       mpf::detail::StorageId{1},
+       {},
+       mpf::detail::mir::MemoryAccessMode::write});
+  program.attributes.instructions[2].origin = mpf::detail::InstructionId{2};
+  program.attributes.instructions[2].memory_accesses.push_back(
+      {mpf::detail::StorageId{1},
+       mpf::detail::StorageId{1},
+       {},
+       mpf::detail::mir::MemoryAccessMode::read});
+  program.blocks.resize(4);
+  for (std::size_t index = 1; index < program.blocks.size(); ++index) {
+    program.blocks[index].id =
+        mpf::detail::BlockId{static_cast<mpf::detail::BlockId::value_type>(index)};
+  }
+  program.blocks[1].terminator.kind = mpf::detail::mir::TerminatorKind::conditional_branch;
+  program.blocks[1].terminator.successors = {mpf::detail::BlockId{2}, mpf::detail::BlockId{3}};
+  program.blocks[2].instructions = {mpf::detail::InstructionId{1}};
+  program.blocks[2].terminator.kind = mpf::detail::mir::TerminatorKind::branch;
+  program.blocks[2].terminator.successors = {mpf::detail::BlockId{3}};
+  program.blocks[3].instructions = {mpf::detail::InstructionId{2}};
+  program.blocks[3].terminator.kind = mpf::detail::mir::TerminatorKind::branch;
+  program.blocks[3].terminator.successors = {mpf::detail::BlockId{2}};
+  program.functions.resize(2);
+  program.functions[1].id = mpf::detail::MirFunctionId{1};
+  program.functions[1].entry = mpf::detail::BlockId{1};
+  program.functions[1].blocks = {mpf::detail::BlockId{1}, mpf::detail::BlockId{2},
+                                 mpf::detail::BlockId{3}};
+
+  const auto alias_effects = mpf::detail::mir::analyze_alias_effects(program);
+  REQUIRE(mpf::detail::mir::verify_alias_effects(program, alias_effects, "irreducible-alias-input")
+              .empty());
+  const auto dependences = mpf::detail::mir::analyze_memory_dependences(program, alias_effects);
+  REQUIRE(mpf::detail::mir::verify_memory_dependences(program, alias_effects, dependences,
+                                                      "irreducible-memory-dependence")
+              .empty());
+  REQUIRE(std::any_of(dependences.dependences.begin() + 1, dependences.dependences.end(),
+                      [](const mpf::detail::mir::MemoryDependence& dependence) {
+                        return dependence.loop_carried &&
+                               dependence.kind == mpf::detail::mir::MemoryDependenceKind::output &&
+                               dependence.source.instruction == dependence.target.instruction;
+                      }));
 }
 
 TEST_CASE("default MIR optimization is verified deterministic and analysis-safe") {

@@ -18,6 +18,8 @@ struct Scenario {
   std::string name;
   std::string source;
   mpf::SourceLanguage language{mpf::SourceLanguage::python};
+  std::size_t minimum_memory_dependences{0};
+  bool require_loop_carried_dependence{false};
 };
 
 struct Measurement {
@@ -98,6 +100,19 @@ std::string storage_region_workload(const std::size_t calls) {
   return source;
 }
 
+std::string memory_dependence_workload(const std::size_t loops) {
+  std::string source = "value = 0\n";
+  for (std::size_t index = 0; index < loops; ++index) {
+    source += "while value < " + std::to_string(index + 1U) + ":\n";
+    source += "    if value < " + std::to_string(index) + ":\n";
+    source += "        value = value + 2\n";
+    source += "    else:\n";
+    source += "        value = value + 1\n";
+  }
+  source += "print(value)\n";
+  return source;
+}
+
 std::string source_extension(const mpf::SourceLanguage language) {
   switch (language) {
     case mpf::SourceLanguage::python: return ".py";
@@ -124,7 +139,12 @@ bool measure(const Scenario& scenario, Measurement& measurement) {
   std::size_t generated = 0;
   for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
     const auto reference = compile(scenario, target);
-    if (!reference.success()) return false;
+    if (!reference.success() ||
+        reference.report.mir_memory_dependences.total < scenario.minimum_memory_dependences ||
+        (scenario.require_loop_carried_dependence &&
+         reference.report.mir_memory_dependences.loop_carried == 0U)) {
+      return false;
+    }
     for (std::size_t sample = 0; sample < 3; ++sample) {
       const auto started = Clock::now();
       const auto result = compile(scenario, target);
@@ -177,7 +197,9 @@ int main() {
       {"shape", shape_workload(16)},
       {"function-graph", function_workload(40)},
       {"typescript-throughput", typescript_workload(300), mpf::SourceLanguage::typescript},
-      {"storage-regions", storage_region_workload(128), mpf::SourceLanguage::fortran}};
+      {"storage-regions", storage_region_workload(128), mpf::SourceLanguage::fortran},
+      {"memory-dependence", memory_dependence_workload(16), mpf::SourceLanguage::python, 32U,
+       true}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
     Measurement measurement;

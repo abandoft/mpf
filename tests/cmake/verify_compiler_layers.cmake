@@ -205,10 +205,17 @@ if(NOT identifier_contract MATCHES "struct IdentifierInventory" OR
 endif()
 
 file(READ "${SOURCE_DIR}/src/ir/mir.hpp" mir_contract)
+file(READ "${SOURCE_DIR}/src/ir/pass_manager.hpp" pass_manager_contract)
+if(NOT pass_manager_contract MATCHES "std::deque<Entry> entries_")
+  message(FATAL_ERROR
+    "AnalysisManager cache storage does not preserve returned references across inserted analyses")
+endif()
 if(NOT EXISTS "${SOURCE_DIR}/src/ir/mir_verifier.cpp" OR
    NOT EXISTS "${SOURCE_DIR}/src/ir/mir_opcode.hpp" OR
-   NOT EXISTS "${SOURCE_DIR}/src/ir/mir_optimization.cpp")
-  message(FATAL_ERROR "MIR verifier/opcode/optimization contracts are not split into dedicated components")
+   NOT EXISTS "${SOURCE_DIR}/src/ir/mir_optimization.cpp" OR
+   NOT EXISTS "${SOURCE_DIR}/src/ir/memory_dependence.cpp")
+  message(FATAL_ERROR
+    "MIR verifier/opcode/optimization/memory-dependence contracts are not split into dedicated components")
 endif()
 file(READ "${SOURCE_DIR}/src/ir/mir_optimization.cpp" mir_optimization_contract)
 foreach(required_pass IN ITEMS
@@ -290,6 +297,31 @@ if(NOT alias_effect_contract MATCHES "storage_region_relation" OR
    NOT alias_effect_contract MATCHES "writable_conflict")
   message(FATAL_ERROR "MIR alias/effect analysis does not refine calls with storage regions")
 endif()
+file(READ "${SOURCE_DIR}/src/ir/memory_dependence.hpp" memory_dependence_contract)
+file(READ "${SOURCE_DIR}/src/ir/memory_dependence.cpp" memory_dependence_implementation)
+foreach(required IN ITEMS
+    "MemoryDependenceId"
+    "MemoryAccessSite"
+    "MemoryDependenceKind"
+    "MemoryDependenceTable"
+    "InstructionMemoryDependenceFacts"
+    "analyze_memory_dependences"
+    "verify_memory_dependences")
+  if(NOT memory_dependence_contract MATCHES "${required}")
+    message(FATAL_ERROR "memory-dependence contract is missing: ${required}")
+  endif()
+endforeach()
+foreach(required IN ITEMS
+    "MemoryDependenceKind::flow"
+    "MemoryDependenceKind::anti"
+    "MemoryDependenceKind::output"
+    "loop_carried"
+    "AliasClass::must_alias"
+    "graph.loop_edges")
+  if(NOT memory_dependence_implementation MATCHES "${required}")
+    message(FATAL_ERROR "CFG memory-dependence implementation is missing: ${required}")
+  endif()
+endforeach()
 foreach(target_region_consumer IN ITEMS
     src/backends/javascript_lowering.cpp
     src/backends/cpp_lowering.cpp
@@ -450,6 +482,13 @@ foreach(required_file IN ITEMS
   endif()
 endforeach()
 
+file(READ "${SOURCE_DIR}/tests/CMakeLists.txt" test_build_contract)
+if(NOT test_build_contract MATCHES
+   "mpf\\.performance\\.release-gate PROPERTIES[^)]*RUN_SERIAL TRUE")
+  message(FATAL_ERROR
+    "performance release gate must run serially without competing CTest workloads")
+endif()
+
 foreach(lir_header IN ITEMS
     src/backends/javascript_lir.hpp
     src/backends/cpp_lir.hpp)
@@ -509,6 +548,8 @@ foreach(required IN ITEMS
     "mir::run_default_optimization_pipeline"
     "mir::analyze_alias_effects"
     "mir::verify_alias_effects"
+    "mir::analyze_memory_dependences"
+    "mir::verify_memory_dependences"
     "backend->lower"
     "backend->verify"
     "backend->emit"
@@ -520,9 +561,11 @@ foreach(required IN ITEMS
 endforeach()
 string(FIND "${driver}" "mir::run_default_optimization_pipeline" mir_optimization_index)
 string(FIND "${driver}" "mir::analyze_alias_effects" mir_analysis_index)
+string(FIND "${driver}" "mir::analyze_memory_dependences" memory_dependence_index)
 string(FIND "${driver}" "backend->lower" backend_lowering_index)
 if(mir_optimization_index LESS 0 OR mir_analysis_index LESS mir_optimization_index OR
-   backend_lowering_index LESS mir_analysis_index)
+   memory_dependence_index LESS mir_analysis_index OR
+   backend_lowering_index LESS memory_dependence_index)
   message(FATAL_ERROR
-    "shared MIR optimization must precede final alias/effect analysis and target lowering")
+    "shared MIR optimization and alias/effect analysis must precede memory dependence and target lowering")
 endif()
