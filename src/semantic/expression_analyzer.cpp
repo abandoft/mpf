@@ -103,6 +103,85 @@ std::optional<StorageRegionDimension> slice_region_dimension(const Expression& s
                                 static_cast<std::size_t>(magnitude), count};
 }
 
+std::vector<std::size_t> matlab_broadcast_shape(std::vector<std::size_t> shape,
+                                                const std::size_t peer_rank) {
+  // A flat Matlab literal is represented compactly as rank one in HIR, but participates in
+  // compatible-size operations as a 1-by-N row vector when paired with a matrix/N-D array.
+  if (shape.size() == 1U && peer_rank >= 2U) shape.insert(shape.begin(), 1U);
+  return shape;
+}
+
+std::optional<hir::BroadcastPlan> matlab_broadcast_plan(const std::vector<std::size_t>& raw_left,
+                                                        const std::vector<std::size_t>& raw_right) {
+  auto left = matlab_broadcast_shape(raw_left, raw_right.size());
+  auto right = matlab_broadcast_shape(raw_right, raw_left.size());
+  const auto rank = std::max(left.size(), right.size());
+  left.resize(rank, 1U);
+  right.resize(rank, 1U);
+
+  hir::BroadcastPlan result;
+  result.valid = true;
+  result.left_shape = left;
+  result.right_shape = right;
+  result.result_shape.reserve(rank);
+  result.axes.reserve(rank);
+  for (std::size_t axis = 0; axis < rank; ++axis) {
+    const auto left_extent = left[axis];
+    const auto right_extent = right[axis];
+    if (left_extent == right_extent) {
+      result.result_shape.push_back(left_extent);
+      result.axes.push_back(semantic::BroadcastAxis::match);
+    } else if (left_extent == 1U) {
+      result.result_shape.push_back(right_extent);
+      result.axes.push_back(semantic::BroadcastAxis::expand_left);
+    } else if (right_extent == 1U) {
+      result.result_shape.push_back(left_extent);
+      result.axes.push_back(semantic::BroadcastAxis::expand_right);
+    } else if (left_extent == dynamic_extent || right_extent == dynamic_extent) {
+      const auto known = left_extent == dynamic_extent ? right_extent : left_extent;
+      result.result_shape.push_back(known == dynamic_extent ? dynamic_extent : known);
+      result.axes.push_back(semantic::BroadcastAxis::runtime);
+    } else {
+      return std::nullopt;
+    }
+  }
+  return result;
+}
+
+bool runtime_broadcast(const hir::BroadcastPlan& plan) {
+  return std::find(plan.axes.begin(), plan.axes.end(), semantic::BroadcastAxis::runtime) !=
+         plan.axes.end();
+}
+
+std::optional<std::size_t> static_element_count(const std::vector<std::size_t>& shape) {
+  if (shape.empty()) return std::nullopt;
+  std::size_t result = 1U;
+  for (const auto extent : shape) {
+    if (extent == dynamic_extent ||
+        (extent != 0U && result > std::numeric_limits<std::size_t>::max() / extent)) {
+      return std::nullopt;
+    }
+    result *= extent;
+  }
+  return result;
+}
+
+std::optional<std::size_t> boolean_literal_count(const Expression& expression) {
+  if (expression.kind == ExpressionKind::boolean_literal) {
+    return expression.value == "true" ? 1U : 0U;
+  }
+  if (expression.kind != ExpressionKind::list) return std::nullopt;
+  std::size_t result = 0U;
+  for (const auto& child : expression.children) {
+    const auto count = boolean_literal_count(child);
+    if (!count.has_value() || result > std::numeric_limits<std::size_t>::max() - *count) {
+      return std::nullopt;
+    }
+    result += *count;
+  }
+  return result;
+}
+
 }  // namespace
 
 ValueType Analyzer::analyze_expression(Expression& expression) {
@@ -123,6 +202,10 @@ ValueType Analyzer::analyze_expression(Expression& expression) {
     case ExpressionKind::null_literal:
       return semantic(semantics_, expression).inferred_type = ValueType::null_value;
     case ExpressionKind::omitted_argument:
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+    case ExpressionKind::end_index:
+      diagnose(expression.location.line, "MPF2048",
+               "Matlab 'end' is only valid in an array index with a statically known extent");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     case ExpressionKind::identifier: {
       const auto* use = names_.reference(expression.id);
@@ -168,6 +251,32 @@ ValueType Analyzer::analyze_expression(Expression& expression) {
       const auto operand = expression.children.empty()
                                ? ValueType::unknown
                                : analyze_expression(expression.children.front());
+      if (expression.unary_operation == UnaryOperator::transpose ||
+          expression.unary_operation == UnaryOperator::conjugate_transpose) {
+        auto& facts = semantic(semantics_, expression);
+        const auto& operand_facts = semantic(semantics_, expression.children.front());
+        if (operand == ValueType::list) {
+          if (operand_facts.shape.size() == 1U) {
+            facts.shape = {operand_facts.shape.front(), 1U};
+          } else if (operand_facts.shape.size() == 2U) {
+            facts.shape = {operand_facts.shape[1], operand_facts.shape[0]};
+          } else {
+            diagnose(expression.location.line, "MPF2047",
+                     "Matlab transpose requires a vector or rank-2 array; use page-wise "
+                     "operations for N-D arrays");
+            return facts.inferred_type = ValueType::unknown;
+          }
+          facts.inferred_type = ValueType::list;
+          facts.element_type = operand_facts.element_type;
+          return facts.inferred_type;
+        }
+        if (operand == ValueType::string) {
+          diagnose(expression.location.line, "MPF2047",
+                   "Matlab character-array transpose is outside the current string model");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        return facts.inferred_type = operand;
+      }
       if (program_.language == SourceLanguage::typescript && expression.value == "!" &&
           operand != ValueType::unknown && operand != ValueType::boolean) {
         diagnose(expression.location.line, "MPF2002",
@@ -282,6 +391,46 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
   const auto right = analyze_expression(expression.children[1]);
   const auto operation = expression.operation;
   if (expression.comparison != ComparisonOperator::none) {
+    if (program_.language == SourceLanguage::matlab) {
+      const auto& left_facts = semantic(semantics_, expression.children[0]);
+      const auto& right_facts = semantic(semantics_, expression.children[1]);
+      const bool left_array = left == ValueType::list;
+      const bool right_array = right == ValueType::list;
+      if (left_array || right_array) {
+        const auto left_element = left_array ? left_facts.element_type : left;
+        const auto right_element = right_array ? right_facts.element_type : right;
+        if ((left_element != ValueType::unknown && !numeric(left_element) &&
+             left_element != ValueType::boolean) ||
+            (right_element != ValueType::unknown && !numeric(right_element) &&
+             right_element != ValueType::boolean)) {
+          diagnose(expression.location.line, "MPF2046",
+                   "Matlab array comparison requires numeric or logical operands");
+          return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+        }
+        auto& facts = semantic(semantics_, expression);
+        facts.array_operation = semantic::ArrayOperation::matlab;
+        if (left_array && right_array) {
+          const auto broadcast = matlab_broadcast_plan(left_facts.shape, right_facts.shape);
+          if (!broadcast.has_value()) {
+            diagnose(expression.location.line, "MPF2046",
+                     "Matlab array comparison operands have incompatible sizes");
+            return facts.inferred_type = ValueType::unknown;
+          }
+          if (runtime_broadcast(*broadcast)) {
+            diagnose(expression.location.line, "MPF2046",
+                     "Matlab runtime-sized implicit expansion is not yet representable by both "
+                     "targets");
+            return facts.inferred_type = ValueType::unknown;
+          }
+          if (left_facts.shape != right_facts.shape) facts.broadcast = *broadcast;
+        }
+        facts.inferred_type = ValueType::list;
+        facts.element_type = ValueType::boolean;
+        facts.shape = facts.broadcast.valid ? facts.broadcast.result_shape
+                                            : (left_array ? left_facts.shape : right_facts.shape);
+        return facts.inferred_type;
+      }
+    }
     if (program_.language == SourceLanguage::python) {
       validate_python_comparison(expression.comparison, expression.children[0], left,
                                  expression.children[1], right);
@@ -357,20 +506,34 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
     if (has_array && (elementwise || scalar_scale)) {
-      if (left_array && right_array && left_facts.shape != right_facts.shape) {
-        diagnose(expression.location.line, "MPF2046",
-                 "Matlab element-wise operands currently require identical shapes or a scalar "
-                 "operand");
-        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
-      }
       auto& facts = semantic(semantics_, expression);
+      facts.array_operation = semantic::ArrayOperation::matlab;
+      if (left_array && right_array) {
+        const auto broadcast = matlab_broadcast_plan(left_facts.shape, right_facts.shape);
+        if (!broadcast.has_value()) {
+          diagnose(expression.location.line, "MPF2046",
+                   "Matlab element-wise operands have incompatible sizes; every dimension must "
+                   "be equal or singleton");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        if (runtime_broadcast(*broadcast)) {
+          diagnose(expression.location.line, "MPF2046",
+                   "Matlab runtime-sized implicit expansion is not yet representable by both "
+                   "targets");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        // Preserve the direct same-shape runtime fast path. A side-table plan is needed only
+        // when lowering must expand at least one compatible singleton dimension.
+        if (left_facts.shape != right_facts.shape) facts.broadcast = *broadcast;
+      }
       facts.inferred_type = ValueType::list;
       facts.element_type = operation == BinaryOperator::elementwise_divide ||
                                    operation == BinaryOperator::elementwise_left_divide ||
                                    operation == BinaryOperator::elementwise_power
                                ? ValueType::real
                                : join_types(left_element, right_element);
-      facts.shape = left_array ? left_facts.shape : right_facts.shape;
+      facts.shape = facts.broadcast.valid ? facts.broadcast.result_shape
+                                          : (left_array ? left_facts.shape : right_facts.shape);
       return facts.inferred_type;
     }
     if (has_array && operation == BinaryOperator::multiply && left_array && right_array) {
@@ -393,6 +556,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
         return semantic(semantics_, expression).inferred_type = ValueType::unknown;
       }
       auto& facts = semantic(semantics_, expression);
+      facts.array_operation = semantic::ArrayOperation::matlab;
       facts.inferred_type = ValueType::list;
       facts.element_type = join_types(left_element, right_element);
       facts.shape = {left_facts.shape[0], right_facts.shape[1]};
@@ -1066,6 +1230,7 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
              "Fortran array reference rank does not match its declared rank");
   }
   bool has_slice = false;
+  bool has_logical = false;
   std::vector<std::size_t> result_shape;
   StorageRegion storage_region;
   storage_region.kind = semantic(semantics_, expression).column_major && index_count == 1U &&
@@ -1095,6 +1260,28 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
     } else if (position < container_facts.shape.size()) {
       extent = container_facts.shape[position];
     }
+    const auto resolve_end = [&](auto&& self, Expression& candidate) -> void {
+      if (candidate.kind == ExpressionKind::end_index) {
+        if (extent == dynamic_extent) {
+          diagnose(candidate.location.line, "MPF2048",
+                   "Matlab 'end' requires a statically known array extent in this release");
+          return;
+        }
+        candidate.kind = ExpressionKind::number_literal;
+        candidate.value = std::to_string(extent);
+        candidate.unary_operation = UnaryOperator::none;
+        candidate.operation = BinaryOperator::none;
+        candidate.comparison = ComparisonOperator::none;
+        candidate.comparisons.clear();
+        return;
+      }
+      if (candidate.kind != ExpressionKind::unary && candidate.kind != ExpressionKind::binary &&
+          candidate.kind != ExpressionKind::slice) {
+        return;
+      }
+      for (auto& child : candidate.children) self(self, child);
+    };
+    resolve_end(resolve_end, index);
     if (index.kind == ExpressionKind::slice) {
       has_slice = true;
       const auto count = analyze_slice(index, extent);
@@ -1108,6 +1295,29 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
       continue;
     }
     const auto index_type = analyze_expression(index);
+    const auto& index_facts = semantic(semantics_, index);
+    if (program_.language == SourceLanguage::matlab && index_type == ValueType::list &&
+        index_facts.element_type == ValueType::boolean) {
+      has_logical = true;
+      semantic(semantics_, expression).index_selection = semantic::IndexSelection::logical;
+      if (index_count != 1U) {
+        diagnose(index.location.line, "MPF2049",
+                 "Matlab logical indexing currently requires one linear mask selector");
+      }
+      const auto container_size = static_element_count(container_facts.shape);
+      const auto mask_size = static_element_count(index_facts.shape);
+      if (!container_size.has_value() || !mask_size.has_value()) {
+        diagnose(index.location.line, "MPF2049",
+                 "Matlab logical indexing currently requires statically known array and mask "
+                 "shapes");
+      } else if (*container_size != *mask_size) {
+        diagnose(index.location.line, "MPF2049",
+                 "Matlab logical index mask must contain one value per array element");
+      }
+      result_shape = {boolean_literal_count(index).value_or(dynamic_extent)};
+      exact_region = false;
+      continue;
+    }
     const bool typescript_integral_number = program_.language == SourceLanguage::typescript &&
                                             index_type == ValueType::real &&
                                             integral_constant(index).has_value();
@@ -1151,7 +1361,7 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
                         container_facts.shape.begin() + static_cast<std::ptrdiff_t>(index_count),
                         container_facts.shape.end());
   }
-  if (has_slice || !result_shape.empty()) {
+  if (has_slice || has_logical || !result_shape.empty()) {
     semantic(semantics_, expression).shape = std::move(result_shape);
     return semantic(semantics_, expression).inferred_type = ValueType::list;
   }

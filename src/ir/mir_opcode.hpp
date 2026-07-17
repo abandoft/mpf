@@ -11,7 +11,8 @@ namespace mpf::detail::mir {
     case ExpressionKind::string_literal:
     case ExpressionKind::boolean_literal:
     case ExpressionKind::null_literal:
-    case ExpressionKind::omitted_argument: return Opcode::literal;
+    case ExpressionKind::omitted_argument:
+    case ExpressionKind::end_index: return Opcode::literal;
     case ExpressionKind::identifier:
       return binding == BindingKind::variable ? Opcode::load : Opcode::identifier;
     case ExpressionKind::unary: return Opcode::unary;

@@ -47,7 +47,9 @@ enum class TokenKind {
   comma,
   colon,
   semicolon,
-  dot
+  dot,
+  transpose,
+  conjugate_transpose
 };
 
 struct Token {

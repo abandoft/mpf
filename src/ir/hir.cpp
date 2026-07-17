@@ -39,6 +39,12 @@ void verify_expression(const Expression& expression, const std::size_t node_coun
                 "binary expression has no operator or carries multiple operator forms");
     }
   }
+  if ((expression.kind == ExpressionKind::unary) !=
+          (expression.unary_operation != UnaryOperator::none) ||
+      (expression.kind == ExpressionKind::unary && expression.children.size() != 1U)) {
+    add_error(diagnostics, expression.location, stage,
+              "unary expression has an invalid typed operator contract");
+  }
   if (expression.kind == ExpressionKind::comparison_chain &&
       (expression.children.size() < 3 ||
        expression.comparisons.size() + 1 != expression.children.size() ||

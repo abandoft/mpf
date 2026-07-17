@@ -53,6 +53,15 @@ enum class BinaryOperator : std::uint8_t {
   elementwise_power
 };
 
+enum class UnaryOperator : std::uint8_t {
+  none,
+  positive,
+  negative,
+  logical_not,
+  transpose,
+  conjugate_transpose
+};
+
 [[nodiscard]] constexpr std::string_view binary_operator_spelling(
     const BinaryOperator operation) noexcept {
   switch (operation) {
@@ -123,7 +132,8 @@ enum class ExpressionKind {
   index,
   slice,
   list,
-  tuple
+  tuple,
+  end_index
 };
 
 struct ValueMetadata {
@@ -139,6 +149,7 @@ struct Expression {
   ExpressionKind kind{ExpressionKind::invalid};
   SourceLocation location{};
   std::string value;
+  UnaryOperator unary_operation{UnaryOperator::none};
   BinaryOperator operation{BinaryOperator::none};
   ComparisonOperator comparison{ComparisonOperator::none};
   std::vector<ComparisonOperator> comparisons;

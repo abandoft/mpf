@@ -79,6 +79,7 @@ class HirLowerer final {
     result.location = node.location;
     result.kind = node.kind;
     result.value = std::move(node.value);
+    result.unary_operation = node.unary_operation;
     result.operation = node.operation;
     result.comparison = node.comparison;
     result.comparisons = std::move(node.comparisons);
@@ -255,6 +256,10 @@ std::vector<Diagnostic> verify_typed_ast(const ArenaProgram<Tag>& ast,
             (has_operation && node.value.empty())) {
           add_error(node.location, "frontend AST binary operator representation is ambiguous");
         }
+      }
+      if ((node.kind == ExpressionKind::unary) != (node.unary_operation != UnaryOperator::none) ||
+          (node.kind == ExpressionKind::unary && node.children.size() != 1U)) {
+        add_error(node.location, "frontend AST unary operator representation is inconsistent");
       }
       if (node.kind == ExpressionKind::comparison_chain &&
           (node.children.size() < 3U || node.comparisons.size() + 1U != node.children.size() ||

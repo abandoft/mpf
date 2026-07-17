@@ -717,10 +717,22 @@ class Builder final {
     result.location = source.location;
     result.kind = source.kind;
     result_attributes.spelling = std::move(source.value);
+    result_attributes.unary_operation = source.unary_operation;
     result_attributes.operation = source.operation;
     result_attributes.comparison = source.comparison;
     result_attributes.comparisons = std::move(source.comparisons);
     if (semantic_facts != nullptr) {
+      result_attributes.array_operation = semantic_facts->array_operation;
+      if (semantic_facts->broadcast.valid) {
+        result_attributes.broadcast.valid = true;
+        result_attributes.broadcast.left_shape =
+            intern_shape(semantic_facts->broadcast.left_shape, false);
+        result_attributes.broadcast.right_shape =
+            intern_shape(semantic_facts->broadcast.right_shape, false);
+        result_attributes.broadcast.result_shape =
+            intern_shape(semantic_facts->broadcast.result_shape, false);
+        result_attributes.broadcast.axes = semantic_facts->broadcast.axes;
+      }
       result_attributes.binding = semantic_facts->binding;
       result_attributes.intrinsic = semantic_facts->intrinsic;
       result_attributes.tuple_shapes.reserve(semantic_facts->tuple_shapes.size());
@@ -737,6 +749,7 @@ class Builder final {
       result_attributes.index_base = semantic_facts->index_base;
       result_attributes.allow_negative_index = semantic_facts->allow_negative_index;
       result_attributes.slice_stop_inclusive = semantic_facts->slice_stop_inclusive;
+      result_attributes.index_selection = semantic_facts->index_selection;
       result_attributes.storage_region = semantic_facts->storage_region;
     }
     result.children.reserve(source.children.size());

@@ -18,6 +18,7 @@ struct Expression {
   SourceLocation location{};
   ExpressionKind kind{ExpressionKind::invalid};
   std::string value;
+  UnaryOperator unary_operation{UnaryOperator::none};
   BinaryOperator operation{BinaryOperator::none};
   ComparisonOperator comparison{ComparisonOperator::none};
   std::vector<ComparisonOperator> comparisons;

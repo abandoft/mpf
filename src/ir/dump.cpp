@@ -233,6 +233,25 @@ std::string dump_mir(const mir::Program& program) {
              << " requested=" << attributes->requested_results
              << " lazy-cfg=" << attributes->lazy_cfg << " tuple-shapes=";
       dump_ids(output, attributes->tuple_shapes, "!s");
+      if (attributes->unary_operation != UnaryOperator::none) {
+        output << " unary=" << enum_value(attributes->unary_operation);
+      }
+      if (attributes->array_operation == semantic::ArrayOperation::matlab) {
+        output << " matlab-array-operation=1";
+      }
+      if (attributes->index_selection == semantic::IndexSelection::logical) {
+        output << " logical-index=1";
+      }
+      if (attributes->broadcast.valid) {
+        output << " broadcast=!s" << attributes->broadcast.left_shape.value() << ",!s"
+               << attributes->broadcast.right_shape.value() << "->!s"
+               << attributes->broadcast.result_shape.value() << " axes=[";
+        for (std::size_t axis = 0; axis < attributes->broadcast.axes.size(); ++axis) {
+          if (axis != 0U) output << ',';
+          output << enum_value(attributes->broadcast.axes[axis]);
+        }
+        output << ']';
+      }
     }
     output << '\n';
   }

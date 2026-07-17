@@ -105,6 +105,15 @@ BinaryOperator binary_operator(const TokenKind kind) noexcept {
   }
 }
 
+UnaryOperator prefix_operator(const TokenKind kind) noexcept {
+  switch (kind) {
+    case TokenKind::plus: return UnaryOperator::positive;
+    case TokenKind::minus: return UnaryOperator::negative;
+    case TokenKind::logical_not: return UnaryOperator::logical_not;
+    default: return UnaryOperator::none;
+  }
+}
+
 class Parser final {
  public:
   Parser(LexerResult lexed, const SourceLanguage language)
@@ -240,6 +249,21 @@ class Parser final {
         left = std::move(expression);
         continue;
       }
+      if (language_ == SourceLanguage::matlab &&
+          (current().kind == TokenKind::transpose ||
+           current().kind == TokenKind::conjugate_transpose)) {
+        const auto operator_token = take();
+        Expression expression;
+        expression.kind = ExpressionKind::unary;
+        expression.location = operator_token.location;
+        expression.value = operator_token.text;
+        expression.unary_operation = operator_token.kind == TokenKind::transpose
+                                         ? UnaryOperator::transpose
+                                         : UnaryOperator::conjugate_transpose;
+        expression.children.push_back(std::move(left));
+        left = std::move(expression);
+        continue;
+      }
 
       const auto comparison = current_comparison();
       const auto power = comparison.has_value() ? 3 : binding_power(current().kind);
@@ -302,7 +326,9 @@ class Parser final {
     expression.location = token.location;
     switch (token.kind) {
       case TokenKind::identifier:
-        expression.kind = ExpressionKind::identifier;
+        expression.kind = language_ == SourceLanguage::matlab && token.text == "end"
+                              ? ExpressionKind::end_index
+                              : ExpressionKind::identifier;
         expression.value = token.text;
         return expression;
       case TokenKind::number:
@@ -327,6 +353,7 @@ class Parser final {
       case TokenKind::logical_not:
         expression.kind = ExpressionKind::unary;
         expression.value = canonical_operator(token.kind, language_);
+        expression.unary_operation = prefix_operator(token.kind);
         expression.children.push_back(parse_precedence(
             language_ == SourceLanguage::python && token.kind == TokenKind::logical_not ? 3 : 6));
         return expression;

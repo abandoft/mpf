@@ -112,7 +112,8 @@ bool token_ends_matlab_vector_element(const TokenKind kind) noexcept {
   return kind == TokenKind::identifier || kind == TokenKind::number ||
          kind == TokenKind::string_literal || kind == TokenKind::true_keyword ||
          kind == TokenKind::false_keyword || kind == TokenKind::right_parenthesis ||
-         kind == TokenKind::right_bracket;
+         kind == TokenKind::right_bracket || kind == TokenKind::transpose ||
+         kind == TokenKind::conjugate_transpose;
 }
 
 bool starts_matlab_vector_element(const unsigned char character) noexcept {
@@ -230,6 +231,19 @@ LexerResult scan_expression(const std::string_view input, const SourceLanguage l
         std::replace(number.begin(), number.end(), 'D', 'e');
       }
       result.tokens.push_back({TokenKind::number, std::move(number), {line, token_column}});
+      continue;
+    }
+
+    if (language == SourceLanguage::matlab && character == '.' && index + 1 < input.size() &&
+        input[index + 1] == '\'') {
+      result.tokens.push_back({TokenKind::transpose, ".'", {line, token_column}});
+      index += 2;
+      continue;
+    }
+    if (language == SourceLanguage::matlab && character == '\'' && !result.tokens.empty() &&
+        token_ends_matlab_vector_element(result.tokens.back().kind)) {
+      result.tokens.push_back({TokenKind::conjugate_transpose, "'", {line, token_column}});
+      ++index;
       continue;
     }
 

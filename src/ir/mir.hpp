@@ -294,12 +294,23 @@ struct AssignmentPattern {
   [[nodiscard]] bool valid() const noexcept { return kind != AssignmentPatternKind::invalid; }
 };
 
+struct BroadcastPlan {
+  bool valid{false};
+  ShapeId left_shape{};
+  ShapeId right_shape{};
+  ShapeId result_shape{};
+  std::vector<semantic::BroadcastAxis> axes;
+};
+
 struct ExpressionAttributes {
   MirExpressionId origin{};
   std::string spelling;
+  UnaryOperator unary_operation{UnaryOperator::none};
   BinaryOperator operation{BinaryOperator::none};
   ComparisonOperator comparison{ComparisonOperator::none};
   std::vector<ComparisonOperator> comparisons;
+  semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
+  BroadcastPlan broadcast;
   BindingKind binding{BindingKind::unresolved};
   IntrinsicId intrinsic{IntrinsicId::none};
   std::vector<ShapeId> tuple_shapes;
@@ -310,6 +321,7 @@ struct ExpressionAttributes {
   std::size_t index_base{0};
   bool allow_negative_index{false};
   bool slice_stop_inclusive{false};
+  semantic::IndexSelection index_selection{semantic::IndexSelection::positional};
   bool lazy_cfg{false};
   StorageRegion storage_region;
 };

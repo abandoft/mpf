@@ -7,11 +7,20 @@
 
 #include "../compiler/assignment_pattern.hpp"
 #include "ids.hpp"
+#include "semantics.hpp"
 #include "storage_region.hpp"
 
 namespace mpf::detail::hir {
 
 enum class SemanticNodeKind : std::uint8_t { absent, expression, statement };
+
+struct BroadcastPlan {
+  bool valid{false};
+  std::vector<std::size_t> left_shape;
+  std::vector<std::size_t> right_shape;
+  std::vector<std::size_t> result_shape;
+  std::vector<semantic::BroadcastAxis> axes;
+};
 
 struct ExpressionFacts {
   HirNodeId origin{};
@@ -20,6 +29,8 @@ struct ExpressionFacts {
   IntrinsicId intrinsic{IntrinsicId::none};
   ValueType element_type{ValueType::unknown};
   std::vector<std::size_t> shape;
+  semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
+  BroadcastPlan broadcast;
   std::vector<ValueType> tuple_types;
   std::vector<ValueType> tuple_element_types;
   std::vector<std::vector<std::size_t>> tuple_shapes;
@@ -35,6 +46,7 @@ struct ExpressionFacts {
   bool allow_negative_index{false};
   bool column_major{false};
   bool slice_stop_inclusive{false};
+  semantic::IndexSelection index_selection{semantic::IndexSelection::positional};
   StorageRegion storage_region;
 };
 

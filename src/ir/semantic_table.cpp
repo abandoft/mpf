@@ -32,6 +32,26 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
   if (facts->requested_outputs == 0) {
     add_error(diagnostics, expression.location, stage, "expression requests zero outputs");
   }
+  if (facts->array_operation == semantic::ArrayOperation::matlab &&
+      expression.kind != ExpressionKind::binary) {
+    add_error(diagnostics, expression.location, stage,
+              "Matlab array-operation facts require a binary expression");
+  }
+  if (facts->broadcast.valid &&
+      (facts->array_operation != semantic::ArrayOperation::matlab ||
+       expression.kind != ExpressionKind::binary || facts->broadcast.axes.empty() ||
+       facts->broadcast.left_shape.size() != facts->broadcast.axes.size() ||
+       facts->broadcast.right_shape.size() != facts->broadcast.axes.size() ||
+       facts->broadcast.result_shape.size() != facts->broadcast.axes.size() ||
+       facts->shape != facts->broadcast.result_shape)) {
+    add_error(diagnostics, expression.location, stage,
+              "expression broadcast plan has an invalid kind, arity, or result shape");
+  }
+  if (facts->index_selection == semantic::IndexSelection::logical &&
+      (expression.kind != ExpressionKind::index || expression.children.size() != 2U)) {
+    add_error(diagnostics, expression.location, stage,
+              "logical index facts require one normalized selector");
+  }
   if (!valid_storage_region(facts->storage_region) ||
       (facts->storage_region.kind != StorageRegionKind::unknown &&
        expression.kind != ExpressionKind::identifier && expression.kind != ExpressionKind::index &&

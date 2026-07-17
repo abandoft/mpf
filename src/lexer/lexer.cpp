@@ -63,6 +63,8 @@ const char* to_string(const TokenKind kind) noexcept {
     case TokenKind::colon: return ":";
     case TokenKind::semicolon: return ";";
     case TokenKind::dot: return ".";
+    case TokenKind::transpose: return ".'";
+    case TokenKind::conjugate_transpose: return "'";
   }
   return "token";
 }

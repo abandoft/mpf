@@ -213,9 +213,12 @@ void verify_expression(const Expression& expression, const Program& program,
         expression.storage_id.valid() || expression.symbol_id.valid() ||
         !expression.children.empty() || retired_attributes == nullptr ||
         retired_attributes->origin != expression.id || !retired_attributes->spelling.empty() ||
+        retired_attributes->unary_operation != UnaryOperator::none ||
         retired_attributes->operation != BinaryOperator::none ||
         retired_attributes->comparison != ComparisonOperator::none ||
         !retired_attributes->comparisons.empty() ||
+        retired_attributes->array_operation != semantic::ArrayOperation::native ||
+        retired_attributes->broadcast.valid ||
         retired_attributes->binding != BindingKind::unresolved ||
         retired_attributes->intrinsic != IntrinsicId::none ||
         !retired_attributes->tuple_shapes.empty() ||
@@ -223,6 +226,7 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->requested_results != 1U || retired_attributes->multi_result_call ||
         retired_attributes->procedure_has_result || retired_attributes->index_base != 0U ||
         retired_attributes->allow_negative_index || retired_attributes->slice_stop_inclusive ||
+        retired_attributes->index_selection != semantic::IndexSelection::positional ||
         retired_attributes->lazy_cfg ||
         retired_attributes->storage_region.kind != StorageRegionKind::unknown) {
       add_error(diagnostics, expression.location, stage,
@@ -324,6 +328,56 @@ void verify_expression(const Expression& expression, const Program& program,
     add_error(diagnostics, expression.location, stage,
               "expression operation attributes contain an invalid storage region");
   }
+  if (expression_attributes->index_selection == semantic::IndexSelection::logical &&
+      (expression.kind != ExpressionKind::index || expression.children.size() != 2U)) {
+    add_error(diagnostics, expression.location, stage,
+              "logical index attributes require one normalized selector");
+  }
+  const bool requires_matlab_array_operation =
+      program.source_language == SourceLanguage::matlab &&
+      expression.kind == ExpressionKind::binary &&
+      value_type(program, expression.type_id) == ValueType::list;
+  if ((expression_attributes->array_operation == semantic::ArrayOperation::matlab) !=
+      requires_matlab_array_operation) {
+    add_error(diagnostics, expression.location, stage,
+              "Matlab array-operation attributes disagree with the typed expression contract");
+  }
+  if (expression_attributes->broadcast.valid) {
+    const auto& broadcast = expression_attributes->broadcast;
+    const auto* left_shape = shape(program, broadcast.left_shape);
+    const auto* right_shape = shape(program, broadcast.right_shape);
+    const auto* result_shape = shape(program, broadcast.result_shape);
+    const bool valid_shapes = left_shape != nullptr && right_shape != nullptr &&
+                              result_shape != nullptr &&
+                              broadcast.result_shape == expression.shape_id;
+    const auto rank = broadcast.axes.size();
+    if (expression_attributes->array_operation != semantic::ArrayOperation::matlab ||
+        expression.kind != ExpressionKind::binary || !valid_shapes || rank == 0U ||
+        (valid_shapes &&
+         (left_shape->extents.size() != rank || right_shape->extents.size() != rank ||
+          result_shape->extents.size() != rank))) {
+      add_error(diagnostics, expression.location, stage,
+                "expression broadcast attributes have invalid shape IDs or arity");
+    } else {
+      for (std::size_t axis = 0; axis < rank; ++axis) {
+        const auto left = left_shape->extents[axis];
+        const auto right = right_shape->extents[axis];
+        const auto result = result_shape->extents[axis];
+        const auto mode = broadcast.axes[axis];
+        const bool valid_axis =
+            (mode == semantic::BroadcastAxis::match && left == right && result == left) ||
+            (mode == semantic::BroadcastAxis::expand_left && left == 1U && result == right) ||
+            (mode == semantic::BroadcastAxis::expand_right && right == 1U && result == left) ||
+            (mode == semantic::BroadcastAxis::runtime &&
+             (left == dynamic_extent || right == dynamic_extent));
+        if (!valid_axis) {
+          add_error(diagnostics, expression.location, stage,
+                    "expression broadcast axis is incompatible with its shape contract");
+          break;
+        }
+      }
+    }
+  }
   if (expression.instruction.valid() &&
       expression.instruction.value() < program.instructions.size()) {
     const auto& instruction = program.instructions[expression.instruction.value()];
@@ -381,6 +435,12 @@ void verify_expression(const Expression& expression, const Program& program,
       add_error(diagnostics, expression.location, stage,
                 "binary expression has an ambiguous operator representation");
     }
+  }
+  if ((expression.kind == ExpressionKind::unary) !=
+          (expression_attributes->unary_operation != UnaryOperator::none) ||
+      (expression.kind == ExpressionKind::unary && expression.children.size() != 1U)) {
+    add_error(diagnostics, expression.location, stage,
+              "unary expression has an invalid typed operator contract");
   }
   if (expression.kind == ExpressionKind::comparison_chain &&
       (expression.children.size() < 3U ||

@@ -91,6 +91,30 @@ std::optional<double> numeric_constant(const Expression& expression) {
     const auto child = numeric_constant(expression.children.front());
     if (child.has_value()) return expression.value == "-" ? -*child : *child;
   }
+  if (expression.kind == ExpressionKind::binary && expression.children.size() == 2U) {
+    const auto left = numeric_constant(expression.children[0]);
+    const auto right = numeric_constant(expression.children[1]);
+    if (!left.has_value() || !right.has_value()) return std::nullopt;
+    switch (expression.operation) {
+      case BinaryOperator::add: return *left + *right;
+      case BinaryOperator::subtract: return *left - *right;
+      case BinaryOperator::multiply:
+      case BinaryOperator::elementwise_multiply: return *left * *right;
+      case BinaryOperator::divide:
+      case BinaryOperator::elementwise_divide:
+        return *right == 0.0 ? std::nullopt : std::optional<double>{*left / *right};
+      case BinaryOperator::left_divide:
+      case BinaryOperator::elementwise_left_divide:
+        return *left == 0.0 ? std::nullopt : std::optional<double>{*right / *left};
+      case BinaryOperator::none:
+      case BinaryOperator::floor_divide:
+      case BinaryOperator::remainder:
+      case BinaryOperator::power:
+      case BinaryOperator::logical_and:
+      case BinaryOperator::logical_or:
+      case BinaryOperator::elementwise_power: return std::nullopt;
+    }
+  }
   return std::nullopt;
 }
 
@@ -118,6 +142,7 @@ bool safe_python_default(const Expression& expression) {
              safe_python_default(expression.children.front());
     case ExpressionKind::invalid:
     case ExpressionKind::omitted_argument:
+    case ExpressionKind::end_index:
     case ExpressionKind::identifier:
     case ExpressionKind::binary:
     case ExpressionKind::comparison_chain:
@@ -723,6 +748,23 @@ bool Analyzer::analyze_statement(Statement& statement) {
       if (statement.target_expression.kind != ExpressionKind::index) {
         diagnose(statement.line, "MPF2022",
                  "indexed assignment target is not an array/list element");
+      } else if (semantic(semantics_, statement.target_expression).index_selection ==
+                 semantic::IndexSelection::logical) {
+        const auto target_element = semantic(semantics_, statement.target_expression).element_type;
+        const auto replacement_element =
+            value_type == ValueType::list ? semantic(semantics_, statement.expression).element_type
+                                          : value_type;
+        if (target_element != ValueType::unknown && replacement_element != ValueType::unknown &&
+            join_types(target_element, replacement_element) == ValueType::unknown) {
+          diagnose(statement.line, "MPF2020",
+                   "logical indexed assignment changes the array element type");
+        }
+        if (value_type == ValueType::list &&
+            semantic(semantics_, statement.expression).shape.size() != 1U) {
+          diagnose(statement.line, "MPF2049",
+                   "Matlab logical assignment currently requires a scalar or vector "
+                   "replacement");
+        }
       } else if (has_direct_slice(statement.target_expression)) {
         analyze_section_assignment(statement, value_type);
       } else if (contains_slice(statement.target_expression)) {
@@ -732,7 +774,10 @@ bool Analyzer::analyze_statement(Statement& statement) {
         diagnose(statement.line, "MPF2020", "indexed assignment changes the array element type");
       }
       semantic(semantics_, statement).element_type =
-          has_direct_slice(statement.target_expression)
+          semantic(semantics_, statement.target_expression).index_selection ==
+                  semantic::IndexSelection::logical
+              ? semantic(semantics_, statement.target_expression).element_type
+          : has_direct_slice(statement.target_expression)
               ? semantic(semantics_, statement.target_expression).element_type
               : target_type;
       return false;
