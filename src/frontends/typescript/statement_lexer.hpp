@@ -4,8 +4,8 @@
 #include <string>
 #include <vector>
 
-#include "../source/source_text.hpp"
-#include "statement_token.hpp"
+#include "lexer/statement_token.hpp"
+#include "source/source_text.hpp"
 
 namespace mpf::detail {
 

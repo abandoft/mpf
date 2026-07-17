@@ -1,4 +1,4 @@
-#include "typescript_statement_lexer.hpp"
+#include "frontends/typescript/statement_lexer.hpp"
 
 #include <algorithm>
 #include <array>

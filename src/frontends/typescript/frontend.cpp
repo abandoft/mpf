@@ -1,9 +1,9 @@
 #include <utility>
 
-#include "../lexer/typescript_statement_lexer.hpp"
-#include "common.hpp"
-#include "frontend_descriptor.hpp"
-#include "typescript_statement_parser.hpp"
+#include "frontends/common/descriptor.hpp"
+#include "frontends/common/parser_support.hpp"
+#include "frontends/typescript/statement_lexer.hpp"
+#include "frontends/typescript/statement_parser.hpp"
 
 namespace mpf::detail {
 namespace {

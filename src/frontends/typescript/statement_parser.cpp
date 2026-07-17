@@ -1,4 +1,4 @@
-#include "typescript_statement_parser.hpp"
+#include "frontends/typescript/statement_parser.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -9,8 +9,9 @@
 #include <utility>
 #include <vector>
 
-#include "common.hpp"
-#include "frontend_ast_builder.hpp"
+#include "frontends/common/ast_builder.hpp"
+#include "frontends/common/parser_support.hpp"
+#include "frontends/typescript/expression_lexer.hpp"
 
 namespace mpf::detail {
 namespace {
@@ -50,7 +51,7 @@ class Parser final {
          std::pmr::memory_resource* resource)
       : tokens_(std::move(lexed.tokens)),
         diagnostics_(std::move(lexed.diagnostics)),
-        builder_(SourceLanguage::typescript, resource) {
+        builder_(SourceLanguage::typescript, &lex_typescript_expression, resource) {
     (void)version;
     scopes_.emplace_back();
     const_scopes_.emplace_back();

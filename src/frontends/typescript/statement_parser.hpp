@@ -2,8 +2,8 @@
 
 #include <memory_resource>
 
-#include "../lexer/typescript_statement_lexer.hpp"
-#include "frontend_ast.hpp"
+#include "frontends/common/ast.hpp"
+#include "frontends/typescript/statement_lexer.hpp"
 
 namespace mpf::detail {
 
