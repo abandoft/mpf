@@ -1,4 +1,4 @@
-#include "fortran_statement_lexer.hpp"
+#include "frontends/fortran/statement_lexer.hpp"
 
 #include <algorithm>
 #include <cctype>

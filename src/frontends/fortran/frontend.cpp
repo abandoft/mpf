@@ -1,11 +1,11 @@
 #include <iterator>
 #include <utility>
 
-#include "../lexer/fortran_statement_lexer.hpp"
-#include "common.hpp"
-#include "fortran_source_form.hpp"
-#include "fortran_statement_parser.hpp"
-#include "frontend_descriptor.hpp"
+#include "frontends/common/descriptor.hpp"
+#include "frontends/common/parser_support.hpp"
+#include "frontends/fortran/source_form.hpp"
+#include "frontends/fortran/statement_lexer.hpp"
+#include "frontends/fortran/statement_parser.hpp"
 
 namespace mpf::detail {
 namespace {

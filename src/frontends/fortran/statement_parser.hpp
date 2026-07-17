@@ -3,8 +3,8 @@
 #include <memory_resource>
 #include <vector>
 
-#include "../lexer/fortran_statement_lexer.hpp"
-#include "frontend_ast.hpp"
+#include "frontends/common/ast.hpp"
+#include "frontends/fortran/statement_lexer.hpp"
 
 namespace mpf::detail {
 
