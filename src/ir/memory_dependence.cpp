@@ -65,9 +65,46 @@ AliasClass site_relation(const AliasEffectTable& alias_effects, const MemoryAcce
              : alias_between(alias_effects, *left_access, *right_access);
 }
 
+bool scalar_aggregate_disjoint(const Program& program, const AliasEffectTable& alias_effects,
+                               const MemoryAccessSite& left, const MemoryAccessSite& right,
+                               const std::vector<bool>& aggregate_roots) noexcept {
+  const auto* left_access = access_for_site(alias_effects, left);
+  const auto* right_access = access_for_site(alias_effects, right);
+  if (left_access == nullptr || right_access == nullptr || !left_access->root.valid() ||
+      !right_access->root.valid() || left_access->root.value() >= program.storages.size() ||
+      right_access->root.value() >= program.storages.size()) {
+    return false;
+  }
+  const auto left_type_id = program.storages[left_access->root.value()].type;
+  const auto right_type_id = program.storages[right_access->root.value()].type;
+  if (!left_type_id.valid() || !right_type_id.valid() ||
+      left_type_id.value() >= program.types.size() ||
+      right_type_id.value() >= program.types.size()) {
+    return false;
+  }
+  const auto& left_type = program.types[left_type_id.value()];
+  const auto& right_type = program.types[right_type_id.value()];
+  const bool left_scalar =
+      left_type.kind == TypeKind::scalar && left_type.value_type != ValueType::unknown;
+  const bool right_scalar =
+      right_type.kind == TypeKind::scalar && right_type.value_type != ValueType::unknown;
+  const bool left_aggregate = aggregate_roots[left_access->root.value()] ||
+                              left_type.kind == TypeKind::sequence ||
+                              left_type.kind == TypeKind::tuple;
+  const bool right_aggregate = aggregate_roots[right_access->root.value()] ||
+                               right_type.kind == TypeKind::sequence ||
+                               right_type.kind == TypeKind::tuple;
+  return (left_scalar && right_aggregate) || (left_aggregate && right_scalar);
+}
+
 struct FrontierAccess {
   MemoryAccessSite site;
   bool loop_carried{false};
+};
+
+struct FunctionAccessPolicy {
+  std::vector<std::vector<MemoryAccessSite>> sites;
+  std::vector<std::vector<bool>> retain;
 };
 
 auto frontier_key(const FrontierAccess& access) noexcept {
@@ -86,6 +123,59 @@ bool frontier_less(const FrontierAccess& left, const FrontierAccess& right) noex
 void normalize_frontier(std::vector<FrontierAccess>& frontier) {
   std::sort(frontier.begin(), frontier.end(), &frontier_less);
   frontier.erase(std::unique(frontier.begin(), frontier.end()), frontier.end());
+}
+
+FunctionAccessPolicy build_access_policy(const Program& program,
+                                         const AliasEffectTable& alias_effects,
+                                         const Function& function) {
+  FunctionAccessPolicy policy;
+  policy.sites.resize(program.instructions.size());
+  policy.retain.resize(program.instructions.size());
+  std::vector<bool> aggregate_roots(program.storages.size(), false);
+  for (std::size_t index = 1; index < program.storages.size(); ++index) {
+    if (program.storages[index].kind != StorageKind::view) continue;
+    auto root = program.storages[index].base;
+    for (std::size_t depth = 0;
+         depth < program.storages.size() && root.valid() && root.value() < program.storages.size();
+         ++depth) {
+      const auto& storage = program.storages[root.value()];
+      if (storage.kind != StorageKind::view) {
+        aggregate_roots[root.value()] = true;
+        break;
+      }
+      root = storage.base;
+    }
+  }
+  std::vector<MemoryAccessSite> writes;
+  for (const auto block_id : function.blocks) {
+    if (!valid_index(block_id, program.blocks)) continue;
+    for (const auto instruction_id : program.blocks[block_id.value()].instructions) {
+      const auto* facts = alias_effects.instruction(instruction_id);
+      if (facts == nullptr || !valid_index(instruction_id, policy.sites)) continue;
+      auto& sites = policy.sites[instruction_id.value()];
+      sites = access_sites(*facts);
+      for (const auto& site : sites) {
+        if (memory_access_writes(site.mode)) writes.push_back(site);
+      }
+    }
+  }
+
+  for (std::size_t instruction = 1; instruction < policy.sites.size(); ++instruction) {
+    const auto& sites = policy.sites[instruction];
+    auto& retain = policy.retain[instruction];
+    retain.reserve(sites.size());
+    for (const auto& site : sites) {
+      bool needed = memory_access_writes(site.mode);
+      if (!needed && memory_access_reads(site.mode)) {
+        needed = std::any_of(writes.begin(), writes.end(), [&](const MemoryAccessSite& write) {
+          return !scalar_aggregate_disjoint(program, alias_effects, site, write, aggregate_roots) &&
+                 site_relation(alias_effects, site, write) != AliasClass::no_alias;
+        });
+      }
+      retain.push_back(needed);
+    }
+  }
+  return policy;
 }
 
 bool merge_frontier(std::vector<FrontierAccess>& target, const std::vector<FrontierAccess>& source,
@@ -107,7 +197,8 @@ bool merge_frontier(std::vector<FrontierAccess>& target, const std::vector<Front
 }
 
 void update_frontier(const AliasEffectTable& alias_effects, std::vector<FrontierAccess>& frontier,
-                     const std::vector<MemoryAccessSite>& current) {
+                     const std::vector<MemoryAccessSite>& current,
+                     const std::vector<bool>& retain) {
   for (const auto& site : current) {
     if (!memory_access_writes(site.mode) || site.unknown) continue;
     frontier.erase(std::remove_if(frontier.begin(), frontier.end(),
@@ -118,17 +209,20 @@ void update_frontier(const AliasEffectTable& alias_effects, std::vector<Frontier
                                   }),
                    frontier.end());
   }
-  for (const auto& site : current) frontier.push_back({site, false});
+  for (std::size_t index = 0; index < current.size(); ++index) {
+    if (index < retain.size() && retain[index]) frontier.push_back({current[index], false});
+  }
   normalize_frontier(frontier);
 }
 
 std::vector<FrontierAccess> transfer_block(const AliasEffectTable& alias_effects,
+                                           const FunctionAccessPolicy& policy,
                                            const BasicBlock& block,
                                            std::vector<FrontierAccess> frontier) {
   for (const auto instruction_id : block.instructions) {
-    const auto* facts = alias_effects.instruction(instruction_id);
-    if (facts == nullptr) continue;
-    update_frontier(alias_effects, frontier, access_sites(*facts));
+    if (!valid_index(instruction_id, policy.sites)) continue;
+    update_frontier(alias_effects, frontier, policy.sites[instruction_id.value()],
+                    policy.retain[instruction_id.value()]);
   }
   return frontier;
 }
@@ -228,10 +322,9 @@ void add_hazard(std::vector<DependenceDraft>& dependences, const FrontierAccess&
 }
 
 void collect_instruction_dependences(const AliasEffectTable& alias_effects,
-                                     const InstructionEffectFacts& current_facts,
+                                     const std::vector<MemoryAccessSite>& current,
                                      const std::vector<FrontierAccess>& frontier,
                                      std::vector<DependenceDraft>& dependences) {
-  const auto current = access_sites(current_facts);
   for (const auto& target : current) {
     for (const auto& source : frontier) {
       if (source.site.instruction == target.instruction && !source.loop_carried) continue;
@@ -253,6 +346,7 @@ void collect_instruction_dependences(const AliasEffectTable& alias_effects,
 void analyze_function(const Program& program, const AliasEffectTable& alias_effects,
                       const Function& function, std::vector<DependenceDraft>& dependences) {
   const auto graph = build_function_graph(program, function);
+  const auto policy = build_access_policy(program, alias_effects, function);
   const auto count = graph.blocks.size();
   std::vector<std::vector<FrontierAccess>> inputs(count);
   std::vector<std::vector<FrontierAccess>> outputs(count);
@@ -264,8 +358,8 @@ void analyze_function(const Program& program, const AliasEffectTable& alias_effe
     worklist.pop_front();
     queued[block] = false;
     if (!valid_index(graph.blocks[block], program.blocks)) continue;
-    auto output =
-        transfer_block(alias_effects, program.blocks[graph.blocks[block].value()], inputs[block]);
+    auto output = transfer_block(alias_effects, policy, program.blocks[graph.blocks[block].value()],
+                                 inputs[block]);
     if (output == outputs[block]) continue;
     outputs[block] = std::move(output);
     for (std::size_t edge = 0; edge < graph.successors[block].size(); ++edge) {
@@ -283,10 +377,11 @@ void analyze_function(const Program& program, const AliasEffectTable& alias_effe
     if (!valid_index(graph.blocks[block], program.blocks)) continue;
     auto frontier = inputs[block];
     for (const auto instruction_id : program.blocks[graph.blocks[block].value()].instructions) {
-      const auto* facts = alias_effects.instruction(instruction_id);
-      if (facts == nullptr) continue;
-      collect_instruction_dependences(alias_effects, *facts, frontier, dependences);
-      update_frontier(alias_effects, frontier, access_sites(*facts));
+      if (!valid_index(instruction_id, policy.sites)) continue;
+      collect_instruction_dependences(alias_effects, policy.sites[instruction_id.value()], frontier,
+                                      dependences);
+      update_frontier(alias_effects, frontier, policy.sites[instruction_id.value()],
+                      policy.retain[instruction_id.value()]);
     }
   }
 }
