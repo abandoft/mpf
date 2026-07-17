@@ -17,7 +17,15 @@ std::string CompilationReport::to_json() const {
          << ",\"instructionsBefore\":" << mir_optimization.instructions_before
          << ",\"instructionsAfter\":" << mir_optimization.instructions_after
          << ",\"blocksBefore\":" << mir_optimization.blocks_before
-         << ",\"blocksAfter\":" << mir_optimization.blocks_after << "},\"stages\":[";
+         << ",\"blocksAfter\":" << mir_optimization.blocks_after
+         << "},\"mirMemoryDependences\":{\"flow\":" << mir_memory_dependences.flow
+         << ",\"anti\":" << mir_memory_dependences.anti
+         << ",\"output\":" << mir_memory_dependences.output
+         << ",\"barriers\":" << mir_memory_dependences.barriers
+         << ",\"loopCarried\":" << mir_memory_dependences.loop_carried
+         << ",\"instructionsWithDependences\":"
+         << mir_memory_dependences.instructions_with_dependences
+         << ",\"total\":" << mir_memory_dependences.total << "},\"stages\":[";
   for (std::size_t index = 0; index < stages.size(); ++index) {
     if (index != 0) output << ',';
     const auto& stage = stages[index];

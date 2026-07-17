@@ -44,6 +44,7 @@ struct ValueIdTag;
 struct TypeIdTag;
 struct ShapeIdTag;
 struct StorageIdTag;
+struct MemoryDependenceIdTag;
 struct LirNodeIdTag;
 struct RuntimeSymbolIdTag;
 
@@ -60,6 +61,7 @@ using ValueId = IrId<ValueIdTag>;
 using TypeId = IrId<TypeIdTag>;
 using ShapeId = IrId<ShapeIdTag>;
 using StorageId = IrId<StorageIdTag>;
+using MemoryDependenceId = IrId<MemoryDependenceIdTag>;
 using LirNodeId = IrId<LirNodeIdTag>;
 using RuntimeSymbolId = IrId<RuntimeSymbolIdTag>;
 

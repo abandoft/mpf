@@ -451,4 +451,32 @@ std::string dump_mir(const mir::Program& program, const mir::AliasEffectTable& a
   return output.str();
 }
 
+std::string dump_mir(const mir::Program& program, const mir::AliasEffectTable& alias_effects,
+                     const mir::MemoryDependenceTable& memory_dependences) {
+  std::ostringstream output;
+  output << dump_mir(program, alias_effects);
+  output << "memory-dependence-v1 revision=" << memory_dependences.mir_revision
+         << " complete=" << memory_dependences.complete << '\n';
+  for (std::size_t index = 1; index < memory_dependences.instructions.size(); ++index) {
+    const auto& facts = memory_dependences.instructions[index];
+    output << "memory-adjacency !i" << facts.origin.value() << " incoming=";
+    dump_ids(output, facts.incoming, "!d");
+    output << " outgoing=";
+    dump_ids(output, facts.outgoing, "!d");
+    output << '\n';
+  }
+  for (std::size_t index = 1; index < memory_dependences.dependences.size(); ++index) {
+    const auto& dependence = memory_dependences.dependences[index];
+    output << "memory-dependence !d" << dependence.id.value() << " source=!i"
+           << dependence.source.instruction.value() << ':' << dependence.source.ordinal
+           << (dependence.source.unknown ? ":unknown" : ":known") << " target=!i"
+           << dependence.target.instruction.value() << ':' << dependence.target.ordinal
+           << (dependence.target.unknown ? ":unknown" : ":known")
+           << " kind=" << enum_value(dependence.kind)
+           << " relation=" << enum_value(dependence.relation) << " barrier=" << dependence.barrier
+           << " loop-carried=" << dependence.loop_carried << '\n';
+  }
+  return output.str();
+}
+
 }  // namespace mpf::detail

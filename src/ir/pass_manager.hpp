@@ -4,6 +4,7 @@
 #include <any>
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -64,7 +65,7 @@ class AnalysisManager final {
     std::any value;
   };
 
-  std::vector<Entry> entries_;
+  std::deque<Entry> entries_;
 };
 
 template <typename Ir>

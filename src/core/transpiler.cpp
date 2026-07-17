@@ -10,6 +10,7 @@
 #include "../compiler/code_binding.hpp"
 #include "../frontends/frontend_registry.hpp"
 #include "../ir/hir.hpp"
+#include "../ir/memory_dependence.hpp"
 #include "../ir/mir.hpp"
 #include "../ir/mir_optimization.hpp"
 #include "../ir/pass_manager.hpp"
@@ -332,6 +333,7 @@ TranspileResult Transpiler::transpile(const std::string_view source,
   }
   detail::AnalysisManager<detail::mir::Program> mir_analyses;
   const detail::mir::AliasEffectTable* alias_effects = nullptr;
+  const detail::mir::MemoryDependenceTable* memory_dependences = nullptr;
   if (result.success()) {
     auto optimization = detail::mir::run_default_optimization_pipeline(mir_result.program);
     const auto& statistics = optimization.statistics;
@@ -359,6 +361,39 @@ TranspileResult Transpiler::transpile(const std::string_view source,
                               std::make_move_iterator(mir_diagnostics.begin()),
                               std::make_move_iterator(mir_diagnostics.end()));
     session.record("mir-analysis", mir_result.program.instructions.size() - 1U, analysis_started);
+  }
+  if (result.success()) {
+    const auto analysis_started = session.begin_stage();
+    memory_dependences = &mir_analyses.get<detail::mir::MemoryDependenceTable>(
+        mir_result.program, "memory-dependence", [&](const detail::mir::Program& program) {
+          return detail::mir::analyze_memory_dependences(program, *alias_effects);
+        });
+    auto dependence_diagnostics = detail::mir::verify_memory_dependences(
+        mir_result.program, *alias_effects, *memory_dependences, "mir-memory-dependence");
+    result.diagnostics.insert(result.diagnostics.end(),
+                              std::make_move_iterator(dependence_diagnostics.begin()),
+                              std::make_move_iterator(dependence_diagnostics.end()));
+    if (result.success()) {
+      auto& report = result.report.mir_memory_dependences;
+      report.total = memory_dependences->dependence_count;
+      for (std::size_t index = 1; index < memory_dependences->instructions.size(); ++index) {
+        const auto& facts = memory_dependences->instructions[index];
+        if (!facts.incoming.empty() || !facts.outgoing.empty()) {
+          ++report.instructions_with_dependences;
+        }
+      }
+      for (std::size_t index = 1; index < memory_dependences->dependences.size(); ++index) {
+        const auto& dependence = memory_dependences->dependences[index];
+        switch (dependence.kind) {
+          case detail::mir::MemoryDependenceKind::flow: ++report.flow; break;
+          case detail::mir::MemoryDependenceKind::anti: ++report.anti; break;
+          case detail::mir::MemoryDependenceKind::output: ++report.output; break;
+        }
+        if (dependence.barrier) ++report.barriers;
+        if (dependence.loop_carried) ++report.loop_carried;
+      }
+    }
+    session.record("mir-memory-dependence", memory_dependences->dependence_count, analysis_started);
   }
   if (result.success()) {
     auto binding_diagnostics =

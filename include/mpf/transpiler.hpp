@@ -91,11 +91,22 @@ struct MirOptimizationReport {
   std::size_t blocks_after{0};
 };
 
+struct MirMemoryDependenceReport {
+  std::size_t flow{0};
+  std::size_t anti{0};
+  std::size_t output{0};
+  std::size_t barriers{0};
+  std::size_t loop_carried{0};
+  std::size_t instructions_with_dependences{0};
+  std::size_t total{0};
+};
+
 struct CompilationReport {
   std::size_t source_bytes{0};
   std::size_t total_nanoseconds{0};
   std::size_t peak_arena_bytes{0};
   MirOptimizationReport mir_optimization;
+  MirMemoryDependenceReport mir_memory_dependences;
   std::vector<StageReport> stages;
 
   [[nodiscard]] std::string to_json() const;
