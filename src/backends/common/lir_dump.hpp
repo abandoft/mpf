@@ -75,6 +75,25 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
   if (expression.array_operation == semantic::ArrayOperation::matlab) {
     output << " matlab-array-operation 1";
   }
+  if (expression.matrix_operation.valid()) {
+    const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
+      output << '[';
+      for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+        if (axis != 0U) output << ',';
+        output << shape[axis];
+      }
+      output << ']';
+    };
+    output << " matrix-operation " << static_cast<int>(expression.matrix_operation.operation)
+           << " solve " << static_cast<int>(expression.matrix_operation.solve) << ' ';
+    dump_shape(expression.matrix_operation.left_shape);
+    if (!expression.matrix_operation.right_shape.empty()) {
+      output << ',';
+      dump_shape(expression.matrix_operation.right_shape);
+    }
+    output << "->";
+    dump_shape(expression.matrix_operation.result_shape);
+  }
   if (!expression.plan.call_arguments.empty()) {
     output << " call-arguments [";
     for (std::size_t index = 0; index < expression.plan.call_arguments.size(); ++index) {
@@ -93,11 +112,11 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     }
     output << ']';
   }
-  if (!expression.plan.selector_slices.empty()) {
+  if (!expression.plan.index_selectors.empty()) {
     output << " selectors [";
-    for (std::size_t index = 0; index < expression.plan.selector_slices.size(); ++index) {
+    for (std::size_t index = 0; index < expression.plan.index_selectors.size(); ++index) {
       if (index != 0) output << ',';
-      output << expression.plan.selector_slices[index];
+      output << static_cast<int>(expression.plan.index_selectors[index]);
     }
     output << ']';
   }
@@ -175,7 +194,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v12 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v15 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

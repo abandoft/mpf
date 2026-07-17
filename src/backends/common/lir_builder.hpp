@@ -100,6 +100,16 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
     if (result_shape != nullptr) result.broadcast.result_shape = result_shape->extents;
     result.broadcast.axes = attributes.broadcast.axes;
   }
+  if (attributes.matrix_operation.valid()) {
+    result.matrix_operation.operation = attributes.matrix_operation.operation;
+    result.matrix_operation.solve = attributes.matrix_operation.solve;
+    const auto* left_shape = mir::shape(program, attributes.matrix_operation.left_shape);
+    const auto* right_shape = mir::shape(program, attributes.matrix_operation.right_shape);
+    const auto* result_shape = mir::shape(program, attributes.matrix_operation.result_shape);
+    if (left_shape != nullptr) result.matrix_operation.left_shape = left_shape->extents;
+    if (right_shape != nullptr) result.matrix_operation.right_shape = right_shape->extents;
+    if (result_shape != nullptr) result.matrix_operation.result_shape = result_shape->extents;
+  }
   const auto* source_type = mir::type(program, source.type_id);
   if (source_type != nullptr && source_type->kind == mir::TypeKind::tuple) {
     result.tuple_types.reserve(source_type->elements.size());
@@ -136,7 +146,7 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
   result.allow_negative_index = attributes.allow_negative_index;
   result.column_major = mir::column_major(program, source.shape_id);
   result.slice_stop_inclusive = attributes.slice_stop_inclusive;
-  result.index_selection = attributes.index_selection;
+  result.index_selectors = attributes.index_selectors;
   return result;
 }
 
