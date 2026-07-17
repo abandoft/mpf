@@ -1,6 +1,6 @@
 # MPF 持续建设路线图
 
-本路线图记录 **0.4.6 当前开发基线** 与后续交付目标的真实状态。历史交付细节见
+本路线图记录 **0.4.7 当前开发基线** 与后续交付目标的真实状态。历史交付细节见
 [CHANGELOG-ZH.md](CHANGELOG-ZH.md)，当前可依赖的语言子集见
 [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 已有独立、可执行且包含 lexical block/canonical `for` 的子集，但完整 grammar 仍未完成。
 
@@ -11,13 +11,14 @@
 | 项目 | 当前开发分支状态 |
 |---|---|
 | 实现与构建 | CMake 3.20+；配置固定 C17/C++17；当前生产源码和公共 API 使用 C++17，尚无稳定 C API |
-| 输出目标 | 独立 JavaScript 与 `cpp` 后端；`cpp` 当前生成严格 C++17 translation unit |
+| 输出目标 | 独立 JavaScript 与 `cpp` 后端；源码分别位于无重复文件名前缀的 `src/backends/javascript/`、`src/backends/cpp/`，`cpp` 当前生成严格 C++17 translation unit |
 | 前后端边界 | 四语言 parser session 直接构造并发布各自 arena AST artifact，不经过共享递归 syntax tree 或整树复制；生产驱动随后固定经过 HIR→MIR→共享优化→优化后 alias/effect→CFG memory-dependence→目标私有 semantic plan/LIR→emitter，两个目标不读取彼此产物 |
 | 扩展架构 | frontend descriptor API v6、backend descriptor API v6；仅接受 canonical 语言/目标名称，不保留旧名称 alias；parser session/feature/resource contract、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
 | IR 架构 | 四种语言使用编译期互不兼容的 PMR arena AST；AST→HIR 原子产出窄结构 HIR 与 revision-checked 稠密 `SemanticTable` seed，HIR 节点不再镜像 type/shape/binding/call/assignment facts；名称/作用域与控制流分别由 `NameTable`、`FlowTable` 持有，profile 驱动的 `NameScopeEdges` 为 function/statement/body/alternative 建立稠密 scope graph；MIR v6 使用 `MirExpressionId`/`MirStatementId` 稠密 arena、revision-bound `OperationAttributeTable` 与显式 retired tombstone，结构节点不再镜像宽语义 payload；同一属性表按 `InstructionId` 稠密保存零到多个 storage/root/region/mode `MemoryAccess`，指令压缩同步重映射；conditional/短路/comparison chain 和 TypeScript canonical `for` 已产生显式 CFG、typed edge merge 和 runtime-independent store；默认共享 pass 已接通 shape canonicalization、相同 edge-actual copy propagation、精确整数/布尔 constant folding、dead-pure elimination 和保守 CFG cleanup，每个 pass 后验证并同步 revision；tuple/function/reference type/shape 签名、stride/view/lifetime 与 call argument transfer 可验证；静态已知 shape 的 identifier/element/N 维矩形及列主序线性 section 由 HIR/MIR `StorageRegion` side table 规范化，alias/effect v3 在优化后统一直接访问与跨函数 actual-region 实例化并提供访问级冲突查询；`MemoryDependenceTable` v1 在函数 CFG 上建立 region-refined flow/anti/output、unknown barrier 与 loop-carried adjacency，拥有独立 revision、verifier、dump、cache 和报告；双目标 LIR v12 以 `SymbolId` 保存名称身份，并显式保存 lexical scope/declaration、ABI、source export、临时值、顶层拓扑、expression/statement、强类型比较、call ownership/writeback/evaluation 与稠密 source segment plan，emitter 仅序列化 |
 | Python 最新能力 | relational/equality/identity/membership 比较链、右结合条件表达式、短路/惰性/单次求值；list/tuple 种类相等规则、singleton/reference identity、string/list/tuple membership；基础参数关联和递归固定序列解包 |
+| Matlab 最新能力 | scalar numeric/logical/character `switch/case/otherwise`；矩阵/逐元素算术 identity 保留；二维矩阵乘法、同 shape 或 scalar expansion 的基础逐元素算术进入双目标专属 LIR/runtime |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流；已知静态 shape 下可证明不相交的同根连续、步长与 N 维矩形 writable section actual |
-| 工程门禁 | 180 项内部测试；55 个差分 case、155 条工具完整环境执行路径；66 项 CTest；四语言 fuzz smoke、可选 libFuzzer、八场景版本化性能阈值、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率 89.74%（22249/24793），硬门槛 85% |
+| 工程门禁 | 187 项内部测试；57 个差分 case、159 条工具完整环境执行路径；68 项 CTest；四语言 fuzz smoke、可选 libFuzzer、八场景版本化性能阈值、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率 89.63%（22756/25388），硬门槛 85% |
 | 发布状态 | 0.x 开发快照；包消费要求精确当前版本，不提供旧 MPF API/ABI/schema/CLI/CMake 兼容承诺或迁移 shim |
 
 ## 本轮商业级收尾验收（完成）
@@ -36,7 +37,9 @@
 已完成事项由 [CHANGELOG-ZH.md](CHANGELOG-ZH.md) 和架构文档记录；TODO 只保留仍需实施、仍需验证或需要持续维护的工作，不再按旧 MPF 版本复制完成项。当前优先顺序为：
 
 - [x] 删除旧 MPF 包版本范围兼容、历史 consumer 版本请求、旧式包变量、descriptor 名称别名和歧义解析 API；安装包只接受当前精确版本，canonical 名称解析失败时显式返回空值
-- [ ] 按 Matlab/Python/Fortran/TypeScript 官方 grammar 选择下一批可独立验收的纵切面
+- [x] Matlab P0 首批运算符 identity、二维矩阵乘法、同 shape/标量逐元素算术、双目标 runtime、失败关闭诊断和差分门禁
+- [ ] 继续 [Matlab → JavaScript 产品计划](docs/MATLAB_TO_JAVASCRIPT.md) 的 P0：`end`、逻辑索引、逐维隐式扩展、转置及矩阵除法/幂
+- [ ] 按 Python/Fortran/TypeScript 官方 grammar 选择下一批可独立验收的纵切面
 - [ ] 继续完成动态 rank/extent、广播、跨一般 view/pointer 的 region/alias 证明和目标 typed-array/ownership 策略
 - [ ] 在已交付的区域化 memory-dependence contract 上建立 memory version、memory phi、rename/def-use 的完整 MemorySSA；以负向 verifier、差分、fuzz 和性能门禁后再启用 region-aware DCE/store forwarding
 - [ ] 将 interner、诊断、配置和全部阶段 arena 所有权迁入 `CompilationSession`，并让 IR 容器实际使用 session resource
@@ -122,6 +125,10 @@
 
 ## M3：Matlab 2024 前端
 
+专项成熟度分析、分期顺序、JavaScript runtime 方案、完成定义和发布门禁见
+[docs/MATLAB_TO_JAVASCRIPT.md](docs/MATLAB_TO_JAVASCRIPT.md)。当前仍是实验性已验证子集，
+目标版本上限不表示完整兼容 Matlab 2024。
+
 已交付：
 
 - [x] script logical statements、`...`、多行矩阵、行/block comment 和顶层分隔符
@@ -132,13 +139,16 @@
 - [x] `:`, `start:stop`, `start:step:stop` 的行/列/block/线性读取与写入
 - [x] 二维 shape/bounds、section conformability 和标量扩展
 - [x] 文件级 local function、前向/跨函数调用、多输出绑定和转发
+- [x] scalar numeric/logical/character `switch/case/otherwise`；selector 单次求值、无 fallthrough、Matlab 字符精确相等
+- [x] `*`/`/`/`\`/`^` 与 `.*`/`./`/`.\`/`.^` identity；二维矩阵乘法、同 shape 或 scalar expansion 的基础逐元素算术；JavaScript/`cpp` 目标计划与 runtime
 - [x] Node.js、生成 C++ 与 oracle 差分框架
 
 仍需建设：
 
-- [ ] 完整 command/function 调用语法和转置/字符串歧义解析
+- [ ] 完整 command/function 调用语法、共轭/非共轭转置和字符串歧义解析
+- [ ] `end`、线性/位置/逻辑/重复索引、indexed deletion、growth 与动态 bounds
 - [ ] 元胞数组、struct、string、table、datetime 等核心类型
-- [ ] 一般矩阵运算、隐式扩展、complex 与稀疏数组语义
+- [ ] 矩阵除法/幂、逐维隐式扩展、numeric class、complex 与稀疏数组语义
 - [ ] nested/anonymous function 和完整 function workspace/closure 语义
 - [ ] `classdef`、properties、methods、events 与 handle/value 对象模型
 - [ ] 核心函数与工具箱 API 的分层映射、许可证和版本策略
