@@ -339,25 +339,13 @@ class Renderer final {
         break;
       case javascript::lir::ExpressionForm::call: break;
       case javascript::lir::ExpressionForm::index:
-        if (expression.plan.index == javascript::lir::IndexForm::logical) {
-          output_ << "__mpf_logical_get(";
-          emit_expression(expression.children[0]);
-          output_ << ", ";
-          emit_expression(expression.children[1]);
-          output_ << ')';
-        } else if (expression.plan.index == javascript::lir::IndexForm::section) {
+        if (expression.plan.index == javascript::lir::IndexForm::section) {
           output_ << "__mpf_section(";
           emit_expression(expression.children[0]);
           output_ << ", [";
           for (std::size_t index = 1; index < expression.children.size(); ++index) {
             if (index != 1) output_ << ", ";
-            if (expression.plan.selector_slices[index - 1U]) {
-              emit_slice_descriptor(expression.children[index]);
-            } else {
-              output_ << "{ slice: false, value: ";
-              emit_expression(expression.children[index]);
-              output_ << " }";
-            }
+            emit_selector_descriptor(expression, index);
           }
           output_ << "], " << expression.plan.index_base << ", "
                   << (expression.plan.allow_negative_index ? "true" : "false") << ", "
@@ -483,13 +471,7 @@ class Renderer final {
       output_ << ", [";
       for (std::size_t index = 1; index < target.children.size(); ++index) {
         if (index != 1) output_ << ", ";
-        if (target.plan.selector_slices[index - 1U]) {
-          emit_slice_descriptor(target.children[index]);
-        } else {
-          output_ << "{ slice: false, value: ";
-          emit_expression(target.children[index]);
-          output_ << " }";
-        }
+        emit_selector_descriptor(target, index);
       }
       output_ << "], " << reference << ".value, " << target.plan.index_base << ", "
               << (target.plan.allow_negative_index ? "true" : "false") << ", "
@@ -518,7 +500,7 @@ class Renderer final {
   }
 
   void emit_slice_descriptor(const Expression& slice) {
-    output_ << "{ slice: true, start: ";
+    output_ << "{ kind: \"slice\", start: ";
     if (slice.children[0].valid())
       emit_expression(slice.children[0]);
     else
@@ -534,6 +516,25 @@ class Renderer final {
     else
       output_ << "null";
     output_ << ", inclusive: " << (slice.plan.inclusive_slice_stop ? "true" : "false") << " }";
+  }
+
+  void emit_selector_descriptor(const Expression& index_expression, const std::size_t child_index) {
+    const auto selector = index_expression.plan.index_selectors.at(child_index - 1U);
+    if (selector == semantic::IndexSelectorKind::slice) {
+      emit_slice_descriptor(index_expression.children[child_index]);
+      return;
+    }
+    output_ << "{ kind: \"";
+    switch (selector) {
+      case semantic::IndexSelectorKind::scalar: output_ << "scalar"; break;
+      case semantic::IndexSelectorKind::numeric: output_ << "numeric"; break;
+      case semantic::IndexSelectorKind::logical: output_ << "logical"; break;
+      case semantic::IndexSelectorKind::empty: output_ << "empty"; break;
+      case semantic::IndexSelectorKind::slice: break;
+    }
+    output_ << "\", value: ";
+    emit_expression(index_expression.children[child_index]);
+    output_ << " }";
   }
 
   void indentation() {
@@ -730,13 +731,7 @@ class Renderer final {
           for (std::size_t index = 1; index < statement.target_expression.children.size();
                ++index) {
             if (index != 1) output_ << ", ";
-            if (statement.target_expression.plan.selector_slices[index - 1U]) {
-              emit_slice_descriptor(statement.target_expression.children[index]);
-            } else {
-              output_ << "{ slice: false, value: ";
-              emit_expression(statement.target_expression.children[index]);
-              output_ << " }";
-            }
+            emit_selector_descriptor(statement.target_expression, index);
           }
           output_ << "], ";
           emit_expression(statement.expression);
@@ -760,16 +755,6 @@ class Renderer final {
                   << ", " << (statement.target_expression.plan.column_major ? "true" : "false")
                   << ");\n";
         }
-        break;
-      case javascript::lir::StatementForm::indexed_logical_assignment:
-        indentation();
-        output_ << "__mpf_set_logical(";
-        emit_expression(statement.target_expression.children[0]);
-        output_ << ", ";
-        emit_expression(statement.target_expression.children[1]);
-        output_ << ", ";
-        emit_expression(statement.expression);
-        output_ << ");\n";
         break;
       case javascript::lir::StatementForm::print_empty:
       case javascript::lir::StatementForm::print_value:
