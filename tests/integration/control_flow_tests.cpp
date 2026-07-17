@@ -65,6 +65,62 @@ TEST_CASE("Matlab colon range is inclusive and preserves its last value") {
   REQUIRE(result.code.find(" >= mpf_internal_stop") != std::string::npos);
 }
 
+TEST_CASE("Matlab switch evaluates once and lowers exact scalar cases through both backends") {
+  const std::string source =
+      "choice = 'beta';\n"
+      "result = 0;\n"
+      "switch choice\n"
+      "case 'alpha'\n"
+      "  result = 1;\n"
+      "case 'beta'\n"
+      "  result = 40;\n"
+      "otherwise\n"
+      "  result = -1;\n"
+      "end\n"
+      "switch 2\n"
+      "case 1\n"
+      "  result = 0;\n"
+      "case 2.0\n"
+      "  result = result + 2;\n"
+      "otherwise\n"
+      "  result = 0;\n"
+      "end\n"
+      "disp(result)\n";
+  const auto javascript =
+      transpile_flow(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_flow(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("const mpf_internal_select") != std::string::npos);
+  REQUIRE(javascript.code.find(" === \"beta\"") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_fortran_compare") == std::string::npos);
+  REQUIRE(cpp.code.find("const auto mpf_internal_select") != std::string::npos);
+  REQUIRE(cpp.code.find(" == std::string{\"beta\"}") != std::string::npos);
+  REQUIRE(cpp.code.find("fortran_compare(mpf_internal_select") == std::string::npos);
+}
+
+TEST_CASE("Matlab switch rejects malformed clauses and unsupported selector shapes") {
+  const auto duplicate_default =
+      transpile_flow("switch 1\notherwise\ndisp(1)\notherwise\ndisp(2)\nend\n",
+                     mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto case_after_default =
+      transpile_flow("switch 1\notherwise\ndisp(1)\ncase 1\ndisp(2)\nend\n",
+                     mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto wrong_type =
+      transpile_flow("switch 1\ncase 'one'\ndisp(1)\notherwise\ndisp(2)\nend\n",
+                     mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto missing_end = transpile_flow(
+      "switch 1\ncase 1\ndisp(1)\n", mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  REQUIRE(!duplicate_default.success());
+  REQUIRE(!case_after_default.success());
+  REQUIRE(!wrong_type.success());
+  REQUIRE(!missing_end.success());
+  REQUIRE(duplicate_default.diagnostics.front().code == "MPF1200");
+  REQUIRE(case_after_default.diagnostics.front().code == "MPF1200");
+  REQUIRE(wrong_type.diagnostics.front().code == "MPF2043");
+  REQUIRE(missing_end.diagnostics.front().code == "MPF1200");
+}
+
 TEST_CASE("Fortran counted DO exposes the terminal induction value") {
   const std::string source =
       "program loops\ninteger :: total = 0, index\ndo index = 5, 1, -2\n"

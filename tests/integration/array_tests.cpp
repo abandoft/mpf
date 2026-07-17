@@ -171,6 +171,30 @@ TEST_CASE("Matlab matrices use row-column and column-major linear indexing") {
   REQUIRE(cpp.code.find("mpf_runtime::length(matrix)") != std::string::npos);
 }
 
+TEST_CASE("Matlab matrix and element-wise arithmetic lower through target-owned plans") {
+  const std::string source =
+      "left = [1 2; 3 4];\n"
+      "right = [5 6; 7 8];\n"
+      "product = left * right;\n"
+      "values = (left + 1) .* 2 ./ right;\n"
+      "powers = left .^ 2;\n"
+      "reversed = 2 .\\ right;\n"
+      "disp(product(1, 1) + values(1, 1) + powers(1, 1) + reversed(1, 1))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_mtimes(left, right)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_add(left, 1)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_power(left, 2)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_left_divide(2, right)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mtimes(left, right)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_add(left, 1)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_power(left, 2)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_left_divide(2, right)") != std::string::npos);
+}
+
 TEST_CASE("Fortran RESHAPE constructs typed rank-two column-major arrays") {
   const std::string source =
       "program matrices\n"
