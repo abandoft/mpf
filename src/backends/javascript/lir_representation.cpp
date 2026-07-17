@@ -63,6 +63,19 @@ std::string matlab_array_helper(const lir::Expression& expression) {
     return "__mpf_matlab_left_divide";
   }
   if (expression.operation == BinaryOperator::elementwise_power) return "__mpf_matlab_power";
+  switch (expression.comparison) {
+    case ComparisonOperator::equal: return "__mpf_matlab_equal";
+    case ComparisonOperator::not_equal: return "__mpf_matlab_not_equal";
+    case ComparisonOperator::less: return "__mpf_matlab_less";
+    case ComparisonOperator::less_equal: return "__mpf_matlab_less_equal";
+    case ComparisonOperator::greater: return "__mpf_matlab_greater";
+    case ComparisonOperator::greater_equal: return "__mpf_matlab_greater_equal";
+    case ComparisonOperator::none:
+    case ComparisonOperator::identity:
+    case ComparisonOperator::not_identity:
+    case ComparisonOperator::contains:
+    case ComparisonOperator::not_contains: break;
+  }
   return {};
 }
 
@@ -136,6 +149,7 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       result.form = lir::ExpressionForm::omitted;
       result.token = "undefined";
       break;
+    case ExpressionKind::end_index: result.form = lir::ExpressionForm::invalid; break;
     case ExpressionKind::identifier:
       result.form = expression.binding == BindingKind::builtin ? lir::ExpressionForm::target_symbol
                                                                : lir::ExpressionForm::variable;
@@ -154,14 +168,27 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       result.token = expression.value;
       break;
     case ExpressionKind::unary:
-      result.precedence = 6;
-      result.token = expression.value;
-      result.form = emission.dynamic_truthiness && expression.value == "!"
-                        ? lir::ExpressionForm::unary_truthiness
-                        : lir::ExpressionForm::unary_operator;
+      if (expression.unary_operation == UnaryOperator::transpose ||
+          expression.unary_operation == UnaryOperator::conjugate_transpose) {
+        result.precedence = 9;
+        result.token = "__mpf_matlab_transpose";
+        result.form = lir::ExpressionForm::matlab_transpose;
+      } else {
+        result.precedence = 6;
+        result.token = expression.value;
+        result.form = emission.dynamic_truthiness && expression.value == "!"
+                          ? lir::ExpressionForm::unary_truthiness
+                          : lir::ExpressionForm::unary_operator;
+      }
       break;
     case ExpressionKind::binary:
-      if (expression.comparison != ComparisonOperator::none) {
+      if (expression.array_operation == semantic::ArrayOperation::matlab &&
+          has_array_operand(expression)) {
+        result.precedence = 9;
+        result.token = matlab_array_helper(expression);
+        result.form = lir::ExpressionForm::matlab_array_operation;
+        result.broadcast = expression.broadcast;
+      } else if (expression.comparison != ComparisonOperator::none) {
         result.form = lir::ExpressionForm::binary_comparison;
         result.precedence = 3;
         result.comparisons.push_back(comparison_plan(expression.comparison, emission));
@@ -177,10 +204,6 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
         result.token = expression.value;
         result.form = lir::ExpressionForm::binary_lazy_or;
         result.evaluation = lir::EvaluationForm::lazy_arrow_thunks;
-      } else if (has_array_operand(expression)) {
-        result.precedence = 9;
-        result.token = matlab_array_helper(expression);
-        result.form = lir::ExpressionForm::matlab_array_operation;
       } else if (expression.operation == BinaryOperator::floor_divide) {
         result.precedence = binary_precedence(expression.value);
         result.token = expression.value;
@@ -255,8 +278,10 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       for (std::size_t index = 1; index < expression.children.size(); ++index) {
         result.selector_slices.push_back(expression.children[index].kind == ExpressionKind::slice);
       }
-      result.index = std::any_of(result.selector_slices.begin(), result.selector_slices.end(),
-                                 [](const bool slice) { return slice; })
+      result.index = expression.index_selection == semantic::IndexSelection::logical
+                         ? lir::IndexForm::logical
+                     : std::any_of(result.selector_slices.begin(), result.selector_slices.end(),
+                                   [](const bool slice) { return slice; })
                          ? lir::IndexForm::section
                          : lir::IndexForm::element;
       result.index_base = expression.index_base;
@@ -292,8 +317,12 @@ bool same_call_argument(const lir::CallArgumentPlan& left,
 bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right) noexcept {
   if (left.valid != right.valid || left.form != right.form || left.precedence != right.precedence ||
       left.token != right.token || left.comparisons.size() != right.comparisons.size() ||
-      left.call != right.call || left.evaluation != right.evaluation ||
-      left.call_value != right.call_value ||
+      left.broadcast.valid != right.broadcast.valid ||
+      left.broadcast.left_shape != right.broadcast.left_shape ||
+      left.broadcast.right_shape != right.broadcast.right_shape ||
+      left.broadcast.result_shape != right.broadcast.result_shape ||
+      left.broadcast.axes != right.broadcast.axes || left.call != right.call ||
+      left.evaluation != right.evaluation || left.call_value != right.call_value ||
       left.call_arguments.size() != right.call_arguments.size() || left.index != right.index ||
       left.selector_slices != right.selector_slices ||
       left.variable_access != right.variable_access || left.index_base != right.index_base ||
@@ -320,14 +349,23 @@ void plan_expression(lir::Expression& expression, const lir::EmissionPlan& emiss
 }
 
 void verify_expression(const lir::Expression& expression, const lir::EmissionPlan& emission,
-                       const AccessContext& context, std::vector<Diagnostic>& diagnostics) {
+                       const AccessContext& context, const SourceLanguage source_language,
+                       std::vector<Diagnostic>& diagnostics) {
   if (!expression.valid()) return;
+  const bool requires_matlab_array_operation = source_language == SourceLanguage::matlab &&
+                                               expression.kind == ExpressionKind::binary &&
+                                               expression.inferred_type == ValueType::list;
+  if ((expression.array_operation == semantic::ArrayOperation::matlab) !=
+      requires_matlab_array_operation) {
+    add_error(diagnostics, expression.location,
+              "JavaScript LIR Matlab array-operation identity is inconsistent");
+  }
   if (!same_plan(expression.plan, expected_expression_plan(expression, emission, context))) {
     add_error(diagnostics, expression.location,
               "JavaScript LIR expression representation plan is inconsistent");
   }
   for (const auto& child : expression.children) {
-    verify_expression(child, emission, context, diagnostics);
+    verify_expression(child, emission, context, source_language, diagnostics);
   }
 }
 
@@ -393,7 +431,9 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
       }
       break;
     case StatementKind::indexed_assignment:
-      result.form = statement.target_expression.plan.index == lir::IndexForm::section
+      result.form = statement.target_expression.plan.index == lir::IndexForm::logical
+                        ? lir::StatementForm::indexed_logical_assignment
+                    : statement.target_expression.plan.index == lir::IndexForm::section
                         ? lir::StatementForm::indexed_section_assignment
                         : lir::StatementForm::indexed_element_assignment;
       result.resizable_section = result.form == lir::StatementForm::indexed_section_assignment &&
@@ -555,30 +595,35 @@ void plan_statements(std::vector<lir::Statement>& statements, const lir::Emissio
 
 void verify_statements(const std::vector<lir::Statement>& statements,
                        const lir::EmissionPlan& emission, const AccessContext& context,
-                       std::vector<Diagnostic>& diagnostics) {
+                       const SourceLanguage source_language, std::vector<Diagnostic>& diagnostics) {
   for (const auto& statement : statements) {
     const auto nested_context =
         statement.kind == StatementKind::function ? function_context(statement) : context;
     const auto& expression_context =
         statement.kind == StatementKind::function ? nested_context : context;
-    verify_expression(statement.expression, emission, expression_context, diagnostics);
-    verify_expression(statement.secondary_expression, emission, expression_context, diagnostics);
-    verify_expression(statement.tertiary_expression, emission, expression_context, diagnostics);
-    verify_expression(statement.target_expression, emission, expression_context, diagnostics);
+    verify_expression(statement.expression, emission, expression_context, source_language,
+                      diagnostics);
+    verify_expression(statement.secondary_expression, emission, expression_context, source_language,
+                      diagnostics);
+    verify_expression(statement.tertiary_expression, emission, expression_context, source_language,
+                      diagnostics);
+    verify_expression(statement.target_expression, emission, expression_context, source_language,
+                      diagnostics);
     for (const auto& expression : statement.parameter_defaults) {
-      verify_expression(expression, emission, expression_context, diagnostics);
+      verify_expression(expression, emission, expression_context, source_language, diagnostics);
     }
     for (const auto& selector : statement.case_selectors) {
-      verify_expression(selector.lower, emission, expression_context, diagnostics);
-      verify_expression(selector.upper, emission, expression_context, diagnostics);
+      verify_expression(selector.lower, emission, expression_context, source_language, diagnostics);
+      verify_expression(selector.upper, emission, expression_context, source_language, diagnostics);
     }
     if (!same_statement_plan(statement.plan,
                              expected_statement_plan(statement, emission, context))) {
       add_error(diagnostics, {statement.line, 1},
                 "JavaScript LIR statement representation plan is inconsistent");
     }
-    verify_statements(statement.body, emission, nested_context, diagnostics);
-    verify_statements(statement.alternative, emission, nested_context, diagnostics);
+    verify_statements(statement.body, emission, nested_context, source_language, diagnostics);
+    verify_statements(statement.alternative, emission, nested_context, source_language,
+                      diagnostics);
   }
 }
 
@@ -591,7 +636,7 @@ void plan_lir_representation(lir::SemanticProgram& program) {
 
 void verify_lir_representation(const lir::SemanticProgram& program,
                                std::vector<Diagnostic>& diagnostics) {
-  verify_statements(program.statements, program.emission, {}, diagnostics);
+  verify_statements(program.statements, program.emission, {}, program.source_language, diagnostics);
   const auto expected = build_source_segment_plan(program.statements, program.node_count);
   if (!same_source_segment_plan(program.source_segments, expected)) {
     add_error(diagnostics, {1, 1}, "JavaScript LIR source segment plan is inconsistent");

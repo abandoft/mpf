@@ -11,6 +11,7 @@
 #include "../../compiler/call_contract.hpp"
 #include "../../compiler/function_graph.hpp"
 #include "../../ir/ids.hpp"
+#include "../../ir/semantics.hpp"
 #include "../backend_artifact.hpp"
 #include "../identifier_mangler.hpp"
 
@@ -149,7 +150,8 @@ enum class ExpressionForm : std::uint8_t {
   list,
   tuple,
   binary_reverse_divide,
-  matlab_array_operation
+  matlab_array_operation,
+  matlab_transpose
 };
 
 enum class ComparisonForm : std::uint8_t {
@@ -204,7 +206,8 @@ enum class IndexForm : std::uint8_t {
   row_slice,
   column,
   block,
-  section_nd
+  section_nd,
+  logical
 };
 
 enum class VariableAccess : std::uint8_t { direct, optional_value };
@@ -214,12 +217,21 @@ struct ComparisonPlan {
   std::string token;
 };
 
+struct BroadcastPlan {
+  bool valid{false};
+  std::vector<std::size_t> left_shape;
+  std::vector<std::size_t> right_shape;
+  std::vector<std::size_t> result_shape;
+  std::vector<semantic::BroadcastAxis> axes;
+};
+
 struct ExpressionPlan {
   bool valid{false};
   ExpressionForm form{ExpressionForm::invalid};
   int precedence{10};
   std::string token;
   std::vector<ComparisonPlan> comparisons;
+  BroadcastPlan broadcast;
   CallForm call{CallForm::none};
   EvaluationForm evaluation{EvaluationForm::direct};
   CallValueForm call_value{CallValueForm::direct};
@@ -264,7 +276,8 @@ enum class StatementForm : std::uint8_t {
   while_loop,
   range_loop,
   for_loop,
-  function
+  function,
+  indexed_logical_assignment
 };
 
 enum class SelectorForm : std::uint8_t { value, closed_range, lower_bound, upper_bound };
@@ -323,6 +336,7 @@ struct Expression {
   SourceLocation location{};
   ExpressionKind kind{ExpressionKind::invalid};
   std::string value;
+  UnaryOperator unary_operation{UnaryOperator::none};
   SymbolId symbol_id{};
   BinaryOperator operation{BinaryOperator::none};
   ComparisonOperator comparison{ComparisonOperator::none};
@@ -334,6 +348,8 @@ struct Expression {
   CodeBinding target_binding{};
   ValueType element_type{ValueType::unknown};
   std::vector<std::size_t> shape;
+  semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
+  BroadcastPlan broadcast;
   std::vector<ValueType> tuple_types;
   std::vector<ValueType> tuple_element_types;
   std::vector<std::vector<std::size_t>> tuple_shapes;
@@ -348,6 +364,7 @@ struct Expression {
   bool allow_negative_index{false};
   bool column_major{false};
   bool slice_stop_inclusive{false};
+  semantic::IndexSelection index_selection{semantic::IndexSelection::positional};
   ExpressionPlan plan;
 
   [[nodiscard]] bool valid() const noexcept { return kind != ExpressionKind::invalid; }

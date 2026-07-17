@@ -70,6 +70,7 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
   result.location = source.location;
   result.kind = source.kind;
   result.value = attributes.spelling;
+  result.unary_operation = attributes.unary_operation;
   result.symbol_id = source.symbol_id;
   result.operation = attributes.operation;
   result.comparison = attributes.comparison;
@@ -88,6 +89,17 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
   result.element_type = mir::element_type(program, source.type_id);
   const auto* source_shape = mir::shape(program, source.shape_id);
   if (source_shape != nullptr) result.shape = source_shape->extents;
+  result.array_operation = attributes.array_operation;
+  if (attributes.broadcast.valid) {
+    result.broadcast.valid = true;
+    const auto* left_shape = mir::shape(program, attributes.broadcast.left_shape);
+    const auto* right_shape = mir::shape(program, attributes.broadcast.right_shape);
+    const auto* result_shape = mir::shape(program, attributes.broadcast.result_shape);
+    if (left_shape != nullptr) result.broadcast.left_shape = left_shape->extents;
+    if (right_shape != nullptr) result.broadcast.right_shape = right_shape->extents;
+    if (result_shape != nullptr) result.broadcast.result_shape = result_shape->extents;
+    result.broadcast.axes = attributes.broadcast.axes;
+  }
   const auto* source_type = mir::type(program, source.type_id);
   if (source_type != nullptr && source_type->kind == mir::TypeKind::tuple) {
     result.tuple_types.reserve(source_type->elements.size());
@@ -124,6 +136,7 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
   result.allow_negative_index = attributes.allow_negative_index;
   result.column_major = mir::column_major(program, source.shape_id);
   result.slice_stop_inclusive = attributes.slice_stop_inclusive;
+  result.index_selection = attributes.index_selection;
   return result;
 }
 

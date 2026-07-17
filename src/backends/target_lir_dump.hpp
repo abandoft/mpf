@@ -72,6 +72,9 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
          << expression.plan.index_base << " negative-index " << expression.plan.allow_negative_index
          << " column-major " << expression.plan.column_major << " inclusive-slice "
          << expression.plan.inclusive_slice_stop;
+  if (expression.array_operation == semantic::ArrayOperation::matlab) {
+    output << " matlab-array-operation 1";
+  }
   if (!expression.plan.call_arguments.empty()) {
     output << " call-arguments [";
     for (std::size_t index = 0; index < expression.plan.call_arguments.size(); ++index) {
@@ -95,6 +98,28 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     for (std::size_t index = 0; index < expression.plan.selector_slices.size(); ++index) {
       if (index != 0) output << ',';
       output << expression.plan.selector_slices[index];
+    }
+    output << ']';
+  }
+  if (expression.plan.broadcast.valid) {
+    const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
+      output << '[';
+      for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+        if (axis != 0U) output << ',';
+        output << shape[axis];
+      }
+      output << ']';
+    };
+    output << " broadcast ";
+    dump_shape(expression.plan.broadcast.left_shape);
+    output << ',';
+    dump_shape(expression.plan.broadcast.right_shape);
+    output << "->";
+    dump_shape(expression.plan.broadcast.result_shape);
+    output << " axes [";
+    for (std::size_t axis = 0; axis < expression.plan.broadcast.axes.size(); ++axis) {
+      if (axis != 0U) output << ',';
+      output << static_cast<int>(expression.plan.broadcast.axes[axis]);
     }
     output << ']';
   }

@@ -73,6 +73,11 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
   if (expression.kind == ExpressionKind::index || expression.kind == ExpressionKind::slice) {
     result.runtime.require(lir::RuntimeFeature::arrays);
   }
+  if (expression.kind == ExpressionKind::unary &&
+      (attributes.unary_operation == UnaryOperator::transpose ||
+       attributes.unary_operation == UnaryOperator::conjugate_transpose)) {
+    result.runtime.require(lir::RuntimeFeature::arrays);
+  }
   if (program.source_language == SourceLanguage::matlab &&
       expression.kind == ExpressionKind::binary &&
       (mir::value_type(program, expression.type_id) == ValueType::list ||
