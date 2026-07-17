@@ -4,14 +4,19 @@
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace mpf::detail {
 
 template <typename Plan>
-auto dump_target_representation_details(std::ostream& output, const Plan& plan, int)
-    -> decltype(plan.concrete_type, plan.widen_children, plan.flatten_base, plan.call_outcome,
-                void()) {
+using TargetRepresentationDetails =
+    decltype(std::declval<const Plan&>().concrete_type, std::declval<const Plan&>().widen_children,
+             std::declval<const Plan&>().flatten_base, std::declval<const Plan&>().call_outcome,
+             void());
+
+template <typename Plan, TargetRepresentationDetails<Plan>* = nullptr>
+void dump_representation_details(std::ostream& output, const Plan& plan, int) {
   if (!plan.concrete_type.empty()) output << " concrete-type " << std::quoted(plan.concrete_type);
   if (!plan.widen_children.empty()) {
     output << " widen [";
@@ -39,7 +44,7 @@ auto dump_target_representation_details(std::ostream& output, const Plan& plan, 
 }
 
 template <typename Plan>
-void dump_target_representation_details(std::ostream&, const Plan&, long) {}
+void dump_representation_details(std::ostream&, const Plan&, long) {}
 
 template <typename Expression>
 void dump_target_expression(std::ostream& output, const Expression& expression,
@@ -93,7 +98,7 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     }
     output << ']';
   }
-  dump_target_representation_details(output, expression.plan, 0);
+  dump_representation_details(output, expression.plan, 0);
   if (!expression.argument_transfers.empty()) {
     output << " transfers [";
     for (std::size_t index = 0; index < expression.argument_transfers.size(); ++index) {
