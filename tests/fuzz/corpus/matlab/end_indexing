@@ -1,0 +1,4 @@
+values = [1 2 3 4];
+tail = values(2:end);
+reverse = values(end:-1:1);
+disp(tail(end) + reverse(end))

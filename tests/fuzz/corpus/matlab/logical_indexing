@@ -1,0 +1,4 @@
+values = [10 20 30 40];
+selected = values(values >= 30);
+values(values < 25) = 0;
+disp(sum(selected) + sum(values))
