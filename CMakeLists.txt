@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
   mpf
-  VERSION 0.4.6
-  DESCRIPTION "Matlab, Python, Fortran and TypeScript to JavaScript and C++17 transpiler"
+  VERSION 0.4.7
+  DESCRIPTION "Modern, high-performance multilingual translation framework."
   LANGUAGES C CXX)
 
 if(PROJECT_VERSION VERSION_LESS "0.0.1" OR PROJECT_VERSION_PATCH GREATER 9)
