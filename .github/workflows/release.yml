@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["[0-9]+.[0-9]+.[0-9]+"]
   workflow_dispatch:
 
 concurrency:
@@ -50,7 +50,7 @@ jobs:
           -DMPF_REQUIRE_DIFFERENTIAL_RUNTIME=ON
           -DMPF_FORTRAN_REFERENCE_STANDARD=f2018
       - name: Verify release tag and project version
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/')
         run: >-
           cmake "-DBUILD_DIR=build/release" "-DTAG=${{ github.ref_name }}"
           -P cmake/verify_release_version.cmake
@@ -65,39 +65,44 @@ jobs:
       - name: Archive
         working-directory: build/package
         run: >-
-          cmake -E tar czf ${{ matrix.artifact }}.tar.gz
-          --format=gnutar ${{ matrix.artifact }}
+          cmake -E tar cf ${{ matrix.artifact }}.zip
+          --format=zip ${{ matrix.artifact }}
       - name: Checksum
         working-directory: build/package
         run: >-
-          cmake -E sha256sum ${{ matrix.artifact }}.tar.gz
-          > ${{ matrix.artifact }}.tar.gz.sha256
+          cmake -E sha256sum ${{ matrix.artifact }}.zip
+          > ${{ matrix.artifact }}.zip.sha256
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           if-no-files-found: error
           retention-days: 14
           path: |
-            build/package/${{ matrix.artifact }}.tar.gz
-            build/package/${{ matrix.artifact }}.tar.gz.sha256
+            build/package/${{ matrix.artifact }}.zip
+            build/package/${{ matrix.artifact }}.zip.sha256
 
   publish:
     name: Publish GitHub Release
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     needs: package
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v6
       - uses: actions/download-artifact@v8
         with:
           path: build/artifacts
           merge-multiple: true
+      - name: Extract release notes
+        run: >-
+          bash scripts/release/extract-release-notes.sh
+          CHANGELOG.md "${{ github.ref_name }}" build/release-notes.md
       - uses: softprops/action-gh-release@v3
         with:
-          generate_release_notes: true
+          body_path: build/release-notes.md
           fail_on_unmatched_files: true
           files: |
-            build/artifacts/*.tar.gz
+            build/artifacts/*.zip
             build/artifacts/*.sha256
