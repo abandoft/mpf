@@ -250,6 +250,64 @@ TEST_CASE("Matlab binary operator identity remains typed through HIR and MIR") {
   REQUIRE(!mpf::detail::mir::verify(missing_array_semantics, "missing-array-semantics").empty());
 }
 
+TEST_CASE("Matlab logical evaluation policy remains explicit through every IR layer") {
+  using Evaluation = mpf::detail::semantic::LogicalEvaluation;
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "mask = [1 0] & [1 2];\n"
+                              "inverse = ~mask;\n"
+                              "scalar = 1 && 2;\n"
+                              "if 1 | 0\n"
+                              "  scalar = 1;\n"
+                              "end\n",
+                              "logical_policy.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  REQUIRE(std::count_if(analysis.semantics.expressions.begin(),
+                        analysis.semantics.expressions.end(), [](const auto& facts) {
+                          return facts.logical_evaluation == Evaluation::eager_elementwise;
+                        }) == 2);
+  REQUIRE(std::count_if(analysis.semantics.expressions.begin(),
+                        analysis.semantics.expressions.end(), [](const auto& facts) {
+                          return facts.logical_evaluation == Evaluation::short_circuit_boolean;
+                        }) == 2);
+  REQUIRE(mpf::detail::dump_semantics(analysis.semantics).find("logical-evaluation=1") !=
+          std::string::npos);
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(std::count_if(mir.program.attributes.expressions.begin() + 1,
+                        mir.program.attributes.expressions.end(), [](const auto& attributes) {
+                          return attributes.logical_evaluation == Evaluation::eager_elementwise;
+                        }) == 2);
+  REQUIRE(std::count_if(mir.program.attributes.expressions.begin() + 1,
+                        mir.program.attributes.expressions.end(), [](const auto& attributes) {
+                          return attributes.logical_evaluation == Evaluation::short_circuit_boolean;
+                        }) == 2);
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("logical-evaluation=2") != std::string::npos);
+
+  auto corrupted = mir.program;
+  const auto logical =
+      std::find_if(corrupted.attributes.expressions.begin() + 1,
+                   corrupted.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.logical_evaluation == Evaluation::eager_elementwise;
+                   });
+  REQUIRE(logical != corrupted.attributes.expressions.end());
+  logical->logical_evaluation = Evaluation::none;
+  REQUIRE(!mpf::detail::mir::verify(corrupted, "logical-policy-corruption").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("logical-evaluation 1") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("logical-evaluation 2") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("logical-evaluation 1") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("logical-evaluation 2") != std::string::npos);
+}
+
 TEST_CASE("Matlab runtime broadcast shape source remains typed through every IR layer") {
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "function [expanded, mask] = expand_dynamic(left, right)\n"
@@ -1079,7 +1137,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(first_hir.find("stmt %h") != std::string::npos);
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v8") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v9") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -1087,7 +1145,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v13") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v14") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -2556,9 +2614,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v19") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v20") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v19") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v20") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -3141,6 +3199,7 @@ TEST_CASE("target LIR statement plans own control assignment and parameter acces
 
 TEST_CASE("target LIR owns dense source segments and closure evaluation plans") {
   mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.source_language = mpf::SourceLanguage::python;
   javascript.node_count = 4;
   javascript.emission.operand_logical_result = true;
   mpf::detail::javascript::lir::Statement javascript_statement;
@@ -3153,6 +3212,8 @@ TEST_CASE("target LIR owns dense source segments and closure evaluation plans") 
   javascript_statement.expression.kind = mpf::detail::ExpressionKind::binary;
   javascript_statement.expression.value = "&&";
   javascript_statement.expression.operation = mpf::detail::BinaryOperator::logical_and;
+  javascript_statement.expression.logical_evaluation =
+      mpf::detail::semantic::LogicalEvaluation::short_circuit_operand;
   mpf::detail::javascript::lir::Expression javascript_left;
   javascript_left.id = mpf::detail::LirNodeId{3};
   javascript_left.origin = mpf::detail::HirNodeId{12};
