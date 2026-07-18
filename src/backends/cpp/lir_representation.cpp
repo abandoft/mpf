@@ -309,7 +309,8 @@ lir::CallForm call_form(const lir::Expression& expression) noexcept {
 
 lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
                                              const lir::EmissionPlan& emission,
-                                             const AccessContext& context) {
+                                             const AccessContext& context,
+                                             const SourceLanguage source_language) {
   lir::ExpressionPlan result;
   if (!expression.valid()) return result;
   result.valid = true;
@@ -353,6 +354,8 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
         result.precedence = 9;
         result.token = "mpf_runtime::matlab_transpose";
         result.form = lir::ExpressionForm::matlab_transpose;
+        if (!expression.children.empty()) result.input_shape = expression.children.front().shape;
+        result.result_shape = expression.shape;
       } else {
         result.precedence = 6;
         result.token = expression.value;
@@ -443,6 +446,9 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
                               : lir::CallValueForm::direct;
       result.call_outcome = expression.procedure_has_result ? lir::CallOutcomeForm::value
                                                             : lir::CallOutcomeForm::discard;
+      if (result.call == lir::CallForm::matlab_length && expression.children.size() > 1U) {
+        result.input_shape = expression.children[1].shape;
+      }
       if (result.call == lir::CallForm::reshape && expression.children.size() > 1U) {
         result.input_shape = expression.children[1].shape;
         result.result_shape = expression.shape;
@@ -521,6 +527,11 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
     case ExpressionKind::list:
       result.form = lir::ExpressionForm::list;
       result.concrete_type = container_type(expression.element_type, expression.shape.size());
+      result.array_literal.form =
+          source_language == SourceLanguage::matlab && expression.children.empty()
+              ? lir::ArrayLiteralForm::shaped_empty
+              : lir::ArrayLiteralForm::direct;
+      result.array_literal.shape = expression.shape;
       result.widen_children.reserve(expression.children.size());
       for (const auto& child : expression.children) {
         result.widen_children.push_back(expression.element_type == ValueType::real &&
@@ -560,7 +571,9 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.inclusive_slice_stop != right.inclusive_slice_stop ||
       left.flatten_base != right.flatten_base || left.string_value != right.string_value ||
       left.concrete_type != right.concrete_type || left.widen_children != right.widen_children ||
-      left.input_shape != right.input_shape || left.result_shape != right.result_shape) {
+      left.input_shape != right.input_shape || left.result_shape != right.result_shape ||
+      left.array_literal.form != right.array_literal.form ||
+      left.array_literal.shape != right.array_literal.shape) {
     return false;
   }
   for (std::size_t index = 0; index < left.comparisons.size(); ++index) {
@@ -573,10 +586,12 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
 }
 
 void plan_expression(lir::Expression& expression, const lir::EmissionPlan& emission,
-                     const AccessContext& context) {
+                     const AccessContext& context, const SourceLanguage source_language) {
   if (!expression.valid()) return;
-  for (auto& child : expression.children) plan_expression(child, emission, context);
-  expression.plan = expected_expression_plan(expression, emission, context);
+  for (auto& child : expression.children) {
+    plan_expression(child, emission, context, source_language);
+  }
+  expression.plan = expected_expression_plan(expression, emission, context, source_language);
 }
 
 void collect_index_extent(const lir::Expression& expression,
@@ -659,7 +674,8 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
     add_error(diagnostics, expression.location,
               "cpp LIR Matlab matrix-operation plan is inconsistent");
   }
-  if (!same_plan(expression.plan, expected_expression_plan(expression, emission, context))) {
+  if (!same_plan(expression.plan,
+                 expected_expression_plan(expression, emission, context, source_language))) {
     add_error(diagnostics, expression.location,
               "cpp LIR expression representation plan is inconsistent");
   }
@@ -877,26 +893,26 @@ AccessContext function_context(const lir::Statement& statement) {
 }
 
 void plan_statements(std::vector<lir::Statement>& statements, const lir::EmissionPlan& emission,
-                     const AccessContext& context) {
+                     const AccessContext& context, const SourceLanguage source_language) {
   for (auto& statement : statements) {
     const auto nested_context =
         statement.kind == StatementKind::function ? function_context(statement) : context;
     const auto& expression_context =
         statement.kind == StatementKind::function ? nested_context : context;
-    plan_expression(statement.expression, emission, expression_context);
-    plan_expression(statement.secondary_expression, emission, expression_context);
-    plan_expression(statement.tertiary_expression, emission, expression_context);
-    plan_expression(statement.target_expression, emission, expression_context);
+    plan_expression(statement.expression, emission, expression_context, source_language);
+    plan_expression(statement.secondary_expression, emission, expression_context, source_language);
+    plan_expression(statement.tertiary_expression, emission, expression_context, source_language);
+    plan_expression(statement.target_expression, emission, expression_context, source_language);
     for (auto& expression : statement.parameter_defaults) {
-      plan_expression(expression, emission, expression_context);
+      plan_expression(expression, emission, expression_context, source_language);
     }
     for (auto& selector : statement.case_selectors) {
-      plan_expression(selector.lower, emission, expression_context);
-      plan_expression(selector.upper, emission, expression_context);
+      plan_expression(selector.lower, emission, expression_context, source_language);
+      plan_expression(selector.upper, emission, expression_context, source_language);
     }
     statement.plan = expected_statement_plan(statement, emission, context);
-    plan_statements(statement.body, emission, nested_context);
-    plan_statements(statement.alternative, emission, nested_context);
+    plan_statements(statement.body, emission, nested_context, source_language);
+    plan_statements(statement.alternative, emission, nested_context, source_language);
   }
 }
 
@@ -949,7 +965,7 @@ void verify_statements(const std::vector<lir::Statement>& statements,
 }  // namespace
 
 void plan_lir_representation(lir::SemanticProgram& program) {
-  plan_statements(program.statements, program.emission, {});
+  plan_statements(program.statements, program.emission, {}, program.source_language);
   program.source_segments = build_source_segment_plan(program.statements, program.node_count);
 }
 
