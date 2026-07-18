@@ -95,7 +95,10 @@ void collect_index_extent(const Expression& expression, const SemanticTable& tab
 }
 
 bool valid_matrix_shapes(const MatrixOperationPlan& plan) noexcept {
-  if (!static_rank_two(plan.left_shape) || !static_rank_two(plan.result_shape)) return false;
+  if (!static_rank_two(plan.left_shape) || !static_rank_two(plan.result_shape) ||
+      plan.rank_policy != semantic::matrix_rank_policy(plan.solve)) {
+    return false;
+  }
   switch (plan.operation) {
     case semantic::MatrixOperation::none: return false;
     case semantic::MatrixOperation::multiply:
@@ -205,7 +208,8 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
       add_error(diagnostics, expression.location, stage,
                 "matrix-operation plan has an invalid operator, shape, or result contract");
     }
-  } else if (matrix.solve != semantic::MatrixSolveKind::none || !matrix.left_shape.empty() ||
+  } else if (matrix.solve != semantic::MatrixSolveKind::none ||
+             matrix.rank_policy != semantic::MatrixRankPolicy::none || !matrix.left_shape.empty() ||
              !matrix.right_shape.empty() || !matrix.result_shape.empty()) {
     add_error(diagnostics, expression.location, stage,
               "inactive matrix-operation plan retains shape facts");

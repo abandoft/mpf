@@ -30,11 +30,26 @@ enum class MatrixOperation : std::uint8_t {
   integer_power
 };
 enum class MatrixSolveKind : std::uint8_t { none, square, overdetermined, underdetermined };
+// Numerical rank handling is part of the source-language contract, not a target runtime guess.
+// Matlab's rectangular backslash/slash operators return a pivoted basic least-squares solution
+// and warn when the numerical rank is below min(rows, columns).  The current square path retains
+// its LU/full-rank boundary until Matlab-compatible singular-square behavior is implemented.
+enum class MatrixRankPolicy : std::uint8_t { none, require_full_rank, basic_solution_with_warning };
 
 [[nodiscard]] constexpr MatrixSolveKind matrix_solve_kind(const std::size_t rows,
                                                           const std::size_t columns) noexcept {
   if (rows == columns) return MatrixSolveKind::square;
   return rows > columns ? MatrixSolveKind::overdetermined : MatrixSolveKind::underdetermined;
+}
+
+[[nodiscard]] constexpr MatrixRankPolicy matrix_rank_policy(const MatrixSolveKind solve) noexcept {
+  switch (solve) {
+    case MatrixSolveKind::none: return MatrixRankPolicy::none;
+    case MatrixSolveKind::square: return MatrixRankPolicy::require_full_rank;
+    case MatrixSolveKind::overdetermined:
+    case MatrixSolveKind::underdetermined: return MatrixRankPolicy::basic_solution_with_warning;
+  }
+  return MatrixRankPolicy::none;
 }
 // Per-subscript execution contract. Keeping selector identity explicit avoids deriving Matlab
 // indexing semantics again in each target backend.

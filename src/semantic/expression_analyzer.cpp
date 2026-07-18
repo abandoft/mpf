@@ -696,8 +696,11 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
         return facts.inferred_type = ValueType::unknown;
       }
       facts.matrix_operation = {semantic::MatrixOperation::multiply,
-                                semantic::MatrixSolveKind::none, left_facts.shape,
-                                right_facts.shape, facts.shape};
+                                semantic::MatrixSolveKind::none,
+                                semantic::MatrixRankPolicy::none,
+                                left_facts.shape,
+                                right_facts.shape,
+                                facts.shape};
       return facts.inferred_type;
     }
     if (left_array && right_array &&
@@ -726,10 +729,14 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
           return facts.inferred_type = ValueType::unknown;
         }
         facts.shape = {(*left_matrix_shape)[1], (*right_matrix_shape)[1]};
-        facts.matrix_operation = {
-            semantic::MatrixOperation::left_divide,
-            semantic::matrix_solve_kind((*left_matrix_shape)[0], (*left_matrix_shape)[1]),
-            *left_matrix_shape, *right_matrix_shape, facts.shape};
+        const auto solve =
+            semantic::matrix_solve_kind((*left_matrix_shape)[0], (*left_matrix_shape)[1]);
+        facts.matrix_operation = {semantic::MatrixOperation::left_divide,
+                                  solve,
+                                  semantic::matrix_rank_policy(solve),
+                                  *left_matrix_shape,
+                                  *right_matrix_shape,
+                                  facts.shape};
       } else {
         if ((*left_matrix_shape)[1] != (*right_matrix_shape)[1]) {
           diagnose(expression.location.line, "MPF2046",
@@ -738,10 +745,14 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
           return facts.inferred_type = ValueType::unknown;
         }
         facts.shape = {(*left_matrix_shape)[0], (*right_matrix_shape)[0]};
-        facts.matrix_operation = {
-            semantic::MatrixOperation::right_divide,
-            semantic::matrix_solve_kind((*right_matrix_shape)[1], (*right_matrix_shape)[0]),
-            *left_matrix_shape, *right_matrix_shape, facts.shape};
+        const auto solve =
+            semantic::matrix_solve_kind((*right_matrix_shape)[1], (*right_matrix_shape)[0]);
+        facts.matrix_operation = {semantic::MatrixOperation::right_divide,
+                                  solve,
+                                  semantic::matrix_rank_policy(solve),
+                                  *left_matrix_shape,
+                                  *right_matrix_shape,
+                                  facts.shape};
       }
       return facts.inferred_type;
     }
@@ -773,6 +784,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
       facts.shape = left_facts.shape;
       facts.matrix_operation = {semantic::MatrixOperation::integer_power,
                                 semantic::MatrixSolveKind::none,
+                                semantic::MatrixRankPolicy::none,
                                 left_facts.shape,
                                 {},
                                 facts.shape};
