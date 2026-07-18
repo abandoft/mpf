@@ -801,6 +801,8 @@ class Builder final {
       if (semantic_facts->matrix_operation.valid()) {
         result_attributes.matrix_operation.operation = semantic_facts->matrix_operation.operation;
         result_attributes.matrix_operation.solve = semantic_facts->matrix_operation.solve;
+        result_attributes.matrix_operation.numeric_domain =
+            semantic_facts->matrix_operation.numeric_domain;
         result_attributes.matrix_operation.condition_policy =
             semantic_facts->matrix_operation.condition_policy;
         result_attributes.matrix_operation.structure_policy =

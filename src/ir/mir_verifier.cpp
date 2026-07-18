@@ -210,6 +210,45 @@ semantic::MatrixOperation expected_matrix_operation(
   return semantic::MatrixOperation::none;
 }
 
+std::optional<semantic::MatrixNumericDomain> expected_matrix_numeric_domain(
+    const Program& program, const Expression& expression,
+    const ExpressionAttributes& attributes) noexcept {
+  if (expression.children.size() != 2U ||
+      !valid_index(expression.children[0], program.expressions) ||
+      !valid_index(expression.children[1], program.expressions)) {
+    return std::nullopt;
+  }
+  const auto& left = program.expressions[expression.children[0].value()];
+  const auto& right = program.expressions[expression.children[1].value()];
+  const auto left_type = value_type(program, left.type_id);
+  const auto right_type = value_type(program, right.type_id);
+  const auto left_numeric = left_type == ValueType::list
+                                ? element_numeric_type(program, left.type_id)
+                                : numeric_type(program, left.type_id);
+  const auto right_numeric = right_type == ValueType::list
+                                 ? element_numeric_type(program, right.type_id)
+                                 : numeric_type(program, right.type_id);
+  if (!left_numeric.present() || left_numeric.complexity == NumericComplexity::unknown) {
+    return std::nullopt;
+  }
+  if (attributes.operation == BinaryOperator::power && left_type == ValueType::list &&
+      right_type != ValueType::list) {
+    if (!right_numeric.present() || right_numeric.complexity != NumericComplexity::real) {
+      return std::nullopt;
+    }
+    return left_numeric.complexity == NumericComplexity::complex
+               ? semantic::MatrixNumericDomain::complex
+               : semantic::MatrixNumericDomain::real;
+  }
+  if (!right_numeric.present() || right_numeric.complexity == NumericComplexity::unknown) {
+    return std::nullopt;
+  }
+  return left_numeric.complexity == NumericComplexity::complex ||
+                 right_numeric.complexity == NumericComplexity::complex
+             ? semantic::MatrixNumericDomain::complex
+             : semantic::MatrixNumericDomain::real;
+}
+
 semantic::ReductionOperation expected_reduction_operation(const Program& program,
                                                           const Expression& expression) noexcept {
   if (program.source_language != SourceLanguage::matlab ||
@@ -242,8 +281,12 @@ bool valid_matrix_shapes(const Program& program, const MatrixOperationPlan& plan
   const auto* right = shape(program, plan.right_shape);
   const auto* result = shape(program, plan.result_shape);
   if (!static_rank_two(left) || !static_rank_two(result) || plan.result_shape != expression_shape ||
+      plan.numeric_domain == semantic::MatrixNumericDomain::none ||
       plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
-      plan.structure_policy != semantic::matrix_structure_policy(plan.solve)) {
+      plan.structure_policy != semantic::matrix_structure_policy(plan.solve, plan.numeric_domain) ||
+      (plan.numeric_domain == semantic::MatrixNumericDomain::complex &&
+       plan.solve != semantic::MatrixSolveKind::none &&
+       plan.solve != semantic::MatrixSolveKind::square)) {
     return false;
   }
   switch (plan.operation) {
@@ -416,6 +459,8 @@ void verify_expression(const Expression& expression, const Program& program,
             semantic::BroadcastShapeSource::static_extents ||
         retired_attributes->matrix_operation.valid() ||
         retired_attributes->matrix_operation.solve != semantic::MatrixSolveKind::none ||
+        retired_attributes->matrix_operation.numeric_domain !=
+            semantic::MatrixNumericDomain::none ||
         retired_attributes->matrix_operation.condition_policy !=
             semantic::MatrixConditionPolicy::none ||
         retired_attributes->matrix_operation.structure_policy !=
@@ -699,15 +744,20 @@ void verify_expression(const Expression& expression, const Program& program,
   if (matrix.operation != expected_matrix) {
     add_error(diagnostics, expression.location, stage,
               "expression matrix-operation identity disagrees with its typed operands");
-  } else if (matrix.valid() &&
-             (expression_attributes->array_operation != semantic::ArrayOperation::matlab ||
-              expression.kind != ExpressionKind::binary || expression_attributes->broadcast.valid ||
-              matrix.operation != matrix_operation_for_operator(expression_attributes->operation) ||
-              !valid_matrix_shapes(program, matrix, expression.shape_id))) {
-    add_error(diagnostics, expression.location, stage,
-              "expression matrix-operation attributes have an invalid operator or shape "
-              "contract");
+  } else if (matrix.valid()) {
+    const auto expected_domain =
+        expected_matrix_numeric_domain(program, expression, *expression_attributes);
+    if (expression_attributes->array_operation != semantic::ArrayOperation::matlab ||
+        expression.kind != ExpressionKind::binary || expression_attributes->broadcast.valid ||
+        matrix.operation != matrix_operation_for_operator(expression_attributes->operation) ||
+        !expected_domain.has_value() || matrix.numeric_domain != *expected_domain ||
+        !valid_matrix_shapes(program, matrix, expression.shape_id)) {
+      add_error(diagnostics, expression.location, stage,
+                "expression matrix-operation attributes have an invalid operator, numeric "
+                "domain, or shape contract");
+    }
   } else if (!matrix.valid() && (matrix.solve != semantic::MatrixSolveKind::none ||
+                                 matrix.numeric_domain != semantic::MatrixNumericDomain::none ||
                                  matrix.condition_policy != semantic::MatrixConditionPolicy::none ||
                                  matrix.structure_policy != semantic::MatrixStructurePolicy::none ||
                                  matrix.left_shape.valid() || matrix.right_shape.valid() ||

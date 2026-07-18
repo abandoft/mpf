@@ -308,6 +308,7 @@ struct BroadcastPlan {
 struct MatrixOperationPlan {
   semantic::MatrixOperation operation{semantic::MatrixOperation::none};
   semantic::MatrixSolveKind solve{semantic::MatrixSolveKind::none};
+  semantic::MatrixNumericDomain numeric_domain{semantic::MatrixNumericDomain::none};
   semantic::MatrixConditionPolicy condition_policy{semantic::MatrixConditionPolicy::none};
   semantic::MatrixStructurePolicy structure_policy{semantic::MatrixStructurePolicy::none};
   ShapeId left_shape{};

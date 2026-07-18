@@ -169,7 +169,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v11 hir-nodes=" << table.hir_node_count
+  output << "semantic-v12 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -238,6 +238,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
         };
         output << " matrix-operation=" << enum_value(facts.matrix_operation.operation)
                << " solve=" << enum_value(facts.matrix_operation.solve)
+               << " numeric-domain=" << enum_value(facts.matrix_operation.numeric_domain)
                << " condition-policy=" << enum_value(facts.matrix_operation.condition_policy)
                << " structure-policy=" << enum_value(facts.matrix_operation.structure_policy)
                << ' ';
@@ -304,7 +305,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v17 language=" << enum_value(program.source_language)
+  output << "mir-v18 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -380,6 +381,7 @@ std::string dump_mir(const mir::Program& program) {
       if (attributes->matrix_operation.valid()) {
         output << " matrix-operation=" << enum_value(attributes->matrix_operation.operation)
                << " solve=" << enum_value(attributes->matrix_operation.solve)
+               << " numeric-domain=" << enum_value(attributes->matrix_operation.numeric_domain)
                << " condition-policy=" << enum_value(attributes->matrix_operation.condition_policy)
                << " structure-policy=" << enum_value(attributes->matrix_operation.structure_policy)
                << " !s" << attributes->matrix_operation.left_shape.value();
