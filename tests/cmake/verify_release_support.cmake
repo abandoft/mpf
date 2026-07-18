@@ -41,6 +41,14 @@ execute_process(
 if(NOT checksum_status EQUAL 0)
   message(FATAL_ERROR "release verifier fixture checksum failed: ${checksum_error}")
 endif()
+file(SHA256 "${archive}" archive_digest)
+get_filename_component(archive_name "${archive}" NAME)
+file(READ "${checksum}" checksum_text)
+set(expected_checksum_text "${archive_digest}  ${archive_name}")
+if(NOT checksum_text STREQUAL expected_checksum_text)
+  message(FATAL_ERROR
+    "generated checksum is not the required portable single-line format")
+endif()
 execute_process(
   COMMAND "${CMAKE_COMMAND}"
     "-DARCHIVE=${archive}"
@@ -74,6 +82,26 @@ execute_process(
   ERROR_QUIET)
 if(wrong_checksum_status EQUAL 0)
   message(FATAL_ERROR "release verifier accepted an invalid checksum")
+endif()
+
+string(ASCII 13 carriage_return)
+set(nonportable_checksum "${TEST_BINARY_DIR}/nonportable.sha256")
+file(WRITE "${nonportable_checksum}"
+  "${archive_digest}  ${archive_name}${carriage_return}")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}"
+    "-DARCHIVE=${archive}"
+    "-DCHECKSUM=${nonportable_checksum}"
+    "-DARTIFACT=${artifact}"
+    "-DVERSION=${PROJECT_VERSION}"
+    "-DLICENSE_FILE=${SOURCE_DIR}/LICENSE"
+    "-DVERIFY_DIR=${TEST_BINARY_DIR}/nonportable-checksum"
+    -P "${SOURCE_DIR}/cmake/verify_release_archive.cmake"
+  RESULT_VARIABLE nonportable_checksum_status
+  OUTPUT_QUIET
+  ERROR_QUIET)
+if(nonportable_checksum_status EQUAL 0)
+  message(FATAL_ERROR "release verifier accepted a checksum containing a carriage return")
 endif()
 
 file(READ "${SOURCE_DIR}/LICENSE" license_text)
