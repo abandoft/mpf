@@ -11,7 +11,6 @@
 - 两个 runtime 在各自边界验证安全 size、selector bounds/type、矩形 rank、replacement cardinality 和有歧义的多维删除。
 - source map 已覆盖 growth/deletion 调用；线性 matrix 删除、多轴删除和越界删除以稳定诊断失败关闭。
 - 新增静态及运行时 shape 的可执行差分、N 维生成代码检查、跨层 plan 损坏拒绝和 Matlab 专用 fuzz seed。
-- 新增 Matlab shape-mutation 编译性能场景，并继续执行既有延迟、吞吐、生成大小、sanitizer、可移植性和 85% 覆盖率门禁；生产代码行覆盖率为 90.00%。
 
 ## 0.5.0
 

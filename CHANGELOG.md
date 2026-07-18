@@ -11,7 +11,6 @@
 - Both runtimes validate safe sizes, selector bounds and types, rectangular rank, replacement cardinality, and ambiguous multi-dimensional deletion at their owned boundary.
 - Source maps now cover generated growth and deletion calls, and invalid linear matrix deletion, multi-axis deletion, and out-of-bounds deletion fail closed with stable diagnostics.
 - Added static and runtime-shaped executable differential coverage, N-dimensional generated-code checks, cross-layer corruption tests, and a dedicated Matlab fuzz seed.
-- Added a Matlab shape-mutation compilation-performance scenario while retaining the existing latency, throughput, generated-size, sanitizer, portability, and 85% coverage gates; production line coverage is 90.00%.
 
 ## 0.5.0
 
