@@ -1,6 +1,6 @@
 # MPF 持续建设路线图
 
-本路线图记录 **0.5.8 当前开发基线** 与后续交付目标的真实状态。历史交付细节见
+本路线图记录 **0.5.9 当前开发基线** 与后续交付目标的真实状态。历史交付细节见
 [CHANGELOG-ZH.md](CHANGELOG-ZH.md)，当前可依赖的语言子集见
 [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 已有独立、可执行且包含 lexical block/canonical `for` 的子集，但完整 grammar 仍未完成。
 
@@ -14,12 +14,12 @@
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；源码分别位于无重复文件名前缀的 `src/backends/javascript/`、`src/backends/cpp/`，`cpp` 当前生成严格 C++17 translation unit |
 | 前后端边界 | 四语言 parser session 直接构造并发布各自 arena AST artifact，不经过共享递归 syntax tree 或整树复制；生产驱动随后固定经过 HIR→MIR→共享优化→优化后 alias/effect→CFG memory-dependence→目标私有 semantic plan/LIR→emitter，两个目标不读取彼此产物 |
 | 扩展架构 | frontend descriptor API v6、backend descriptor API v6；仅接受 canonical 语言/目标名称，不保留旧名称 alias；parser session/feature/resource contract、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
-| IR 架构 | 四种语言使用编译期互不兼容的 PMR arena AST，并原子 lowering 到窄 HIR v2 与 revision-checked 稠密 semantic side table；名称、控制流、alias/effect 和 memory-dependence 分别由独立表持有。MIR v18 使用强类型稠密 expression/statement/instruction arena、显式 CFG、resident instruction 与 revision-bound attributes；Semantic v12→MIR v18→双目标 LIR v24 逐层验证 numeric class/complexity、matrix numeric domain/solve/condition/structure、shape/broadcast/reduction/index/mutation、storage region、call ownership/writeback 和 source segment plan。JavaScript LIR 与 `cpp` LIR 各自完成 representation/runtime/module 规划，emitter 仅序列化，任一目标都不读取另一目标产物。 |
+| IR 架构 | 四种语言使用编译期互不兼容的 PMR arena AST，并原子 lowering 到窄 HIR v2 与 revision-checked 稠密 semantic side table；名称、控制流、alias/effect 和 memory-dependence 分别由独立表持有。MIR v19 使用强类型稠密 expression/statement/instruction arena、显式 CFG、resident instruction 与 revision-bound attributes；Semantic v13→MIR v19→双目标 LIR v25 逐层验证 numeric class/complexity、matrix numeric domain/solve/condition/factorization/structure、shape/broadcast/reduction/index/mutation、storage region、call ownership/writeback 和 source segment plan。JavaScript LIR 与 `cpp` LIR 各自完成 representation/runtime/module 规划，emitter 仅序列化，任一目标都不读取另一目标产物。 |
 | Python 最新能力 | relational/equality/identity/membership 比较链、右结合条件表达式、短路/惰性/单次求值；list/tuple 种类相等规则、singleton/reference identity、string/list/tuple membership；基础参数关联和递归固定序列解包 |
 | 跨语言标量除法 | HIR v2 profile 独立保存 quotient 与 zero-denominator policy；Python `/`/`//` 在 JavaScript/C++17 中 checked exception，Matlab/TypeScript 保持 IEEE-754；C++ 统一经过参数化 runtime helper，消除 MSVC 对惰性字面量零除的编译期拒绝；Fortran 当前保持 target-native |
-| Matlab 最新能力 | `~`/`&`/`|` 的 compatible-size N 维逐元素逻辑、`&&`/`||` 标量短路、condition 全元素非零/非空 truthiness 与 condition-context scalar `&`/`|` 短路；`all`/`any` 支持默认首个非 singleton 维、常量 `dim`/`vecdim`、`'all'`、N 维 shape 与空归约 identity；`2i`/`3j` 及可遮蔽 builtin `i`/`j`、complex scalar 算术/幂/一元正负、标量 `complex`/`conj`/`real`/`imag`/`abs`、complex 数组 compatible-size 逐元素运算、索引/写入/reshape，以及 `'` 共轭转置与 `.'` 普通转置；跨 local-function 的未知 real/complex 参数由动态 numeric ABI 分派；scalar numeric/logical/character `switch/case/otherwise`；规范 `0×0` double empty、一般静态零 extent reshape/transpose/broadcast/section/growth；二维矩阵乘法、静态稠密实数 diagonal/upper/lower/pivoted-tridiagonal/symmetric-positive-definite/dense 结构感知方阵及 rank-aware 超定/欠定 solve、safe-integer 方阵 power、静态 N 维及 local-function runtime rank/extent 的 compatible-size 算术/关系比较、静态及运行时 extent 的逐维/线性 `end`、保序/重复/空 numeric selector、线性/逐维 logical selector，以及 vector/matrix/N 维多轴自动扩容与单轴索引删除进入双目标专属 LIR/runtime |
+| Matlab 最新能力 | `~`/`&`/`|` 的 compatible-size N 维逐元素逻辑、`&&`/`||` 标量短路、condition 全元素非零/非空 truthiness 与 condition-context scalar `&`/`|` 短路；`all`/`any` 支持默认首个非 singleton 维、常量 `dim`/`vecdim`、`'all'`、N 维 shape 与空归约 identity；`2i`/`3j` 及可遮蔽 builtin `i`/`j`、complex scalar 算术/幂/一元正负、标量 `complex`/`conj`/`real`/`imag`/`abs`、complex 数组 compatible-size 逐元素运算、索引/写入/reshape，以及 `'` 共轭转置与 `.'` 普通转置；跨 local-function 的未知 real/complex 参数由动态 numeric ABI 分派；scalar numeric/logical/character `switch/case/otherwise`；规范 `0×0` double empty、一般静态零 extent reshape/transpose/broadcast/section/growth；二维矩阵乘法、静态稠密实数 diagonal/upper/lower/pivoted-tridiagonal/symmetric-positive-definite/dense 结构感知方阵、复数 Hermitian Cholesky/dense LU 方阵及 real/complex rank-aware 超定/欠定 solve、safe-integer 方阵 power、静态 N 维及 local-function runtime rank/extent 的 compatible-size 算术/关系比较、静态及运行时 extent 的逐维/线性 `end`、保序/重复/空 numeric selector、线性/逐维 logical selector，以及 vector/matrix/N 维多轴自动扩容与单轴索引删除进入双目标专属 LIR/runtime |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流；已知静态 shape 下可证明不相交的同根连续、步长与 N 维矩形 writable section actual |
-| 工程门禁 | 230 项内部测试；85 个差分 case、215 条工具完整环境执行路径；Debug/Release/RelWithDebInfo 102 项 CTest；四语言 fuzz smoke、可选 libFuzzer、6 项生成 runtime 拒绝测试、发布脚本正/负契约、23 项独立版本化通用及 Matlab 专项性能阈值、逐 pass/优化/内存依赖统计报告；0.5.8 生产代码行覆盖率 90.83%（30,466/33,542），硬门槛 85%；Release 在标签 SHA 上复用七类 required workflow，门禁后才允许三平台候选测试/安装/消费/归档、来源证明和公开资产回验 |
+| 工程门禁 | 231 项内部测试；87 个差分 case、219 条工具完整环境执行路径；Debug/Release/RelWithDebInfo 104 项 CTest；四语言 fuzz smoke、可选 libFuzzer、6 项生成 runtime 拒绝测试、发布脚本正/负契约、24 项独立版本化通用及 Matlab 专项性能阈值、逐 pass/优化/内存依赖统计报告；0.5.9 生产代码行覆盖率 90.92%（30,839/33,917），硬门槛 85%；Release 在标签 SHA 上复用七类 required workflow，门禁后才允许三平台候选测试/安装/消费/归档、来源证明和公开资产回验 |
 | 发布状态 | 0.x 开发快照；包消费要求精确当前版本，不提供旧 MPF API/ABI/schema/CLI/CMake 兼容承诺或迁移 shim |
 
 ## 本轮商业级收尾验收（完成）
@@ -46,16 +46,17 @@
 - [x] Matlab P0 动态 compatible-size：static-extents/runtime-operands typed plan 贯穿 HIR/MIR/双目标 LIR，local function 参数支持标量或运行时 rank/extent 的算术、关系比较及 scalar expansion，并覆盖拒错、source map、差分、fuzz 和性能门禁
 - [x] Matlab P0 shape mutation：overwrite/resize/grow/erase 强类型 contract 贯穿 Semantic/HIR/MIR/双目标 LIR；覆盖 vector、matrix、一般 N 维多轴扩容与单轴删除、列主序线性扩容、运行时标量 selector、空值填充、source map、差分、fuzz、性能和损坏事实拒绝
 - [x] Matlab P0 空数组静态纵切面：`[]` 规范为 `0×0` double，零 extent 贯穿 reshape/transpose/broadcast/section/growth；Semantic v8、MIR v13 和双目标 LIR v19 保存并验证 array-literal/shape plan，JavaScript 以不可枚举 descriptor 保持不可结构恢复的 shape，C++ 消费静态 shape plan
-- [x] Matlab P0 condition-aware 求解：矩形 `\`/`/` 使用列主元 QR 基本最小二乘解并在秩亏时警告；方阵使用部分主元 LU、迭代 1-范数 `rcond` 估计，在精确奇异/近奇异时分别警告并继续产生 IEEE 结果；`MatrixConditionPolicy` 当前贯穿 Semantic v12/MIR v18/双目标 LIR v24
-- [x] Matlab P0 首批结构感知方阵分派：`MatrixStructurePolicy` 当前贯穿 Semantic v12/MIR v18/双目标 LIR v24；exact-zero diagonal/upper/lower 使用直接或三角求解及对应条件估计，其余方阵回退 dense LU，左右除、source map、差分、fuzz、性能与损坏事实拒绝均进入门禁
-- [x] Matlab P0 高级实数方阵分派：`classify_real_square` 当前贯穿 Semantic v12/MIR v18/双目标 LIR v24；full tridiagonal 使用相邻行部分主元紧凑 LU，非三对角 exact-symmetric positive-definite 使用 Cholesky，对称不定安全回退 dense LU，正/转置求解、条件 warning、左右除、source map、差分、fuzz 和性能均进入门禁
-- [x] Matlab P0 逻辑纵切面：lexer/AST 分离 `&`/`|` 与 `&&`/`||` 并遵循官方 precedence；`LogicalEvaluation` 当前在 Semantic v12/MIR v18/双目标 LIR v24 固化 eager-elementwise/boolean-short-circuit/operand-short-circuit，`~`/`&`/`|` 支持 compatible-size N 维逻辑值，condition 使用非空且全元素非零规则；双目标 runtime、source map、拒错、差分、fuzz 和性能门禁完成
-- [x] Matlab P0 逻辑归约纵切面：`all`/`any` 绑定为 Matlab 专属 intrinsic；`ReductionPlan` 当前在 Semantic v12/MIR v18/双目标 LIR v24 固化 operation、默认/显式/全维 axis policy、static/runtime shape source、输入/输出 shape 与 scalar identity；默认首个非 singleton 维、常量 `dim`/`vecdim`、`'all'`、N 维及零 extent identity 已由双目标独立列主序 runtime、source map、拒错、差分、fuzz 和第二十一项性能场景验证
-- [x] 商业级标量除法纵切面：`Division` 与 `DivisionByZero` 当前经 HIR v2/MIR v18/双目标 LIR v24 传播并独立验证；Python true/floor division 使用双目标 checked runtime，Matlab/TypeScript C++ 使用 portable IEEE helper，renderer 仅序列化 target plan；MSVC、惰性零除、损坏合同和两项生成 runtime 拒错进入门禁
-- [x] Matlab P0 complex 基础纵切面：`NumericClass`/`NumericComplexity` 权威 side table 贯穿语言 AST、HIR、Semantic v12、MIR v18 与双目标 LIR v24；支持 imaginary literal、可遮蔽 `i`/`j`、complex scalar/array 逐元素语义、索引写入/reshape、共轭/普通转置及跨函数动态 numeric 分派；JavaScript object ABI 与 C++ `std::complex<double>` runtime 完全独立，并覆盖损坏事实拒绝、source map、差分、fuzz、feature pruning 和第二十二项性能场景
-- [x] Matlab P0 complex 稠密方阵纵切面：`MatrixNumericDomain::complex` 与 `classify_complex_square` 贯穿 Semantic v12/MIR v18/双目标 LIR v24；二维矩阵乘法、Hermitian 正定 Cholesky、按模选主元 dense LU、共轭转置右除、singular/nearly-singular warning 及 safe-integer 正/零/负方阵幂由独立目标 runtime、source map、差分、fuzz、拒错和第二十三项性能场景验证
+- [x] Matlab P0 condition-aware 求解：矩形 `\`/`/` 使用列主元 QR 基本最小二乘解并在秩亏时警告；方阵使用部分主元 LU、迭代 1-范数 `rcond` 估计，在精确奇异/近奇异时分别警告并继续产生 IEEE 结果；`MatrixConditionPolicy` 当前贯穿 Semantic v13/MIR v19/双目标 LIR v25
+- [x] Matlab P0 首批结构感知方阵分派：`MatrixStructurePolicy` 当前贯穿 Semantic v13/MIR v19/双目标 LIR v25；exact-zero diagonal/upper/lower 使用直接或三角求解及对应条件估计，其余方阵回退 dense LU，左右除、source map、差分、fuzz、性能与损坏事实拒绝均进入门禁
+- [x] Matlab P0 高级实数方阵分派：`classify_real_square` 当前贯穿 Semantic v13/MIR v19/双目标 LIR v25；full tridiagonal 使用相邻行部分主元紧凑 LU，非三对角 exact-symmetric positive-definite 使用 Cholesky，对称不定安全回退 dense LU，正/转置求解、条件 warning、左右除、source map、差分、fuzz 和性能均进入门禁
+- [x] Matlab P0 逻辑纵切面：lexer/AST 分离 `&`/`|` 与 `&&`/`||` 并遵循官方 precedence；`LogicalEvaluation` 当前在 Semantic v13/MIR v19/双目标 LIR v25 固化 eager-elementwise/boolean-short-circuit/operand-short-circuit，`~`/`&`/`|` 支持 compatible-size N 维逻辑值，condition 使用非空且全元素非零规则；双目标 runtime、source map、拒错、差分、fuzz 和性能门禁完成
+- [x] Matlab P0 逻辑归约纵切面：`all`/`any` 绑定为 Matlab 专属 intrinsic；`ReductionPlan` 当前在 Semantic v13/MIR v19/双目标 LIR v25 固化 operation、默认/显式/全维 axis policy、static/runtime shape source、输入/输出 shape 与 scalar identity；默认首个非 singleton 维、常量 `dim`/`vecdim`、`'all'`、N 维及零 extent identity 已由双目标独立列主序 runtime、source map、拒错、差分、fuzz 和第二十一项性能场景验证
+- [x] 商业级标量除法纵切面：`Division` 与 `DivisionByZero` 当前经 HIR v2/MIR v19/双目标 LIR v25 传播并独立验证；Python true/floor division 使用双目标 checked runtime，Matlab/TypeScript C++ 使用 portable IEEE helper，renderer 仅序列化 target plan；MSVC、惰性零除、损坏合同和两项生成 runtime 拒错进入门禁
+- [x] Matlab P0 complex 基础纵切面：`NumericClass`/`NumericComplexity` 权威 side table 贯穿语言 AST、HIR、Semantic v13、MIR v19 与双目标 LIR v25；支持 imaginary literal、可遮蔽 `i`/`j`、complex scalar/array 逐元素语义、索引写入/reshape、共轭/普通转置及跨函数动态 numeric 分派；JavaScript object ABI 与 C++ `std::complex<double>` runtime 完全独立，并覆盖损坏事实拒绝、source map、差分、fuzz、feature pruning 和第二十二项性能场景
+- [x] Matlab P0 complex 稠密方阵纵切面：`MatrixNumericDomain::complex` 与 `classify_complex_square` 贯穿 Semantic v13/MIR v19/双目标 LIR v25；二维矩阵乘法、Hermitian 正定 Cholesky、按模选主元 dense LU、共轭转置右除、singular/nearly-singular warning 及 safe-integer 正/零/负方阵幂由独立目标 runtime、source map、差分、fuzz、拒错和第二十三项性能场景验证
+- [x] Matlab P0 complex 矩形求解纵切面：`MatrixFactorizationPolicy::rank_revealing_column_pivoted_qr` 贯穿 Semantic v13/MIR v19/双目标 LIR v25；超定/欠定、多 RHS、秩亏 basic solution 与 warning、共轭转置右除由 JavaScript/C++ 独立 runtime、source map、差分、fuzz、损坏事实拒绝和第二十四项性能场景验证
 - [x] 按 Matlab null-assignment 规则固定删除边界：只允许 vector 线性删除，或恰好一个非 colon 维度的整 slice 删除；非 vector 线性删除和多个非 colon selector 是源语言非法语义，不再列为未来能力
-- [ ] 继续 Matlab P0：complex 矩形 CPQR、sparse solver dispatch、病态方阵特定解选择的精确 Matlab 对齐、其余 numeric class，以及可跨函数传播不可结构恢复 shape 的统一动态 NDArray ABI；R2024 full symmetric-indefinite 已按当前 dense LU 行为处理，不把已移除的 LDL 路径列为兼容前提
+- [ ] 继续 Matlab P0：sparse solver dispatch、病态方阵特定解选择的精确 Matlab 对齐、其余 numeric class，以及可跨函数传播不可结构恢复 shape 的统一动态 NDArray ABI；R2024 full symmetric-indefinite 已按当前 dense LU 行为处理，不把已移除的 LDL 路径列为兼容前提
 - [ ] 按 Python/Fortran/TypeScript 官方 grammar 选择下一批可独立验收的纵切面
 - [ ] 继续完成跨语言动态 shape 数据流、类型化 NDArray/typed-array ownership、跨一般 view/pointer 的 region/alias 证明
 - [ ] 在已交付的区域化 memory-dependence contract 上建立 memory version、memory phi、rename/def-use 的完整 MemorySSA；以负向 verifier、差分、fuzz 和性能门禁后再启用 region-aware DCE/store forwarding
@@ -161,13 +162,14 @@
 - [x] `*`/`/`/`\`/`^` 与 `.*`/`./`/`.\`/`.^` identity；二维矩阵乘法、同 shape 或 scalar expansion 的基础逐元素算术；JavaScript/`cpp` 目标计划与 runtime
 - [x] 静态已知 shape 及 local-function runtime rank/extent 的 compatible-size 隐式扩展和数组关系比较；HIR/MIR/双目标 LIR 保存并验证 shape source 与逐轴 broadcast plan
 - [x] 共轭 `'`/非共轭 `.'` 的上下文解析与强类型身份；real/complex vector/rank-2 转置进入双目标独立 runtime
-- [x] Matlab binary64 complex 基础语义：trailing `i`/`j` literal、可遮蔽 imaginary-unit builtin、scalar 算术/幂/一元正负、标量 `complex`/`conj`/`real`/`imag`/`abs`、complex 数组 compatible-size 逐元素运算、索引/写入/reshape、跨函数动态 numeric 分派；complex comparison/logical/reduction 与 matrix solver 以 `MPF2053` 失败关闭
+- [x] Matlab binary64 complex 基础语义：trailing `i`/`j` literal、可遮蔽 imaginary-unit builtin、scalar 算术/幂/一元正负、标量 `complex`/`conj`/`real`/`imag`/`abs`、complex 数组 compatible-size 逐元素运算、索引/写入/reshape、跨函数动态 numeric 分派；complex comparison/logical/reduction 以 `MPF2053` 失败关闭
 - [x] 静态及运行时 extent 的逐维/线性 `end`，包括 scalar、colon、算术与 numeric selector array；保序/重复/空 numeric selector 和线性/逐维 logical selector 的列主序读写；runtime-sized extent/mask 由生成代码验证
 - [x] `~`、`&`、`|` 与 `&&`、`||` 保留独立 operator identity 和 precedence；逐元素逻辑支持 scalar/static N-D/runtime operands compatible-size，短路逻辑只接受 scalar numeric/logical，`if`/`while` 对非空数组按全元素非零判断，condition-context `&`/`|` 按标量短路处理并拒绝非标量歧义
 - [x] `all`/`any` 的默认首个非 singleton 维、常量 `dim`/`vecdim` 与 `'all'`；结果 rank/shape、超过 rank 的 no-op axis、`0×0`/shaped-empty identity 及未知 rank total reduction 通过强类型 `ReductionPlan` 贯穿 Analyzer、MIR 和两个目标，动态维度/字符数组以 `MPF2052` 失败关闭
 - [x] vector、matrix 与一般 N 维数组的标量/range/numeric selector 自动扩容；vector 和恰好单个非 colon 轴的索引删除；线性扩容保持 vector 方向或扩展最后一维，间隙按元素默认值初始化，重复删除索引只删除一次
 - [x] 稠密实数方阵/超定/欠定矩阵 `\`/`/` 求解与 safe-integer 方阵 `^`；方阵分派 exact-zero diagonal/upper/lower、full tridiagonal、exact-symmetric positive-definite 及部分主元 dense LU fallback，矩形使用 rank-aware 列主元 Householder QR，返回基本最小二乘解并对非预期秩亏稳定警告
 - [x] 稠密复数二维矩阵乘法、方阵 `\`/`/` 与 safe-integer `^`；方阵按 exact Hermitian-positive-definite Cholesky 或 magnitude-pivoted dense LU 分派，右除使用共轭转置，奇异/近奇异条件稳定警告
+- [x] 稠密复数超定/欠定 `\`/`/`；列主元 Householder QR 返回 pivoted basic least-squares solution，多 RHS 共享分解，秩亏时按稳定 tolerance 警告，右除按共轭转置恒等式复用同一 solver
 - [x] Matlab 数组专项差分、负向语义、fuzz seed 和编译延迟/吞吐/产物大小发布门禁
 - [x] Node.js、生成 C++ 与 oracle 差分框架
 
@@ -178,7 +180,7 @@
 - [ ] 元胞数组、struct、string、table、datetime 等核心类型
 - [x] exact-zero diagonal/upper/lower 与 dense fallback 的首批结构感知 solver dispatch，包含左右除和结构对应条件 warning
 - [x] full-real tridiagonal 相邻行部分主元 LU、正/转置求解、条件估计，以及 exact-symmetric positive-definite Cholesky；对称非正定候选回退 dense LU
-- [ ] complex 矩形 CPQR、sparse solver dispatch、病态方阵特定解选择的精确 Matlab 对齐、非整数矩阵幂、完整 numeric class，以及一般 NDArray 值语义
+- [ ] sparse solver dispatch、病态方阵特定解选择的精确 Matlab 对齐、非整数矩阵幂、完整 numeric class，以及一般 NDArray 值语义
 - [ ] nested/anonymous function 和完整 function workspace/closure 语义
 - [ ] `classdef`、properties、methods、events 与 handle/value 对象模型
 - [ ] 核心函数与工具箱 API 的分层映射、许可证和版本策略
