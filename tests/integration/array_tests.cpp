@@ -117,6 +117,59 @@ TEST_CASE("Matlab complex scalars arrays and conjugate transpose lower independe
   REQUIRE(real_only.code.find("__mpf_complex_tag") == std::string::npos);
 }
 
+TEST_CASE("Matlab complex square matrix kernels preserve target contracts and source maps") {
+  const std::string source =
+      "hermitian = [4 2i; -2i 5];\n"
+      "product = hermitian * hermitian;\n"
+      "hermitian_solution = hermitian \\ [6+8i; 12-7i];\n"
+      "dense = [1i 0; 0 -1i];\n"
+      "dense_solution = dense \\ [-1+1i; -1-2i];\n"
+      "right_solution = [2 8-3i] / hermitian;\n"
+      "powered = hermitian ^ 2;\n"
+      "inverse = hermitian ^ -1;\n"
+      "disp(real(product(1,1)), imag(hermitian_solution(1)), "
+      "real(dense_solution(1)), imag(right_solution(2)), real(powered(2,2)), "
+      "real(inverse(1,1)))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("function __mpf_matlab_complex_mtimes") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_matlab_complex_cholesky_factor") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_matlab_complex_lu_factor") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mrdivide_structured_complex_square") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_complex_mpower") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_complex_mtimes") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_complex_cholesky_factor") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_complex_lu_factor") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_structured_complex_square") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_complex_mpower") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (const auto line : {2U, 3U, 5U, 6U, 7U, 8U}) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+
+  const std::string real_source =
+      "left = [1 2; 3 4];\nright = left * left;\nsolution = left \\ [1; 2];\n"
+      "disp(right(1,1), solution(1))\n";
+  const auto real_javascript =
+      transpile_array(real_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto real_cpp =
+      transpile_array(real_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(real_javascript.success());
+  REQUIRE(real_cpp.success());
+  REQUIRE(real_javascript.code.find("__mpf_matlab_complex_mtimes") == std::string::npos);
+  REQUIRE(real_javascript.code.find("__mpf_complex_tag") == std::string::npos);
+  REQUIRE(real_cpp.code.find("matlab_complex_mtimes") == std::string::npos);
+  REQUIRE(real_cpp.code.find("#include <complex>") == std::string::npos);
+}
+
 TEST_CASE("Matlab function boundaries preserve dynamic scalar and array numeric complexity") {
   const std::string source =
       "scaled = scale_complex(1+2i);\n"

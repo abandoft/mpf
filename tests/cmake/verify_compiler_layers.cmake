@@ -549,7 +549,7 @@ foreach(representation IN ITEMS
     "condition_policy != semantic::matrix_condition_policy(plan.solve)"
     condition_policy_verification)
   string(FIND "${condition_representation_contract}"
-    "structure_policy != semantic::matrix_structure_policy(plan.solve)"
+    "semantic::matrix_structure_policy(plan.solve, plan.numeric_domain)"
     structure_policy_verification)
   if(condition_policy_verification EQUAL -1 OR structure_policy_verification EQUAL -1)
     message(FATAL_ERROR
@@ -587,12 +587,43 @@ foreach(matrix_runtime IN ITEMS
   mpf_assert_file_excludes("${matrix_runtime}" "structured_square_solve"
     "target matrix runtime restored the obsolete diagonal/triangular-only helper contract")
 endforeach()
+foreach(complex_matrix_runtime IN ITEMS
+    src/backends/javascript/complex_matrix_runtime.cpp
+    src/backends/cpp/complex_matrix_runtime.cpp)
+  if(NOT EXISTS "${SOURCE_DIR}/${complex_matrix_runtime}")
+    message(FATAL_ERROR "target complex-matrix runtime is missing: ${complex_matrix_runtime}")
+  endif()
+  file(READ "${SOURCE_DIR}/${complex_matrix_runtime}" complex_matrix_runtime_contract)
+  if(NOT complex_matrix_runtime_contract MATCHES "complex_mtimes" OR
+     NOT complex_matrix_runtime_contract MATCHES "complex_lu_factor" OR
+     NOT complex_matrix_runtime_contract MATCHES "complex_lu_rcond" OR
+     NOT complex_matrix_runtime_contract MATCHES "is_hermitian" OR
+     NOT complex_matrix_runtime_contract MATCHES "complex_cholesky_factor" OR
+     NOT complex_matrix_runtime_contract MATCHES "complex_cholesky_rcond" OR
+     NOT complex_matrix_runtime_contract MATCHES "complex_ctranspose" OR
+     NOT complex_matrix_runtime_contract MATCHES "structured_complex_square_solve" OR
+     NOT complex_matrix_runtime_contract MATCHES "mrdivide_structured_complex_square" OR
+     NOT complex_matrix_runtime_contract MATCHES "complex_mpower")
+    message(FATAL_ERROR
+      "target complex-matrix runtime does not own multiply, Hermitian/LU solve, right-division, "
+      "condition and integer-power kernels: ${complex_matrix_runtime}")
+  endif()
+  mpf_assert_file_excludes("${complex_matrix_runtime}"
+    "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
+    "target complex-matrix runtime depends on compiler state")
+endforeach()
 mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
   "function __mpf_matlab_lu_"
   "generic JavaScript runtime regained matrix factorization ownership")
+mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
+  "function __mpf_matlab_complex_(lu|cholesky|mtimes|mpower)"
+  "generic JavaScript runtime regained complex-matrix kernel ownership")
 mpf_assert_file_excludes("src/backends/cpp/runtime.cpp"
   "inline[^\n]*matlab_lu_(factor|solve|rcond)"
   "generic cpp runtime regained matrix factorization ownership")
+mpf_assert_file_excludes("src/backends/cpp/runtime.cpp"
+  "inline[^\n]*matlab_complex_(lu|cholesky|mtimes|mpower)"
+  "generic cpp runtime regained complex-matrix kernel ownership")
 file(READ "${SOURCE_DIR}/src/backends/javascript/runtime.cpp" javascript_runtime_contract)
 file(READ "${SOURCE_DIR}/src/backends/cpp/runtime.cpp" cpp_runtime_contract)
 if(NOT javascript_runtime_contract MATCHES
@@ -930,6 +961,13 @@ foreach(target_directory IN ITEMS javascript cpp)
        NOT EXISTS "${SOURCE_DIR}/src/backends/${target_directory}/${required_component}.cpp")
       message(FATAL_ERROR
         "target backend directory is missing ${target_directory}/${required_component}.cpp")
+    endif()
+  endforeach()
+  foreach(complex_matrix_component IN ITEMS complex_matrix_runtime.cpp complex_matrix_runtime.hpp)
+    if(NOT EXISTS
+       "${SOURCE_DIR}/src/backends/${target_directory}/${complex_matrix_component}")
+      message(FATAL_ERROR
+        "target backend directory is missing ${target_directory}/${complex_matrix_component}")
     endif()
   endforeach()
 endforeach()
