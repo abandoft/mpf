@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <ostream>
 
+#include "complex_matrix_runtime.hpp"
 #include "matrix_runtime.hpp"
 
 namespace mpf::detail {
@@ -23,6 +24,9 @@ class RuntimeEmitter final {
     const bool include_complex =
         std::find(fragments.begin(), fragments.end(), cpp::lir::RuntimeFragment::complex_numbers) !=
         fragments.end();
+    const bool include_complex_matrices =
+        std::find(fragments.begin(), fragments.end(),
+                  cpp::lir::RuntimeFragment::complex_matrices) != fragments.end();
     output_ << "namespace " << runtime_namespace << " {\n";
     output_
         << "template <typename T> class optional_argument {\n"
@@ -1941,6 +1945,7 @@ class RuntimeEmitter final {
              "  return conjugate_nested(matlab_transpose(values, input_shape, result_shape));\n"
              "}\n";
     }
+    if (include_complex_matrices) emit_cpp_complex_matrix_runtime(output_);
     output_ << "}  // namespace " << runtime_namespace << "\n\n";
   }
 
