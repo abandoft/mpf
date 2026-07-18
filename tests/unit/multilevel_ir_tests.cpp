@@ -375,12 +375,14 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   std::vector<mpf::detail::semantic::MatrixOperation> hir_plans;
   std::vector<mpf::detail::semantic::MatrixSolveKind> solve_plans;
   std::vector<mpf::detail::semantic::MatrixConditionPolicy> condition_policies;
+  std::vector<mpf::detail::semantic::MatrixStructurePolicy> structure_policies;
   for (const auto& facts : analysis.semantics.expressions) {
     if (facts.matrix_operation.valid()) {
       hir_plans.push_back(facts.matrix_operation.operation);
       if (facts.matrix_operation.solve != mpf::detail::semantic::MatrixSolveKind::none) {
         solve_plans.push_back(facts.matrix_operation.solve);
         condition_policies.push_back(facts.matrix_operation.condition_policy);
+        structure_policies.push_back(facts.matrix_operation.structure_policy);
       }
     }
   }
@@ -397,11 +399,17 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   REQUIRE(std::find(solve_plans.begin(), solve_plans.end(),
                     mpf::detail::semantic::MatrixSolveKind::underdetermined) != solve_plans.end());
   REQUIRE(std::find(condition_policies.begin(), condition_policies.end(),
-                    mpf::detail::semantic::MatrixConditionPolicy::lu_continue_with_warning) !=
+                    mpf::detail::semantic::MatrixConditionPolicy::square_continue_with_warning) !=
           condition_policies.end());
   REQUIRE(std::find(condition_policies.begin(), condition_policies.end(),
                     mpf::detail::semantic::MatrixConditionPolicy::basic_solution_with_warning) !=
           condition_policies.end());
+  REQUIRE(std::find(structure_policies.begin(), structure_policies.end(),
+                    mpf::detail::semantic::MatrixStructurePolicy::detect_diagonal_triangular) !=
+          structure_policies.end());
+  REQUIRE(std::find(structure_policies.begin(), structure_policies.end(),
+                    mpf::detail::semantic::MatrixStructurePolicy::none) !=
+          structure_policies.end());
 
   auto contradictory_hir_solve = analysis.semantics;
   const auto hir_rectangular =
@@ -425,9 +433,23 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
       });
   REQUIRE(hir_conditioned != contradictory_hir_condition.expressions.end());
   hir_conditioned->matrix_operation.condition_policy =
-      mpf::detail::semantic::MatrixConditionPolicy::lu_continue_with_warning;
+      mpf::detail::semantic::MatrixConditionPolicy::square_continue_with_warning;
   REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir_condition,
                                               "matrix-condition-policy-mismatch")
+               .empty());
+
+  auto contradictory_hir_structure = analysis.semantics;
+  const auto hir_structured = std::find_if(
+      contradictory_hir_structure.expressions.begin(),
+      contradictory_hir_structure.expressions.end(), [](const auto& facts) {
+        return facts.matrix_operation.structure_policy ==
+               mpf::detail::semantic::MatrixStructurePolicy::detect_diagonal_triangular;
+      });
+  REQUIRE(hir_structured != contradictory_hir_structure.expressions.end());
+  hir_structured->matrix_operation.structure_policy =
+      mpf::detail::semantic::MatrixStructurePolicy::none;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir_structure,
+                                              "matrix-structure-policy-mismatch")
                .empty());
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
@@ -439,6 +461,7 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   REQUIRE(dump.find("solve=2") != std::string::npos);
   REQUIRE(dump.find("condition-policy=1") != std::string::npos);
   REQUIRE(dump.find("condition-policy=2") != std::string::npos);
+  REQUIRE(dump.find("structure-policy=1") != std::string::npos);
   const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto javascript =
       mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
@@ -452,6 +475,8 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   REQUIRE(cpp.artifact->debug_dump().find("condition-policy 1") != std::string::npos);
   REQUIRE(javascript.artifact->debug_dump().find("condition-policy 2") != std::string::npos);
   REQUIRE(cpp.artifact->debug_dump().find("condition-policy 2") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("structure-policy 1") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("structure-policy 1") != std::string::npos);
 
   auto missing_plan = mir.program;
   const auto found =
@@ -495,15 +520,29 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
       });
   REQUIRE(conditioned != contradictory_condition.attributes.expressions.end());
   conditioned->matrix_operation.condition_policy =
-      mpf::detail::semantic::MatrixConditionPolicy::lu_continue_with_warning;
+      mpf::detail::semantic::MatrixConditionPolicy::square_continue_with_warning;
   REQUIRE(!mpf::detail::mir::verify(contradictory_condition, "matrix-condition-policy-mismatch")
+               .empty());
+
+  auto contradictory_structure = mir.program;
+  const auto structured = std::find_if(
+      contradictory_structure.attributes.expressions.begin() + 1,
+      contradictory_structure.attributes.expressions.end(), [](const auto& attributes) {
+        return attributes.matrix_operation.structure_policy ==
+               mpf::detail::semantic::MatrixStructurePolicy::detect_diagonal_triangular;
+      });
+  REQUIRE(structured != contradictory_structure.attributes.expressions.end());
+  structured->matrix_operation.structure_policy =
+      mpf::detail::semantic::MatrixStructurePolicy::none;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_structure, "matrix-structure-policy-mismatch")
                .empty());
 }
 
-TEST_CASE("target LIR verifiers reject contradictory Matlab matrix condition policies") {
+TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   using Operation = mpf::detail::semantic::MatrixOperation;
   using Solve = mpf::detail::semantic::MatrixSolveKind;
   using ConditionPolicy = mpf::detail::semantic::MatrixConditionPolicy;
+  using StructurePolicy = mpf::detail::semantic::MatrixStructurePolicy;
   const auto configure_expression = [](auto& expression) {
     expression.kind = mpf::detail::ExpressionKind::binary;
     expression.value = "\\";
@@ -515,6 +554,7 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix condition pol
     expression.matrix_operation = {Operation::left_divide,
                                    Solve::overdetermined,
                                    ConditionPolicy::basic_solution_with_warning,
+                                   StructurePolicy::none,
                                    {3U, 2U},
                                    {3U, 1U},
                                    {2U, 1U}};
@@ -540,7 +580,14 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix condition pol
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(diagnostics.empty());
   javascript.statements.front().expression.matrix_operation.condition_policy =
-      ConditionPolicy::lu_continue_with_warning;
+      ConditionPolicy::square_continue_with_warning;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  javascript.statements.front().expression.matrix_operation.condition_policy =
+      ConditionPolicy::basic_solution_with_warning;
+  javascript.statements.front().expression.matrix_operation.structure_policy =
+      StructurePolicy::detect_diagonal_triangular;
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(!diagnostics.empty());
 
@@ -553,7 +600,14 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix condition pol
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(diagnostics.empty());
   cpp.statements.front().expression.matrix_operation.condition_policy =
-      ConditionPolicy::lu_continue_with_warning;
+      ConditionPolicy::square_continue_with_warning;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  cpp.statements.front().expression.matrix_operation.condition_policy =
+      ConditionPolicy::basic_solution_with_warning;
+  cpp.statements.front().expression.matrix_operation.structure_policy =
+      StructurePolicy::detect_diagonal_triangular;
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
 }
@@ -2825,16 +2879,30 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   mpf::detail::cpp::lir::Statement cpp_statement;
   cpp_statement.expression.kind = mpf::detail::ExpressionKind::list;
   cpp_statement.expression.element_type = mpf::detail::ValueType::real;
-  cpp_statement.expression.shape = {2};
-  mpf::detail::cpp::lir::Expression integer_child;
-  integer_child.kind = mpf::detail::ExpressionKind::number_literal;
-  integer_child.value = "1";
-  integer_child.inferred_type = mpf::detail::ValueType::integer;
-  mpf::detail::cpp::lir::Expression real_child;
-  real_child.kind = mpf::detail::ExpressionKind::number_literal;
-  real_child.value = "2.5";
-  real_child.inferred_type = mpf::detail::ValueType::real;
-  cpp_statement.expression.children = {std::move(integer_child), std::move(real_child)};
+  cpp_statement.expression.shape = {2, 2};
+  mpf::detail::cpp::lir::Expression integer_row;
+  integer_row.kind = mpf::detail::ExpressionKind::list;
+  integer_row.inferred_type = mpf::detail::ValueType::list;
+  integer_row.element_type = mpf::detail::ValueType::integer;
+  integer_row.shape = {2};
+  integer_row.children.resize(2);
+  integer_row.children[0].kind = mpf::detail::ExpressionKind::number_literal;
+  integer_row.children[0].value = "1";
+  integer_row.children[0].inferred_type = mpf::detail::ValueType::integer;
+  integer_row.children[1] = integer_row.children[0];
+  integer_row.children[1].value = "2";
+  mpf::detail::cpp::lir::Expression real_row;
+  real_row.kind = mpf::detail::ExpressionKind::list;
+  real_row.inferred_type = mpf::detail::ValueType::list;
+  real_row.element_type = mpf::detail::ValueType::real;
+  real_row.shape = {2};
+  real_row.children.resize(2);
+  real_row.children[0].kind = mpf::detail::ExpressionKind::number_literal;
+  real_row.children[0].value = "3.5";
+  real_row.children[0].inferred_type = mpf::detail::ValueType::real;
+  real_row.children[1] = real_row.children[0];
+  real_row.children[1].value = "4.5";
+  cpp_statement.expression.children = {std::move(integer_row), std::move(real_row)};
   cpp.statements.push_back(std::move(cpp_statement));
   mpf::detail::cpp::lir::Statement cpp_index_statement;
   cpp_index_statement.expression.kind = mpf::detail::ExpressionKind::index;
@@ -2887,8 +2955,12 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
   mpf::detail::cpp::plan_lir_representation(cpp);
   const auto& cpp_plan = cpp.statements.front().expression.plan;
   REQUIRE(cpp_plan.form == mpf::detail::cpp::lir::ExpressionForm::list);
-  REQUIRE(cpp_plan.concrete_type == "std::vector<double>");
-  REQUIRE((cpp_plan.widen_children == std::vector<bool>{true, true}));
+  REQUIRE(cpp_plan.concrete_type == "std::vector<std::vector<double>>");
+  REQUIRE((cpp_plan.widen_children == std::vector<bool>{false, false}));
+  REQUIRE(cpp.statements.front().expression.children[0].plan.concrete_type ==
+          "std::vector<double>");
+  REQUIRE((cpp.statements.front().expression.children[0].plan.widen_children ==
+           std::vector<bool>{true, true}));
   const auto& cpp_index_plan = cpp.statements[1].expression.plan;
   REQUIRE(cpp_index_plan.index == mpf::detail::cpp::lir::IndexForm::section_nd);
   REQUIRE((cpp_index_plan.index_selectors ==
