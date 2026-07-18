@@ -148,7 +148,7 @@ TEST_CASE("Python float conversion validates arity and supported source types") 
   REQUIRE(list.diagnostics.front().code == "MPF2033");
 }
 
-TEST_CASE("Matlab complex semantics fail closed outside the delivered scalar and array subset") {
+TEST_CASE("Matlab complex semantics authorize square matrix kernels and fail closed beyond them") {
   const auto valid = matlab(
       "z = complex(1, 2);\n"
       "w = (z + 3i) ./ (2 - 1i);\n"
@@ -162,7 +162,13 @@ TEST_CASE("Matlab complex semantics fail closed outside the delivered scalar and
   REQUIRE(valid_cpp.success());
 
   const auto comparison = matlab("value = 1i < 2i;\ndisp(value)\n");
-  const auto matrix_product = matlab("left = [1i 2; 3 4];\nright = left * left;\ndisp(right)\n");
+  const auto matrix_product =
+      matlab("left = [1i 2; 3 4];\nright = left * left;\ndisp(real(right(1,1)))\n");
+  const auto matrix_product_cpp =
+      matlab("left = [1i 2; 3 4];\nright = left * left;\ndisp(real(right(1,1)))\n",
+             mpf::TargetLanguage::cpp);
+  const auto rectangular_solve =
+      matlab("left = [1i 2; 3 4; 5 6];\nright = left \\ [1; 2; 3];\ndisp(right)\n");
   const auto reduction = matlab("value = sum([1i 2i]);\ndisp(value)\n");
   const auto invalid_constructor = matlab("value = complex(1i, 2);\ndisp(value)\n");
   const auto has_complex_boundary = [](const mpf::TranspileResult& result) {
@@ -170,11 +176,15 @@ TEST_CASE("Matlab complex semantics fail closed outside the delivered scalar and
                        [](const auto& diagnostic) { return diagnostic.code == "MPF2053"; });
   };
   REQUIRE(!comparison.success());
-  REQUIRE(!matrix_product.success());
+  REQUIRE(matrix_product.success());
+  REQUIRE(matrix_product_cpp.success());
+  REQUIRE(matrix_product.code.find("__mpf_matlab_complex_mtimes") != std::string::npos);
+  REQUIRE(matrix_product_cpp.code.find("mpf_runtime::matlab_complex_mtimes") != std::string::npos);
+  REQUIRE(!rectangular_solve.success());
   REQUIRE(!reduction.success());
   REQUIRE(!invalid_constructor.success());
   REQUIRE(has_complex_boundary(comparison));
-  REQUIRE(has_complex_boundary(matrix_product));
+  REQUIRE(has_complex_boundary(rectangular_solve));
   REQUIRE(has_complex_boundary(reduction));
   REQUIRE(has_complex_boundary(invalid_constructor));
 }
