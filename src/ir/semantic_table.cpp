@@ -303,6 +303,23 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
       add_error(diagnostics, {statement.line, 1}, stage,
                 "assignment target semantic arity disagrees with HIR");
     }
+    if (statement.kind == StatementKind::indexed_assignment) {
+      if (facts->indexed_mutation.valid() &&
+          (facts->mutation_input_shape.empty() || facts->mutation_result_shape.empty() ||
+           facts->mutation_input_shape.size() != facts->mutation_result_shape.size() ||
+           (facts->indexed_mutation.kind == semantic::IndexedMutationKind::erase &&
+            facts->indexed_mutation.axis >= facts->mutation_input_shape.size()) ||
+           !semantic::valid_indexed_mutation_shapes(facts->indexed_mutation,
+                                                    facts->mutation_input_shape,
+                                                    facts->mutation_result_shape))) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "indexed assignment has an incomplete mutation contract");
+      }
+    } else if (facts->indexed_mutation.valid() || !facts->mutation_input_shape.empty() ||
+               !facts->mutation_result_shape.empty()) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "non-indexed statement carries an indexed mutation contract");
+    }
     verify_expression(statement.expression, table, seen, stage, diagnostics);
     verify_expression(statement.secondary_expression, table, seen, stage, diagnostics);
     verify_expression(statement.tertiary_expression, table, seen, stage, diagnostics);

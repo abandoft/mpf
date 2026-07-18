@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 
 namespace mpf::detail::semantic {
 
@@ -42,6 +43,69 @@ enum class IndexSelectorKind : std::uint8_t { scalar, slice, numeric, logical, e
 // Runtime source for Matlab's contextual `end` value. An axis extent is resolved against the
 // current selector dimension; a linear extent is resolved against the column-major element count.
 enum class IndexExtentSource : std::uint8_t { none, runtime_axis, runtime_linear };
+
+// Analyzer-owned contract for a write through an index expression. Shape-changing writes are
+// represented explicitly so MIR, target LIRs, and emitters never have to rediscover source
+// language mutation semantics from syntax.
+enum class IndexedMutationKind : std::uint8_t { none, overwrite, resize, grow, erase };
+enum class IndexedMutationShapeSource : std::uint8_t {
+  preserve,
+  static_extents,
+  runtime_selectors
+};
+
+struct IndexedMutationContract {
+  IndexedMutationKind kind{IndexedMutationKind::none};
+  IndexedMutationShapeSource shape_source{IndexedMutationShapeSource::preserve};
+  bool linear{false};
+  std::size_t axis{std::numeric_limits<std::size_t>::max()};
+
+  [[nodiscard]] constexpr bool valid() const noexcept { return kind != IndexedMutationKind::none; }
+  [[nodiscard]] constexpr bool changes_shape() const noexcept {
+    return kind == IndexedMutationKind::resize || kind == IndexedMutationKind::grow ||
+           kind == IndexedMutationKind::erase;
+  }
+};
+
+template <typename Extents>
+[[nodiscard]] bool valid_indexed_mutation_shapes(const IndexedMutationContract& contract,
+                                                 const Extents& input,
+                                                 const Extents& result) noexcept {
+  if (!contract.valid() || input.empty() || input.size() != result.size()) return false;
+  constexpr auto dynamic = std::numeric_limits<std::size_t>::max();
+  if (contract.kind == IndexedMutationKind::overwrite) {
+    return contract.shape_source == IndexedMutationShapeSource::preserve && input == result;
+  }
+  if (contract.kind == IndexedMutationKind::resize) {
+    return contract.shape_source == IndexedMutationShapeSource::runtime_selectors;
+  }
+  if (contract.shape_source == IndexedMutationShapeSource::preserve) return false;
+  if (contract.kind == IndexedMutationKind::grow) {
+    bool changed = contract.shape_source == IndexedMutationShapeSource::runtime_selectors;
+    for (std::size_t axis = 0; axis < input.size(); ++axis) {
+      if (input[axis] != dynamic && result[axis] != dynamic && result[axis] < input[axis]) {
+        return false;
+      }
+      changed = changed || input[axis] != result[axis];
+    }
+    return changed;
+  }
+  if (contract.kind == IndexedMutationKind::erase) {
+    if (contract.axis >= input.size()) return false;
+    bool changed = contract.shape_source == IndexedMutationShapeSource::runtime_selectors;
+    for (std::size_t axis = 0; axis < input.size(); ++axis) {
+      if (axis != contract.axis && input[axis] != result[axis]) return false;
+      if (axis == contract.axis) {
+        if (input[axis] != dynamic && result[axis] != dynamic && result[axis] > input[axis]) {
+          return false;
+        }
+        changed = changed || input[axis] != result[axis];
+      }
+    }
+    return changed;
+  }
+  return false;
+}
 
 [[nodiscard]] constexpr bool selector_preserves_dimension(const IndexSelectorKind kind) noexcept {
   return kind != IndexSelectorKind::scalar;

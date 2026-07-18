@@ -94,6 +94,9 @@ struct StatementFacts {
   std::vector<std::vector<std::size_t>> target_shapes;
   std::vector<ValueType> target_previous_types;
   std::vector<ValueType> target_previous_element_types;
+  semantic::IndexedMutationContract indexed_mutation;
+  std::vector<std::size_t> mutation_input_shape;
+  std::vector<std::size_t> mutation_result_shape;
 };
 
 struct SemanticNodeSlot {
