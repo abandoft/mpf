@@ -313,6 +313,27 @@ std::string matlab_complex_workload(const std::size_t width, const std::size_t r
   return source;
 }
 
+std::string matlab_complex_matrix_workload(const std::size_t rounds) {
+  std::string source =
+      "hermitian = [4 2i; -2i 5];\n"
+      "dense = [1i 0; 0 -1i];\n"
+      "column = [6+8i; 12-7i];\n"
+      "row = [2 8-3i];\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "product = hermitian * dense;\n";
+    source += "hermitian_solution = hermitian \\ column;\n";
+    source += "dense_solution = dense \\ column;\n";
+    source += "right_solution = row / hermitian;\n";
+    source += "powered = hermitian ^ 3;\n";
+    source += "inverse = dense ^ -1;\n";
+  }
+  source +=
+      "disp(real(product(1, 1)) + real(hermitian_solution(1)) + "
+      "real(dense_solution(1)) + real(right_solution(1)) + "
+      "real(powered(1, 1)) + real(inverse(1, 1)))\n";
+  return source;
+}
+
 std::string matlab_matrix_solve_workload(const std::size_t rounds) {
   std::string source =
       "coefficient = [4 1 0 0; 2 5 1 0; 0 1 6 2; 0 0 2 7];\n"
@@ -509,6 +530,8 @@ int main() {
       {"matlab-shape-mutation", matlab_shape_mutation_workload(32), mpf::SourceLanguage::matlab},
       {"matlab-empty-arrays", matlab_empty_array_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-complex-kernel", matlab_complex_workload(24, 24), mpf::SourceLanguage::matlab},
+      {"matlab-complex-matrix-kernel", matlab_complex_matrix_workload(24),
+       mpf::SourceLanguage::matlab},
       {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-rank-aware-solve", matlab_rank_aware_solve_workload(24),
        mpf::SourceLanguage::matlab},
