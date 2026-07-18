@@ -107,6 +107,8 @@ struct TypeData {
   std::vector<TypeId> results;
   TypeId referent{};
   ParameterIntent reference_intent{ParameterIntent::none};
+  NumericType numeric_type{unknown_numeric_type};
+  NumericType element_numeric_type{unknown_numeric_type};
 };
 
 struct ShapeData {
@@ -459,6 +461,8 @@ struct Program {
 [[nodiscard]] const ShapeData* shape(const Program& program, ShapeId id) noexcept;
 [[nodiscard]] ValueType value_type(const Program& program, TypeId id) noexcept;
 [[nodiscard]] ValueType element_type(const Program& program, TypeId id) noexcept;
+[[nodiscard]] NumericType numeric_type(const Program& program, TypeId id) noexcept;
+[[nodiscard]] NumericType element_numeric_type(const Program& program, TypeId id) noexcept;
 [[nodiscard]] bool column_major(const Program& program, ShapeId id) noexcept;
 
 struct StorageAliasFacts {

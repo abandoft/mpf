@@ -12,6 +12,10 @@ constexpr auto enum_value(const Enum value) noexcept {
   return +static_cast<std::underlying_type_t<Enum>>(value);
 }
 
+void dump_numeric_type(std::ostringstream& output, const NumericType type) {
+  output << enum_value(type.value_class) << '/' << enum_value(type.complexity);
+}
+
 void dump_hir_expression(std::ostringstream& output, const hir::Expression& expression,
                          const std::size_t depth) {
   if (!expression.valid()) return;
@@ -165,7 +169,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v10 hir-nodes=" << table.hir_node_count
+  output << "semantic-v11 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -173,9 +177,11 @@ std::string dump_semantics(const hir::SemanticTable& table) {
     output << "%h" << id << " kind=" << enum_value(slot.kind) << " offset=" << slot.offset;
     if (slot.kind == hir::SemanticNodeKind::expression && slot.offset < table.expressions.size()) {
       const auto& facts = table.expressions[slot.offset];
-      output << " type=" << enum_value(facts.inferred_type)
-             << " element=" << enum_value(facts.element_type)
-             << " binding=" << enum_value(facts.binding)
+      output << " type=" << enum_value(facts.inferred_type) << " numeric=";
+      dump_numeric_type(output, facts.numeric_type);
+      output << " element=" << enum_value(facts.element_type) << " element-numeric=";
+      dump_numeric_type(output, facts.element_numeric_type);
+      output << " binding=" << enum_value(facts.binding)
              << " intrinsic=" << enum_value(facts.intrinsic) << " shape=[";
       for (std::size_t extent = 0; extent < facts.shape.size(); ++extent) {
         if (extent != 0) output << ',';
@@ -272,8 +278,11 @@ std::string dump_semantics(const hir::SemanticTable& table) {
     } else if (slot.kind == hir::SemanticNodeKind::statement &&
                slot.offset < table.statements.size()) {
       const auto& facts = table.statements[slot.offset];
-      output << " declared=" << enum_value(facts.declared_type)
-             << " element=" << enum_value(facts.element_type) << " shape=[";
+      output << " declared=" << enum_value(facts.declared_type) << " numeric=";
+      dump_numeric_type(output, facts.declared_numeric_type);
+      output << " element=" << enum_value(facts.element_type) << " element-numeric=";
+      dump_numeric_type(output, facts.element_numeric_type);
+      output << " shape=[";
       for (std::size_t extent = 0; extent < facts.shape.size(); ++extent) {
         if (extent != 0) output << ',';
         output << facts.shape[extent];
@@ -295,7 +304,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v16 language=" << enum_value(program.source_language)
+  output << "mir-v17 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -431,8 +440,11 @@ std::string dump_mir(const mir::Program& program) {
   for (std::size_t index = 1; index < program.types.size(); ++index) {
     const auto& type = program.types[index];
     output << "type !t" << index << " kind=" << enum_value(type.kind)
-           << " value=" << enum_value(type.value_type)
-           << " element=" << enum_value(type.element_type) << " elements=";
+           << " value=" << enum_value(type.value_type) << " numeric=";
+    dump_numeric_type(output, type.numeric_type);
+    output << " element=" << enum_value(type.element_type) << " element-numeric=";
+    dump_numeric_type(output, type.element_numeric_type);
+    output << " elements=";
     dump_ids(output, type.elements, "!t");
     output << " parameters=";
     dump_ids(output, type.parameters, "!t");

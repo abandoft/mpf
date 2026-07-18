@@ -14,8 +14,15 @@
 namespace mpf::detail::mir {
 namespace {
 
-std::uint32_t type_key(const ValueType type, const ValueType element_type) noexcept {
-  return (static_cast<std::uint32_t>(type) << 16U) | static_cast<std::uint32_t>(element_type);
+std::uint64_t type_key(const ValueType type, const ValueType element_type,
+                       const NumericType numeric_type,
+                       const NumericType element_numeric_type) noexcept {
+  return (static_cast<std::uint64_t>(type) << 48U) |
+         (static_cast<std::uint64_t>(element_type) << 40U) |
+         (static_cast<std::uint64_t>(numeric_type.value_class) << 32U) |
+         (static_cast<std::uint64_t>(numeric_type.complexity) << 24U) |
+         (static_cast<std::uint64_t>(element_numeric_type.value_class) << 16U) |
+         (static_cast<std::uint64_t>(element_numeric_type.complexity) << 8U);
 }
 
 std::string composite_type_key(const char prefix, const std::vector<TypeId>& first,
@@ -183,8 +190,9 @@ class Builder final {
     result_attributes.inclusive_stop = source.inclusive_stop;
     result_attributes.retain_last_loop_value = source.retain_last_loop_value;
     if (semantic_facts != nullptr) {
-      result_attributes.previous_type =
-          intern_type(semantic_facts->previous_type, semantic_facts->previous_element_type);
+      result_attributes.previous_type = intern_type(
+          semantic_facts->previous_type, semantic_facts->previous_element_type,
+          semantic_facts->previous_numeric_type, semantic_facts->previous_element_numeric_type);
       result_attributes.indexed_mutation.contract = semantic_facts->indexed_mutation;
       if (semantic_facts->indexed_mutation.valid()) {
         const bool column_major = program_.source_language == SourceLanguage::matlab;
@@ -237,9 +245,25 @@ class Builder final {
         const auto previous_element = index < semantic_facts->target_previous_element_types.size()
                                           ? semantic_facts->target_previous_element_types[index]
                                           : ValueType::unknown;
-        result_attributes.targets.push_back({intern_type(target_type, target_element),
-                                             intern_shape(target_shape, false),
-                                             intern_type(previous_type, previous_element)});
+        const auto target_numeric = index < semantic_facts->target_numeric_types.size()
+                                        ? semantic_facts->target_numeric_types[index]
+                                        : unknown_numeric_type;
+        const auto target_element_numeric =
+            index < semantic_facts->target_element_numeric_types.size()
+                ? semantic_facts->target_element_numeric_types[index]
+                : unknown_numeric_type;
+        const auto previous_numeric = index < semantic_facts->target_previous_numeric_types.size()
+                                          ? semantic_facts->target_previous_numeric_types[index]
+                                          : unknown_numeric_type;
+        const auto previous_element_numeric =
+            index < semantic_facts->target_previous_element_numeric_types.size()
+                ? semantic_facts->target_previous_element_numeric_types[index]
+                : unknown_numeric_type;
+        result_attributes.targets.push_back(
+            {intern_type(target_type, target_element, target_numeric, target_element_numeric),
+             intern_shape(target_shape, false),
+             intern_type(previous_type, previous_element, previous_numeric,
+                         previous_element_numeric)});
       }
     }
     result.case_selectors.reserve(source.case_selectors.size());
@@ -492,8 +516,13 @@ class Builder final {
     return id;
   }
 
-  [[nodiscard]] TypeId intern_type(const ValueType type, const ValueType element_type) {
-    const auto key = type_key(type, element_type);
+  [[nodiscard]] TypeId intern_type(const ValueType type, const ValueType element_type,
+                                   const NumericType numeric_type = unknown_numeric_type,
+                                   const NumericType element_numeric_type = unknown_numeric_type) {
+    const auto normalized_element_numeric_type =
+        type == ValueType::list || type == ValueType::unknown ? element_numeric_type
+                                                              : no_numeric_type;
+    const auto key = type_key(type, element_type, numeric_type, normalized_element_numeric_type);
     const auto found = types_.find(key);
     if (found != types_.end()) return found->second;
     const auto id = TypeId{static_cast<TypeId::value_type>(program_.types.size())};
@@ -501,7 +530,16 @@ class Builder final {
                       : type == ValueType::tuple    ? TypeKind::tuple
                       : type == ValueType::function ? TypeKind::function
                                                     : TypeKind::scalar;
-    program_.types.push_back({kind, type, element_type, {}, {}, {}, {}, ParameterIntent::none});
+    program_.types.push_back({kind,
+                              type,
+                              element_type,
+                              {},
+                              {},
+                              {},
+                              {},
+                              ParameterIntent::none,
+                              numeric_type,
+                              normalized_element_numeric_type});
     types_.emplace(key, id);
     return id;
   }
@@ -518,7 +556,9 @@ class Builder final {
                               {},
                               {},
                               {},
-                              ParameterIntent::none});
+                              ParameterIntent::none,
+                              no_numeric_type,
+                              no_numeric_type});
     composite_types_.emplace(std::move(key), id);
     return id;
   }
@@ -536,7 +576,9 @@ class Builder final {
                               {},
                               {},
                               referent,
-                              intent});
+                              intent,
+                              unknown_numeric_type,
+                              unknown_numeric_type});
     composite_types_.emplace(std::move(key), id);
     return id;
   }
@@ -554,7 +596,9 @@ class Builder final {
                               parameters,
                               results,
                               {},
-                              ParameterIntent::none});
+                              ParameterIntent::none,
+                              no_numeric_type,
+                              no_numeric_type});
     composite_types_.emplace(std::move(key), id);
     return id;
   }
@@ -563,16 +607,22 @@ class Builder final {
                                               const std::vector<MirExpressionId>& children) {
     if (facts == nullptr) return intern_type(ValueType::unknown, ValueType::unknown);
     if (facts->inferred_type != ValueType::tuple && facts->tuple_types.empty()) {
-      return intern_type(facts->inferred_type, facts->element_type);
+      return intern_type(facts->inferred_type, facts->element_type, facts->numeric_type,
+                         facts->element_numeric_type);
     }
     std::vector<TypeId> elements;
     if (!facts->tuple_types.empty()) {
       elements.reserve(facts->tuple_types.size());
       for (std::size_t index = 0; index < facts->tuple_types.size(); ++index) {
-        elements.push_back(
-            intern_type(facts->tuple_types[index], index < facts->tuple_element_types.size()
-                                                       ? facts->tuple_element_types[index]
-                                                       : ValueType::unknown));
+        elements.push_back(intern_type(
+            facts->tuple_types[index],
+            index < facts->tuple_element_types.size() ? facts->tuple_element_types[index]
+                                                      : ValueType::unknown,
+            index < facts->tuple_numeric_types.size() ? facts->tuple_numeric_types[index]
+                                                      : unknown_numeric_type,
+            index < facts->tuple_element_numeric_types.size()
+                ? facts->tuple_element_numeric_types[index]
+                : unknown_numeric_type));
       }
     } else {
       elements.reserve(children.size());
@@ -613,7 +663,8 @@ class Builder final {
 
   [[nodiscard]] ValueMetadata intern_value_metadata(const detail::ValueMetadata& source) {
     ValueMetadata result;
-    result.type = intern_type(source.type, source.element_type);
+    result.type = intern_type(source.type, source.element_type, source.numeric_type,
+                              source.element_numeric_type);
     result.shape = intern_shape(source.shape, false);
     result.sequence = source.sequence;
     result.list_sequence = source.list_sequence;
@@ -630,9 +681,12 @@ class Builder final {
     result.kind = source.kind;
     result.location = source.location;
     result.name = source.name;
-    result.type = intern_type(source.type, source.element_type);
+    result.type = intern_type(source.type, source.element_type, source.numeric_type,
+                              source.element_numeric_type);
     result.shape = intern_shape(source.shape, false);
-    result.previous_type = intern_type(source.previous_type, source.previous_element_type);
+    result.previous_type =
+        intern_type(source.previous_type, source.previous_element_type,
+                    source.previous_numeric_type, source.previous_element_numeric_type);
     result.access_path = source.access_path;
     result.captured_paths = source.captured_paths;
     result.children.reserve(source.children.size());
@@ -672,7 +726,7 @@ class Builder final {
     instruction.origin = origin;
     instruction.location = operand.location;
     instruction.result = value_ids_.next();
-    instruction.type = intern_type(ValueType::boolean, ValueType::unknown);
+    instruction.type = intern_type(ValueType::boolean, ValueType::unknown, logical_numeric_type);
     instruction.shape = intern_shape({}, false);
     instruction.truthiness = truthiness.value_or(program_.semantics.truthiness);
     instruction.operands.push_back(operand.value_id);
@@ -690,7 +744,7 @@ class Builder final {
     instruction.origin = origin;
     instruction.location = location;
     instruction.result = value_ids_.next();
-    instruction.type = intern_type(ValueType::boolean, ValueType::unknown);
+    instruction.type = intern_type(ValueType::boolean, ValueType::unknown, logical_numeric_type);
     instruction.shape = intern_shape({}, false);
     instruction.comparison = comparison;
     instruction.operands = {left.value_id, right.value_id};
@@ -1082,7 +1136,7 @@ class Builder final {
     instruction.opcode = Opcode::selection;
     instruction.origin = clause.id;
     instruction.location = {clause.line, 1};
-    instruction.type = intern_type(ValueType::boolean, ValueType::unknown);
+    instruction.type = intern_type(ValueType::boolean, ValueType::unknown, logical_numeric_type);
     instruction.shape = intern_shape({}, false);
     if (selector.valid()) instruction.operands.push_back(selector);
     for (const auto& source_selector : clause.case_selectors) {
@@ -1170,7 +1224,9 @@ class Builder final {
       instruction.storage = storage_for(
           statement.symbol_id, statement.name, statement.origin,
           intern_type(facts == nullptr ? ValueType::unknown : facts->declared_type,
-                      facts == nullptr ? ValueType::unknown : facts->element_type),
+                      facts == nullptr ? ValueType::unknown : facts->element_type,
+                      facts == nullptr ? unknown_numeric_type : facts->declared_numeric_type,
+                      facts == nullptr ? unknown_numeric_type : facts->element_numeric_type),
           intern_shape(facts == nullptr ? std::vector<std::size_t>{} : facts->shape, false));
     } else if (statement.kind == StatementKind::indexed_assignment) {
       const auto* target = mir::expression(program_, statement.target_expression);
@@ -1340,7 +1396,13 @@ class Builder final {
                                                                     : ValueType::unknown,
           facts != nullptr && index < facts->parameter_element_types.size()
               ? facts->parameter_element_types[index]
-              : ValueType::unknown);
+              : ValueType::unknown,
+          facts != nullptr && index < facts->parameter_numeric_types.size()
+              ? facts->parameter_numeric_types[index]
+              : unknown_numeric_type,
+          facts != nullptr && index < facts->parameter_element_numeric_types.size()
+              ? facts->parameter_element_numeric_types[index]
+              : unknown_numeric_type);
       const auto parameter_shape = facts != nullptr && index < facts->parameter_shapes.size()
                                        ? facts->parameter_shapes[index]
                                        : std::vector<std::size_t>{};
@@ -1366,23 +1428,35 @@ class Builder final {
         std::vector<TypeId> elements;
         elements.reserve(facts->return_types.size());
         for (std::size_t index = 0; index < facts->return_types.size(); ++index) {
-          elements.push_back(
-              intern_type(facts->return_types[index], index < facts->return_element_types.size()
-                                                          ? facts->return_element_types[index]
-                                                          : ValueType::unknown));
+          elements.push_back(intern_type(
+              facts->return_types[index],
+              index < facts->return_element_types.size() ? facts->return_element_types[index]
+                                                         : ValueType::unknown,
+              index < facts->return_numeric_types.size() ? facts->return_numeric_types[index]
+                                                         : unknown_numeric_type,
+              index < facts->return_element_numeric_types.size()
+                  ? facts->return_element_numeric_types[index]
+                  : unknown_numeric_type));
         }
         function.result_types.push_back(intern_tuple_type(elements));
         function.result_shapes.push_back(intern_shape({}, false));
       } else {
-        function.result_types.push_back(intern_type(facts->declared_type, facts->element_type));
+        function.result_types.push_back(intern_type(facts->declared_type, facts->element_type,
+                                                    facts->declared_numeric_type,
+                                                    facts->element_numeric_type));
         function.result_shapes.push_back(intern_shape(facts->shape, false));
       }
     } else if (facts != nullptr) {
       for (std::size_t index = 0; index < facts->return_types.size(); ++index) {
-        function.result_types.push_back(
-            intern_type(facts->return_types[index], index < facts->return_element_types.size()
-                                                        ? facts->return_element_types[index]
-                                                        : ValueType::unknown));
+        function.result_types.push_back(intern_type(
+            facts->return_types[index],
+            index < facts->return_element_types.size() ? facts->return_element_types[index]
+                                                       : ValueType::unknown,
+            index < facts->return_numeric_types.size() ? facts->return_numeric_types[index]
+                                                       : unknown_numeric_type,
+            index < facts->return_element_numeric_types.size()
+                ? facts->return_element_numeric_types[index]
+                : unknown_numeric_type));
         function.result_shapes.push_back(intern_shape(index < facts->return_shapes.size()
                                                           ? facts->return_shapes[index]
                                                           : std::vector<std::size_t>{},
@@ -1541,7 +1615,7 @@ class Builder final {
   IrIdAllocator<ValueId> value_ids_;
   MirFunctionId current_function_{};
   BlockId current_block_{};
-  std::unordered_map<std::uint32_t, TypeId> types_;
+  std::unordered_map<std::uint64_t, TypeId> types_;
   std::unordered_map<std::string, TypeId> composite_types_;
   std::unordered_map<std::string, ShapeId> shapes_;
   std::unordered_map<SymbolId, StorageId> storages_;
@@ -1635,6 +1709,18 @@ ValueType element_type(const Program& program, const TypeId id) noexcept {
   const auto* data = type(program, id);
   if (data != nullptr && data->kind == TypeKind::reference) data = type(program, data->referent);
   return data == nullptr ? ValueType::unknown : data->element_type;
+}
+
+NumericType numeric_type(const Program& program, const TypeId id) noexcept {
+  const auto* data = type(program, id);
+  if (data != nullptr && data->kind == TypeKind::reference) data = type(program, data->referent);
+  return data == nullptr ? unknown_numeric_type : data->numeric_type;
+}
+
+NumericType element_numeric_type(const Program& program, const TypeId id) noexcept {
+  const auto* data = type(program, id);
+  if (data != nullptr && data->kind == TypeKind::reference) data = type(program, data->referent);
+  return data == nullptr ? unknown_numeric_type : data->element_numeric_type;
 }
 
 bool column_major(const Program& program, const ShapeId id) noexcept {

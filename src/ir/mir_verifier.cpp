@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "compiler/numeric_contract.hpp"
 #include "mir.hpp"
 #include "mir_opcode.hpp"
 
@@ -1663,6 +1664,25 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
   }
   for (std::size_t index = 1; index < program.types.size(); ++index) {
     const auto& type = program.types[index];
+    if (type.kind == TypeKind::reference) {
+      if (type.numeric_type != unknown_numeric_type ||
+          type.element_numeric_type != unknown_numeric_type) {
+        add_error(diagnostics, {1, 1}, stage,
+                  "reference type duplicates numeric metadata instead of using its referent");
+      }
+    } else if (!numeric_contract_matches(type.value_type, type.numeric_type) ||
+               !element_numeric_contract_matches(type.value_type, type.element_type,
+                                                 type.element_numeric_type)) {
+      add_error(
+          diagnostics, {1, 1}, stage,
+          "type !t" + std::to_string(index) + " has inconsistent numeric metadata (value " +
+              std::to_string(static_cast<unsigned>(type.value_type)) + ':' +
+              std::to_string(static_cast<unsigned>(type.numeric_type.value_class)) + '/' +
+              std::to_string(static_cast<unsigned>(type.numeric_type.complexity)) + ", element " +
+              std::to_string(static_cast<unsigned>(type.element_type)) + ':' +
+              std::to_string(static_cast<unsigned>(type.element_numeric_type.value_class)) + '/' +
+              std::to_string(static_cast<unsigned>(type.element_numeric_type.complexity)) + ')');
+    }
     for (const auto element : type.elements) {
       if (!valid_index(element, program.types)) {
         add_error(diagnostics, {1, 1}, stage, "composite type references an invalid element type");

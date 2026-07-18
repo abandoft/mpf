@@ -31,6 +31,11 @@ Effect intrinsic_effects(const IntrinsicId intrinsic) noexcept {
     case IntrinsicId::arc_sine:
     case IntrinsicId::arc_tangent:
     case IntrinsicId::square_root:
+    case IntrinsicId::complex_value:
+    case IntrinsicId::conjugate:
+    case IntrinsicId::imaginary_part:
+    case IntrinsicId::real_part:
+    case IntrinsicId::imaginary_unit:
     case IntrinsicId::sine:
     case IntrinsicId::cosine:
     case IntrinsicId::tangent:
