@@ -72,6 +72,15 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
          << expression.plan.index_base << " negative-index " << expression.plan.allow_negative_index
          << " column-major " << expression.plan.column_major << " inclusive-slice "
          << expression.plan.inclusive_slice_stop;
+  if (expression.plan.array_literal.form != decltype(expression.plan.array_literal.form)::none) {
+    output << " array-literal " << static_cast<int>(expression.plan.array_literal.form)
+           << " array-shape [";
+    for (std::size_t axis = 0; axis < expression.plan.array_literal.shape.size(); ++axis) {
+      if (axis != 0U) output << ',';
+      output << expression.plan.array_literal.shape[axis];
+    }
+    output << ']';
+  }
   if (expression.array_operation == semantic::ArrayOperation::matlab) {
     output << " matlab-array-operation 1";
   }
@@ -213,7 +222,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v18 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v19 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";
