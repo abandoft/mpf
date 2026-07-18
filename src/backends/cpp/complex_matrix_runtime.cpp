@@ -245,6 +245,184 @@ inline double matlab_complex_cholesky_rcond(
                            matlab_complex_matrix_one_norm(inverse);
   return denominator == 0.0 || !std::isfinite(denominator) ? 0.0 : 1.0 / denominator;
 }
+struct matlab_complex_cpqr_factorization {
+  matlab_complex_matrix qr;
+  std::vector<double> tau;
+  std::vector<std::size_t> permutation;
+  std::size_t rank{0};
+  double tolerance{0.0};
+};
+inline matlab_complex_cpqr_factorization matlab_complex_cpqr_factor(
+    const matlab_complex_matrix& values) {
+  const auto rows = values.size();
+  const auto columns = values.front().size();
+  const auto pivots = std::min(rows, columns);
+  matlab_complex_cpqr_factorization factor{
+      values, std::vector<double>(pivots), {}, 0U, 0.0};
+  factor.permutation.reserve(columns);
+  for (std::size_t column = 0; column < columns; ++column) {
+    factor.permutation.push_back(column);
+  }
+  double scale = 0.0;
+  for (std::size_t column = 0; column < columns; ++column) {
+    double norm = 0.0;
+    for (std::size_t row = 0; row < rows; ++row) {
+      norm = std::hypot(norm, std::abs(factor.qr[row][column]));
+    }
+    scale = std::max(scale, norm);
+  }
+  factor.tolerance = std::numeric_limits<double>::epsilon() *
+                     static_cast<double>(std::max(rows, columns)) * scale;
+  for (std::size_t pivot = 0; pivot < pivots; ++pivot) {
+    auto selected = pivot;
+    double selected_norm = -1.0;
+    for (std::size_t column = pivot; column < columns; ++column) {
+      double norm = 0.0;
+      for (std::size_t row = pivot; row < rows; ++row) {
+        norm = std::hypot(norm, std::abs(factor.qr[row][column]));
+      }
+      if (norm > selected_norm) {
+        selected = column;
+        selected_norm = norm;
+      }
+    }
+    if (selected_norm <= factor.tolerance) break;
+    if (selected != pivot) {
+      for (std::size_t row = 0; row < rows; ++row) {
+        std::swap(factor.qr[row][pivot], factor.qr[row][selected]);
+      }
+      std::swap(factor.permutation[pivot], factor.permutation[selected]);
+    }
+    const auto alpha = factor.qr[pivot][pivot];
+    const auto alpha_magnitude = std::abs(alpha);
+    const auto phase = alpha_magnitude == 0.0
+                           ? std::complex<double>{1.0, 0.0}
+                           : alpha / alpha_magnitude;
+    const auto beta = -phase * selected_norm;
+    const auto leading = alpha - beta;
+    factor.tau[pivot] = 1.0 + alpha_magnitude / selected_norm;
+    factor.qr[pivot][pivot] = beta;
+    for (std::size_t row = pivot + 1; row < rows; ++row) {
+      factor.qr[row][pivot] = complex_divide(factor.qr[row][pivot], leading);
+    }
+    for (std::size_t column = pivot + 1; column < columns; ++column) {
+      auto projection = factor.qr[pivot][column];
+      for (std::size_t row = pivot + 1; row < rows; ++row) {
+        projection = complex_add(
+            projection, complex_multiply(std::conj(factor.qr[row][pivot]),
+                                         factor.qr[row][column]));
+      }
+      projection *= factor.tau[pivot];
+      factor.qr[pivot][column] = complex_subtract(factor.qr[pivot][column], projection);
+      for (std::size_t row = pivot + 1; row < rows; ++row) {
+        factor.qr[row][column] = complex_subtract(
+            factor.qr[row][column],
+            complex_multiply(factor.qr[row][pivot], projection));
+      }
+    }
+    factor.rank = pivot + 1U;
+  }
+  return factor;
+}
+inline matlab_complex_matrix matlab_apply_complex_cpqr_qh(
+    const matlab_complex_cpqr_factorization& factor, matlab_complex_matrix values) {
+  for (std::size_t pivot = 0; pivot < factor.rank; ++pivot) {
+    for (std::size_t column = 0; column < values.front().size(); ++column) {
+      auto projection = values[pivot][column];
+      for (std::size_t row = pivot + 1; row < values.size(); ++row) {
+        projection = complex_add(
+            projection, complex_multiply(std::conj(factor.qr[row][pivot]),
+                                         values[row][column]));
+      }
+      projection *= factor.tau[pivot];
+      values[pivot][column] = complex_subtract(values[pivot][column], projection);
+      for (std::size_t row = pivot + 1; row < values.size(); ++row) {
+        values[row][column] = complex_subtract(
+            values[row][column], complex_multiply(factor.qr[row][pivot], projection));
+      }
+    }
+  }
+  return values;
+}
+inline matlab_complex_matrix matlab_complex_basic_least_squares(
+    const matlab_complex_matrix& left, const matlab_complex_matrix& right) {
+  const auto factor = matlab_complex_cpqr_factor(left);
+  const auto transformed = matlab_apply_complex_cpqr_qh(factor, right);
+  const auto columns = left.front().size();
+  const auto outputs = right.front().size();
+  if (factor.rank < std::min(left.size(), columns)) {
+    std::cerr << "MPF Matlab matrix is rank deficient to working precision (rank "
+              << factor.rank << ", tolerance " << factor.tolerance
+              << "); using a basic least-squares solution\n";
+  }
+  matlab_complex_matrix pivoted(
+      columns, std::vector<std::complex<double>>(outputs, {0.0, 0.0}));
+  for (std::size_t reverse = factor.rank; reverse > 0; --reverse) {
+    const auto row = reverse - 1;
+    for (std::size_t output = 0; output < outputs; ++output) {
+      auto value = transformed[row][output];
+      for (std::size_t inner = row + 1; inner < factor.rank; ++inner) {
+        value = complex_subtract(
+            value, complex_multiply(factor.qr[row][inner], pivoted[inner][output]));
+      }
+      pivoted[row][output] = complex_divide(value, factor.qr[row][row]);
+    }
+  }
+  matlab_complex_matrix result(
+      columns, std::vector<std::complex<double>>(outputs, {0.0, 0.0}));
+  for (std::size_t row = 0; row < columns; ++row) {
+    result[factor.permutation[row]] = std::move(pivoted[row]);
+  }
+  return result;
+}
+inline matlab_complex_matrix matlab_complex_rectangular_solve(
+    const matlab_complex_matrix& left, const matlab_complex_matrix& right,
+    const bool overdetermined) {
+  if (right.size() != left.size()) {
+    throw std::invalid_argument("MPF Matlab complex rectangular matrix solve shape mismatch");
+  }
+  if (overdetermined && left.size() <= left.front().size()) {
+    throw std::invalid_argument(
+        "MPF Matlab complex matrix solve disagrees with its overdetermined plan");
+  }
+  if (!overdetermined && left.size() >= left.front().size()) {
+    throw std::invalid_argument(
+        "MPF Matlab complex matrix solve disagrees with its underdetermined plan");
+  }
+  return matlab_complex_basic_least_squares(left, right);
+}
+template <typename Left, typename Right> matlab_complex_matrix
+matlab_mldivide_complex_overdetermined(
+    const std::vector<std::vector<Left>>& left,
+    const std::vector<std::vector<Right>>& right) {
+  return matlab_complex_rectangular_solve(
+      matlab_complex_dense_matrix(left, "complex rectangular coefficient matrix"),
+      matlab_complex_dense_matrix(right, "complex rectangular right-hand side"), true);
+}
+template <typename Left, typename Right> matlab_complex_matrix
+matlab_mldivide_complex_underdetermined(
+    const std::vector<std::vector<Left>>& left,
+    const std::vector<std::vector<Right>>& right) {
+  return matlab_complex_rectangular_solve(
+      matlab_complex_dense_matrix(left, "complex rectangular coefficient matrix"),
+      matlab_complex_dense_matrix(right, "complex rectangular right-hand side"), false);
+}
+template <typename Left, typename Right> matlab_complex_matrix
+matlab_complex_mrdivide_rectangular(
+    const Left& left_value, const Right& right_value, const bool overdetermined) {
+  const auto left = matlab_complex_dense_matrix(left_value, "complex left operand");
+  const auto right = matlab_complex_dense_matrix(right_value, "complex right divisor");
+  return matlab_complex_ctranspose(matlab_complex_rectangular_solve(
+      matlab_complex_ctranspose(right), matlab_complex_ctranspose(left), overdetermined));
+}
+template <typename Left, typename Right> matlab_complex_matrix
+matlab_mrdivide_complex_overdetermined(const Left& left, const Right& right) {
+  return matlab_complex_mrdivide_rectangular(left, right, true);
+}
+template <typename Left, typename Right> matlab_complex_matrix
+matlab_mrdivide_complex_underdetermined(const Left& left, const Right& right) {
+  return matlab_complex_mrdivide_rectangular(left, right, false);
+}
 inline matlab_complex_matrix matlab_structured_complex_square_solve(
     const matlab_complex_matrix& left, const matlab_complex_matrix& right) {
   if (matlab_is_hermitian(left)) {
