@@ -1,3 +1,22 @@
+## 0.5.7
+
+- Matlab now accepts imaginary numeric literals with trailing `i` or `j`; the predefined imaginary-unit names remain ordinary, shadowable identifiers.
+- Added Matlab scalar `complex`, `conj`, `real`, `imag`, and complex-aware `abs` operations.
+- Complex scalar arithmetic supports addition, subtraction, multiplication, stable scaled division, unary signs, and integer powers including the zero exponent.
+- Compatible-size complex array arithmetic supports scalar expansion and N-dimensional element-wise operations in both output targets.
+- Matlab ordinary transpose `.'` and conjugate transpose `'` now preserve their distinct behavior for real and complex vectors and rank-two arrays.
+- Complex values survive indexed assignment and `reshape` without losing their numeric identity or column-major array semantics.
+- Local Matlab functions can pass and return runtime-selected real or complex scalars and arrays without requiring a JavaScript generation pass.
+- Generated JavaScript uses an independent, checked complex-number runtime and omits complex helpers entirely for real-only programs.
+- Generated C++17 uses an independent `std::complex`-based runtime and infers dynamic numeric result types without depending on JavaScript artifacts.
+- Unsupported complex comparisons, logical operations, reductions, and matrix solve/multiply/power paths now fail before emission with stable `MPF2053` diagnostics.
+- Numeric class and real/complex identity are validated throughout semantic analysis, MIR, and each target-specific lowering pipeline, including corruption rejection tests.
+- Source maps now retain source locations for complex construction, arithmetic, array mutation, reshape, and transpose operations.
+- Added an executable Matlab complex example, dual-target differential coverage, generated-code assertions, and a dedicated fuzz regression seed.
+- Added a versioned complex compilation workload covering scalar, array, transpose, and cross-function behavior to the performance release gate.
+- Python scalar return annotations now guide generated C++17 types, preventing annotated integer functions from being emitted with incompatible inferred types.
+- Fortran optional writable arguments and Python truthiness regressions found by the expanded full suite are fixed in both output backends.
+
 ## 0.5.6
 
 - Matlab now preserves the distinct precedence and evaluation behavior of `~`, `&`, `|`, `&&`, and `||` instead of treating them as interchangeable Boolean operators.
