@@ -29,6 +29,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::character_case)) {
     result.push_back(lir::RuntimeFragment::character_case);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::complex_numbers)) {
+    result.push_back(lir::RuntimeFragment::complex_numbers);
+  }
   if (program.runtime.contains(lir::RuntimeFeature::arrays)) {
     result.push_back(lir::RuntimeFragment::arrays);
   }

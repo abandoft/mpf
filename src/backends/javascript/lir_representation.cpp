@@ -85,6 +85,11 @@ std::string matlab_solve_helper(const std::string_view operation,
 }
 
 std::string matlab_array_helper(const lir::Expression& expression) {
+  const bool complex = expression.numeric_type.complexity == NumericComplexity::complex ||
+                       expression.element_numeric_type.complexity == NumericComplexity::complex;
+  const bool dynamic_numeric = expression.numeric_type == unknown_numeric_type ||
+                               expression.element_numeric_type == unknown_numeric_type;
+  if (complex && expression.matrix_operation.valid()) return {};
   switch (expression.matrix_operation.operation) {
     case semantic::MatrixOperation::multiply: return "__mpf_matlab_mtimes";
     case semantic::MatrixOperation::left_divide:
@@ -100,21 +105,39 @@ std::string matlab_array_helper(const lir::Expression& expression) {
                            expression.children[0].inferred_type == ValueType::list &&
                            expression.children[1].inferred_type == ValueType::list;
   if (expression.operation == BinaryOperator::multiply && both_arrays) return {};
-  if (expression.operation == BinaryOperator::add) return "__mpf_matlab_add";
-  if (expression.operation == BinaryOperator::subtract) return "__mpf_matlab_subtract";
+  if (expression.operation == BinaryOperator::add) {
+    return complex           ? "__mpf_matlab_complex_add"
+           : dynamic_numeric ? "__mpf_matlab_numeric_add"
+                             : "__mpf_matlab_add";
+  }
+  if (expression.operation == BinaryOperator::subtract) {
+    return complex           ? "__mpf_matlab_complex_subtract"
+           : dynamic_numeric ? "__mpf_matlab_numeric_subtract"
+                             : "__mpf_matlab_subtract";
+  }
   if (expression.operation == BinaryOperator::multiply ||
       expression.operation == BinaryOperator::elementwise_multiply) {
-    return "__mpf_matlab_multiply";
+    return complex           ? "__mpf_matlab_complex_multiply"
+           : dynamic_numeric ? "__mpf_matlab_numeric_multiply"
+                             : "__mpf_matlab_multiply";
   }
   if (expression.operation == BinaryOperator::divide ||
       expression.operation == BinaryOperator::elementwise_divide) {
-    return "__mpf_matlab_divide";
+    return complex           ? "__mpf_matlab_complex_divide"
+           : dynamic_numeric ? "__mpf_matlab_numeric_divide"
+                             : "__mpf_matlab_divide";
   }
   if (expression.operation == BinaryOperator::left_divide ||
       expression.operation == BinaryOperator::elementwise_left_divide) {
-    return "__mpf_matlab_left_divide";
+    return complex           ? "__mpf_matlab_complex_left_divide"
+           : dynamic_numeric ? "__mpf_matlab_numeric_left_divide"
+                             : "__mpf_matlab_left_divide";
   }
-  if (expression.operation == BinaryOperator::elementwise_power) return "__mpf_matlab_power";
+  if (expression.operation == BinaryOperator::elementwise_power) {
+    return complex           ? "__mpf_matlab_complex_power"
+           : dynamic_numeric ? "__mpf_matlab_numeric_power"
+                             : "__mpf_matlab_power";
+  }
   if (expression.operation == BinaryOperator::elementwise_logical_and) {
     return "__mpf_matlab_and";
   }
@@ -266,6 +289,10 @@ lir::CallForm call_form(const lir::Expression& expression) noexcept {
   if (callee.kind != ExpressionKind::identifier || callee.binding != BindingKind::builtin) {
     return lir::CallForm::direct;
   }
+  if (callee.intrinsic == IntrinsicId::absolute && expression.children.size() == 2 &&
+      expression.children[1].numeric_type.complexity == NumericComplexity::complex) {
+    return lir::CallForm::complex_absolute;
+  }
   if (callee.intrinsic == IntrinsicId::python_float && expression.children.size() == 2) {
     return lir::CallForm::python_float;
   }
@@ -325,6 +352,14 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       }
       break;
     case ExpressionKind::number_literal:
+      if (expression.numeric_type.complexity == NumericComplexity::complex &&
+          !expression.value.empty()) {
+        result.form = lir::ExpressionForm::literal;
+        result.token =
+            "__mpf_complex(0, " + expression.value.substr(0, expression.value.size() - 1U) + ')';
+        break;
+      }
+      [[fallthrough]];
     case ExpressionKind::string_literal:
     case ExpressionKind::boolean_literal:
     case ExpressionKind::null_literal:
@@ -335,7 +370,15 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       if (expression.unary_operation == UnaryOperator::transpose ||
           expression.unary_operation == UnaryOperator::conjugate_transpose) {
         result.precedence = 9;
-        result.token = "__mpf_matlab_transpose";
+        const bool complex_operand =
+            !expression.children.empty() &&
+            (expression.children.front().numeric_type.complexity == NumericComplexity::complex ||
+             expression.children.front().element_numeric_type.complexity ==
+                 NumericComplexity::complex);
+        result.token =
+            expression.unary_operation == UnaryOperator::conjugate_transpose && complex_operand
+                ? "__mpf_matlab_ctranspose"
+                : "__mpf_matlab_transpose";
         result.form = lir::ExpressionForm::matlab_transpose;
       } else if (source_language == SourceLanguage::matlab &&
                  expression.logical_evaluation == semantic::LogicalEvaluation::eager_elementwise &&
@@ -343,6 +386,14 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
         result.precedence = 9;
         result.token = "__mpf_matlab_not";
         result.form = lir::ExpressionForm::matlab_logical_not;
+      } else if (expression.numeric_type.complexity == NumericComplexity::complex &&
+                 (expression.unary_operation == UnaryOperator::positive ||
+                  expression.unary_operation == UnaryOperator::negative)) {
+        result.precedence = 9;
+        result.token = expression.unary_operation == UnaryOperator::negative
+                           ? "__mpf_complex_negate"
+                           : "__mpf_as_complex";
+        result.form = lir::ExpressionForm::unary_runtime_call;
       } else {
         result.precedence = 6;
         result.token = expression.value;
@@ -399,6 +450,43 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
         result.token = expression.value;
         result.form = lir::ExpressionForm::binary_lazy_or;
         result.evaluation = lir::EvaluationForm::lazy_arrow_thunks;
+      } else if (expression.numeric_type.complexity == NumericComplexity::complex) {
+        result.precedence = 9;
+        switch (expression.operation) {
+          case BinaryOperator::add: result.token = "__mpf_complex_add"; break;
+          case BinaryOperator::subtract: result.token = "__mpf_complex_subtract"; break;
+          case BinaryOperator::multiply:
+          case BinaryOperator::elementwise_multiply: result.token = "__mpf_complex_multiply"; break;
+          case BinaryOperator::divide:
+          case BinaryOperator::elementwise_divide: result.token = "__mpf_complex_divide"; break;
+          case BinaryOperator::left_divide:
+          case BinaryOperator::elementwise_left_divide:
+            result.token = "__mpf_complex_left_divide";
+            break;
+          case BinaryOperator::power:
+          case BinaryOperator::elementwise_power: result.token = "__mpf_complex_power"; break;
+          default: break;
+        }
+        result.form = lir::ExpressionForm::binary_runtime_call;
+      } else if (source_language == SourceLanguage::matlab &&
+                 expression.numeric_type == unknown_numeric_type) {
+        result.precedence = 9;
+        switch (expression.operation) {
+          case BinaryOperator::add: result.token = "__mpf_numeric_add"; break;
+          case BinaryOperator::subtract: result.token = "__mpf_numeric_subtract"; break;
+          case BinaryOperator::multiply:
+          case BinaryOperator::elementwise_multiply: result.token = "__mpf_numeric_multiply"; break;
+          case BinaryOperator::divide:
+          case BinaryOperator::elementwise_divide: result.token = "__mpf_numeric_divide"; break;
+          case BinaryOperator::left_divide:
+          case BinaryOperator::elementwise_left_divide:
+            result.token = "__mpf_numeric_left_divide";
+            break;
+          case BinaryOperator::power:
+          case BinaryOperator::elementwise_power: result.token = "__mpf_numeric_power"; break;
+          default: break;
+        }
+        result.form = lir::ExpressionForm::binary_runtime_call;
       } else if (expression.operation == BinaryOperator::floor_divide) {
         result.precedence = 9;
         result.token = scalar_division_helper(emission, true);
@@ -409,8 +497,9 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
         result.precedence = 9;
         result.token = scalar_division_helper(emission);
         result.form = lir::ExpressionForm::binary_runtime_call;
-      } else if (expression.operation == BinaryOperator::elementwise_left_divide ||
-                 expression.operation == BinaryOperator::left_divide) {
+      } else if ((expression.operation == BinaryOperator::elementwise_left_divide ||
+                  expression.operation == BinaryOperator::left_divide) &&
+                 expression.numeric_type.complexity != NumericComplexity::complex) {
         result.precedence = 5;
         result.token = "/";
         result.form = lir::ExpressionForm::binary_reverse_divide;
@@ -730,10 +819,11 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
     add_error(diagnostics, expression.location,
               "JavaScript LIR Matlab matrix-operation plan is inconsistent");
   }
-  if (expression.plan.form == lir::ExpressionForm::binary_runtime_call &&
+  if ((expression.plan.form == lir::ExpressionForm::binary_runtime_call ||
+       expression.plan.form == lir::ExpressionForm::unary_runtime_call) &&
       expression.plan.token.empty()) {
     add_error(diagnostics, expression.location,
-              "JavaScript LIR scalar-division runtime plan has no target helper");
+              "JavaScript LIR numeric runtime plan has no target helper");
   }
   if (!same_plan(expression.plan,
                  expected_expression_plan(expression, emission, context, source_language))) {
