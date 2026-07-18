@@ -112,6 +112,8 @@ std::optional<double> numeric_constant(const Expression& expression) {
       case BinaryOperator::power:
       case BinaryOperator::logical_and:
       case BinaryOperator::logical_or:
+      case BinaryOperator::elementwise_logical_and:
+      case BinaryOperator::elementwise_logical_or:
       case BinaryOperator::elementwise_power: return std::nullopt;
     }
   }
@@ -824,7 +826,7 @@ bool Analyzer::analyze_statement(Statement& statement) {
       }
       return true;
     case StatementKind::if_statement:
-      if (const auto type = analyze_expression(statement.expression);
+      if (const auto type = analyze_expression(statement.expression, true);
           program_.language == SourceLanguage::typescript && type != ValueType::boolean &&
           type != ValueType::unknown) {
         diagnose(statement.line, "MPF2002",
@@ -836,7 +838,7 @@ bool Analyzer::analyze_statement(Statement& statement) {
       diagnose(statement.line, "MPF2043", "CASE clause appears outside SELECT CASE");
       return false;
     case StatementKind::while_loop: {
-      const auto condition_type = analyze_expression(statement.expression);
+      const auto condition_type = analyze_expression(statement.expression, true);
       if (program_.language == SourceLanguage::typescript && condition_type != ValueType::boolean &&
           condition_type != ValueType::unknown) {
         diagnose(statement.line, "MPF2002",

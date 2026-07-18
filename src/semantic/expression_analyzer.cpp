@@ -290,7 +290,7 @@ std::optional<std::size_t> matlab_vector_axis(const std::vector<std::size_t>& sh
 
 }  // namespace
 
-ValueType Analyzer::analyze_expression(Expression& expression) {
+ValueType Analyzer::analyze_expression(Expression& expression, const bool condition_context) {
   switch (expression.kind) {
     case ExpressionKind::invalid:
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
@@ -391,11 +391,34 @@ ValueType Analyzer::analyze_expression(Expression& expression) {
         diagnose(expression.location.line, "MPF2002",
                  "TypeScript logical negation currently requires a boolean operand");
       }
+      if (program_.language == SourceLanguage::matlab &&
+          expression.unary_operation == UnaryOperator::logical_not) {
+        auto& facts = semantic(semantics_, expression);
+        facts.logical_evaluation = semantic::LogicalEvaluation::eager_elementwise;
+        const auto& operand_facts = semantic(semantics_, expression.children.front());
+        const auto scalar_type = operand == ValueType::list ? operand_facts.element_type : operand;
+        if (scalar_type != ValueType::unknown && !numeric(scalar_type) &&
+            scalar_type != ValueType::boolean) {
+          diagnose(expression.location.line, "MPF2051",
+                   "Matlab logical negation requires numeric or logical operands");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        if (operand == ValueType::list) {
+          facts.inferred_type = ValueType::list;
+          facts.element_type = ValueType::boolean;
+          facts.shape = operand_facts.shape;
+          return facts.inferred_type;
+        }
+        facts.inferred_type =
+            operand == ValueType::unknown ? ValueType::unknown : ValueType::boolean;
+        facts.element_type = ValueType::boolean;
+        return facts.inferred_type;
+      }
       semantic(semantics_, expression).inferred_type =
           expression.value == "!" ? ValueType::boolean : operand;
       return semantic(semantics_, expression).inferred_type;
     }
-    case ExpressionKind::binary: return analyze_binary(expression);
+    case ExpressionKind::binary: return analyze_binary(expression, condition_context);
     case ExpressionKind::comparison_chain: return analyze_comparison_chain(expression);
     case ExpressionKind::conditional: return analyze_conditional(expression);
     case ExpressionKind::call: return analyze_call(expression);
@@ -501,10 +524,15 @@ ValueType Analyzer::analyze_expression(Expression& expression) {
   return ValueType::unknown;
 }
 
-ValueType Analyzer::analyze_binary(Expression& expression) {
-  const auto left = analyze_expression(expression.children[0]);
-  const auto right = analyze_expression(expression.children[1]);
+ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_context) {
   const auto operation = expression.operation;
+  const bool logical_composition = operation == BinaryOperator::logical_and ||
+                                   operation == BinaryOperator::logical_or ||
+                                   operation == BinaryOperator::elementwise_logical_and ||
+                                   operation == BinaryOperator::elementwise_logical_or;
+  const bool child_condition = condition_context && logical_composition;
+  const auto left = analyze_expression(expression.children[0], child_condition);
+  const auto right = analyze_expression(expression.children[1], child_condition);
   if (expression.comparison != ComparisonOperator::none) {
     if (program_.language == SourceLanguage::matlab) {
       const auto& left_facts = semantic(semantics_, expression.children[0]);
@@ -574,6 +602,8 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
   }
   if (program_.semantics.logical_result == semantic::LogicalResult::operand &&
       (operation == BinaryOperator::logical_and || operation == BinaryOperator::logical_or)) {
+    semantic(semantics_, expression).logical_evaluation =
+        semantic::LogicalEvaluation::short_circuit_operand;
     semantic(semantics_, expression).inferred_type = join_types(left, right);
     if (left == ValueType::list && right == ValueType::list) {
       const auto& left_facts = semantic(semantics_, expression.children[0]);
@@ -590,13 +620,87 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
     return semantic(semantics_, expression).inferred_type;
   }
   if (operation == BinaryOperator::logical_and || operation == BinaryOperator::logical_or) {
+    auto& facts = semantic(semantics_, expression);
+    facts.logical_evaluation = semantic::LogicalEvaluation::short_circuit_boolean;
+    if (program_.language == SourceLanguage::matlab) {
+      const auto scalar_logical = [](const ValueType type) {
+        return type == ValueType::unknown || numeric(type) || type == ValueType::boolean;
+      };
+      if (left == ValueType::list || right == ValueType::list || !scalar_logical(left) ||
+          !scalar_logical(right)) {
+        diagnose(expression.location.line, "MPF2051",
+                 "Matlab short-circuit logical operators require scalar numeric or logical "
+                 "operands");
+        return facts.inferred_type = ValueType::unknown;
+      }
+    }
     if (program_.language == SourceLanguage::typescript &&
         ((left != ValueType::boolean && left != ValueType::unknown) ||
          (right != ValueType::boolean && right != ValueType::unknown))) {
       diagnose(expression.location.line, "MPF2002",
                "TypeScript logical operators currently require boolean operands");
     }
-    return semantic(semantics_, expression).inferred_type = ValueType::boolean;
+    return facts.inferred_type = ValueType::boolean;
+  }
+  if (operation == BinaryOperator::elementwise_logical_and ||
+      operation == BinaryOperator::elementwise_logical_or) {
+    auto& facts = semantic(semantics_, expression);
+    facts.logical_evaluation = condition_context
+                                   ? semantic::LogicalEvaluation::short_circuit_boolean
+                                   : semantic::LogicalEvaluation::eager_elementwise;
+    const auto& left_facts = semantic(semantics_, expression.children[0]);
+    const auto& right_facts = semantic(semantics_, expression.children[1]);
+    const bool left_array = left == ValueType::list;
+    const bool right_array = right == ValueType::list;
+    const auto left_element = left_array ? left_facts.element_type : left;
+    const auto right_element = right_array ? right_facts.element_type : right;
+    const auto logical_operand = [](const ValueType type) {
+      return type == ValueType::unknown || numeric(type) || type == ValueType::boolean;
+    };
+    if (!logical_operand(left_element) || !logical_operand(right_element)) {
+      diagnose(expression.location.line, "MPF2051",
+               "Matlab element-wise logical operators require numeric or logical operands");
+      return facts.inferred_type = ValueType::unknown;
+    }
+    if (condition_context) {
+      if (left_array || right_array) {
+        diagnose(expression.location.line, "MPF2051",
+                 "Matlab condition-context '&' and '|' require scalar operands; use all/any "
+                 "to reduce arrays explicitly");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      facts.inferred_type = ValueType::boolean;
+      facts.element_type = ValueType::boolean;
+      return facts.inferred_type;
+    }
+    const bool runtime_operand = left == ValueType::unknown || right == ValueType::unknown;
+    if (left_array || right_array || runtime_operand) {
+      facts.array_operation = semantic::ArrayOperation::matlab;
+      if (runtime_operand) {
+        facts.broadcast = matlab_runtime_broadcast_plan();
+      } else {
+        const auto broadcast =
+            matlab_broadcast_plan(left_array ? left_facts.shape : std::vector<std::size_t>{},
+                                  right_array ? right_facts.shape : std::vector<std::size_t>{});
+        if (!broadcast.has_value()) {
+          diagnose(expression.location.line, "MPF2051",
+                   "Matlab element-wise logical operands have incompatible sizes");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        if (!left_array || !right_array || left_facts.shape != right_facts.shape ||
+            broadcast->shape_source == semantic::BroadcastShapeSource::runtime_operands) {
+          facts.broadcast = *broadcast;
+        }
+      }
+      facts.inferred_type = left_array || right_array ? ValueType::list : ValueType::unknown;
+      facts.element_type = ValueType::boolean;
+      facts.shape = facts.broadcast.valid ? facts.broadcast.result_shape
+                                          : (left_array ? left_facts.shape : right_facts.shape);
+      return facts.inferred_type;
+    }
+    facts.inferred_type = ValueType::boolean;
+    facts.element_type = ValueType::boolean;
+    return facts.inferred_type;
   }
   if (operation == BinaryOperator::add && left == ValueType::string && right == ValueType::string) {
     return semantic(semantics_, expression).inferred_type = ValueType::string;

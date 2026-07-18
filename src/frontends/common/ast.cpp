@@ -22,6 +22,7 @@ semantic::Profile semantic_profile(const SourceLanguage language) noexcept {
     profile.resizable_sections = true;
     profile.emit_parameter_defaults = true;
   } else if (language == SourceLanguage::matlab) {
+    profile.truthiness = semantic::Truthiness::matlab_all_nonzero;
     profile.division = semantic::Division::real_quotient;
     profile.layout = semantic::IndexLayout::column_major;
     profile.top_level_storage = semantic::TopLevelStorage::entry_function;

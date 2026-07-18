@@ -124,9 +124,39 @@ bool valid_matrix_shapes(const MatrixOperationPlan& plan) noexcept {
   return false;
 }
 
+bool logical_composition(const BinaryOperator operation) noexcept {
+  return operation == BinaryOperator::logical_and || operation == BinaryOperator::logical_or ||
+         operation == BinaryOperator::elementwise_logical_and ||
+         operation == BinaryOperator::elementwise_logical_or;
+}
+
+semantic::LogicalEvaluation expected_logical_evaluation(const Expression& expression,
+                                                        const SourceLanguage source_language,
+                                                        const bool condition_context) noexcept {
+  if (expression.kind == ExpressionKind::unary && source_language == SourceLanguage::matlab &&
+      expression.unary_operation == UnaryOperator::logical_not) {
+    return semantic::LogicalEvaluation::eager_elementwise;
+  }
+  if (expression.kind != ExpressionKind::binary) return semantic::LogicalEvaluation::none;
+  if (expression.operation == BinaryOperator::logical_and ||
+      expression.operation == BinaryOperator::logical_or) {
+    return source_language == SourceLanguage::python
+               ? semantic::LogicalEvaluation::short_circuit_operand
+               : semantic::LogicalEvaluation::short_circuit_boolean;
+  }
+  if (source_language == SourceLanguage::matlab &&
+      (expression.operation == BinaryOperator::elementwise_logical_and ||
+       expression.operation == BinaryOperator::elementwise_logical_or)) {
+    return condition_context ? semantic::LogicalEvaluation::short_circuit_boolean
+                             : semantic::LogicalEvaluation::eager_elementwise;
+  }
+  return semantic::LogicalEvaluation::none;
+}
+
 void verify_expression(const Expression& expression, const SemanticTable& table,
                        const SourceLanguage source_language, std::vector<bool>& seen,
-                       const std::string_view stage, std::vector<Diagnostic>& diagnostics) {
+                       const std::string_view stage, std::vector<Diagnostic>& diagnostics,
+                       const bool condition_context = false) {
   if (!expression.valid()) return;
   const auto* facts = table.expression(expression.id);
   if (facts == nullptr || facts->origin != expression.id) {
@@ -136,6 +166,11 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
   }
   seen[expression.id.value()] = true;
   const bool analyzed = stage != "ast-to-hir" && stage != "frontend-seed" && stage != "conformance";
+  if (analyzed && facts->logical_evaluation !=
+                      expected_logical_evaluation(expression, source_language, condition_context)) {
+    add_error(diagnostics, expression.location, stage,
+              "logical evaluation policy disagrees with the source operator context");
+  }
   if (analyzed && source_language == SourceLanguage::matlab &&
       expression.kind == ExpressionKind::list && expression.children.empty() &&
       (facts->inferred_type != ValueType::list || facts->element_type != ValueType::real ||
@@ -264,8 +299,10 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
     add_error(diagnostics, expression.location, stage,
               "normalized call argument-name arity disagrees with HIR");
   }
+  const bool child_condition = condition_context && expression.kind == ExpressionKind::binary &&
+                               logical_composition(expression.operation);
   for (const auto& child : expression.children) {
-    verify_expression(child, table, source_language, seen, stage, diagnostics);
+    verify_expression(child, table, source_language, seen, stage, diagnostics, child_condition);
   }
 }
 
@@ -334,7 +371,11 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
       add_error(diagnostics, {statement.line, 1}, stage,
                 "non-indexed statement carries an indexed mutation contract");
     }
-    verify_expression(statement.expression, table, source_language, seen, stage, diagnostics);
+    const bool condition_context = source_language == SourceLanguage::matlab &&
+                                   (statement.kind == StatementKind::if_statement ||
+                                    statement.kind == StatementKind::while_loop);
+    verify_expression(statement.expression, table, source_language, seen, stage, diagnostics,
+                      condition_context);
     verify_expression(statement.secondary_expression, table, source_language, seen, stage,
                       diagnostics);
     verify_expression(statement.tertiary_expression, table, source_language, seen, stage,

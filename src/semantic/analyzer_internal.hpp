@@ -115,8 +115,8 @@ class Analyzer final {
   void refresh_expression_call_intents(Expression& expression);
   void refresh_call_intents(std::vector<Statement>& statements);
 
-  ValueType analyze_expression(Expression& expression);
-  [[nodiscard]] ValueType analyze_binary(Expression& expression);
+  ValueType analyze_expression(Expression& expression, bool condition_context = false);
+  [[nodiscard]] ValueType analyze_binary(Expression& expression, bool condition_context);
   void validate_python_ordering(ValueType left, ValueType right, std::size_t line);
   void validate_python_comparison(ComparisonOperator operation, const Expression& left,
                                   ValueType left_type, const Expression& right,
