@@ -448,6 +448,48 @@ if(NOT index_extent_contract MATCHES "IndexExtentSource" OR
   message(FATAL_ERROR "dynamic index extent is not a typed HIR/MIR contract")
 endif()
 
+if(NOT index_extent_contract MATCHES "MatrixRankPolicy" OR
+   NOT index_extent_contract MATCHES "matrix_rank_policy" OR
+   NOT hir_extent_contract MATCHES "MatrixRankPolicy rank_policy" OR
+   NOT mir_extent_contract MATCHES "MatrixRankPolicy rank_policy")
+  message(FATAL_ERROR "matrix rank policy is not a typed Semantic/HIR/MIR contract")
+endif()
+file(READ "${SOURCE_DIR}/src/backends/common/lir_builder.hpp" rank_lir_builder_contract)
+if(NOT rank_lir_builder_contract MATCHES
+   "matrix_operation\.rank_policy = attributes\.matrix_operation\.rank_policy")
+  message(FATAL_ERROR "target LIR builder does not propagate the analyzed matrix rank policy")
+endif()
+foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir.hpp)
+  file(READ "${SOURCE_DIR}/${target_lir}" rank_target_lir_contract)
+  if(NOT rank_target_lir_contract MATCHES "MatrixRankPolicy rank_policy")
+    message(FATAL_ERROR "target LIR does not own matrix rank policy: ${target_lir}")
+  endif()
+endforeach()
+foreach(representation IN ITEMS
+    src/backends/javascript/lir_representation.cpp
+    src/backends/cpp/lir_representation.cpp)
+  file(READ "${SOURCE_DIR}/${representation}" rank_representation_contract)
+  string(FIND "${rank_representation_contract}"
+    "rank_policy != semantic::matrix_rank_policy(plan.solve)"
+    rank_policy_verification)
+  if(rank_policy_verification EQUAL -1)
+    message(FATAL_ERROR
+      "target representation verifier does not enforce matrix rank policy: ${representation}")
+  endif()
+endforeach()
+foreach(matrix_runtime IN ITEMS
+    src/backends/javascript/matrix_runtime.cpp
+    src/backends/cpp/matrix_runtime.cpp)
+  file(READ "${SOURCE_DIR}/${matrix_runtime}" rank_runtime_contract)
+  if(NOT rank_runtime_contract MATCHES "basic_least_squares" OR
+     NOT rank_runtime_contract MATCHES "rank deficient to working precision")
+    message(FATAL_ERROR
+      "target matrix runtime does not provide rank-aware basic least squares: ${matrix_runtime}")
+  endif()
+  mpf_assert_file_excludes("${matrix_runtime}" "minimum[_ -]?norm"
+    "target matrix runtime restored the incorrect underdetermined minimum-norm contract")
+endforeach()
+
 foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
   file(READ "${SOURCE_DIR}/${renderer}" renderer_contract)
   if(NOT renderer_contract MATCHES "plan\\.call_arguments" OR
