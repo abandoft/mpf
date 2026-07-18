@@ -194,6 +194,33 @@ std::string matlab_logical_workload(const std::size_t width, const std::size_t r
   return source;
 }
 
+std::string matlab_logical_reduction_workload(const std::size_t width, const std::size_t rounds) {
+  std::string source = "matrix = [";
+  for (std::size_t row = 0; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += (row + column) % 7U == 0U ? "0" : "1";
+    }
+  }
+  source += "];\nvalues = [";
+  for (std::size_t index = 0; index < width * 8U; ++index) {
+    if (index != 0U) source += ' ';
+    source += index % 11U == 0U ? "0" : "1";
+  }
+  source += "];\ntensor = reshape(values, 4, 2, " + std::to_string(width) + ");\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "column_all = all(matrix);\n";
+    source += "row_any = any(matrix, 2);\n";
+    source += "page_all = all(tensor, [1 3]);\n";
+    source += "total_any = any(tensor, 'all');\n";
+  }
+  source +=
+      "disp(total_any || any(column_all, 'all') || any(row_any, 'all') || "
+      "any(page_all, 'all'))\n";
+  return source;
+}
+
 std::string matlab_dynamic_end_workload(const std::size_t rounds) {
   std::string source =
       "values = [10 20 30 40 50 60 70 80];\n"
@@ -440,6 +467,8 @@ int main() {
       {"matlab-array-kernel", matlab_array_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-tensor-kernel", matlab_tensor_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-logical-kernel", matlab_logical_workload(24, 24), mpf::SourceLanguage::matlab},
+      {"matlab-logical-reduction", matlab_logical_reduction_workload(24, 24),
+       mpf::SourceLanguage::matlab},
       {"matlab-dynamic-end", matlab_dynamic_end_workload(32), mpf::SourceLanguage::matlab},
       {"matlab-dynamic-broadcast", matlab_dynamic_broadcast_workload(32),
        mpf::SourceLanguage::matlab},
