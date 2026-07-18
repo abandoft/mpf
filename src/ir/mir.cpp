@@ -747,6 +747,8 @@ class Builder final {
         result_attributes.matrix_operation.solve = semantic_facts->matrix_operation.solve;
         result_attributes.matrix_operation.condition_policy =
             semantic_facts->matrix_operation.condition_policy;
+        result_attributes.matrix_operation.structure_policy =
+            semantic_facts->matrix_operation.structure_policy;
         result_attributes.matrix_operation.left_shape =
             intern_shape(semantic_facts->matrix_operation.left_shape, false);
         if (!semantic_facts->matrix_operation.right_shape.empty()) {

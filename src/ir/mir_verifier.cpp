@@ -220,7 +220,8 @@ bool valid_matrix_shapes(const Program& program, const MatrixOperationPlan& plan
   const auto* right = shape(program, plan.right_shape);
   const auto* result = shape(program, plan.result_shape);
   if (!static_rank_two(left) || !static_rank_two(result) || plan.result_shape != expression_shape ||
-      plan.condition_policy != semantic::matrix_condition_policy(plan.solve)) {
+      plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
+      plan.structure_policy != semantic::matrix_structure_policy(plan.solve)) {
     return false;
   }
   switch (plan.operation) {
@@ -348,6 +349,8 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->matrix_operation.solve != semantic::MatrixSolveKind::none ||
         retired_attributes->matrix_operation.condition_policy !=
             semantic::MatrixConditionPolicy::none ||
+        retired_attributes->matrix_operation.structure_policy !=
+            semantic::MatrixStructurePolicy::none ||
         retired_attributes->matrix_operation.left_shape.valid() ||
         retired_attributes->matrix_operation.right_shape.valid() ||
         retired_attributes->matrix_operation.result_shape.valid() ||
@@ -598,6 +601,7 @@ void verify_expression(const Expression& expression, const Program& program,
               "contract");
   } else if (!matrix.valid() && (matrix.solve != semantic::MatrixSolveKind::none ||
                                  matrix.condition_policy != semantic::MatrixConditionPolicy::none ||
+                                 matrix.structure_policy != semantic::MatrixStructurePolicy::none ||
                                  matrix.left_shape.valid() || matrix.right_shape.valid() ||
                                  matrix.result_shape.valid())) {
     add_error(diagnostics, expression.location, stage,
