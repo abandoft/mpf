@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+
 if(NOT DEFINED ARCHIVE OR NOT DEFINED CHECKSUM OR NOT DEFINED ARTIFACT OR
    NOT DEFINED VERSION OR NOT DEFINED LICENSE_FILE OR NOT DEFINED VERIFY_DIR)
   message(FATAL_ERROR
@@ -52,8 +54,8 @@ foreach(entry IN LISTS archive_entries)
   if(NOT entry MATCHES "^${ARTIFACT}/")
     message(FATAL_ERROR "archive entry escapes the single package root: ${entry}")
   endif()
-  if(entry MATCHES "(^|/)\.\.(/|$)" OR entry MATCHES "(^|/)\.git(/|$)" OR
-     entry MATCHES "(^|/)CMakeCache\.txt$")
+  if(entry MATCHES [[(^|/)\.\.(/|$)]] OR entry MATCHES [[(^|/)\.git(/|$)]] OR
+     entry MATCHES [[(^|/)CMakeCache\.txt$]])
     message(FATAL_ERROR "archive contains a forbidden build or repository entry: ${entry}")
   endif()
   if(entry STREQUAL "${ARTIFACT}/bin/mpfc" OR

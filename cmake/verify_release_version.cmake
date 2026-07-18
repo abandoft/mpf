@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+
 if(NOT DEFINED BUILD_DIR OR NOT DEFINED TAG)
   message(FATAL_ERROR "release version verification requires BUILD_DIR and TAG")
 endif()

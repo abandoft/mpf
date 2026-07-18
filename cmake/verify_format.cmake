@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+
 if(NOT DEFINED SOURCE_DIR OR NOT DEFINED CLANG_FORMAT OR NOT DEFINED MODE)
   message(FATAL_ERROR "verify_format.cmake requires SOURCE_DIR, CLANG_FORMAT and MODE")
 endif()

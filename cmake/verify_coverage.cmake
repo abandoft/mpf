@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+
 foreach(required PROFILE_DIR OUTPUT_DIR LLVM_PROFDATA LLVM_COV PRIMARY_OBJECT MIN_LINE_PERCENT)
   if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
     message(FATAL_ERROR "verify_coverage.cmake requires ${required}")
