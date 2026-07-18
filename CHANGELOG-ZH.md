@@ -1,3 +1,16 @@
+## 0.5.2
+
+- Matlab `[]` 现在使用规范的 `0×0` double-array shape，不再被当作 rank-one 空 list。
+- `reshape` 现在接受零 extent 并保持 `0×5` 等 shape，包括无法仅从嵌套容器结构恢复的维度。
+- 转置会保持准确的零 extent shape，使 `0×N` 与 `N×0` 在生成的 JavaScript 和 C++17 中继续可区分。
+- 空数组与 scalar 的算术和关系比较现在会保持完整的广播结果 shape 与元素类型。
+- 空 selector 和 colon section 读取会保持静态已知的结果 rank 与零 extent。
+- 对 `[]` 的线性赋值遵循 Matlab row-vector 扩容语义；从有 shape 的空矩阵扩容时则保持已规划的维度和列主序布局。
+- 生成的 JavaScript 使用经过检查且不可枚举的 descriptor 保存准确数组 shape，不改变普通数组迭代和序列化行为。
+- 生成的 C++17 现直接消费目标后端拥有的静态 shape plan，用于 rank、`length`、转置、广播和扩容，不依赖 JavaScript 输出。
+- 矛盾或损坏的空数组 shape fact 会在目标发射前及生成 runtime 边界被一致拒绝。
+- 新增双目标可执行空数组示例、source map 检查、跨层损坏拒绝测试、fuzz 回归 seed 和专用性能发布场景。
+
 ## 0.5.1
 
 - Matlab 索引赋值现可通过 scalar、colon range 和保序 numeric selector 扩容 row vector、column vector、matrix 与 N 维数组。

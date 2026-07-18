@@ -1,3 +1,16 @@
+## 0.5.2
+
+- Matlab `[]` now has its canonical `0×0` double-array shape instead of being treated as a rank-one empty list.
+- `reshape` now accepts zero extents and preserves shapes such as `0×5`, including dimensions that cannot be recovered from nested container structure alone.
+- Transpose preserves exact zero-extent shapes, so `0×N` and `N×0` arrays remain distinct in generated JavaScript and C++17.
+- Scalar arithmetic and relational comparisons with empty arrays now retain the complete broadcast result shape and element type.
+- Empty and colon-based section reads preserve their statically known result rank and zero extents.
+- Linear assignment to `[]` follows Matlab row-vector growth semantics, while growth from shaped empty matrices retains the planned dimensions and column-major layout.
+- Generated JavaScript carries exact array shape in a checked, non-enumerable descriptor, preserving normal array iteration and serialization behavior.
+- Generated C++17 now consumes target-owned static shape plans for rank, `length`, transpose, broadcasting, and growth without depending on JavaScript output.
+- Invalid or contradictory empty-array shape facts are rejected consistently before target emission and again at generated-runtime boundaries.
+- Added an executable two-target empty-array example, source-map checks, cross-layer corruption tests, a fuzz regression seed, and a dedicated performance-release scenario.
+
 ## 0.5.1
 
 - Matlab indexed assignment now grows row vectors, column vectors, matrices, and N-dimensional arrays through scalar, colon-range, and ordered numeric selectors.
