@@ -453,13 +453,15 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT index_extent_contract MATCHES "square_continue_with_warning" OR
    NOT index_extent_contract MATCHES "MatrixStructurePolicy" OR
    NOT index_extent_contract MATCHES "matrix_structure_policy" OR
-   NOT index_extent_contract MATCHES "detect_diagonal_triangular" OR
+   NOT index_extent_contract MATCHES "classify_real_square" OR
    NOT hir_extent_contract MATCHES "MatrixConditionPolicy condition_policy" OR
    NOT hir_extent_contract MATCHES "MatrixStructurePolicy structure_policy" OR
    NOT mir_extent_contract MATCHES "MatrixConditionPolicy condition_policy" OR
    NOT mir_extent_contract MATCHES "MatrixStructurePolicy structure_policy")
   message(FATAL_ERROR "matrix condition/structure policy is not a typed Semantic/HIR/MIR contract")
 endif()
+mpf_assert_file_excludes("src/ir/semantics.hpp" "detect_diagonal_triangular"
+  "matrix structure policy restored the pre-advanced real classifier")
 file(READ "${SOURCE_DIR}/src/backends/common/lir_builder.hpp" condition_lir_builder_contract)
 if(NOT condition_lir_builder_contract MATCHES
      "matrix_operation\.condition_policy = attributes\.matrix_operation\.condition_policy" OR
@@ -502,15 +504,24 @@ foreach(matrix_runtime IN ITEMS
      NOT condition_runtime_contract MATCHES "(square_structure|classify_square_structure)" OR
      NOT condition_runtime_contract MATCHES "diagonal_(apply|rcond)" OR
      NOT condition_runtime_contract MATCHES "triangular_(apply|rcond)" OR
-     NOT condition_runtime_contract MATCHES "structured_square_solve" OR
+     NOT condition_runtime_contract MATCHES "tridiagonal_factor" OR
+     NOT condition_runtime_contract MATCHES "tridiagonal_apply_transpose" OR
+     NOT condition_runtime_contract MATCHES "tridiagonal_rcond" OR
+     NOT condition_runtime_contract MATCHES "cholesky_factor" OR
+     NOT condition_runtime_contract MATCHES "cholesky_apply" OR
+     NOT condition_runtime_contract MATCHES "cholesky_rcond" OR
+     NOT condition_runtime_contract MATCHES "structured_real_square_solve" OR
      NOT condition_runtime_contract MATCHES "basic_least_squares" OR
      NOT condition_runtime_contract MATCHES "rank deficient to working precision")
     message(FATAL_ERROR
-      "target matrix runtime does not provide structured square and basic least-squares kernels: "
+      "target matrix runtime does not provide real structured square and basic least-squares "
+      "kernels: "
       "${matrix_runtime}")
   endif()
   mpf_assert_file_excludes("${matrix_runtime}" "minimum[_ -]?norm"
     "target matrix runtime restored the incorrect underdetermined minimum-norm contract")
+  mpf_assert_file_excludes("${matrix_runtime}" "structured_square_solve"
+    "target matrix runtime restored the obsolete diagonal/triangular-only helper contract")
 endforeach()
 mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
   "function __mpf_matlab_lu_"

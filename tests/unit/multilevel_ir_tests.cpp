@@ -405,7 +405,7 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
                     mpf::detail::semantic::MatrixConditionPolicy::basic_solution_with_warning) !=
           condition_policies.end());
   REQUIRE(std::find(structure_policies.begin(), structure_policies.end(),
-                    mpf::detail::semantic::MatrixStructurePolicy::detect_diagonal_triangular) !=
+                    mpf::detail::semantic::MatrixStructurePolicy::classify_real_square) !=
           structure_policies.end());
   REQUIRE(std::find(structure_policies.begin(), structure_policies.end(),
                     mpf::detail::semantic::MatrixStructurePolicy::none) !=
@@ -439,12 +439,12 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
                .empty());
 
   auto contradictory_hir_structure = analysis.semantics;
-  const auto hir_structured = std::find_if(
-      contradictory_hir_structure.expressions.begin(),
-      contradictory_hir_structure.expressions.end(), [](const auto& facts) {
-        return facts.matrix_operation.structure_policy ==
-               mpf::detail::semantic::MatrixStructurePolicy::detect_diagonal_triangular;
-      });
+  const auto hir_structured =
+      std::find_if(contradictory_hir_structure.expressions.begin(),
+                   contradictory_hir_structure.expressions.end(), [](const auto& facts) {
+                     return facts.matrix_operation.structure_policy ==
+                            mpf::detail::semantic::MatrixStructurePolicy::classify_real_square;
+                   });
   REQUIRE(hir_structured != contradictory_hir_structure.expressions.end());
   hir_structured->matrix_operation.structure_policy =
       mpf::detail::semantic::MatrixStructurePolicy::none;
@@ -529,7 +529,7 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
       contradictory_structure.attributes.expressions.begin() + 1,
       contradictory_structure.attributes.expressions.end(), [](const auto& attributes) {
         return attributes.matrix_operation.structure_policy ==
-               mpf::detail::semantic::MatrixStructurePolicy::detect_diagonal_triangular;
+               mpf::detail::semantic::MatrixStructurePolicy::classify_real_square;
       });
   REQUIRE(structured != contradictory_structure.attributes.expressions.end());
   structured->matrix_operation.structure_policy =
@@ -587,7 +587,7 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   javascript.statements.front().expression.matrix_operation.condition_policy =
       ConditionPolicy::basic_solution_with_warning;
   javascript.statements.front().expression.matrix_operation.structure_policy =
-      StructurePolicy::detect_diagonal_triangular;
+      StructurePolicy::classify_real_square;
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(!diagnostics.empty());
 
@@ -607,7 +607,7 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   cpp.statements.front().expression.matrix_operation.condition_policy =
       ConditionPolicy::basic_solution_with_warning;
   cpp.statements.front().expression.matrix_operation.structure_policy =
-      StructurePolicy::detect_diagonal_triangular;
+      StructurePolicy::classify_real_square;
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
 }
