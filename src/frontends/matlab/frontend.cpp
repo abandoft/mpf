@@ -61,11 +61,13 @@ int probe_matlab(const std::string_view source) noexcept {
 }
 
 constexpr std::string_view extensions[]{".m"};
-constexpr SourceIntrinsicBinding intrinsic_bindings[]{{"all", IntrinsicId::logical_all},
-                                                      {"any", IntrinsicId::logical_any},
-                                                      {"length", IntrinsicId::matlab_length},
-                                                      {"numel", IntrinsicId::element_count},
-                                                      {"reshape", IntrinsicId::reshape}};
+constexpr SourceIntrinsicBinding intrinsic_bindings[]{
+    {"all", IntrinsicId::logical_all},       {"any", IntrinsicId::logical_any},
+    {"complex", IntrinsicId::complex_value}, {"conj", IntrinsicId::conjugate},
+    {"i", IntrinsicId::imaginary_unit},      {"imag", IntrinsicId::imaginary_part},
+    {"j", IntrinsicId::imaginary_unit},      {"length", IntrinsicId::matlab_length},
+    {"numel", IntrinsicId::element_count},   {"real", IntrinsicId::real_part},
+    {"reshape", IntrinsicId::reshape}};
 constexpr FrontendFeatureSet features{
     static_cast<std::uint64_t>(FrontendFeature::language_versioning) |
     static_cast<std::uint64_t>(FrontendFeature::structured_control_flow) |

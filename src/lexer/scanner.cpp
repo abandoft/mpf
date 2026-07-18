@@ -215,6 +215,10 @@ LexerResult scan_expression(const std::string_view input, const ExpressionScanne
           ++index;
         }
       }
+      if (profile.imaginary_numeric_literals && index < input.size() &&
+          (input[index] == 'i' || input[index] == 'j')) {
+        ++index;
+      }
       auto number = std::string(input.substr(begin, index - begin));
       if (profile.fortran_numeric_literals) {
         const auto kind_separator = number.find('_');

@@ -30,6 +30,7 @@ struct ExpressionScannerProfile {
   bool dotted_operators{false};
   bool fortran_numeric_literals{false};
   bool transpose_operators{false};
+  bool imaginary_numeric_literals{false};
 };
 
 [[nodiscard]] LexerResult scan_expression(std::string_view input,

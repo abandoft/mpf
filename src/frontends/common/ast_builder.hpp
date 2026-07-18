@@ -51,12 +51,16 @@ class FrontendAstBuilder final {
     node.children.reserve(source.children.size());
     for (auto& child : source.children) node.children.push_back(add_expression(std::move(child)));
     node.inferred_type = source.inferred_type;
+    node.numeric_type = source.numeric_type;
     node.binding = source.binding;
     node.intrinsic = source.intrinsic;
     node.element_type = source.element_type;
+    node.element_numeric_type = source.element_numeric_type;
     node.shape = std::move(source.shape);
     node.tuple_types = std::move(source.tuple_types);
+    node.tuple_numeric_types = std::move(source.tuple_numeric_types);
     node.tuple_element_types = std::move(source.tuple_element_types);
+    node.tuple_element_numeric_types = std::move(source.tuple_element_numeric_types);
     node.tuple_shapes = std::move(source.tuple_shapes);
     node.sequence_is_list = source.sequence_is_list;
     node.sequence_elements = std::move(source.sequence_elements);

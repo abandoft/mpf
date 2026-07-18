@@ -89,12 +89,16 @@ class HirLowerer final {
     hir::ExpressionFacts facts;
     facts.origin = result.id;
     facts.inferred_type = node.inferred_type;
+    facts.numeric_type = node.numeric_type;
     facts.binding = node.binding;
     facts.intrinsic = node.intrinsic;
     facts.element_type = node.element_type;
+    facts.element_numeric_type = node.element_numeric_type;
     facts.shape = std::move(node.shape);
     facts.tuple_types = std::move(node.tuple_types);
+    facts.tuple_numeric_types = std::move(node.tuple_numeric_types);
     facts.tuple_element_types = std::move(node.tuple_element_types);
+    facts.tuple_element_numeric_types = std::move(node.tuple_element_numeric_types);
     facts.tuple_shapes = std::move(node.tuple_shapes);
     facts.sequence_is_list = node.sequence_is_list;
     facts.sequence_elements = std::move(node.sequence_elements);

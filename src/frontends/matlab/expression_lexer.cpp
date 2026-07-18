@@ -56,6 +56,7 @@ constexpr ExpressionScannerProfile scanner_profile{
     false,
     false,
     true,
+    true,
 };
 
 }  // namespace
