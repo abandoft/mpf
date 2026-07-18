@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <fstream>
+#include <limits>
 #include <memory_resource>
 #include <sstream>
 #include <type_traits>
@@ -521,6 +522,150 @@ TEST_CASE("Matlab generalized selector plans remain explicit and reject cross-la
   REQUIRE(cpp.artifact->debug_dump().find("selectors [3,2]") != std::string::npos);
 }
 
+TEST_CASE("Matlab indexed mutation contracts remain typed and shape writes are conservative") {
+  using Mutation = mpf::detail::semantic::IndexedMutationKind;
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "values = [1 2 3];\n"
+                              "values(end + 2) = 5;\n"
+                              "values(2) = [];\n"
+                              "matrix = [1 2; 3 4];\n"
+                              "matrix(:, 3) = [5; 6];\n"
+                              "matrix(:, 2) = [];\n",
+                              "shape_mutation.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  const auto hir_grow =
+      std::find_if(analysis.semantics.statements.begin(), analysis.semantics.statements.end(),
+                   [](const auto& facts) { return facts.indexed_mutation.kind == Mutation::grow; });
+  const auto hir_erase = std::find_if(
+      analysis.semantics.statements.begin(), analysis.semantics.statements.end(),
+      [](const auto& facts) { return facts.indexed_mutation.kind == Mutation::erase; });
+  REQUIRE(hir_grow != analysis.semantics.statements.end());
+  REQUIRE(hir_erase != analysis.semantics.statements.end());
+  REQUIRE(hir_grow->mutation_input_shape == std::vector<std::size_t>{3});
+  REQUIRE(hir_grow->mutation_result_shape == std::vector<std::size_t>{5});
+  REQUIRE(hir_erase->indexed_mutation.axis < hir_erase->mutation_input_shape.size());
+
+  auto contradictory_hir = analysis.semantics;
+  const auto corrupt_hir =
+      std::find_if(contradictory_hir.statements.begin(), contradictory_hir.statements.end(),
+                   [](const auto& facts) { return facts.indexed_mutation.kind == Mutation::grow; });
+  REQUIRE(corrupt_hir != contradictory_hir.statements.end());
+  corrupt_hir->mutation_result_shape.front() = 1U;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
+                                              "mutation-shape-corruption")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "shape-mutation").empty());
+  const auto mir_dump = mpf::detail::dump_mir(mir.program);
+  REQUIRE(mir_dump.find("mutation=3") != std::string::npos);
+  REQUIRE(mir_dump.find("mutation=4") != std::string::npos);
+
+  struct ShapeWrite {
+    mpf::detail::StorageId root;
+    mpf::detail::InstructionId target_read;
+    mpf::detail::InstructionId write;
+  };
+  std::vector<ShapeWrite> shape_writes;
+  for (std::size_t index = 1; index < mir.program.statements.size(); ++index) {
+    const auto& statement = mir.program.statements[index];
+    const auto* attributes = mpf::detail::mir::attributes(mir.program, statement.id);
+    if (attributes == nullptr || !attributes->indexed_mutation.contract.changes_shape()) continue;
+    const auto& instruction = mir.program.instructions[statement.instruction.value()];
+    const auto* instruction_attributes = mpf::detail::mir::attributes(mir.program, instruction.id);
+    REQUIRE(instruction.storage.valid());
+    REQUIRE(instruction_attributes != nullptr);
+    REQUIRE(instruction_attributes->memory_accesses.size() == 1U);
+    const auto root = instruction_attributes->memory_accesses.front().root;
+    REQUIRE(root.valid());
+    const auto& storage = mir.program.storages[root.value()];
+    const auto* shape = mpf::detail::mir::shape(mir.program, storage.shape);
+    REQUIRE(shape != nullptr);
+    REQUIRE(instruction_attributes->memory_accesses.front().region ==
+            mpf::detail::full_storage_region(shape->extents));
+    const auto* target = mpf::detail::mir::expression(mir.program, statement.target_expression);
+    REQUIRE(target != nullptr);
+    shape_writes.push_back({root, target->instruction, instruction.id});
+  }
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto dependences = mpf::detail::mir::analyze_memory_dependences(mir.program, effects);
+  REQUIRE(mpf::detail::mir::verify_memory_dependences(mir.program, effects, dependences,
+                                                      "shape-mutation-dependence")
+              .empty());
+  for (std::size_t first = 0; first < shape_writes.size(); ++first) {
+    const auto later = std::find_if(
+        shape_writes.begin() + static_cast<std::ptrdiff_t>(first + 1U), shape_writes.end(),
+        [&](const ShapeWrite& candidate) { return candidate.root == shape_writes[first].root; });
+    if (later == shape_writes.end()) continue;
+    REQUIRE(std::none_of(dependences.dependences.begin() + 1, dependences.dependences.end(),
+                         [&](const mpf::detail::mir::MemoryDependence& dependence) {
+                           return dependence.source.instruction ==
+                                      shape_writes[first].target_read &&
+                                  dependence.target.instruction == later->write;
+                         }));
+  }
+
+  auto contradictory_mir = mir.program;
+  const auto corrupt_mir =
+      std::find_if(contradictory_mir.attributes.statements.begin() + 1,
+                   contradictory_mir.attributes.statements.end(), [](const auto& attributes) {
+                     return attributes.indexed_mutation.contract.kind == Mutation::erase;
+                   });
+  REQUIRE(corrupt_mir != contradictory_mir.attributes.statements.end());
+  corrupt_mir->indexed_mutation.contract.axis = std::numeric_limits<std::size_t>::max();
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "mutation-axis-corruption").empty());
+
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("mutation 3") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("mutation 4") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("mutation 3") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("mutation 4") != std::string::npos);
+}
+
+TEST_CASE("target LIR verifiers reject corrupted indexed mutation shapes") {
+  using Mutation = mpf::detail::semantic::IndexedMutationKind;
+  using ShapeSource = mpf::detail::semantic::IndexedMutationShapeSource;
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.source_language = mpf::SourceLanguage::matlab;
+  javascript.statements.resize(1);
+  auto& javascript_statement = javascript.statements.front();
+  javascript_statement.kind = mpf::detail::StatementKind::indexed_assignment;
+  javascript_statement.indexed_mutation = {Mutation::grow, ShapeSource::static_extents, true};
+  javascript_statement.mutation_input_shape = {3};
+  javascript_statement.mutation_result_shape = {5};
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript_statement.mutation_result_shape = {2};
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.source_language = mpf::SourceLanguage::matlab;
+  cpp.statements.resize(1);
+  auto& cpp_statement = cpp.statements.front();
+  cpp_statement.kind = mpf::detail::StatementKind::indexed_assignment;
+  cpp_statement.indexed_mutation = {Mutation::erase, ShapeSource::static_extents, false, 1U};
+  cpp_statement.mutation_input_shape = {2, 3};
+  cpp_statement.mutation_result_shape = {2, 2};
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp_statement.mutation_result_shape = {1, 2};
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+}
+
 TEST_CASE("Matlab dynamic end extent plans remain typed through every lowering layer") {
   auto lowered =
       lower_source(mpf::SourceLanguage::matlab,
@@ -674,7 +819,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(first_hir.find("stmt %h") != std::string::npos);
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v6") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v7") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -682,7 +827,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v11") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v12") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -2151,9 +2296,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v17") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v18") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v17") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v18") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
