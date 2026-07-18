@@ -67,6 +67,20 @@ mpf_add_differential_case(matlab-transpose matlab examples/matlab/transpose.m "1
 mpf_add_differential_case(
   matlab-complex-numbers matlab examples/matlab/complex_numbers.m
   "11 2 3 -4 3 4 5 -4 -2 11 1 0 0 1 2 3 -4 5 5 1 3 2 4 4 6")
+mpf_add_differential_case(
+  matlab-complex-matrix-operations matlab examples/matlab/complex_matrix_operations.m
+  "20 18 1 1 2 -1 1 1 2 -1 1 1 2 -1 29 18 5 -1 1 1")
+mpf_add_differential_case(
+  matlab-complex-dense-pivot-solve matlab examples/matlab/complex_dense_pivot_solve.m
+  "1 2 -3 1 2 -1 1 3 1 2 -3 1")
+mpf_add_differential_case(
+  matlab-complex-singular-square-warning matlab
+  examples/matlab/complex_singular_square_warning.m "1" tokens
+  "matrix is singular to working precision")
+mpf_add_differential_case(
+  matlab-complex-nearly-singular-square-warning matlab
+  examples/matlab/complex_nearly_singular_square_warning.m "1" tokens
+  "matrix is close to singular or badly scaled")
 mpf_add_differential_case(matlab-end-indexing matlab examples/matlab/end_indexing.m "122")
 mpf_add_differential_case(matlab-dynamic-end matlab examples/matlab/dynamic_end.m "260")
 mpf_add_differential_case(matlab-logical-indexing matlab examples/matlab/logical_indexing.m "48")
