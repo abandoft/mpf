@@ -121,8 +121,8 @@ bool valid_matrix_shapes(const MatrixOperationPlan& plan) noexcept {
 }
 
 void verify_expression(const Expression& expression, const SemanticTable& table,
-                       std::vector<bool>& seen, const std::string_view stage,
-                       std::vector<Diagnostic>& diagnostics) {
+                       const SourceLanguage source_language, std::vector<bool>& seen,
+                       const std::string_view stage, std::vector<Diagnostic>& diagnostics) {
   if (!expression.valid()) return;
   const auto* facts = table.expression(expression.id);
   if (facts == nullptr || facts->origin != expression.id) {
@@ -132,6 +132,13 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
   }
   seen[expression.id.value()] = true;
   const bool analyzed = stage != "ast-to-hir" && stage != "frontend-seed" && stage != "conformance";
+  if (analyzed && source_language == SourceLanguage::matlab &&
+      expression.kind == ExpressionKind::list && expression.children.empty() &&
+      (facts->inferred_type != ValueType::list || facts->element_type != ValueType::real ||
+       facts->shape != std::vector<std::size_t>{0U, 0U} || !facts->column_major)) {
+    add_error(diagnostics, expression.location, stage,
+              "Matlab empty literal must be a column-major 0-by-0 double array");
+  }
   if (facts->requested_outputs == 0) {
     add_error(diagnostics, expression.location, stage, "expression requests zero outputs");
   }
@@ -251,7 +258,7 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
               "normalized call argument-name arity disagrees with HIR");
   }
   for (const auto& child : expression.children) {
-    verify_expression(child, table, seen, stage, diagnostics);
+    verify_expression(child, table, source_language, seen, stage, diagnostics);
   }
 }
 
@@ -260,8 +267,8 @@ bool compatible_arity(const std::size_t size, const std::size_t expected) noexce
 }
 
 void verify_statements(const std::vector<Statement>& statements, const SemanticTable& table,
-                       std::vector<bool>& seen, const std::string_view stage,
-                       std::vector<Diagnostic>& diagnostics) {
+                       const SourceLanguage source_language, std::vector<bool>& seen,
+                       const std::string_view stage, std::vector<Diagnostic>& diagnostics) {
   for (const auto& statement : statements) {
     const auto* facts = table.statement(statement.id);
     if (facts == nullptr || facts->origin != statement.id) {
@@ -320,19 +327,22 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
       add_error(diagnostics, {statement.line, 1}, stage,
                 "non-indexed statement carries an indexed mutation contract");
     }
-    verify_expression(statement.expression, table, seen, stage, diagnostics);
-    verify_expression(statement.secondary_expression, table, seen, stage, diagnostics);
-    verify_expression(statement.tertiary_expression, table, seen, stage, diagnostics);
-    verify_expression(statement.target_expression, table, seen, stage, diagnostics);
+    verify_expression(statement.expression, table, source_language, seen, stage, diagnostics);
+    verify_expression(statement.secondary_expression, table, source_language, seen, stage,
+                      diagnostics);
+    verify_expression(statement.tertiary_expression, table, source_language, seen, stage,
+                      diagnostics);
+    verify_expression(statement.target_expression, table, source_language, seen, stage,
+                      diagnostics);
     for (const auto& expression : statement.parameter_defaults) {
-      verify_expression(expression, table, seen, stage, diagnostics);
+      verify_expression(expression, table, source_language, seen, stage, diagnostics);
     }
     for (const auto& selector : statement.case_selectors) {
-      verify_expression(selector.lower, table, seen, stage, diagnostics);
-      verify_expression(selector.upper, table, seen, stage, diagnostics);
+      verify_expression(selector.lower, table, source_language, seen, stage, diagnostics);
+      verify_expression(selector.upper, table, source_language, seen, stage, diagnostics);
     }
-    verify_statements(statement.body, table, seen, stage, diagnostics);
-    verify_statements(statement.alternative, table, seen, stage, diagnostics);
+    verify_statements(statement.body, table, source_language, seen, stage, diagnostics);
+    verify_statements(statement.alternative, table, source_language, seen, stage, diagnostics);
   }
 }
 
@@ -464,7 +474,7 @@ std::vector<Diagnostic> verify_semantics(const Program& program, const SemanticT
     }
   }
   std::vector<bool> seen(program.node_count + 1U, false);
-  verify_statements(program.statements, table, seen, stage, diagnostics);
+  verify_statements(program.statements, table, program.language, seen, stage, diagnostics);
   for (std::size_t index = 1; index < seen.size(); ++index) {
     if (!seen[index] || table.nodes[index].kind == SemanticNodeKind::absent) {
       add_error(diagnostics, {1, 1}, stage,

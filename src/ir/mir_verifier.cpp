@@ -446,6 +446,18 @@ void verify_expression(const Expression& expression, const Program& program,
               "expression has no matching operation-attribute row");
     return;
   }
+  if (program.source_language == SourceLanguage::matlab &&
+      expression.kind == ExpressionKind::list && expression.children.empty()) {
+    const auto* empty_type = type_data(program, expression.type_id);
+    const auto* empty_shape = shape(program, expression.shape_id);
+    if (empty_type == nullptr || empty_type->kind != TypeKind::sequence ||
+        empty_type->value_type != ValueType::list || empty_type->element_type != ValueType::real ||
+        empty_shape == nullptr || empty_shape->extents != std::vector<std::size_t>{0U, 0U} ||
+        empty_shape->layout != semantic::IndexLayout::column_major || empty_shape->dynamic_rank) {
+      add_error(diagnostics, expression.location, stage,
+                "Matlab empty literal lost its typed 0-by-0 column-major array contract");
+    }
+  }
   if (expression_attributes->requested_results == 0U ||
       ((expression_attributes->binding == BindingKind::builtin) !=
        (expression_attributes->intrinsic != IntrinsicId::none))) {
