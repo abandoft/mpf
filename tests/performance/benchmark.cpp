@@ -334,6 +334,24 @@ std::string matlab_complex_matrix_workload(const std::size_t rounds) {
   return source;
 }
 
+std::string matlab_complex_rectangular_solve_workload(const std::size_t rounds) {
+  std::string source =
+      "tall = [1+1i 2-1i; 2 -1+1i; 1-1i 1+2i; 3+1i 2];\n"
+      "tall_rhs = [8+4i -2+5i; 7-1i 4+2i; 3-5i 8+1i; 9+2i 1-3i];\n"
+      "wide = [1+1i 0 1-1i 2; 0 1-1i 2+1i -1i];\n"
+      "wide_rhs = [3+1i 5-2i; 2-4i 1+3i];\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "least_squares = tall \\ tall_rhs;\n";
+    source += "basic_underdetermined = wide \\ wide_rhs;\n";
+    source += "right_overdetermined = [3+1i 2-4i 5+2i -1i] / wide;\n";
+    source += "right_underdetermined = [7+1i 3+4i] / tall;\n";
+  }
+  source +=
+      "disp(real(least_squares(1, 1)) + real(basic_underdetermined(1, 1)) + "
+      "real(right_overdetermined(1)) + real(right_underdetermined(1)))\n";
+  return source;
+}
+
 std::string matlab_matrix_solve_workload(const std::size_t rounds) {
   std::string source =
       "coefficient = [4 1 0 0; 2 5 1 0; 0 1 6 2; 0 0 2 7];\n"
@@ -531,6 +549,8 @@ int main() {
       {"matlab-empty-arrays", matlab_empty_array_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-complex-kernel", matlab_complex_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-complex-matrix-kernel", matlab_complex_matrix_workload(24),
+       mpf::SourceLanguage::matlab},
+      {"matlab-complex-rectangular-solve", matlab_complex_rectangular_solve_workload(24),
        mpf::SourceLanguage::matlab},
       {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-rank-aware-solve", matlab_rank_aware_solve_workload(24),
