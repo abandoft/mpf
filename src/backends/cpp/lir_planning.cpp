@@ -34,6 +34,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.emission.dynamic_truthiness) {
     result.push_back(lir::RuntimeFragment::dynamic_values);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::scalar_division)) {
+    result.push_back(lir::RuntimeFragment::scalar_division);
+  }
   return result;
 }
 

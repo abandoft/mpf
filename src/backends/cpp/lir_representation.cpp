@@ -166,6 +166,17 @@ std::string matlab_array_helper(const lir::Expression& expression) {
   return {};
 }
 
+std::string scalar_division_helper(const lir::EmissionPlan& emission,
+                                   const bool floor_result = false) {
+  switch (emission.division_by_zero) {
+    case semantic::DivisionByZero::ieee754: return "mpf_runtime::ieee_divide";
+    case semantic::DivisionByZero::exception:
+      return floor_result ? "mpf_runtime::python_floor_divide" : "mpf_runtime::python_true_divide";
+    case semantic::DivisionByZero::target_native: break;
+  }
+  return {};
+}
+
 semantic::MatrixOperation expected_matrix_operation(const lir::Expression& expression) noexcept {
   if (expression.children.size() != 2U) return semantic::MatrixOperation::none;
   const bool left_array = expression.children[0].inferred_type == ValueType::list;
@@ -458,22 +469,23 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
         result.token = expression.value;
         result.form = lir::ExpressionForm::binary_power;
       } else if (expression.operation == BinaryOperator::floor_divide) {
-        result.precedence = binary_precedence(expression.value);
-        result.token = expression.value;
-        result.form = lir::ExpressionForm::binary_floor_divide;
-      } else if (expression.operation == BinaryOperator::divide && emission.real_division) {
-        result.precedence = binary_precedence(expression.value);
-        result.token = expression.value;
-        result.form = lir::ExpressionForm::binary_real_divide;
+        result.precedence = 9;
+        result.token = scalar_division_helper(emission, true);
+        result.form = lir::ExpressionForm::binary_runtime_call;
+      } else if (expression.operation == BinaryOperator::divide &&
+                 emission.division == semantic::Division::real_quotient) {
+        result.precedence = 9;
+        result.token = scalar_division_helper(emission);
+        result.form = lir::ExpressionForm::binary_runtime_call;
       } else if (expression.operation == BinaryOperator::elementwise_left_divide ||
                  expression.operation == BinaryOperator::left_divide) {
-        result.precedence = 5;
-        result.token = "/";
-        result.form = lir::ExpressionForm::binary_reverse_divide;
+        result.precedence = 9;
+        result.token = scalar_division_helper(emission);
+        result.form = lir::ExpressionForm::binary_reverse_runtime_call;
       } else if (expression.operation == BinaryOperator::elementwise_divide) {
-        result.precedence = 5;
-        result.token = "/";
-        result.form = lir::ExpressionForm::binary_real_divide;
+        result.precedence = 9;
+        result.token = scalar_division_helper(emission);
+        result.form = lir::ExpressionForm::binary_runtime_call;
       } else {
         result.precedence = binary_precedence(expression.value);
         result.token =
@@ -834,6 +846,12 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
         !valid_matrix_shapes(expression.matrix_operation, expression.shape)))) {
     add_error(diagnostics, expression.location,
               "cpp LIR Matlab matrix-operation plan is inconsistent");
+  }
+  if ((expression.plan.form == lir::ExpressionForm::binary_runtime_call ||
+       expression.plan.form == lir::ExpressionForm::binary_reverse_runtime_call) &&
+      expression.plan.token.empty()) {
+    add_error(diagnostics, expression.location,
+              "cpp LIR scalar-division runtime plan has no target helper");
   }
   if (!same_plan(expression.plan, expected_expression_plan(expression, emission, context,
                                                            source_language, array_element_type))) {

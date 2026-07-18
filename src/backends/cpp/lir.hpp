@@ -23,6 +23,7 @@ enum class RuntimeFeature : std::uint8_t {
   character_case,
   reference_arguments,
   optional_arguments,
+  scalar_division,
   count
 };
 
@@ -41,7 +42,8 @@ struct EmissionPlan {
   bool dynamic_truthiness{false};
   bool matlab_truthiness{false};
   bool operand_logical_result{false};
-  bool real_division{false};
+  semantic::Division division{semantic::Division::native};
+  semantic::DivisionByZero division_by_zero{semantic::DivisionByZero::target_native};
   bool lexical_block_scopes{false};
   bool resizable_sections{false};
   bool padded_character_selection{false};
@@ -143,8 +145,6 @@ enum class ExpressionForm : std::uint8_t {
   matlab_short_circuit_and,
   matlab_short_circuit_or,
   binary_power,
-  binary_floor_divide,
-  binary_real_divide,
   binary_comparison,
   comparison_chain,
   conditional,
@@ -155,9 +155,10 @@ enum class ExpressionForm : std::uint8_t {
   member,
   list,
   tuple,
-  binary_reverse_divide,
   matlab_array_operation,
-  matlab_transpose
+  matlab_transpose,
+  binary_runtime_call,
+  binary_reverse_runtime_call
 };
 
 enum class ComparisonForm : std::uint8_t {
@@ -360,7 +361,7 @@ struct StatementPlan {
   std::vector<std::string> return_names;
 };
 
-enum class RuntimeFragment : std::uint8_t { core, dynamic_values };
+enum class RuntimeFragment : std::uint8_t { core, dynamic_values, scalar_division };
 enum class EntryErrorPolicy : std::uint8_t { none, report_standard_exception };
 
 struct TranslationUnitPlan {

@@ -634,27 +634,17 @@ class Renderer final {
         emit_expression(expression.children[1]);
         output_ << ')';
         break;
-      case cpp::lir::ExpressionForm::binary_floor_divide:
-        output_ << "static_cast<std::int64_t>(std::floor(static_cast<double>(";
-        emit_expression(expression.children[0]);
-        output_ << ") / static_cast<double>(";
-        emit_expression(expression.children[1]);
-        output_ << ")))";
-        break;
-      case cpp::lir::ExpressionForm::binary_real_divide:
-        output_ << "static_cast<double>(";
-        emit_expression(expression.children[0]);
-        output_ << ") / static_cast<double>(";
-        emit_expression(expression.children[1]);
+      case cpp::lir::ExpressionForm::binary_runtime_call:
+      case cpp::lir::ExpressionForm::binary_reverse_runtime_call: {
+        const bool reverse =
+            expression.plan.form == cpp::lir::ExpressionForm::binary_reverse_runtime_call;
+        output_ << expression.plan.token << '(';
+        emit_expression(expression.children[reverse ? 1U : 0U]);
+        output_ << ", ";
+        emit_expression(expression.children[reverse ? 0U : 1U]);
         output_ << ')';
         break;
-      case cpp::lir::ExpressionForm::binary_reverse_divide:
-        output_ << "static_cast<double>(";
-        emit_expression(expression.children[1]);
-        output_ << ") / static_cast<double>(";
-        emit_expression(expression.children[0]);
-        output_ << ')';
-        break;
+      }
       case cpp::lir::ExpressionForm::binary_comparison: {
         emit_binary_comparison(expression);
         break;

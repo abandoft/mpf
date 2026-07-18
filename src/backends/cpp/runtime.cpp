@@ -17,6 +17,9 @@ class RuntimeEmitter final {
     const bool include_python_runtime =
         std::find(fragments.begin(), fragments.end(), cpp::lir::RuntimeFragment::dynamic_values) !=
         fragments.end();
+    const bool include_scalar_division =
+        std::find(fragments.begin(), fragments.end(), cpp::lir::RuntimeFragment::scalar_division) !=
+        fragments.end();
     output_ << "namespace " << runtime_namespace << " {\n";
     output_
         << "template <typename T> class optional_argument {\n"
@@ -1510,6 +1513,20 @@ class RuntimeEmitter final {
                "const Left& left, const Right& right) { return matlab_broadcast_runtime("
                "left, right, [](const auto& a, const auto& b) { return "
                "matlab_scalar_logical(a) || matlab_scalar_logical(b); }); }\n";
+    if (include_scalar_division) {
+      output_
+          << "inline double ieee_divide(const double left, const double right) noexcept {\n"
+             "  return left / right;\n"
+             "}\n"
+             "inline double python_true_divide(const double left, const double right) {\n"
+             "  if (right == 0.0) throw std::domain_error(\"division by zero\");\n"
+             "  return left / right;\n"
+             "}\n"
+             "inline std::int64_t python_floor_divide(const double left, const double right) {\n"
+             "  if (right == 0.0) throw std::domain_error(\"division by zero\");\n"
+             "  return static_cast<std::int64_t>(std::floor(left / right));\n"
+             "}\n";
+    }
     if (include_python_runtime) {
       output_
           << "template <typename Left, typename Right, typename Operation> bool py_compare(\n"
