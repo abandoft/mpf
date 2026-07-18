@@ -1,0 +1,6 @@
+z = complex(1, 2);
+values = [z 3-4i; 5j 6];
+mixed = values + [1 2; 3 4];
+plain = mixed.';
+hermitian = mixed';
+disp(real(plain(2,1)), imag(hermitian(2,1)), abs(z))

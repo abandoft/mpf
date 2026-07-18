@@ -67,6 +67,88 @@ TEST_CASE("Matlab whitespace can separate signed vector elements") {
   REQUIRE(result.code.find("[1, -2, 3]") != std::string::npos);
 }
 
+TEST_CASE("Matlab complex scalars arrays and conjugate transpose lower independently per target") {
+  const std::string source =
+      "z = 2i;\n"
+      "w = (1 + z) * (3 - 4j);\n"
+      "negated = -w;\n"
+      "positive = +w;\n"
+      "values = [1+2i 3-4i; 5i 6];\n"
+      "plain = values.';\n"
+      "hermitian = values';\n"
+      "mixed = values + [1 2; 3 4];\n"
+      "mutated = [1 2];\n"
+      "mutated(2) = 3i;\n"
+      "shaped = reshape(mutated, 2, 1);\n"
+      "disp(real(w), imag(w), real(plain(2,1)), imag(plain(2,1)), "
+      "real(hermitian(2,1)), imag(hermitian(2,1)), real(mixed(1,2)), imag(mixed(1,2)))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("function __mpf_complex_multiply") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_complex_negate(w)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_as_complex(w)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_complex_add(values") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_ctranspose(values)") != std::string::npos);
+  REQUIRE(javascript.code.find("std::complex") == std::string::npos);
+  REQUIRE(cpp.code.find("#include <complex>") != std::string::npos);
+  REQUIRE(cpp.code.find("std::complex<double>") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::complex_multiply") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_complex_add") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_ctranspose(values") != std::string::npos);
+  REQUIRE(cpp.code.find("std::vector<std::complex<double>> mutated") != std::string::npos);
+  REQUIRE(cpp.code.find("__mpf_complex") == std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 2U; }));
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 7U; }));
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 12U; }));
+  }
+
+  const auto real_only =
+      transpile_array("value = abs(-2);\ndisp(value)\n", mpf::SourceLanguage::matlab,
+                      mpf::TargetLanguage::javascript);
+  REQUIRE(real_only.success());
+  REQUIRE(real_only.code.find("Math.abs") != std::string::npos);
+  REQUIRE(real_only.code.find("__mpf_complex_tag") == std::string::npos);
+}
+
+TEST_CASE("Matlab function boundaries preserve dynamic scalar and array numeric complexity") {
+  const std::string source =
+      "scaled = scale_complex(1+2i);\n"
+      "values = scale_complex_elements([1+2i 3]);\n"
+      "disp(real(scaled), imag(scaled), imag(values(1)), real(values(2)))\n"
+      "function result = scale_complex(input)\n"
+      "result = input * 2;\n"
+      "end\n"
+      "function result = scale_complex_elements(input)\n"
+      "result = input .* 2;\n"
+      "end\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_numeric_multiply(input, 2)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_numeric_multiply_runtime(input, 2)") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::numeric_multiply(input, 2)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_numeric_multiply_runtime(input, 2)") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("std::decay_t<decltype(mpf_runtime::numeric_multiply(input, 2))>") !=
+          std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 5U; }));
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 8U; }));
+  }
+}
+
 TEST_CASE("Matlab compatible sizes lower through explicit N-dimensional broadcast plans") {
   const std::string source =
       "matrix = [10 20 30; 40 50 60];\n"
@@ -119,12 +201,16 @@ TEST_CASE("Matlab runtime-sized compatible operations derive typed operand shape
   const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
-  REQUIRE(javascript.code.find("__mpf_matlab_add_runtime(left, right)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_numeric_add_runtime(left, right)") !=
+          std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_less_runtime(left, right)") != std::string::npos);
-  REQUIRE(javascript.code.find("__mpf_matlab_multiply_runtime(expanded, 2)") != std::string::npos);
-  REQUIRE(cpp.code.find("mpf_runtime::matlab_add_runtime(left, right)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_numeric_multiply_runtime(expanded, 2)") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_numeric_add_runtime(left, right)") !=
+          std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_less_runtime(left, right)") != std::string::npos);
-  REQUIRE(cpp.code.find("mpf_runtime::matlab_multiply_runtime(expanded, 2)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_numeric_multiply_runtime(expanded, 2)") !=
+          std::string::npos);
   REQUIRE(cpp.code.find("using sum_result_t") != std::string::npos);
   REQUIRE(cpp.code.find("std::int64_t logical_total") != std::string::npos);
   REQUIRE(javascript.code.find("MPF Matlab broadcast sizes are incompatible") != std::string::npos);

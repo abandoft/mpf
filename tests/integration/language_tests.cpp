@@ -292,6 +292,9 @@ TEST_CASE("Python tokenized statement parser separates syntax from expression co
     REQUIRE(result.success());
     REQUIRE(result.code.find("classify") != std::string::npos);
     REQUIRE(result.code.find("a=b:c") != std::string::npos);
+    if (target == mpf::TargetLanguage::cpp) {
+      REQUIRE(result.code.find("std::int64_t answer") != std::string::npos);
+    }
   }
 }
 
@@ -367,7 +370,7 @@ TEST_CASE("Matlab function output becomes a JavaScript return value") {
       mpf::SourceLanguage::matlab);
   REQUIRE(result.success());
   REQUIRE(result.code.find("export function square(x)") != std::string::npos);
-  REQUIRE(result.code.find("y = x ** 2;") != std::string::npos);
+  REQUIRE(result.code.find("y = __mpf_numeric_power(x, 2);") != std::string::npos);
   REQUIRE(result.code.find("return y;") != std::string::npos);
 }
 

@@ -64,6 +64,9 @@ mpf_add_differential_case(matlab-implicit-expansion matlab examples/matlab/impli
 mpf_add_differential_case(
   matlab-dynamic-broadcast matlab examples/matlab/dynamic_broadcast.m "80 127 2")
 mpf_add_differential_case(matlab-transpose matlab examples/matlab/transpose.m "16")
+mpf_add_differential_case(
+  matlab-complex-numbers matlab examples/matlab/complex_numbers.m
+  "11 2 3 -4 3 4 5 -4 -2 11 1 0 0 1 2 3 -4 5 5 1 3 2 4 4 6")
 mpf_add_differential_case(matlab-end-indexing matlab examples/matlab/end_indexing.m "122")
 mpf_add_differential_case(matlab-dynamic-end matlab examples/matlab/dynamic_end.m "260")
 mpf_add_differential_case(matlab-logical-indexing matlab examples/matlab/logical_indexing.m "48")
