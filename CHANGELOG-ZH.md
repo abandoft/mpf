@@ -11,9 +11,10 @@
 - 生成的 JavaScript 使用带检查的列主序归约 kernel，并通过已有的不可枚举 shape descriptor 保持零 extent。
 - 生成的 C++17 使用独立、类型化的递归 `std::vector` 归约 kernel，并可通过严格 C++17 零警告编译。
 - 逻辑求值与归约 contract 会在语义分析、MIR、JavaScript LIR 和 `cpp` LIR 中独立验证后才允许发射代码。
+- 标量除法现通过 HIR、MIR 和双目标 LIR 显式携带除零策略；生成的 C++17 通过可移植目标 runtime 保持 Matlab/TypeScript IEEE 结果，Python 真除法与 floor division 则在两个目标中给出稳定错误。
 - source map 现覆盖逻辑与归约 runtime 调用；字符数组、动态维度、重复/非法维度和不支持的未知 rank 归约会给出稳定诊断。
 - 新增双目标可执行示例、差分 case、跨层损坏检查、runtime 断言和 Matlab 专用 fuzz seed。
-- 发布验证现覆盖 223 项内部测试、79 个差分 case、93 项 CTest 和 21 个性能场景，其中 logical 与 logical-reduction 各有独立 workload。
+- 发布验证现覆盖 223 项内部测试、80 个差分 case、96 项 CTest 和 21 个性能场景，其中 logical 与 logical-reduction 各有独立 workload。
 
 ## 0.5.5
 

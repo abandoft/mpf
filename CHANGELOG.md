@@ -11,9 +11,10 @@
 - Generated JavaScript uses a checked column-major reduction kernel and retains zero extents through the existing non-enumerable shape descriptor.
 - Generated C++17 uses an independent typed recursive-`std::vector` reduction kernel and remains warning-clean under strict C++17 compilation.
 - Logical evaluation and reduction contracts are independently verified through semantic analysis, MIR, JavaScript LIR, and `cpp` LIR before emission.
+- Scalar division now carries an explicit zero-denominator policy through HIR, MIR, and both target LIRs; generated C++17 uses portable target-runtime calls for Matlab/TypeScript IEEE results, while Python true and floor division report stable errors in both targets.
 - Source maps cover logical and reduction runtime calls; character arrays, dynamic dimensions, duplicate or invalid dimensions, and unsupported unknown-rank reductions produce stable diagnostics.
 - Added executable dual-target examples, differential cases, cross-layer corruption checks, runtime assertions, and dedicated Matlab fuzz seeds.
-- Release validation now covers 223 internal tests, 79 differential cases, 93 configured CTest entries, and 21 performance scenarios, including separate logical and logical-reduction workloads.
+- Release validation now covers 223 internal tests, 80 differential cases, 96 configured CTest entries, and 21 performance scenarios, including separate logical and logical-reduction workloads.
 
 ## 0.5.5
 
