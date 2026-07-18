@@ -1,0 +1,57 @@
+name: Test Coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: test-coverage-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  source-coverage:
+    name: Clang source coverage / 85% gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: ./.github/actions/setup-reference-runtimes
+        with:
+          install-fortran: "true"
+      - name: Install coverage and reference tools
+        run: sudo apt-get update && sudo apt-get install --yes clang llvm
+      - name: Configure
+        run: >-
+          cmake --preset coverage
+          -DMPF_FORTRAN_REFERENCE_STANDARD=f2018
+      - name: Test and enforce coverage
+        run: cmake --build --preset coverage --parallel
+      - name: Preserve coverage report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-report
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            build/coverage/coverage
+            build/coverage/Testing/Temporary/LastTest.log
+
+  required:
+    name: Required
+    if: always()
+    needs: source-coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Enforce required coverage result
+        env:
+          RESULT: ${{ needs.source-coverage.result }}
+        run: test "${RESULT}" = success

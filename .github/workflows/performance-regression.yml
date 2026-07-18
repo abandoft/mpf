@@ -1,16 +1,18 @@
-name: Performance
+name: Performance Regression
 
 on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
   schedule:
     - cron: "41 2 * * 4"
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: performance-regression-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   contents: read
@@ -21,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - name: Configure release benchmark
         run: >-
           cmake -S . -B build/performance
@@ -36,9 +38,21 @@ jobs:
         run: cmake --build build/performance --target mpf-performance
       - name: Preserve machine-readable report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: performance-report
           if-no-files-found: warn
           retention-days: 30
           path: build/performance/performance-report.json
+
+  required:
+    name: Required
+    if: always()
+    needs: release-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Enforce required performance result
+        env:
+          RESULT: ${{ needs.release-gate.result }}
+        run: test "${RESULT}" = success

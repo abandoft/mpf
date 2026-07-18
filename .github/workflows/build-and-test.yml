@@ -1,25 +1,27 @@
-name: Validation / Fast
+name: Build & Test
 
 on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: build-test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   contents: read
 
 jobs:
-  build-test-install:
+  core-contract:
     name: Linux GCC / core contract
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - name: Configure
         run: >-
           cmake -S . -B build/validation
@@ -38,7 +40,7 @@ jobs:
         run: cmake --install build/validation --prefix build/stage
       - name: Preserve failure diagnostics
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: validation-diagnostics
           if-no-files-found: ignore
@@ -46,3 +48,15 @@ jobs:
           path: |
             build/validation/Testing/Temporary/LastTest.log
             build/validation/generated-cpp-*/generated.cpp
+
+  required:
+    name: Required
+    if: always()
+    needs: core-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Enforce required build and test result
+        env:
+          RESULT: ${{ needs.core-contract.result }}
+        run: test "${RESULT}" = success
