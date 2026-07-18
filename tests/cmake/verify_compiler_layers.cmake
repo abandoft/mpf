@@ -437,6 +437,61 @@ foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir
   endif()
 endforeach()
 
+file(READ "${SOURCE_DIR}/src/ir/semantics.hpp" division_semantic_contract)
+if(NOT division_semantic_contract MATCHES "DivisionByZero" OR
+   NOT division_semantic_contract MATCHES "target_native" OR
+   NOT division_semantic_contract MATCHES "ieee754" OR
+   NOT division_semantic_contract MATCHES "exception" OR
+   NOT division_semantic_contract MATCHES "valid_division_contract" OR
+   NOT division_semantic_contract MATCHES "source_division_contract_matches")
+  message(FATAL_ERROR "source division behavior is not a typed semantic contract")
+endif()
+foreach(shared_verifier IN ITEMS src/ir/hir.cpp src/ir/mir_verifier.cpp)
+  file(READ "${SOURCE_DIR}/${shared_verifier}" division_shared_verifier)
+  if(NOT division_shared_verifier MATCHES "source_division_contract_matches")
+    message(FATAL_ERROR
+      "shared IR verifier does not validate source division policy: ${shared_verifier}")
+  endif()
+endforeach()
+foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir.hpp)
+  file(READ "${SOURCE_DIR}/${target_lir}" division_target_contract)
+  if(NOT division_target_contract MATCHES "Division division" OR
+     NOT division_target_contract MATCHES "DivisionByZero division_by_zero" OR
+     NOT division_target_contract MATCHES "binary_runtime_call" OR
+     NOT division_target_contract MATCHES "scalar_division")
+    message(FATAL_ERROR "target LIR does not own scalar-division policy: ${target_lir}")
+  endif()
+endforeach()
+mpf_assert_file_excludes("src/backends/cpp/lir.hpp"
+  "binary_(floor|real|reverse)_divide"
+  "cpp LIR restored direct scalar-division representation forms")
+mpf_assert_file_excludes("src/backends/javascript/lir.hpp" "binary_floor_divide"
+  "JavaScript LIR restored unchecked Python floor division")
+foreach(representation IN ITEMS
+    src/backends/javascript/lir_representation.cpp
+    src/backends/cpp/lir_representation.cpp)
+  file(READ "${SOURCE_DIR}/${representation}" division_representation)
+  if(NOT division_representation MATCHES "python_true_divide" OR
+     NOT division_representation MATCHES "python_floor_divide" OR
+     NOT division_representation MATCHES "DivisionByZero")
+    message(FATAL_ERROR
+      "target representation does not select scalar-division runtime calls: ${representation}")
+  endif()
+endforeach()
+foreach(runtime IN ITEMS src/backends/javascript/runtime.cpp src/backends/cpp/runtime.cpp)
+  file(READ "${SOURCE_DIR}/${runtime}" division_runtime)
+  if(NOT division_runtime MATCHES "python_true_divide" OR
+     NOT division_runtime MATCHES "python_floor_divide" OR
+     NOT division_runtime MATCHES "division by zero")
+    message(FATAL_ERROR "target runtime does not own checked Python division: ${runtime}")
+  endif()
+endforeach()
+foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
+  mpf_assert_file_excludes("${renderer}"
+    "DivisionByZero|ieee_divide|python_true_divide|python_floor_divide"
+    "target renderer recovered scalar-division semantics from source policy or helper names")
+endforeach()
+
 file(READ "${SOURCE_DIR}/src/ir/semantics.hpp" index_extent_contract)
 file(READ "${SOURCE_DIR}/src/ir/semantic_facts.hpp" hir_extent_contract)
 file(READ "${SOURCE_DIR}/src/ir/mir.hpp" mir_extent_contract)
