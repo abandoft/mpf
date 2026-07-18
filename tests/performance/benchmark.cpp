@@ -170,6 +170,30 @@ std::string matlab_tensor_workload(const std::size_t pages) {
   return source;
 }
 
+std::string matlab_logical_workload(const std::size_t width, const std::size_t rounds) {
+  std::string source = "row = [";
+  for (std::size_t index = 0; index < width; ++index) {
+    if (index != 0U) source += ' ';
+    source += index % 3U == 0U ? "0" : std::to_string(index + 1U);
+  }
+  source += "];\ncolumn = [";
+  for (std::size_t index = 0; index < width; ++index) {
+    if (index != 0U) source += "; ";
+    source += index % 4U == 0U ? "0" : std::to_string(index + 1U);
+  }
+  source += "];\nmask = row & column;\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "mask = (mask | row) & ~column;\n";
+  }
+  source +=
+      "condition = 0;\n"
+      "if mask\n"
+      "  condition = 1;\n"
+      "end\n"
+      "disp(condition)\n";
+  return source;
+}
+
 std::string matlab_dynamic_end_workload(const std::size_t rounds) {
   std::string source =
       "values = [10 20 30 40 50 60 70 80];\n"
@@ -415,6 +439,7 @@ int main() {
       {"memory-dependence", memory_dependence_workload(16), mpf::SourceLanguage::python, 32U, true},
       {"matlab-array-kernel", matlab_array_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-tensor-kernel", matlab_tensor_workload(24), mpf::SourceLanguage::matlab},
+      {"matlab-logical-kernel", matlab_logical_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-dynamic-end", matlab_dynamic_end_workload(32), mpf::SourceLanguage::matlab},
       {"matlab-dynamic-broadcast", matlab_dynamic_broadcast_workload(32),
        mpf::SourceLanguage::matlab},
