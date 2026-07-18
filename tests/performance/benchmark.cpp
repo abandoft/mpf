@@ -287,6 +287,32 @@ std::string matlab_empty_array_workload(const std::size_t rounds) {
   return source;
 }
 
+std::string matlab_complex_workload(const std::size_t width, const std::size_t rounds) {
+  std::string source = "values = [";
+  for (std::size_t index = 0; index < width; ++index) {
+    if (index != 0U) source += ' ';
+    source += std::to_string(index + 1U) + "+" + std::to_string(index % 7U + 1U) + "i";
+  }
+  source += "];\noffsets = [";
+  for (std::size_t index = 0; index < width; ++index) {
+    if (index != 0U) source += ' ';
+    source += std::to_string(index % 5U + 1U) + "i";
+  }
+  source += "];\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "values = (values + offsets) .* (1-2i);\n";
+    source += "conjugated = conj(values(1));\n";
+    source += "hermitian = values';\n";
+  }
+  source +=
+      "dynamic = scale_complex_elements(values, 2i);\n"
+      "disp(real(dynamic(1)) + imag(conjugated) + real(hermitian(1,1)))\n"
+      "function result = scale_complex_elements(input, factor)\n"
+      "result = input .* factor;\n"
+      "end\n";
+  return source;
+}
+
 std::string matlab_matrix_solve_workload(const std::size_t rounds) {
   std::string source =
       "coefficient = [4 1 0 0; 2 5 1 0; 0 1 6 2; 0 0 2 7];\n"
@@ -404,10 +430,18 @@ bool measure(const Scenario& scenario, Measurement& measurement) {
   std::size_t generated = 0;
   for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
     const auto reference = compile(scenario, target);
-    if (!reference.success() ||
-        reference.report.mir_memory_dependences.total < scenario.minimum_memory_dependences ||
+    if (!reference.success()) {
+      std::cerr << scenario.name << ": " << mpf::to_string(target) << " transpilation failed";
+      for (const auto& diagnostic : reference.diagnostics) {
+        std::cerr << " [" << diagnostic.code << "] " << diagnostic.message;
+      }
+      std::cerr << '\n';
+      return false;
+    }
+    if (reference.report.mir_memory_dependences.total < scenario.minimum_memory_dependences ||
         (scenario.require_loop_carried_dependence &&
          reference.report.mir_memory_dependences.loop_carried == 0U)) {
+      std::cerr << scenario.name << ": MIR memory-dependence gate failed\n";
       return false;
     }
     for (std::size_t sample = 0; sample < 3; ++sample) {
@@ -474,6 +508,7 @@ int main() {
        mpf::SourceLanguage::matlab},
       {"matlab-shape-mutation", matlab_shape_mutation_workload(32), mpf::SourceLanguage::matlab},
       {"matlab-empty-arrays", matlab_empty_array_workload(24), mpf::SourceLanguage::matlab},
+      {"matlab-complex-kernel", matlab_complex_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-rank-aware-solve", matlab_rank_aware_solve_workload(24),
        mpf::SourceLanguage::matlab},
