@@ -287,9 +287,57 @@ TEST_CASE("Matlab contextual end uses static fast paths and typed dynamic extent
                                       mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
   const auto outside = transpile_array("value = end;\n", mpf::SourceLanguage::matlab,
                                        mpf::TargetLanguage::javascript);
-  REQUIRE(!growth.success());
+  REQUIRE(growth.success());
+  REQUIRE(growth.code.find("__mpf_grow(values") != std::string::npos);
   REQUIRE(!outside.success());
   REQUIRE(outside.diagnostics.front().code == "MPF2048");
+}
+
+TEST_CASE("Matlab indexed mutation plans grow and erase vectors matrices and tensors") {
+  const std::string source =
+      "row = [1 2 3];\n"
+      "row(5:7) = [5 6 7];\n"
+      "row([2 9]) = [20 90];\n"
+      "matrix = [1 2; 3 4];\n"
+      "matrix(:, 3) = [5; 6];\n"
+      "matrix([1 4], 4) = [7; 8];\n"
+      "matrix(:, 2) = [];\n"
+      "cube = reshape([1 2 3 4 5 6 7 8], 2, 2, 2);\n"
+      "cube(3, 2, 2) = 9;\n"
+      "cube(:, 1, :) = [];\n"
+      "disp(row(4), row(9), matrix(4, 3), cube(3, 1, 2))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_grow") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_erase") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::assign_growing_linear_column_major") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::assign_growing_section_nd") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::erase_indexed") != std::string::npos);
+  REQUIRE(std::any_of(javascript.source_map.segments.begin(), javascript.source_map.segments.end(),
+                      [](const auto& segment) { return segment.original_line == 10U; }));
+  REQUIRE(std::any_of(cpp.source_map.segments.begin(), cpp.source_map.segments.end(),
+                      [](const auto& segment) { return segment.original_line == 10U; }));
+}
+
+TEST_CASE("Matlab indexed deletion rejects ambiguous dimensions and invalid selectors") {
+  const auto linear_matrix =
+      transpile_array("matrix = [1 2; 3 4];\nmatrix([1 2]) = [];\n", mpf::SourceLanguage::matlab,
+                      mpf::TargetLanguage::javascript);
+  const auto element =
+      transpile_array("matrix = [1 2; 3 4];\nmatrix(1, 1) = [];\n", mpf::SourceLanguage::matlab,
+                      mpf::TargetLanguage::javascript);
+  const auto outside =
+      transpile_array("matrix = [1 2; 3 4];\nmatrix(:, 3) = [];\n", mpf::SourceLanguage::matlab,
+                      mpf::TargetLanguage::javascript);
+  REQUIRE(!linear_matrix.success());
+  REQUIRE(!element.success());
+  REQUIRE(!outside.success());
+  REQUIRE(linear_matrix.diagnostics.front().code == "MPF2050");
+  REQUIRE(element.diagnostics.front().code == "MPF2050");
+  REQUIRE(outside.diagnostics.front().code == "MPF2021");
 }
 
 TEST_CASE("Matlab logical indexing reads and writes in column-major linear order") {
