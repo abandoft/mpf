@@ -196,9 +196,17 @@ TEST_CASE("Matlab empty arrays preserve zero extents across shape-changing opera
           std::string::npos);
   REQUIRE(javascript.code.find("__mpf_record_shape") != std::string::npos);
   REQUIRE(javascript.code.find(", 0, [1, 3]);") != std::string::npos);
+  REQUIRE(javascript.code.find("MPF column-major coordinates require positive safe extents") !=
+          std::string::npos);
+  REQUIRE(
+      javascript.code.find("const coordinates = __mpf_column_major_coordinates(linear, shape);") !=
+      std::string::npos);
   REQUIRE(cpp.code.find("std::vector<std::vector<double>>{}") != std::string::npos);
   REQUIRE(cpp.code.find("std::array<std::size_t, 2>{0, 5}") != std::string::npos);
   REQUIRE(cpp.code.find("std::array<std::size_t, 2>{5, 0}") != std::string::npos);
+  REQUIRE(cpp.code.find("MPF column-major coordinates require nonzero extents") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("linear % shape[axis]") == std::string::npos);
   REQUIRE(javascript.source_map.segments.size() >= 9U);
   REQUIRE(cpp.source_map.segments.size() >= 9U);
 }

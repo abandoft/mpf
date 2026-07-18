@@ -503,6 +503,18 @@ mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
 mpf_assert_file_excludes("src/backends/cpp/runtime.cpp"
   "inline[^\n]*matlab_lu_(factor|solve|rcond)"
   "generic cpp runtime regained matrix factorization ownership")
+file(READ "${SOURCE_DIR}/src/backends/javascript/runtime.cpp" javascript_runtime_contract)
+file(READ "${SOURCE_DIR}/src/backends/cpp/runtime.cpp" cpp_runtime_contract)
+if(NOT javascript_runtime_contract MATCHES
+     "column-major coordinates require positive safe extents" OR
+   NOT javascript_runtime_contract MATCHES
+     "__mpf_column_major_coordinates\\(linear, shape\\)" OR
+   NOT cpp_runtime_contract MATCHES
+     "column-major coordinates require nonzero extents" OR
+   cpp_runtime_contract MATCHES "linear % shape\\[axis\\]")
+  message(FATAL_ERROR
+    "target coordinate runtimes do not fail closed before zero-extent division")
+endif()
 
 foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
   file(READ "${SOURCE_DIR}/${renderer}" renderer_contract)
