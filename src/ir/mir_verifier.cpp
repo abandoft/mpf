@@ -219,7 +219,8 @@ bool valid_matrix_shapes(const Program& program, const MatrixOperationPlan& plan
   const auto* left = shape(program, plan.left_shape);
   const auto* right = shape(program, plan.right_shape);
   const auto* result = shape(program, plan.result_shape);
-  if (!static_rank_two(left) || !static_rank_two(result) || plan.result_shape != expression_shape) {
+  if (!static_rank_two(left) || !static_rank_two(result) || plan.result_shape != expression_shape ||
+      plan.rank_policy != semantic::matrix_rank_policy(plan.solve)) {
     return false;
   }
   switch (plan.operation) {
@@ -345,6 +346,7 @@ void verify_expression(const Expression& expression, const Program& program,
             semantic::BroadcastShapeSource::static_extents ||
         retired_attributes->matrix_operation.valid() ||
         retired_attributes->matrix_operation.solve != semantic::MatrixSolveKind::none ||
+        retired_attributes->matrix_operation.rank_policy != semantic::MatrixRankPolicy::none ||
         retired_attributes->matrix_operation.left_shape.valid() ||
         retired_attributes->matrix_operation.right_shape.valid() ||
         retired_attributes->matrix_operation.result_shape.valid() ||
@@ -594,7 +596,8 @@ void verify_expression(const Expression& expression, const Program& program,
               "expression matrix-operation attributes have an invalid operator or shape "
               "contract");
   } else if (!matrix.valid() &&
-             (matrix.solve != semantic::MatrixSolveKind::none || matrix.left_shape.valid() ||
+             (matrix.solve != semantic::MatrixSolveKind::none ||
+              matrix.rank_policy != semantic::MatrixRankPolicy::none || matrix.left_shape.valid() ||
               matrix.right_shape.valid() || matrix.result_shape.valid())) {
     add_error(diagnostics, expression.location, stage,
               "inactive expression matrix-operation attributes retain solve or shape facts");
