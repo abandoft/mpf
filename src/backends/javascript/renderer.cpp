@@ -179,6 +179,29 @@ class Renderer final {
         emit_expression(expression.children[1]);
         output_ << ')';
         return;
+      case javascript::lir::CallForm::matlab_all:
+      case javascript::lir::CallForm::matlab_any: {
+        const auto& reduction = plan.reduction;
+        const bool all = plan.call == javascript::lir::CallForm::matlab_all;
+        if (reduction.shape_source == semantic::ReductionShapeSource::runtime_operand) {
+          output_ << "__mpf_matlab_logical_total(";
+          emit_expression(expression.children[1]);
+          output_ << ", " << (all ? "true" : "false") << ')';
+          return;
+        }
+        output_ << "__mpf_matlab_logical_reduce(";
+        emit_expression(expression.children[1]);
+        output_ << ", " << (all ? "true" : "false") << ", ";
+        emit_shape(reduction.axes);
+        output_ << ", ";
+        emit_shape(reduction.input_shape);
+        output_ << ", ";
+        emit_shape(reduction.result_shape);
+        output_ << ", ";
+        emit_shape(reduction.output_shape);
+        output_ << ", " << (reduction.scalar_result ? "true" : "false") << ')';
+        return;
+      }
       case javascript::lir::CallForm::sum:
         output_ << "__mpf_sum(";
         emit_expression(expression.children[1]);

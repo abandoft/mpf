@@ -21,6 +21,8 @@ constexpr std::array<CodeBinding, static_cast<std::size_t>(IntrinsicId::count)> 
     {IntrinsicId::round, CodeBindingKind::symbol, "Math.round"},
     {IntrinsicId::sine, CodeBindingKind::symbol, "Math.sin"},
     {IntrinsicId::square_root, CodeBindingKind::symbol, "Math.sqrt"},
+    {IntrinsicId::logical_all, CodeBindingKind::custom, "__mpf_matlab_all"},
+    {IntrinsicId::logical_any, CodeBindingKind::custom, "__mpf_matlab_any"},
     {IntrinsicId::sum, CodeBindingKind::custom, "__mpf_sum"},
     {IntrinsicId::tangent, CodeBindingKind::symbol, "Math.tan"},
     {IntrinsicId::not_a_number, CodeBindingKind::constant, "Number.NaN"},

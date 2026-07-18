@@ -272,6 +272,12 @@ lir::CallForm call_form(const lir::Expression& expression) noexcept {
   if (callee.intrinsic == IntrinsicId::element_count && expression.children.size() == 2) {
     return lir::CallForm::element_count;
   }
+  if (callee.intrinsic == IntrinsicId::logical_all && expression.reduction.valid()) {
+    return lir::CallForm::matlab_all;
+  }
+  if (callee.intrinsic == IntrinsicId::logical_any && expression.reduction.valid()) {
+    return lir::CallForm::matlab_any;
+  }
   if (callee.intrinsic == IntrinsicId::sum && expression.children.size() == 2) {
     return lir::CallForm::sum;
   }
@@ -425,6 +431,9 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       result.form = lir::ExpressionForm::call;
       result.precedence = 9;
       result.call = call_form(expression);
+      if (result.call == lir::CallForm::matlab_all || result.call == lir::CallForm::matlab_any) {
+        result.reduction = expression.reduction;
+      }
       result.call_value = expression.multi_output_call && expression.requested_outputs == 1
                               ? lir::CallValueForm::first_result
                               : lir::CallValueForm::direct;
@@ -508,7 +517,15 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.broadcast.left_shape != right.broadcast.left_shape ||
       left.broadcast.right_shape != right.broadcast.right_shape ||
       left.broadcast.result_shape != right.broadcast.result_shape ||
-      left.broadcast.axes != right.broadcast.axes || left.call != right.call ||
+      left.broadcast.axes != right.broadcast.axes ||
+      left.reduction.operation != right.reduction.operation ||
+      left.reduction.axis_policy != right.reduction.axis_policy ||
+      left.reduction.shape_source != right.reduction.shape_source ||
+      left.reduction.input_shape != right.reduction.input_shape ||
+      left.reduction.result_shape != right.reduction.result_shape ||
+      left.reduction.output_shape != right.reduction.output_shape ||
+      left.reduction.axes != right.reduction.axes ||
+      left.reduction.scalar_result != right.reduction.scalar_result || left.call != right.call ||
       left.evaluation != right.evaluation || left.call_value != right.call_value ||
       left.call_arguments.size() != right.call_arguments.size() || left.index != right.index ||
       left.index_selectors != right.index_selectors || left.index_extents != right.index_extents ||
@@ -582,6 +599,23 @@ semantic::LogicalEvaluation expected_logical_evaluation(const lir::Expression& e
   return semantic::LogicalEvaluation::none;
 }
 
+semantic::ReductionOperation expected_reduction_operation(
+    const lir::Expression& expression, const SourceLanguage source_language) noexcept {
+  if (source_language != SourceLanguage::matlab || expression.kind != ExpressionKind::call ||
+      expression.children.empty()) {
+    return semantic::ReductionOperation::none;
+  }
+  const auto& callee = expression.children.front();
+  if (callee.binding != BindingKind::builtin) return semantic::ReductionOperation::none;
+  if (callee.intrinsic == IntrinsicId::logical_all) {
+    return semantic::ReductionOperation::logical_all;
+  }
+  if (callee.intrinsic == IntrinsicId::logical_any) {
+    return semantic::ReductionOperation::logical_any;
+  }
+  return semantic::ReductionOperation::none;
+}
+
 void verify_expression(const lir::Expression& expression, const lir::EmissionPlan& emission,
                        const AccessContext& context, const SourceLanguage source_language,
                        std::vector<Diagnostic>& diagnostics, const bool condition_context = false) {
@@ -590,6 +624,34 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
       expected_logical_evaluation(expression, source_language, condition_context)) {
     add_error(diagnostics, expression.location,
               "JavaScript LIR logical evaluation policy is inconsistent");
+  }
+  const auto expected_reduction = expected_reduction_operation(expression, source_language);
+  if (expression.reduction.operation != expected_reduction) {
+    add_error(diagnostics, expression.location,
+              "JavaScript LIR logical reduction identity is inconsistent");
+  } else if (expression.reduction.valid()) {
+    const auto& reduction = expression.reduction;
+    const bool valid_type =
+        reduction.scalar_result
+            ? expression.inferred_type == ValueType::boolean && expression.shape.empty()
+            : expression.inferred_type == ValueType::list &&
+                  expression.element_type == ValueType::boolean;
+    if (!valid_type || expression.shape != reduction.output_shape ||
+        !semantic::valid_logical_reduction_contract(reduction.operation, reduction.axis_policy,
+                                                    reduction.shape_source, reduction.input_shape,
+                                                    reduction.result_shape, reduction.output_shape,
+                                                    reduction.axes, reduction.scalar_result)) {
+      add_error(diagnostics, expression.location,
+                "JavaScript LIR logical reduction contract is inconsistent");
+    }
+  } else if (expression.reduction.axis_policy != semantic::ReductionAxisPolicy::none ||
+             expression.reduction.shape_source != semantic::ReductionShapeSource::static_extents ||
+             !expression.reduction.input_shape.empty() ||
+             !expression.reduction.result_shape.empty() ||
+             !expression.reduction.output_shape.empty() || !expression.reduction.axes.empty() ||
+             expression.reduction.scalar_result) {
+    add_error(diagnostics, expression.location,
+              "JavaScript LIR inactive logical reduction retains state");
   }
   if ((expression.kind == ExpressionKind::end_index) !=
       semantic::requires_runtime_extent(expression.index_extent)) {
