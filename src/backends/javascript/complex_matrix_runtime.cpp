@@ -195,6 +195,153 @@ function __mpf_matlab_complex_cholesky_rcond(coefficients, factor) {
     __mpf_matlab_complex_matrix_one_norm(inverse);
   return denominator === 0 || !Number.isFinite(denominator) ? 0 : 1 / denominator;
 }
+function __mpf_matlab_complex_cpqr_factor(values) {
+  const rows = values.length;
+  const columns = values[0].length;
+  const pivots = Math.min(rows, columns);
+  const qr = values.map((row) => row.slice());
+  const tau = new Array(pivots).fill(0);
+  const permutation = Array.from({ length: columns }, (_, index) => index);
+  let scale = 0;
+  for (let column = 0; column < columns; ++column) {
+    let norm = 0;
+    for (let row = 0; row < rows; ++row) norm = Math.hypot(norm, __mpf_abs(qr[row][column]));
+    scale = Math.max(scale, norm);
+  }
+  const tolerance = Number.EPSILON * Math.max(rows, columns) * scale;
+  let rank = 0;
+  for (let pivot = 0; pivot < pivots; ++pivot) {
+    let selected = pivot;
+    let selectedNorm = -1;
+    for (let column = pivot; column < columns; ++column) {
+      let norm = 0;
+      for (let row = pivot; row < rows; ++row) {
+        norm = Math.hypot(norm, __mpf_abs(qr[row][column]));
+      }
+      if (norm > selectedNorm) {
+        selected = column;
+        selectedNorm = norm;
+      }
+    }
+    if (selectedNorm <= tolerance) break;
+    if (selected !== pivot) {
+      for (let row = 0; row < rows; ++row) {
+        [qr[row][pivot], qr[row][selected]] = [qr[row][selected], qr[row][pivot]];
+      }
+      [permutation[pivot], permutation[selected]] =
+        [permutation[selected], permutation[pivot]];
+    }
+    const alpha = qr[pivot][pivot];
+    const alphaMagnitude = __mpf_abs(alpha);
+    const phase = alphaMagnitude === 0
+      ? __mpf_complex(1, 0)
+      : __mpf_complex(alpha.re / alphaMagnitude, alpha.im / alphaMagnitude);
+    const beta = __mpf_complex(-phase.re * selectedNorm, -phase.im * selectedNorm);
+    const leading = __mpf_complex_subtract(alpha, beta);
+    tau[pivot] = 1 + alphaMagnitude / selectedNorm;
+    qr[pivot][pivot] = beta;
+    for (let row = pivot + 1; row < rows; ++row) {
+      qr[row][pivot] = __mpf_complex_divide(qr[row][pivot], leading);
+    }
+    for (let column = pivot + 1; column < columns; ++column) {
+      let projection = qr[pivot][column];
+      for (let row = pivot + 1; row < rows; ++row) {
+        projection = __mpf_complex_add(projection, __mpf_complex_multiply(
+          __mpf_conj(qr[row][pivot]), qr[row][column]));
+      }
+      projection = __mpf_complex_multiply(projection, __mpf_complex(tau[pivot], 0));
+      qr[pivot][column] = __mpf_complex_subtract(qr[pivot][column], projection);
+      for (let row = pivot + 1; row < rows; ++row) {
+        qr[row][column] = __mpf_complex_subtract(
+          qr[row][column], __mpf_complex_multiply(qr[row][pivot], projection));
+      }
+    }
+    rank = pivot + 1;
+  }
+  return { qr, tau, permutation, rank, tolerance };
+}
+function __mpf_matlab_apply_complex_cpqr_qh(factor, values) {
+  const result = values.map((row) => row.slice());
+  for (let pivot = 0; pivot < factor.rank; ++pivot) {
+    for (let column = 0; column < result[0].length; ++column) {
+      let projection = result[pivot][column];
+      for (let row = pivot + 1; row < result.length; ++row) {
+        projection = __mpf_complex_add(projection, __mpf_complex_multiply(
+          __mpf_conj(factor.qr[row][pivot]), result[row][column]));
+      }
+      projection = __mpf_complex_multiply(
+        projection, __mpf_complex(factor.tau[pivot], 0));
+      result[pivot][column] = __mpf_complex_subtract(
+        result[pivot][column], projection);
+      for (let row = pivot + 1; row < result.length; ++row) {
+        result[row][column] = __mpf_complex_subtract(
+          result[row][column], __mpf_complex_multiply(factor.qr[row][pivot], projection));
+      }
+    }
+  }
+  return result;
+}
+function __mpf_matlab_complex_basic_least_squares(left, right) {
+  const factor = __mpf_matlab_complex_cpqr_factor(left);
+  const transformed = __mpf_matlab_apply_complex_cpqr_qh(factor, right);
+  const columns = left[0].length;
+  const outputs = right[0].length;
+  if (factor.rank < Math.min(left.length, columns)) {
+    console.warn(`MPF Matlab matrix is rank deficient to working precision (rank ${factor.rank}, ` +
+      `tolerance ${factor.tolerance}); using a basic least-squares solution`);
+  }
+  const pivoted = Array.from({ length: columns }, () =>
+    Array.from({ length: outputs }, () => __mpf_complex(0, 0)));
+  for (let reverse = factor.rank; reverse > 0; --reverse) {
+    const row = reverse - 1;
+    for (let output = 0; output < outputs; ++output) {
+      let value = transformed[row][output];
+      for (let inner = row + 1; inner < factor.rank; ++inner) {
+        value = __mpf_complex_subtract(value, __mpf_complex_multiply(
+          factor.qr[row][inner], pivoted[inner][output]));
+      }
+      pivoted[row][output] = __mpf_complex_divide(value, factor.qr[row][row]);
+    }
+  }
+  const result = Array.from({ length: columns }, () =>
+    Array.from({ length: outputs }, () => __mpf_complex(0, 0)));
+  for (let row = 0; row < columns; ++row) result[factor.permutation[row]] = pivoted[row];
+  return result;
+}
+function __mpf_matlab_complex_rectangular_solve(leftValue, rightValue, solve) {
+  const left = __mpf_matlab_complex_dense_matrix(
+    leftValue, 'complex rectangular coefficient matrix');
+  const right = __mpf_matlab_complex_dense_matrix(
+    rightValue, 'complex rectangular right-hand side');
+  if (right.length !== left.length) {
+    throw new RangeError('MPF Matlab complex rectangular matrix solve shape mismatch');
+  }
+  if (solve === 'overdetermined' && left.length <= left[0].length) {
+    throw new RangeError('MPF Matlab complex matrix solve disagrees with its overdetermined plan');
+  }
+  if (solve === 'underdetermined' && left.length >= left[0].length) {
+    throw new RangeError('MPF Matlab complex matrix solve disagrees with its underdetermined plan');
+  }
+  return __mpf_matlab_complex_basic_least_squares(left, right);
+}
+function __mpf_matlab_mldivide_complex_overdetermined(left, right) {
+  return __mpf_matlab_complex_rectangular_solve(left, right, 'overdetermined');
+}
+function __mpf_matlab_mldivide_complex_underdetermined(left, right) {
+  return __mpf_matlab_complex_rectangular_solve(left, right, 'underdetermined');
+}
+function __mpf_matlab_complex_mrdivide_rectangular(leftValue, rightValue, solve) {
+  const left = __mpf_matlab_complex_dense_matrix(leftValue, 'complex left operand');
+  const right = __mpf_matlab_complex_dense_matrix(rightValue, 'complex right divisor');
+  return __mpf_matlab_complex_ctranspose(__mpf_matlab_complex_rectangular_solve(
+    __mpf_matlab_complex_ctranspose(right), __mpf_matlab_complex_ctranspose(left), solve));
+}
+function __mpf_matlab_mrdivide_complex_overdetermined(left, right) {
+  return __mpf_matlab_complex_mrdivide_rectangular(left, right, 'overdetermined');
+}
+function __mpf_matlab_mrdivide_complex_underdetermined(left, right) {
+  return __mpf_matlab_complex_mrdivide_rectangular(left, right, 'underdetermined');
+}
 function __mpf_matlab_structured_complex_square_solve(left, right) {
   if (__mpf_matlab_is_hermitian(left)) {
     const factor = __mpf_matlab_complex_cholesky_factor(left);
