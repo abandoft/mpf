@@ -472,8 +472,9 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
         result.precedence = 9;
         result.token = scalar_division_helper(emission, true);
         result.form = lir::ExpressionForm::binary_runtime_call;
-      } else if (expression.operation == BinaryOperator::divide &&
-                 emission.division == semantic::Division::real_quotient) {
+      } else if (expression.operation == BinaryOperator::elementwise_divide ||
+                 (expression.operation == BinaryOperator::divide &&
+                  emission.division == semantic::Division::real_quotient)) {
         result.precedence = 9;
         result.token = scalar_division_helper(emission);
         result.form = lir::ExpressionForm::binary_runtime_call;
@@ -482,10 +483,6 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
         result.precedence = 9;
         result.token = scalar_division_helper(emission);
         result.form = lir::ExpressionForm::binary_reverse_runtime_call;
-      } else if (expression.operation == BinaryOperator::elementwise_divide) {
-        result.precedence = 9;
-        result.token = scalar_division_helper(emission);
-        result.form = lir::ExpressionForm::binary_runtime_call;
       } else {
         result.precedence = binary_precedence(expression.value);
         result.token =
