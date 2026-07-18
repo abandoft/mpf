@@ -230,7 +230,13 @@ TEST_CASE("Matlab static dense matrix solve and integer power use target-owned p
   REQUIRE(
       javascript.code.find("__mpf_matlab_left_divide(2, coefficient, [1, 1], [2, 2], [2, 2])") !=
       std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_lu_factor") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_lu_apply_transpose") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_lu_rcond") != std::string::npos);
   REQUIRE(javascript.code.find("matrix is singular to working precision") != std::string::npos);
+  REQUIRE(javascript.code.find("matrix is close to singular or badly scaled") != std::string::npos);
+  REQUIRE(javascript.code.find("throw new RangeError('MPF Matlab matrix is singular") ==
+          std::string::npos);
   REQUIRE(javascript.code.find("Number.isSafeInteger(exponent)") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_mldivide_square(coefficient, right_hand_side)") !=
           std::string::npos);
@@ -238,7 +244,13 @@ TEST_CASE("Matlab static dense matrix solve and integer power use target-owned p
   REQUIRE(cpp.code.find("mpf_runtime::matlab_mpower(coefficient, -1)") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_divide_broadcast") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_left_divide_broadcast") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_lu_factorization") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_lu_apply_transpose") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_lu_rcond") != std::string::npos);
   REQUIRE(cpp.code.find("matrix is singular to working precision") != std::string::npos);
+  REQUIRE(cpp.code.find("matrix is close to singular or badly scaled") != std::string::npos);
+  REQUIRE(cpp.code.find("throw std::domain_error(\"MPF Matlab matrix is singular") ==
+          std::string::npos);
   REQUIRE(cpp.code.find("maximum_safe_integer") != std::string::npos);
   REQUIRE(cpp.code.find("MPF runtime error: ") != std::string::npos);
   REQUIRE(javascript.source_map.segments.size() >= 6U);
@@ -280,6 +292,31 @@ TEST_CASE("Matlab rectangular solve selects rank-aware basic CPQR solutions for 
                       [](const auto& segment) { return segment.original_line == 5U; }));
   REQUIRE(std::any_of(cpp.source_map.segments.begin(), cpp.source_map.segments.end(),
                       [](const auto& segment) { return segment.original_line == 5U; }));
+}
+
+TEST_CASE("Matlab square solve condition warnings remain target-owned and source-mapped") {
+  const std::string source =
+      "singular = [1 0; 0 0];\n"
+      "exact = singular \\ [1; 1];\n"
+      "nearly = [16 2 3 13; 5 11 10 8; 9 7 6 12; 4 14 15 1];\n"
+      "conditioned = [34 34 34 34] / nearly;\n"
+      "disp(exact(1) + conditioned(1))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_lu_rcond") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_warn_lu_condition") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_lu_rcond") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_warn_lu_condition") != std::string::npos);
+  for (const auto line : {2U, 4U}) {
+    REQUIRE(std::any_of(javascript.source_map.segments.begin(),
+                        javascript.source_map.segments.end(),
+                        [line](const auto& segment) { return segment.original_line == line; }));
+    REQUIRE(std::any_of(cpp.source_map.segments.begin(), cpp.source_map.segments.end(),
+                        [line](const auto& segment) { return segment.original_line == line; }));
+  }
 }
 
 TEST_CASE("Matlab contextual end uses static fast paths and typed dynamic extent plans") {
