@@ -632,8 +632,17 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
       result.form = statement.target_expression.plan.index == lir::IndexForm::section
                         ? lir::StatementForm::indexed_section_assignment
                         : lir::StatementForm::indexed_element_assignment;
-      result.resizable_section = result.form == lir::StatementForm::indexed_section_assignment &&
-                                 emission.resizable_sections;
+      result.resizable_section =
+          result.form == lir::StatementForm::indexed_section_assignment &&
+          statement.indexed_mutation.kind == semantic::IndexedMutationKind::resize;
+      result.indexed_mutation = statement.indexed_mutation;
+      result.mutation_input_shape = statement.mutation_input_shape;
+      result.mutation_result_shape = statement.mutation_result_shape;
+      if (statement.indexed_mutation.kind == semantic::IndexedMutationKind::grow) {
+        result.array_default = statement.element_type == ValueType::boolean  ? "false"
+                               : statement.element_type == ValueType::string ? "\"\""
+                                                                             : "0";
+      }
       break;
     case StatementKind::print:
       result.form = !statement.has_expression ? lir::StatementForm::print_empty
@@ -735,6 +744,12 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
       left.retain_loop_value != right.retain_loop_value ||
       left.inclusive_stop != right.inclusive_stop ||
       left.resizable_section != right.resizable_section ||
+      left.indexed_mutation.kind != right.indexed_mutation.kind ||
+      left.indexed_mutation.shape_source != right.indexed_mutation.shape_source ||
+      left.indexed_mutation.linear != right.indexed_mutation.linear ||
+      left.indexed_mutation.axis != right.indexed_mutation.axis ||
+      left.mutation_input_shape != right.mutation_input_shape ||
+      left.mutation_result_shape != right.mutation_result_shape ||
       left.character_selector != right.character_selector ||
       left.array_default != right.array_default || left.array_shape != right.array_shape ||
       left.targets != right.targets || left.target_accesses != right.target_accesses ||
@@ -811,6 +826,18 @@ void verify_statements(const std::vector<lir::Statement>& statements,
     for (const auto& selector : statement.case_selectors) {
       verify_expression(selector.lower, emission, expression_context, source_language, diagnostics);
       verify_expression(selector.upper, emission, expression_context, source_language, diagnostics);
+    }
+    if (statement.kind == StatementKind::indexed_assignment) {
+      if (!semantic::valid_indexed_mutation_shapes(statement.indexed_mutation,
+                                                   statement.mutation_input_shape,
+                                                   statement.mutation_result_shape)) {
+        add_error(diagnostics, {statement.line, 1},
+                  "JavaScript LIR indexed mutation contract is inconsistent");
+      }
+    } else if (statement.indexed_mutation.valid() || !statement.mutation_input_shape.empty() ||
+               !statement.mutation_result_shape.empty()) {
+      add_error(diagnostics, {statement.line, 1},
+                "JavaScript LIR non-indexed statement carries a mutation contract");
     }
     if (!same_statement_plan(statement.plan,
                              expected_statement_plan(statement, emission, context))) {

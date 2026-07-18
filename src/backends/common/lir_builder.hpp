@@ -312,6 +312,15 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
     result.target_previous_element_types.push_back(
         mir::element_type(program, target.previous_type));
   }
+  result.indexed_mutation = attributes.indexed_mutation.contract;
+  if (const auto* shape = mir::shape(program, attributes.indexed_mutation.input_shape);
+      shape != nullptr) {
+    result.mutation_input_shape = shape->extents;
+  }
+  if (const auto* shape = mir::shape(program, attributes.indexed_mutation.result_shape);
+      shape != nullptr) {
+    result.mutation_result_shape = shape->extents;
+  }
   result.case_selectors.reserve(source.case_selectors.size());
   for (const auto& selector : source.case_selectors) {
     result.case_selectors.push_back(lower_lir_selector<LirSelector, LirExpression>(

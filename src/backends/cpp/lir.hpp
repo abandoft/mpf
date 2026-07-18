@@ -317,6 +317,9 @@ struct StatementPlan {
   bool resizable_section{false};
   bool flatten_replacement{false};
   bool character_selector{false};
+  semantic::IndexedMutationContract indexed_mutation;
+  std::vector<std::size_t> mutation_input_shape;
+  std::vector<std::size_t> mutation_result_shape;
   std::vector<std::string> targets;
   std::vector<VariableAccess> target_accesses;
   std::vector<AssignmentLeafPlan> assignment_leaves;
@@ -451,6 +454,9 @@ struct Statement {
   std::vector<std::vector<std::size_t>> target_shapes;
   std::vector<ValueType> target_previous_types;
   std::vector<ValueType> target_previous_element_types;
+  semantic::IndexedMutationContract indexed_mutation;
+  std::vector<std::size_t> mutation_input_shape;
+  std::vector<std::size_t> mutation_result_shape;
   std::vector<CaseSelector> case_selectors;
   bool default_case{false};
   FunctionAbi function_abi;

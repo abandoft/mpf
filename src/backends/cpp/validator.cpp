@@ -442,6 +442,7 @@ void validate_statements(const mir::Program& program, const std::vector<MirState
 
     const auto* target = mir::expression(program, statement->target_expression);
     if (statement->kind == StatementKind::indexed_assignment && target != nullptr &&
+        attributes->indexed_mutation.contract.kind != semantic::IndexedMutationKind::erase &&
         value != nullptr && has_direct_slice(program, *target) &&
         mir::value_type(program, value->type_id) == ValueType::list) {
       const auto target_element = mir::element_type(program, target->type_id);

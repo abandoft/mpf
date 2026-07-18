@@ -183,8 +183,15 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
            << " retain-loop " << statement.plan.retain_loop_value << " inclusive-stop "
            << statement.plan.inclusive_stop << " resizable-section "
            << statement.plan.resizable_section << " character-selector "
-           << statement.plan.character_selector << " targets " << statement.plan.targets.size()
-           << " assignment-leaves " << statement.plan.assignment_leaves.size() << " selectors "
+           << statement.plan.character_selector << " mutation "
+           << static_cast<int>(statement.plan.indexed_mutation.kind) << " mutation-shape-source "
+           << static_cast<int>(statement.plan.indexed_mutation.shape_source) << " mutation-linear "
+           << statement.plan.indexed_mutation.linear << " mutation-axis "
+           << (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::erase
+                   ? statement.plan.indexed_mutation.axis
+                   : 0U)
+           << " targets " << statement.plan.targets.size() << " assignment-leaves "
+           << statement.plan.assignment_leaves.size() << " selectors "
            << statement.plan.selectors.size() << " returns " << statement.plan.return_names.size()
            << '\n';
     dump_target_expression(output, statement.expression, depth + 1U);
@@ -206,7 +213,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v17 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v18 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";
