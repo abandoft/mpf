@@ -672,6 +672,68 @@ TEST_CASE("Matlab logical arrays and condition truthiness lower independently pe
   REQUIRE(contextual_array.diagnostics.front().code == "MPF2051");
 }
 
+TEST_CASE("Matlab all and any preserve first-dimension vector N-D and empty identities") {
+  const std::string source =
+      "row = [1 2 0];\n"
+      "matrix = [1 0 3; 4 5 6];\n"
+      "cube = reshape([1 0 3 4 5 6 0 8], 2, 2, 2);\n"
+      "empty_rows = reshape([], 0, 3);\n"
+      "column_all = all(matrix);\n"
+      "row_any = any(matrix, 2);\n"
+      "pages_all = all(cube, [1 2]);\n"
+      "empty_all = all(empty_rows);\n"
+      "disp(all(row) + any(row) + column_all(1, 1) + row_any(2, 1) + "
+      "pages_all(1, 1, 2) + empty_all(1, 3) + all([], 'all') + any(matrix, 'all'))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_logical_reduce") != std::string::npos);
+  REQUIRE(javascript.code.find("[0, 1], [2, 2, 2], [1, 1, 2], [1, 1, 2]") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_logical_reduce<true, 3>") != std::string::npos);
+  REQUIRE(cpp.code.find("std::array<std::size_t, 2>{0, 3}") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 7U; }));
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 9U; }));
+  }
+
+  const std::string dynamic_source =
+      "disp(reduce_all([1 2 3]))\n"
+      "function result = reduce_all(values)\n"
+      "result = all(values, 'all');\n"
+      "end\n";
+  const auto dynamic_javascript =
+      transpile_array(dynamic_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto dynamic_cpp =
+      transpile_array(dynamic_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(dynamic_javascript.success());
+  REQUIRE(dynamic_cpp.success());
+  REQUIRE(dynamic_javascript.code.find("__mpf_matlab_logical_total(values, true)") !=
+          std::string::npos);
+  REQUIRE(dynamic_cpp.code.find("mpf_runtime::matlab_logical_total<true>(values)") !=
+          std::string::npos);
+}
+
+TEST_CASE("Matlab all and any reject unstable or invalid reduction contracts") {
+  const auto runtime_dimension =
+      transpile_array("matrix = [1 2; 3 4];\ndimension = 2;\nbad = all(matrix, dimension);\n",
+                      mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto duplicate_dimensions = transpile_array(
+      "bad = any([1 2; 3 4], [1 1]);\n", mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  const auto zero_dimension = transpile_array("bad = all([1 2], 0);\n", mpf::SourceLanguage::matlab,
+                                              mpf::TargetLanguage::javascript);
+  const auto character_input =
+      transpile_array("bad = any('abc');\n", mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  for (const auto* result :
+       {&runtime_dimension, &duplicate_dimensions, &zero_dimension, &character_input}) {
+    REQUIRE(!result->success());
+    REQUIRE(result->diagnostics.front().code == "MPF2052");
+  }
+}
+
 TEST_CASE("Fortran constant-shape arrays retain element type and one-based indexing") {
   const std::string source =
       "program arrays\nimplicit none\ninteger :: values(3) = [1, 2, 3]\n"
