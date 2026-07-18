@@ -684,7 +684,11 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
                               "quotient = [5 7] / coefficient;\n"
                               "least_squares = [1 0; 0 1; 1 1] \\ [1; 2; 4];\n"
                               "basic_solution = [1 0 1; 0 1 1] \\ [2; 3];\n"
-                              "powered = coefficient ^ -2;\n",
+                              "powered = coefficient ^ -2;\n"
+                              "complex_coefficient = [4 2i; -2i 5];\n"
+                              "complex_solution = complex_coefficient \\ [6+8i; 12-7i];\n"
+                              "complex_product = complex_coefficient * complex_coefficient;\n"
+                              "complex_power = complex_coefficient ^ -1;\n",
                               "matrix_solve.m");
   auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
   REQUIRE(analysis.empty());
@@ -693,9 +697,11 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   std::vector<mpf::detail::semantic::MatrixSolveKind> solve_plans;
   std::vector<mpf::detail::semantic::MatrixConditionPolicy> condition_policies;
   std::vector<mpf::detail::semantic::MatrixStructurePolicy> structure_policies;
+  std::vector<mpf::detail::semantic::MatrixNumericDomain> numeric_domains;
   for (const auto& facts : analysis.semantics.expressions) {
     if (facts.matrix_operation.valid()) {
       hir_plans.push_back(facts.matrix_operation.operation);
+      numeric_domains.push_back(facts.matrix_operation.numeric_domain);
       if (facts.matrix_operation.solve != mpf::detail::semantic::MatrixSolveKind::none) {
         solve_plans.push_back(facts.matrix_operation.solve);
         condition_policies.push_back(facts.matrix_operation.condition_policy);
@@ -727,6 +733,13 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   REQUIRE(std::find(structure_policies.begin(), structure_policies.end(),
                     mpf::detail::semantic::MatrixStructurePolicy::none) !=
           structure_policies.end());
+  REQUIRE(std::find(structure_policies.begin(), structure_policies.end(),
+                    mpf::detail::semantic::MatrixStructurePolicy::classify_complex_square) !=
+          structure_policies.end());
+  REQUIRE(std::find(numeric_domains.begin(), numeric_domains.end(),
+                    mpf::detail::semantic::MatrixNumericDomain::real) != numeric_domains.end());
+  REQUIRE(std::find(numeric_domains.begin(), numeric_domains.end(),
+                    mpf::detail::semantic::MatrixNumericDomain::complex) != numeric_domains.end());
 
   auto contradictory_hir_solve = analysis.semantics;
   const auto hir_rectangular =
@@ -769,6 +782,19 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
                                               "matrix-structure-policy-mismatch")
                .empty());
 
+  auto contradictory_hir_domain = analysis.semantics;
+  const auto hir_complex =
+      std::find_if(contradictory_hir_domain.expressions.begin(),
+                   contradictory_hir_domain.expressions.end(), [](const auto& facts) {
+                     return facts.matrix_operation.numeric_domain ==
+                            mpf::detail::semantic::MatrixNumericDomain::complex;
+                   });
+  REQUIRE(hir_complex != contradictory_hir_domain.expressions.end());
+  hir_complex->matrix_operation.numeric_domain = mpf::detail::semantic::MatrixNumericDomain::real;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir_domain,
+                                              "matrix-numeric-domain-mismatch")
+               .empty());
+
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
   REQUIRE(mir.diagnostics.empty());
@@ -779,6 +805,9 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   REQUIRE(dump.find("condition-policy=1") != std::string::npos);
   REQUIRE(dump.find("condition-policy=2") != std::string::npos);
   REQUIRE(dump.find("structure-policy=1") != std::string::npos);
+  REQUIRE(dump.find("structure-policy=2") != std::string::npos);
+  REQUIRE(dump.find("numeric-domain=1") != std::string::npos);
+  REQUIRE(dump.find("numeric-domain=2") != std::string::npos);
   const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto javascript =
       mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
@@ -794,6 +823,10 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   REQUIRE(cpp.artifact->debug_dump().find("condition-policy 2") != std::string::npos);
   REQUIRE(javascript.artifact->debug_dump().find("structure-policy 1") != std::string::npos);
   REQUIRE(cpp.artifact->debug_dump().find("structure-policy 1") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("structure-policy 2") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("structure-policy 2") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("numeric-domain 2") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("numeric-domain 2") != std::string::npos);
 
   auto missing_plan = mir.program;
   const auto found =
@@ -853,11 +886,24 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
       mpf::detail::semantic::MatrixStructurePolicy::none;
   REQUIRE(!mpf::detail::mir::verify(contradictory_structure, "matrix-structure-policy-mismatch")
                .empty());
+
+  auto contradictory_domain = mir.program;
+  const auto complex =
+      std::find_if(contradictory_domain.attributes.expressions.begin() + 1,
+                   contradictory_domain.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.matrix_operation.numeric_domain ==
+                            mpf::detail::semantic::MatrixNumericDomain::complex;
+                   });
+  REQUIRE(complex != contradictory_domain.attributes.expressions.end());
+  complex->matrix_operation.numeric_domain = mpf::detail::semantic::MatrixNumericDomain::real;
+  REQUIRE(
+      !mpf::detail::mir::verify(contradictory_domain, "matrix-numeric-domain-mismatch").empty());
 }
 
 TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   using Operation = mpf::detail::semantic::MatrixOperation;
   using Solve = mpf::detail::semantic::MatrixSolveKind;
+  using NumericDomain = mpf::detail::semantic::MatrixNumericDomain;
   using ConditionPolicy = mpf::detail::semantic::MatrixConditionPolicy;
   using StructurePolicy = mpf::detail::semantic::MatrixStructurePolicy;
   const auto configure_expression = [](auto& expression) {
@@ -866,10 +912,12 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
     expression.operation = mpf::detail::BinaryOperator::left_divide;
     expression.inferred_type = mpf::detail::ValueType::list;
     expression.element_type = mpf::detail::ValueType::real;
+    expression.element_numeric_type = mpf::detail::real_numeric_type;
     expression.shape = {2U, 1U};
     expression.array_operation = mpf::detail::semantic::ArrayOperation::matlab;
     expression.matrix_operation = {Operation::left_divide,
                                    Solve::overdetermined,
+                                   NumericDomain::real,
                                    ConditionPolicy::basic_solution_with_warning,
                                    StructurePolicy::none,
                                    {3U, 2U},
@@ -880,12 +928,30 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
     expression.children[0].value = "coefficient";
     expression.children[0].inferred_type = mpf::detail::ValueType::list;
     expression.children[0].element_type = mpf::detail::ValueType::real;
+    expression.children[0].element_numeric_type = mpf::detail::real_numeric_type;
     expression.children[0].shape = {3U, 2U};
     expression.children[1].kind = mpf::detail::ExpressionKind::identifier;
     expression.children[1].value = "right_hand_side";
     expression.children[1].inferred_type = mpf::detail::ValueType::list;
     expression.children[1].element_type = mpf::detail::ValueType::real;
+    expression.children[1].element_numeric_type = mpf::detail::real_numeric_type;
     expression.children[1].shape = {3U, 1U};
+  };
+  const auto configure_complex_square = [&](auto& expression) {
+    configure_expression(expression);
+    expression.element_numeric_type = mpf::detail::complex_numeric_type;
+    expression.matrix_operation = {Operation::left_divide,
+                                   Solve::square,
+                                   NumericDomain::complex,
+                                   ConditionPolicy::square_continue_with_warning,
+                                   StructurePolicy::classify_complex_square,
+                                   {2U, 2U},
+                                   {2U, 1U},
+                                   {2U, 1U}};
+    expression.children[0].element_numeric_type = mpf::detail::complex_numeric_type;
+    expression.children[0].shape = {2U, 2U};
+    expression.children[1].element_numeric_type = mpf::detail::complex_numeric_type;
+    expression.children[1].shape = {2U, 1U};
   };
 
   mpf::detail::javascript::lir::SemanticProgram javascript;
@@ -903,9 +969,27 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   diagnostics.clear();
   javascript.statements.front().expression.matrix_operation.condition_policy =
       ConditionPolicy::basic_solution_with_warning;
+  javascript.statements.front().expression.matrix_operation.numeric_domain = NumericDomain::complex;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  javascript.statements.front().expression.matrix_operation.numeric_domain = NumericDomain::real;
   javascript.statements.front().expression.matrix_operation.structure_policy =
       StructurePolicy::classify_real_square;
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::javascript::lir::SemanticProgram complex_javascript;
+  complex_javascript.source_language = mpf::SourceLanguage::matlab;
+  complex_javascript.statements.resize(1);
+  configure_complex_square(complex_javascript.statements.front().expression);
+  mpf::detail::javascript::plan_lir_representation(complex_javascript);
+  diagnostics.clear();
+  mpf::detail::javascript::verify_lir_representation(complex_javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  complex_javascript.statements.front().expression.matrix_operation.structure_policy =
+      StructurePolicy::classify_real_square;
+  mpf::detail::javascript::verify_lir_representation(complex_javascript, diagnostics);
   REQUIRE(!diagnostics.empty());
 
   mpf::detail::cpp::lir::SemanticProgram cpp;
@@ -923,9 +1007,26 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   diagnostics.clear();
   cpp.statements.front().expression.matrix_operation.condition_policy =
       ConditionPolicy::basic_solution_with_warning;
+  cpp.statements.front().expression.matrix_operation.numeric_domain = NumericDomain::complex;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  cpp.statements.front().expression.matrix_operation.numeric_domain = NumericDomain::real;
   cpp.statements.front().expression.matrix_operation.structure_policy =
       StructurePolicy::classify_real_square;
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram complex_cpp;
+  complex_cpp.source_language = mpf::SourceLanguage::matlab;
+  complex_cpp.statements.resize(1);
+  configure_complex_square(complex_cpp.statements.front().expression);
+  mpf::detail::cpp::plan_lir_representation(complex_cpp);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(complex_cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  complex_cpp.statements.front().expression.matrix_operation.numeric_domain = NumericDomain::real;
+  mpf::detail::cpp::verify_lir_representation(complex_cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
 }
 
@@ -1399,7 +1500,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v11") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v12") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -1410,7 +1511,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v17") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v18") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -2879,9 +2980,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v23") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v24") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v23") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v24") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -3080,6 +3181,11 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   std::reverse(javascript.module.runtime_fragments.begin(),
                javascript.module.runtime_fragments.end());
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
+  std::reverse(javascript.module.runtime_fragments.begin(),
+               javascript.module.runtime_fragments.end());
+  javascript.runtime.require(mpf::detail::javascript::lir::RuntimeFeature::complex_matrices);
+  mpf::detail::javascript::plan_lir_resources(javascript, options);
+  REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
 
   mpf::detail::cpp::lir::SemanticProgram cpp;
   cpp.source_language = mpf::SourceLanguage::python;
@@ -3118,6 +3224,11 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   cpp.emission.padded_character_selection = false;
   std::swap(cpp.translation_unit.standard_headers.front(),
             cpp.translation_unit.standard_headers.back());
+  REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  std::swap(cpp.translation_unit.standard_headers.front(),
+            cpp.translation_unit.standard_headers.back());
+  cpp.runtime.require(mpf::detail::cpp::lir::RuntimeFeature::complex_matrices);
+  mpf::detail::cpp::plan_lir_resources(cpp, options);
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
 }
 
