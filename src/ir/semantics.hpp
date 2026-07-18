@@ -64,7 +64,7 @@ enum class MatrixStructurePolicy : std::uint8_t { none, detect_diagonal_triangul
 [[nodiscard]] constexpr MatrixStructurePolicy matrix_structure_policy(
     const MatrixSolveKind solve) noexcept {
   return solve == MatrixSolveKind::square ? MatrixStructurePolicy::detect_diagonal_triangular
-                                         : MatrixStructurePolicy::none;
+                                          : MatrixStructurePolicy::none;
 }
 // Per-subscript execution contract. Keeping selector identity explicit avoids deriving Matlab
 // indexing semantics again in each target backend.

@@ -231,8 +231,7 @@ TEST_CASE("Matlab static dense matrix solve and integer power use target-owned p
   REQUIRE(javascript.code.find(
               "__mpf_matlab_mldivide_structured_square(coefficient, right_hand_side)") !=
           std::string::npos);
-  REQUIRE(javascript.code.find(
-              "__mpf_matlab_mrdivide_structured_square([5, 7], coefficient)") !=
+  REQUIRE(javascript.code.find("__mpf_matlab_mrdivide_structured_square([5, 7], coefficient)") !=
           std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_mpower(coefficient, -1)") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_divide(coefficient, 2, [2, 2], [1, 1], [2, 2])") !=
@@ -289,8 +288,7 @@ TEST_CASE("Matlab square division dispatches diagonal triangular and dense kerne
   REQUIRE(javascript.code.find("__mpf_matlab_diagonal_apply") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_triangular_apply") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_structured_square_solve") != std::string::npos);
-  REQUIRE(javascript.code.find("return __mpf_matlab_lu_solve(left, right)") !=
-          std::string::npos);
+  REQUIRE(javascript.code.find("return __mpf_matlab_lu_solve(left, right)") != std::string::npos);
   REQUIRE(cpp.code.find("matlab_classify_square_structure") != std::string::npos);
   REQUIRE(cpp.code.find("matlab_diagonal_apply") != std::string::npos);
   REQUIRE(cpp.code.find("matlab_triangular_apply") != std::string::npos);
