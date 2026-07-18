@@ -226,6 +226,23 @@ class Renderer final {
     output_ << '}';
   }
 
+  void emit_shape_vector(const std::vector<std::size_t>& shape) {
+    output_ << "std::vector<std::size_t>{";
+    for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+      if (axis != 0U) output_ << ", ";
+      output_ << shape[axis];
+    }
+    output_ << '}';
+  }
+
+  static bool known_static_shape(const std::vector<std::size_t>& shape) noexcept {
+    if (shape.empty()) return false;
+    for (const auto extent : shape) {
+      if (extent == dynamic_extent) return false;
+    }
+    return true;
+  }
+
   void emit_selector_tuple(const Expression& expression) {
     output_ << "std::make_tuple(";
     for (std::size_t index = 1; index < expression.children.size(); ++index) {
@@ -401,6 +418,10 @@ class Renderer final {
       case cpp::lir::CallForm::matlab_length:
         output_ << "static_cast<std::int64_t>(mpf_runtime::length(";
         emit_expression(expression.children[1]);
+        if (known_static_shape(expression.plan.input_shape)) {
+          output_ << ", ";
+          emit_shape_array(expression.plan.input_shape);
+        }
         output_ << "))";
         return;
       case cpp::lir::CallForm::element_count:
@@ -542,6 +563,13 @@ class Renderer final {
       case cpp::lir::ExpressionForm::matlab_transpose:
         output_ << expression.plan.token << '(';
         emit_expression(expression.children.front());
+        if (known_static_shape(expression.plan.input_shape) &&
+            known_static_shape(expression.plan.result_shape)) {
+          output_ << ", ";
+          emit_shape_array(expression.plan.input_shape);
+          output_ << ", ";
+          emit_shape_array(expression.plan.result_shape);
+        }
         output_ << ')';
         break;
       case cpp::lir::ExpressionForm::binary_lazy_and:
@@ -1090,6 +1118,13 @@ class Renderer final {
                   << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
                   << ", ";
           emit_section_replacement(statement.expression, statement.plan.flatten_replacement);
+          if (known_static_shape(statement.plan.mutation_input_shape) &&
+              known_static_shape(statement.plan.mutation_result_shape)) {
+            output_ << ", ";
+            emit_shape_vector(statement.plan.mutation_input_shape);
+            output_ << ", ";
+            emit_shape_vector(statement.plan.mutation_result_shape);
+          }
           output_ << ')';
         } else if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::erase) {
           output_ << "mpf_runtime::erase_indexed(";
