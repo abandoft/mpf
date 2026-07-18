@@ -273,6 +273,21 @@ std::string matlab_rank_aware_solve_workload(const std::size_t rounds) {
   return source;
 }
 
+std::string matlab_conditioned_square_solve_workload(const std::size_t rounds) {
+  std::string source =
+      "singular = [1 0; 0 0];\n"
+      "nearly_singular = [16 2 3 13; 5 11 10 8; 9 7 6 12; 4 14 15 1];\n"
+      "small_rhs = [1; 1];\n"
+      "large_rhs = [34; 34; 34; 34];\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "singular_left = singular \\ small_rhs;\n";
+    source += "singular_right = [1 1] / singular;\n";
+    source += "conditioned = nearly_singular \\ large_rhs;\n";
+  }
+  source += "disp(singular_left(1) + singular_right(1) + conditioned(1))\n";
+  return source;
+}
+
 std::string source_extension(const mpf::SourceLanguage language) {
   switch (language) {
     case mpf::SourceLanguage::python: return ".py";
@@ -368,6 +383,8 @@ int main() {
       {"matlab-empty-arrays", matlab_empty_array_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-rank-aware-solve", matlab_rank_aware_solve_workload(24),
+       mpf::SourceLanguage::matlab},
+      {"matlab-conditioned-square-solve", matlab_conditioned_square_solve_workload(24),
        mpf::SourceLanguage::matlab}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
