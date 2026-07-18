@@ -145,6 +145,8 @@ enum class CallForm : std::uint8_t {
   python_length,
   matlab_length,
   element_count,
+  matlab_all,
+  matlab_any,
   sum,
   present,
   reshape
@@ -203,6 +205,21 @@ struct MatrixOperationPlan {
   [[nodiscard]] bool valid() const noexcept { return operation != semantic::MatrixOperation::none; }
 };
 
+struct ReductionPlan {
+  semantic::ReductionOperation operation{semantic::ReductionOperation::none};
+  semantic::ReductionAxisPolicy axis_policy{semantic::ReductionAxisPolicy::none};
+  semantic::ReductionShapeSource shape_source{semantic::ReductionShapeSource::static_extents};
+  std::vector<std::size_t> input_shape;
+  std::vector<std::size_t> result_shape;
+  std::vector<std::size_t> output_shape;
+  std::vector<std::size_t> axes;
+  bool scalar_result{false};
+
+  [[nodiscard]] bool valid() const noexcept {
+    return operation != semantic::ReductionOperation::none;
+  }
+};
+
 enum class ArrayLiteralForm : std::uint8_t { none, direct, shaped_empty };
 
 struct ArrayLiteralPlan {
@@ -217,6 +234,7 @@ struct ExpressionPlan {
   std::string token;
   std::vector<ComparisonPlan> comparisons;
   BroadcastPlan broadcast;
+  ReductionPlan reduction;
   CallForm call{CallForm::none};
   EvaluationForm evaluation{EvaluationForm::direct};
   CallValueForm call_value{CallValueForm::direct};
@@ -329,6 +347,7 @@ struct Expression {
   semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
   BroadcastPlan broadcast;
   MatrixOperationPlan matrix_operation;
+  ReductionPlan reduction;
   std::vector<ValueType> tuple_types;
   std::vector<ValueType> tuple_element_types;
   std::vector<std::vector<std::size_t>> tuple_shapes;

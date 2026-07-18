@@ -114,6 +114,21 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
     if (right_shape != nullptr) result.matrix_operation.right_shape = right_shape->extents;
     if (result_shape != nullptr) result.matrix_operation.result_shape = result_shape->extents;
   }
+  if (attributes.reduction.valid()) {
+    result.reduction.operation = attributes.reduction.operation;
+    result.reduction.axis_policy = attributes.reduction.axis_policy;
+    result.reduction.shape_source = attributes.reduction.shape_source;
+    const auto* input_shape = mir::shape(program, attributes.reduction.input_shape);
+    const auto* reduction_result_shape = mir::shape(program, attributes.reduction.result_shape);
+    const auto* output_shape = mir::shape(program, attributes.reduction.output_shape);
+    if (input_shape != nullptr) result.reduction.input_shape = input_shape->extents;
+    if (reduction_result_shape != nullptr) {
+      result.reduction.result_shape = reduction_result_shape->extents;
+    }
+    if (output_shape != nullptr) result.reduction.output_shape = output_shape->extents;
+    result.reduction.axes = attributes.reduction.axes;
+    result.reduction.scalar_result = attributes.reduction.scalar_result;
+  }
   const auto* source_type = mir::type(program, source.type_id);
   if (source_type != nullptr && source_type->kind == mir::TypeKind::tuple) {
     result.tuple_types.reserve(source_type->elements.size());

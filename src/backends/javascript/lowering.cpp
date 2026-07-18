@@ -43,7 +43,8 @@ void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation locati
 }
 
 bool array_intrinsic(const IntrinsicId intrinsic) noexcept {
-  return intrinsic == IntrinsicId::sum || intrinsic == IntrinsicId::python_length ||
+  return intrinsic == IntrinsicId::sum || intrinsic == IntrinsicId::logical_all ||
+         intrinsic == IntrinsicId::logical_any || intrinsic == IntrinsicId::python_length ||
          intrinsic == IntrinsicId::matlab_length || intrinsic == IntrinsicId::element_count ||
          intrinsic == IntrinsicId::reshape;
 }

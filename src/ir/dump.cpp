@@ -164,7 +164,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v9 hir-nodes=" << table.hir_node_count
+  output << "semantic-v10 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -242,6 +242,30 @@ std::string dump_semantics(const hir::SemanticTable& table) {
         output << "->";
         dump_shape(facts.matrix_operation.result_shape);
       }
+      if (facts.reduction.valid()) {
+        const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
+          output << '[';
+          for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+            if (axis != 0U) output << ',';
+            output << shape[axis];
+          }
+          output << ']';
+        };
+        output << " reduction=" << enum_value(facts.reduction.operation)
+               << " axis-policy=" << enum_value(facts.reduction.axis_policy)
+               << " shape-source=" << enum_value(facts.reduction.shape_source)
+               << " scalar=" << facts.reduction.scalar_result << ' ';
+        dump_shape(facts.reduction.input_shape);
+        output << " axes=[";
+        for (std::size_t axis = 0; axis < facts.reduction.axes.size(); ++axis) {
+          if (axis != 0U) output << ',';
+          output << facts.reduction.axes[axis];
+        }
+        output << "]->";
+        dump_shape(facts.reduction.result_shape);
+        output << " output=";
+        dump_shape(facts.reduction.output_shape);
+      }
       output << " region=";
       dump_storage_region(output, facts.storage_region);
     } else if (slot.kind == hir::SemanticNodeKind::statement &&
@@ -270,7 +294,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v14 language=" << enum_value(program.source_language)
+  output << "mir-v15 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -353,6 +377,19 @@ std::string dump_mir(const mir::Program& program) {
           output << ",!s" << attributes->matrix_operation.right_shape.value();
         }
         output << "->!s" << attributes->matrix_operation.result_shape.value();
+      }
+      if (attributes->reduction.valid()) {
+        output << " reduction=" << enum_value(attributes->reduction.operation)
+               << " axis-policy=" << enum_value(attributes->reduction.axis_policy)
+               << " shape-source=" << enum_value(attributes->reduction.shape_source)
+               << " scalar=" << attributes->reduction.scalar_result << " !s"
+               << attributes->reduction.input_shape.value() << " axes=[";
+        for (std::size_t axis = 0; axis < attributes->reduction.axes.size(); ++axis) {
+          if (axis != 0U) output << ',';
+          output << attributes->reduction.axes[axis];
+        }
+        output << "]->!s" << attributes->reduction.result_shape.value() << " output=!s"
+               << attributes->reduction.output_shape.value();
       }
     }
     output << '\n';
