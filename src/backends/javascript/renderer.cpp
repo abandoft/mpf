@@ -47,7 +47,6 @@ class Renderer final {
            form == javascript::lir::ExpressionForm::matlab_short_circuit_and ||
            form == javascript::lir::ExpressionForm::matlab_short_circuit_or ||
            form == javascript::lir::ExpressionForm::binary_comparison ||
-           form == javascript::lir::ExpressionForm::binary_floor_divide ||
            form == javascript::lir::ExpressionForm::binary_reverse_divide;
   }
 
@@ -337,18 +336,19 @@ class Renderer final {
         emit_binary_comparison(expression);
         break;
       }
-      case javascript::lir::ExpressionForm::binary_floor_divide:
-        output_ << "Math.floor(";
-        emit_expression(expression.children[0]);
-        output_ << " / ";
-        emit_expression(expression.children[1]);
-        output_ << ')';
-        break;
       case javascript::lir::ExpressionForm::binary_reverse_divide:
         emit_expression(expression.children[1], precedence);
         output_ << " / ";
         emit_expression(expression.children[0], precedence + 1);
         break;
+      case javascript::lir::ExpressionForm::binary_runtime_call: {
+        output_ << expression.plan.token << '(';
+        emit_expression(expression.children[0]);
+        output_ << ", ";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        break;
+      }
       case javascript::lir::ExpressionForm::matlab_logical_operation:
       case javascript::lir::ExpressionForm::matlab_array_operation:
         output_ << expression.plan.token << '(';

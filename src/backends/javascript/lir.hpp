@@ -21,6 +21,7 @@ enum class RuntimeFeature : std::uint8_t {
   arrays,
   character_case,
   reference_arguments,
+  scalar_division,
   count
 };
 
@@ -41,6 +42,8 @@ struct EmissionPlan {
   bool dynamic_truthiness{false};
   bool matlab_truthiness{false};
   bool operand_logical_result{false};
+  semantic::Division division{semantic::Division::native};
+  semantic::DivisionByZero division_by_zero{semantic::DivisionByZero::target_native};
   bool explicit_exports_only{false};
   bool lexical_block_scopes{false};
   bool structural_equality{false};
@@ -113,7 +116,6 @@ enum class ExpressionForm : std::uint8_t {
   matlab_short_circuit_and,
   matlab_short_circuit_or,
   binary_comparison,
-  binary_floor_divide,
   comparison_chain,
   conditional,
   call,
@@ -125,7 +127,8 @@ enum class ExpressionForm : std::uint8_t {
   tuple,
   binary_reverse_divide,
   matlab_array_operation,
-  matlab_transpose
+  matlab_transpose,
+  binary_runtime_call
 };
 
 enum class ComparisonForm : std::uint8_t {
@@ -314,7 +317,12 @@ struct StatementPlan {
   std::vector<std::string> return_names;
 };
 
-enum class RuntimeFragment : std::uint8_t { dynamic_values, character_case, arrays };
+enum class RuntimeFragment : std::uint8_t {
+  dynamic_values,
+  character_case,
+  arrays,
+  scalar_division
+};
 
 struct ModulePlan {
   bool valid{false};

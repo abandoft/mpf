@@ -42,6 +42,26 @@ void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation locati
   diagnostics.push_back({DiagnosticSeverity::error, "MPF0007", std::move(message), location});
 }
 
+constexpr bool scalar_division_operation(const BinaryOperator operation) noexcept {
+  return operation == BinaryOperator::divide || operation == BinaryOperator::floor_divide ||
+         operation == BinaryOperator::left_divide ||
+         operation == BinaryOperator::elementwise_divide ||
+         operation == BinaryOperator::elementwise_left_divide;
+}
+
+bool has_array_operand(const mir::Program& program, const mir::Expression& expression,
+                       const mir::ExpressionAttributes& attributes) noexcept {
+  if (attributes.broadcast.valid ||
+      mir::value_type(program, expression.type_id) == ValueType::list) {
+    return true;
+  }
+  return std::any_of(
+      expression.children.begin(), expression.children.end(), [&](const MirExpressionId child_id) {
+        const auto* child = mir::expression(program, child_id);
+        return child != nullptr && mir::value_type(program, child->type_id) == ValueType::list;
+      });
+}
+
 bool array_intrinsic(const IntrinsicId intrinsic) noexcept {
   return intrinsic == IntrinsicId::sum || intrinsic == IntrinsicId::logical_all ||
          intrinsic == IntrinsicId::logical_any || intrinsic == IntrinsicId::python_length ||
@@ -87,6 +107,13 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
       expression.kind == ExpressionKind::binary &&
       attributes.array_operation == mpf::detail::semantic::ArrayOperation::matlab) {
     result.runtime.require(lir::RuntimeFeature::arrays);
+  }
+  if (expression.kind == ExpressionKind::binary &&
+      scalar_division_operation(attributes.operation) &&
+      !has_array_operand(program, expression, attributes) &&
+      result.source_semantics.division_by_zero ==
+          mpf::detail::semantic::DivisionByZero::exception) {
+    result.runtime.require(lir::RuntimeFeature::scalar_division);
   }
   if (program.source_language == SourceLanguage::matlab &&
       attributes.logical_evaluation != mpf::detail::semantic::LogicalEvaluation::none) {
@@ -196,6 +223,11 @@ std::vector<Diagnostic> verify_semantic(const semantic::Program& program) {
       !legalization_table_complete(program.legalizations) ||
       program.bindings.size() != program.hir_node_count + 1 ||
       program.function_summary_count == 0 ||
+      !mpf::detail::semantic::valid_division_contract(program.source_semantics.division,
+                                                      program.source_semantics.division_by_zero) ||
+      (program.source_language != SourceLanguage::automatic &&
+       !mpf::detail::semantic::source_division_contract_matches(program.source_language,
+                                                                program.source_semantics)) ||
       (program.reads_unknown && !mir::has_effect(program.effects, mir::Effect::read)) ||
       (program.writes_unknown && !mir::has_effect(program.effects, mir::Effect::write))) {
     add_error(diagnostics, {1, 1}, "invalid JavaScript semantic lowering program");
@@ -289,6 +321,10 @@ void verify_statements(const std::vector<lir::Statement>& statements, const std:
 
 std::vector<Diagnostic> verify_lir(const lir::SemanticProgram& program) {
   std::vector<Diagnostic> diagnostics;
+  if (!mpf::detail::semantic::valid_division_contract(program.emission.division,
+                                                      program.emission.division_by_zero)) {
+    add_error(diagnostics, {1, 1}, "JavaScript LIR division policy is internally inconsistent");
+  }
   if (program.source_language != SourceLanguage::automatic &&
       program.emission.padded_character_selection !=
           (program.source_language == SourceLanguage::fortran)) {
@@ -299,6 +335,12 @@ std::vector<Diagnostic> verify_lir(const lir::SemanticProgram& program) {
       program.emission.matlab_truthiness != (program.source_language == SourceLanguage::matlab)) {
     add_error(diagnostics, {1, 1},
               "JavaScript LIR Matlab truthiness policy disagrees with the source language");
+  }
+  if (program.source_language != SourceLanguage::automatic &&
+      !mpf::detail::semantic::source_division_contract_matches(
+          program.source_language, program.emission.division, program.emission.division_by_zero)) {
+    add_error(diagnostics, {1, 1},
+              "JavaScript LIR division policy disagrees with the source language");
   }
   if (program.identifiers.target != TargetLanguage::javascript ||
       !identifier_plan_complete(program.identifiers, collect_identifier_inventory(program))) {
@@ -411,6 +453,8 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
                                         mpf::detail::semantic::Truthiness::matlab_all_nonzero;
   lowered->emission.operand_logical_result = semantic_program.source_semantics.logical_result ==
                                              mpf::detail::semantic::LogicalResult::operand;
+  lowered->emission.division = semantic_program.source_semantics.division;
+  lowered->emission.division_by_zero = semantic_program.source_semantics.division_by_zero;
   lowered->emission.explicit_exports_only = semantic_program.source_semantics.export_policy ==
                                             mpf::detail::semantic::ExportPolicy::explicit_only;
   lowered->emission.lexical_block_scopes = semantic_program.source_semantics.scope_model ==
@@ -515,6 +559,8 @@ std::string lir::dump(const SemanticProgram& program) {
   output << "emission dynamic-truthiness=" << program.emission.dynamic_truthiness
          << " matlab-truthiness=" << program.emission.matlab_truthiness
          << " operand-logical-result=" << program.emission.operand_logical_result
+         << " division=" << static_cast<int>(program.emission.division)
+         << " division-by-zero=" << static_cast<int>(program.emission.division_by_zero)
          << " explicit-exports-only=" << program.emission.explicit_exports_only
          << " lexical-block-scopes=" << program.emission.lexical_block_scopes
          << " structural-equality=" << program.emission.structural_equality

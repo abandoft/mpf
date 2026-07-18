@@ -18,10 +18,22 @@ class RuntimeEmitter final {
         emit_fortran_character_runtime();
         break;
       case javascript::lir::RuntimeFragment::arrays: emit_array_runtime(); break;
+      case javascript::lir::RuntimeFragment::scalar_division: emit_scalar_division_runtime(); break;
     }
   }
 
  private:
+  void emit_scalar_division_runtime() {
+    output_ << "function __mpf_python_true_divide(left, right) {\n"
+               "  if (right === 0) throw new RangeError(\"division by zero\");\n"
+               "  return left / right;\n"
+               "}\n"
+               "function __mpf_python_floor_divide(left, right) {\n"
+               "  if (right === 0) throw new RangeError(\"division by zero\");\n"
+               "  return Math.floor(left / right);\n"
+               "}\n";
+  }
+
   void emit_python_runtime() {
     output_
         << "function __mpf_truthy(value) {\n"

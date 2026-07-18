@@ -32,6 +32,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::arrays)) {
     result.push_back(lir::RuntimeFragment::arrays);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::scalar_division)) {
+    result.push_back(lir::RuntimeFragment::scalar_division);
+  }
   return result;
 }
 
