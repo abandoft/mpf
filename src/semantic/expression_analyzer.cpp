@@ -26,6 +26,51 @@ std::optional<long long> integral_constant(const Expression& expression) {
                                                  : std::nullopt;
 }
 
+bool matlab_all_dimensions_literal(const Expression& expression) {
+  if (expression.kind != ExpressionKind::string_literal || expression.value.size() < 2U) {
+    return false;
+  }
+  const auto quote = expression.value.front();
+  return (quote == '\'' || quote == '"') && expression.value.back() == quote &&
+         expression.value.substr(1U, expression.value.size() - 2U) == "all";
+}
+
+std::optional<std::vector<std::size_t>> matlab_reduction_dimensions(const Expression& expression) {
+  std::vector<std::size_t> result;
+  const auto append = [&](const Expression& dimension) -> bool {
+    const auto value = integral_constant(dimension);
+    if (!value.has_value() || *value <= 0) return false;
+    const auto unsigned_value = static_cast<unsigned long long>(*value);
+    if (unsigned_value > static_cast<unsigned long long>(std::numeric_limits<std::size_t>::max())) {
+      return false;
+    }
+    result.push_back(static_cast<std::size_t>(unsigned_value - 1ULL));
+    return true;
+  };
+  if (expression.kind == ExpressionKind::list) {
+    for (const auto& child : expression.children) {
+      if (!append(child)) return std::nullopt;
+    }
+  } else if (!append(expression)) {
+    return std::nullopt;
+  }
+  std::sort(result.begin(), result.end());
+  if (std::adjacent_find(result.begin(), result.end()) != result.end()) return std::nullopt;
+  return result;
+}
+
+std::vector<std::size_t> normalized_matlab_reduction_shape(const std::vector<std::size_t>& shape) {
+  if (shape.size() != 1U) return shape;
+  return {1U, shape.front()};
+}
+
+ValueType matlab_arithmetic_join(const ValueType left, const ValueType right) noexcept {
+  const auto promoted = [](const ValueType type) {
+    return type == ValueType::boolean ? ValueType::integer : type;
+  };
+  return join_types(promoted(left), promoted(right));
+}
+
 std::optional<std::size_t> normalized_index(const long long value, const std::size_t extent,
                                             const std::size_t base, const bool allow_negative) {
   if (extent == dynamic_extent) return std::nullopt;
@@ -728,8 +773,12 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
         (operation == BinaryOperator::divide && left_array && !right_array) ||
         (operation == BinaryOperator::left_divide && !left_array && right_array);
 
+    const bool valid_left_arithmetic =
+        numeric_or_unknown(left_element) || (!left_array && left_element == ValueType::boolean);
+    const bool valid_right_arithmetic =
+        numeric_or_unknown(right_element) || (!right_array && right_element == ValueType::boolean);
     if ((elementwise || scalar_scale || scalar_matrix_division) &&
-        (!numeric_or_unknown(left_element) || !numeric_or_unknown(right_element))) {
+        (!valid_left_arithmetic || !valid_right_arithmetic)) {
       diagnose(expression.location.line, "MPF2046",
                "Matlab array operator '" + expression.value +
                    "' requires numeric scalar or array operands");
@@ -765,7 +814,7 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                    operation == BinaryOperator::elementwise_left_divide ||
                                    operation == BinaryOperator::elementwise_power
                                ? ValueType::real
-                               : join_types(left_element, right_element);
+                               : matlab_arithmetic_join(left_element, right_element);
       facts.shape = facts.broadcast.valid ? facts.broadcast.result_shape
                                           : (left_array ? left_facts.shape : right_facts.shape);
       return facts.inferred_type;
@@ -905,6 +954,18 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                "Matlab matrix operator '" + expression.value +
                    "' is not yet supported for array operands");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+    }
+    const auto matlab_scalar_numeric = [](const ValueType type) {
+      return numeric(type) || type == ValueType::boolean || type == ValueType::unknown;
+    };
+    if (!has_array && matlab_scalar_numeric(left) && matlab_scalar_numeric(right)) {
+      if (operation == BinaryOperator::divide || operation == BinaryOperator::left_divide ||
+          operation == BinaryOperator::elementwise_divide ||
+          operation == BinaryOperator::elementwise_left_divide ||
+          operation == BinaryOperator::power || operation == BinaryOperator::elementwise_power) {
+        return semantic(semantics_, expression).inferred_type = ValueType::real;
+      }
+      return semantic(semantics_, expression).inferred_type = matlab_arithmetic_join(left, right);
     }
     if (!has_array &&
         (operation == BinaryOperator::elementwise_multiply ||
@@ -1473,6 +1534,12 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       diagnose(expression.location.line, "MPF2026", "sum builtin requires one argument");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
+    if (associated_callee_facts.intrinsic == IntrinsicId::logical_all) {
+      return analyze_logical_reduction(expression, semantic::ReductionOperation::logical_all);
+    }
+    if (associated_callee_facts.intrinsic == IntrinsicId::logical_any) {
+      return analyze_logical_reduction(expression, semantic::ReductionOperation::logical_any);
+    }
     if (associated_callee_facts.intrinsic == IntrinsicId::reshape) {
       return analyze_reshape(expression);
     }
@@ -1543,6 +1610,115 @@ ValueType Analyzer::analyze_call(Expression& expression) {
     return semantic(semantics_, expression).inferred_type = function_facts.declared_type;
   }
   return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+}
+
+ValueType Analyzer::analyze_logical_reduction(Expression& expression,
+                                              const semantic::ReductionOperation operation) {
+  auto& facts = semantic(semantics_, expression);
+  facts.element_type = ValueType::boolean;
+  if (program_.language != SourceLanguage::matlab || expression.children.size() < 2U ||
+      expression.children.size() > 3U) {
+    diagnose(expression.location.line, "MPF2052",
+             "Matlab all/any requires an array value and at most one dimension argument");
+    return facts.inferred_type = ValueType::unknown;
+  }
+
+  const auto& input = semantic(semantics_, expression.children[1]);
+  const auto scalar_input = input.inferred_type != ValueType::list;
+  const auto scalar_type = scalar_input ? input.inferred_type : input.element_type;
+  if (scalar_type != ValueType::unknown && !numeric(scalar_type) &&
+      scalar_type != ValueType::boolean) {
+    diagnose(expression.location.line, "MPF2052",
+             "Matlab all/any currently requires numeric or logical input; character arrays need "
+             "the future character-array storage model");
+    return facts.inferred_type = ValueType::unknown;
+  }
+
+  auto policy = semantic::ReductionAxisPolicy::first_nonsingleton;
+  std::vector<std::size_t> requested_axes;
+  if (expression.children.size() == 3U) {
+    const auto& dimension = expression.children[2];
+    if (matlab_all_dimensions_literal(dimension)) {
+      policy = semantic::ReductionAxisPolicy::all_dimensions;
+    } else {
+      policy = semantic::ReductionAxisPolicy::explicit_dimensions;
+      const auto dimensions = matlab_reduction_dimensions(dimension);
+      if (!dimensions.has_value()) {
+        diagnose(expression.location.line, "MPF2052",
+                 "Matlab all/any dimension must be a constant positive integer or a vector of "
+                 "distinct positive integers");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      requested_axes = *dimensions;
+    }
+  }
+
+  facts.reduction.operation = operation;
+  facts.reduction.axis_policy = policy;
+  facts.reduction.shape_source = semantic::ReductionShapeSource::static_extents;
+  if (scalar_input && input.inferred_type != ValueType::unknown) {
+    facts.reduction.scalar_result = true;
+    return facts.inferred_type = ValueType::boolean;
+  }
+  if (input.inferred_type == ValueType::unknown) {
+    if (policy != semantic::ReductionAxisPolicy::all_dimensions) {
+      facts.reduction = {};
+      diagnose(expression.location.line, "MPF2052",
+               "Matlab dimension-preserving all/any requires a statically known input rank; "
+               "use the 'all' option for a rank-independent scalar reduction");
+      return facts.inferred_type = ValueType::unknown;
+    }
+    facts.reduction.shape_source = semantic::ReductionShapeSource::runtime_operand;
+    facts.reduction.scalar_result = true;
+    return facts.inferred_type = ValueType::boolean;
+  }
+  if (!known_shape(input.shape) || input.shape.empty()) {
+    facts.reduction = {};
+    diagnose(expression.location.line, "MPF2052",
+             "Matlab all/any requires statically known extents in the current typed array ABI");
+    return facts.inferred_type = ValueType::unknown;
+  }
+
+  const auto normalized_input = normalized_matlab_reduction_shape(input.shape);
+  auto axes = requested_axes;
+  if (policy == semantic::ReductionAxisPolicy::first_nonsingleton) {
+    if (normalized_input == std::vector<std::size_t>{0U, 0U}) {
+      axes = {0U, 1U};
+    } else {
+      const auto found = std::find_if(normalized_input.begin(), normalized_input.end(),
+                                      [](const std::size_t extent) { return extent != 1U; });
+      axes = {found == normalized_input.end()
+                  ? 0U
+                  : static_cast<std::size_t>(found - normalized_input.begin())};
+    }
+  } else if (policy == semantic::ReductionAxisPolicy::all_dimensions) {
+    axes.resize(normalized_input.size());
+    for (std::size_t axis = 0; axis < axes.size(); ++axis) axes[axis] = axis;
+  }
+  axes.erase(
+      std::remove_if(axes.begin(), axes.end(),
+                     [&](const std::size_t axis) { return axis >= normalized_input.size(); }),
+      axes.end());
+
+  auto normalized_result = normalized_input;
+  for (const auto axis : axes) normalized_result[axis] = 1U;
+  const bool scalar_result = std::all_of(normalized_result.begin(), normalized_result.end(),
+                                         [](const std::size_t extent) { return extent == 1U; });
+  std::vector<std::size_t> output_shape;
+  if (!scalar_result) {
+    const bool compact_row =
+        input.shape.size() == 1U && normalized_result.size() == 2U && normalized_result[0] == 1U;
+    output_shape = compact_row ? input.shape : normalized_result;
+  }
+
+  facts.reduction.input_shape = normalized_input;
+  facts.reduction.result_shape = normalized_result;
+  facts.reduction.output_shape = output_shape;
+  facts.reduction.axes = std::move(axes);
+  facts.reduction.scalar_result = scalar_result;
+  facts.shape = output_shape;
+  facts.inferred_type = scalar_result ? ValueType::boolean : ValueType::list;
+  return facts.inferred_type;
 }
 
 ValueType Analyzer::analyze_index(Expression& expression, const bool container_already_analyzed,

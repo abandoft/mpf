@@ -137,6 +137,8 @@ class Analyzer final {
                              std::size_t base, bool allow_negative,
                              bool allow_matlab_growth = false);
   [[nodiscard]] ValueType analyze_reshape(Expression& expression);
+  [[nodiscard]] ValueType analyze_logical_reduction(Expression& expression,
+                                                    semantic::ReductionOperation operation);
 
   Program& program_;
   hir::SemanticTable& semantics_;
