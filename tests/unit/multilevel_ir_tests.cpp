@@ -366,7 +366,7 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
                               "solution = coefficient \\ right_hand_side;\n"
                               "quotient = [5 7] / coefficient;\n"
                               "least_squares = [1 0; 0 1; 1 1] \\ [1; 2; 4];\n"
-                              "minimum_norm = [1 0 1; 0 1 1] \\ [2; 3];\n"
+                              "basic_solution = [1 0 1; 0 1 1] \\ [2; 3];\n"
                               "powered = coefficient ^ -2;\n",
                               "matrix_solve.m");
   auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
@@ -374,11 +374,13 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
 
   std::vector<mpf::detail::semantic::MatrixOperation> hir_plans;
   std::vector<mpf::detail::semantic::MatrixSolveKind> solve_plans;
+  std::vector<mpf::detail::semantic::MatrixRankPolicy> rank_policies;
   for (const auto& facts : analysis.semantics.expressions) {
     if (facts.matrix_operation.valid()) {
       hir_plans.push_back(facts.matrix_operation.operation);
       if (facts.matrix_operation.solve != mpf::detail::semantic::MatrixSolveKind::none) {
         solve_plans.push_back(facts.matrix_operation.solve);
+        rank_policies.push_back(facts.matrix_operation.rank_policy);
       }
     }
   }
@@ -394,6 +396,12 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
                     mpf::detail::semantic::MatrixSolveKind::overdetermined) != solve_plans.end());
   REQUIRE(std::find(solve_plans.begin(), solve_plans.end(),
                     mpf::detail::semantic::MatrixSolveKind::underdetermined) != solve_plans.end());
+  REQUIRE(std::find(rank_policies.begin(), rank_policies.end(),
+                    mpf::detail::semantic::MatrixRankPolicy::require_full_rank) !=
+          rank_policies.end());
+  REQUIRE(std::find(rank_policies.begin(), rank_policies.end(),
+                    mpf::detail::semantic::MatrixRankPolicy::basic_solution_with_warning) !=
+          rank_policies.end());
 
   auto contradictory_hir_solve = analysis.semantics;
   const auto hir_rectangular =
@@ -408,6 +416,20 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
                                               "matrix-solve-kind-mismatch")
                .empty());
 
+  auto contradictory_hir_rank = analysis.semantics;
+  const auto hir_ranked =
+      std::find_if(contradictory_hir_rank.expressions.begin(),
+                   contradictory_hir_rank.expressions.end(), [](const auto& facts) {
+                     return facts.matrix_operation.rank_policy ==
+                            mpf::detail::semantic::MatrixRankPolicy::basic_solution_with_warning;
+                   });
+  REQUIRE(hir_ranked != contradictory_hir_rank.expressions.end());
+  hir_ranked->matrix_operation.rank_policy =
+      mpf::detail::semantic::MatrixRankPolicy::require_full_rank;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir_rank,
+                                              "matrix-rank-policy-mismatch")
+               .empty());
+
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
   REQUIRE(mir.diagnostics.empty());
@@ -415,6 +437,7 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   const auto dump = mpf::detail::dump_mir(mir.program);
   REQUIRE(dump.find("matrix-operation=") != std::string::npos);
   REQUIRE(dump.find("solve=2") != std::string::npos);
+  REQUIRE(dump.find("rank-policy=2") != std::string::npos);
   const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto javascript =
       mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
@@ -424,6 +447,8 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   REQUIRE(javascript.artifact->debug_dump().find("matrix-operation 2 solve 2") !=
           std::string::npos);
   REQUIRE(cpp.artifact->debug_dump().find("matrix-operation 2 solve 2") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("rank-policy 2") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("rank-policy 2") != std::string::npos);
 
   auto missing_plan = mir.program;
   const auto found =
@@ -457,6 +482,75 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   REQUIRE(rectangular != contradictory_solve.attributes.expressions.end());
   rectangular->matrix_operation.solve = mpf::detail::semantic::MatrixSolveKind::square;
   REQUIRE(!mpf::detail::mir::verify(contradictory_solve, "matrix-solve-kind-mismatch").empty());
+
+  auto contradictory_rank = mir.program;
+  const auto rank_aware =
+      std::find_if(contradictory_rank.attributes.expressions.begin() + 1,
+                   contradictory_rank.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.matrix_operation.rank_policy ==
+                            mpf::detail::semantic::MatrixRankPolicy::basic_solution_with_warning;
+                   });
+  REQUIRE(rank_aware != contradictory_rank.attributes.expressions.end());
+  rank_aware->matrix_operation.rank_policy =
+      mpf::detail::semantic::MatrixRankPolicy::require_full_rank;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_rank, "matrix-rank-policy-mismatch").empty());
+}
+
+TEST_CASE("target LIR verifiers reject contradictory Matlab matrix rank policies") {
+  using Operation = mpf::detail::semantic::MatrixOperation;
+  using Solve = mpf::detail::semantic::MatrixSolveKind;
+  using RankPolicy = mpf::detail::semantic::MatrixRankPolicy;
+  const auto configure_expression = [](auto& expression) {
+    expression.kind = mpf::detail::ExpressionKind::binary;
+    expression.value = "\\";
+    expression.operation = mpf::detail::BinaryOperator::left_divide;
+    expression.inferred_type = mpf::detail::ValueType::list;
+    expression.element_type = mpf::detail::ValueType::real;
+    expression.shape = {2U, 1U};
+    expression.array_operation = mpf::detail::semantic::ArrayOperation::matlab;
+    expression.matrix_operation = {Operation::left_divide,
+                                   Solve::overdetermined,
+                                   RankPolicy::basic_solution_with_warning,
+                                   {3U, 2U},
+                                   {3U, 1U},
+                                   {2U, 1U}};
+    expression.children.resize(2);
+    expression.children[0].kind = mpf::detail::ExpressionKind::identifier;
+    expression.children[0].value = "coefficient";
+    expression.children[0].inferred_type = mpf::detail::ValueType::list;
+    expression.children[0].element_type = mpf::detail::ValueType::real;
+    expression.children[0].shape = {3U, 2U};
+    expression.children[1].kind = mpf::detail::ExpressionKind::identifier;
+    expression.children[1].value = "right_hand_side";
+    expression.children[1].inferred_type = mpf::detail::ValueType::list;
+    expression.children[1].element_type = mpf::detail::ValueType::real;
+    expression.children[1].shape = {3U, 1U};
+  };
+
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.source_language = mpf::SourceLanguage::matlab;
+  javascript.statements.resize(1);
+  configure_expression(javascript.statements.front().expression);
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript.statements.front().expression.matrix_operation.rank_policy =
+      RankPolicy::require_full_rank;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.source_language = mpf::SourceLanguage::matlab;
+  cpp.statements.resize(1);
+  configure_expression(cpp.statements.front().expression);
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp.statements.front().expression.matrix_operation.rank_policy = RankPolicy::require_full_rank;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
 }
 
 TEST_CASE("Matlab generalized selector plans remain explicit and reject cross-layer corruption") {
