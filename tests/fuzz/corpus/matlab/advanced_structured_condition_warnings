@@ -1,0 +1,1 @@
+singular_tridiagonal = [1 1 0; 1 2 1; 0 1 1]; singular_solution = singular_tridiagonal \ [2; 4; 2]; nearly_cholesky = [1 0 1e-20; 0 1 0; 1e-20 0 1e-20]; nearly_solution = nearly_cholesky \ [1; 1; 1e-20]; disp(1)
