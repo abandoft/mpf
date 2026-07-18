@@ -110,8 +110,11 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     output << " matrix-operation " << static_cast<int>(expression.matrix_operation.operation)
            << " solve " << static_cast<int>(expression.matrix_operation.solve) << " numeric-domain "
            << static_cast<int>(expression.matrix_operation.numeric_domain) << " condition-policy "
-           << static_cast<int>(expression.matrix_operation.condition_policy) << " structure-policy "
-           << static_cast<int>(expression.matrix_operation.structure_policy) << ' ';
+           << static_cast<int>(expression.matrix_operation.condition_policy)
+           << " factorization-policy "
+           << static_cast<int>(expression.matrix_operation.factorization_policy)
+           << " structure-policy " << static_cast<int>(expression.matrix_operation.structure_policy)
+           << ' ';
     dump_shape(expression.matrix_operation.left_shape);
     if (!expression.matrix_operation.right_shape.empty()) {
       output << ',';
@@ -270,7 +273,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v24 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v25 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";
