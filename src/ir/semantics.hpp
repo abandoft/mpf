@@ -38,10 +38,11 @@ enum class MatrixConditionPolicy : std::uint8_t {
   square_continue_with_warning,
   basic_solution_with_warning
 };
-// Square Matlab division examines runtime coefficient values before selecting a numerical kernel.
-// Keeping this policy explicit prevents target lowering from silently adding or removing
-// structure detection based on helper spelling.
-enum class MatrixStructurePolicy : std::uint8_t { none, detect_diagonal_triangular };
+// Square Matlab division examines runtime real coefficient values before selecting a numerical
+// kernel. Keeping this policy explicit prevents target lowering from silently adding or removing
+// structure detection based on helper spelling. Complex and sparse representations require their
+// own policies once those value/storage contracts exist.
+enum class MatrixStructurePolicy : std::uint8_t { none, classify_real_square };
 
 [[nodiscard]] constexpr MatrixSolveKind matrix_solve_kind(const std::size_t rows,
                                                           const std::size_t columns) noexcept {
@@ -63,7 +64,7 @@ enum class MatrixStructurePolicy : std::uint8_t { none, detect_diagonal_triangul
 
 [[nodiscard]] constexpr MatrixStructurePolicy matrix_structure_policy(
     const MatrixSolveKind solve) noexcept {
-  return solve == MatrixSolveKind::square ? MatrixStructurePolicy::detect_diagonal_triangular
+  return solve == MatrixSolveKind::square ? MatrixStructurePolicy::classify_real_square
                                           : MatrixStructurePolicy::none;
 }
 // Per-subscript execution contract. Keeping selector identity explicit avoids deriving Matlab

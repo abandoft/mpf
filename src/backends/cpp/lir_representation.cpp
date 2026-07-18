@@ -94,10 +94,10 @@ std::string matlab_solve_helper(const std::string_view operation,
   switch (solve) {
     case semantic::MatrixSolveKind::none: return {};
     case semantic::MatrixSolveKind::square:
-      if (structure_policy != semantic::MatrixStructurePolicy::detect_diagonal_triangular) {
+      if (structure_policy != semantic::MatrixStructurePolicy::classify_real_square) {
         return {};
       }
-      suffix = "structured_square";
+      suffix = "structured_real_square";
       break;
     case semantic::MatrixSolveKind::overdetermined:
       if (structure_policy != semantic::MatrixStructurePolicy::none) return {};
