@@ -1689,7 +1689,7 @@ void Analyzer::analyze_indexed_mutation(Statement& statement, const ValueType va
       axis = matlab_vector_axis(input_shape);
       if (!axis.has_value()) {
         diagnose(statement.line, "MPF2050",
-                 "Matlab linear indexed deletion currently requires a row or column vector");
+                 "Matlab linear indexed deletion requires a row or column vector");
         return;
       }
     } else {
@@ -1702,7 +1702,7 @@ void Analyzer::analyze_indexed_mutation(Statement& statement, const ValueType va
         if (full_slice(target.children[position + 1U])) continue;
         if (axis.has_value()) {
           diagnose(statement.line, "MPF2050",
-                   "Matlab indexed deletion may remove elements along only one dimension");
+                   "Matlab null assignment may have only one non-colon selector");
           return;
         }
         axis = position;
