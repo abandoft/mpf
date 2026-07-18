@@ -1,3 +1,18 @@
+## 0.5.9
+
+- Matlab complex rectangular left division now supports overdetermined and underdetermined systems in generated JavaScript and C++17.
+- Complex rectangular right division follows Matlab's conjugate-transpose solve identity for both solve shapes.
+- Multiple right-hand-side columns share one complex column-pivoted QR factorization.
+- Rank-revealing complex Householder QR uses deterministic column pivoting and a working-precision rank tolerance.
+- Rank-deficient complex systems return a pivoted basic least-squares solution and emit a stable warning instead of failing silently.
+- Matrix plans now carry an explicit rank-revealing column-pivoted-QR factorization policy through semantic analysis, MIR, and both target LIRs.
+- Semantic, MIR, JavaScript LIR, and `cpp` LIR debug schemas advance to v13, v19, and v25 with factorization-policy corruption rejection.
+- JavaScript and C++17 retain independent complex rectangular runtimes with finite-value, rectangularity, shape, and solve-plan validation.
+- Source maps preserve complex overdetermined, underdetermined, left-division, and right-division operator locations.
+- Added executable complex rectangular and rank-deficient Matlab examples with dual-target differential and warning validation.
+- Added complex rectangular fuzz coverage and a dedicated compilation-performance workload.
+- The release gate now contains 24 performance scenarios, 231 internal tests, 87 differential cases, and 90.92% production line coverage.
+
 ## 0.5.8
 
 - Matlab complex rank-two matrices now support true matrix multiplication in generated JavaScript and C++17.

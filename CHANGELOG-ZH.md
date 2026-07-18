@@ -1,3 +1,18 @@
+## 0.5.9
+
+- Matlab 复数矩形左除现可在生成的 JavaScript 与 C++17 中处理超定和欠定系统。
+- 复数矩形右除对两种求解 shape 均遵循 Matlab 的共轭转置求解恒等式。
+- 多列右端项现共享一次复数列主元 QR 分解。
+- rank-revealing 复数 Householder QR 使用确定性列主元和 working-precision 秩容差。
+- 秩亏复数系统会返回 pivoted 基本最小二乘解并产生稳定 warning，不再静默失败。
+- 矩阵计划现通过语义分析、MIR 和双目标 LIR 显式携带 rank-revealing 列主元 QR 分解策略。
+- Semantic、MIR、JavaScript LIR 与 `cpp` LIR 调试 schema 提升到 v13、v19、v25，并拒绝损坏的分解策略。
+- JavaScript 与 C++17 继续使用独立复数矩形 runtime，并验证有限值、矩形性、shape 和求解计划。
+- source map 保留复数超定、欠定、左除和右除运算符的原始位置。
+- 新增复数矩形与秩亏 Matlab 可执行示例，并进行双目标差分和 warning 验证。
+- 新增复数矩形 fuzz 覆盖和专用编译性能 workload。
+- 发布门禁现包含 24 个性能场景、231 项内部测试、87 项差分 case 和 90.92% 生产代码行覆盖率。
+
 ## 0.5.8
 
 - Matlab 二维复数矩阵现可在生成的 JavaScript 与 C++17 中执行真正的矩阵乘法。
