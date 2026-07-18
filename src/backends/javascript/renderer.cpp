@@ -741,7 +741,34 @@ class Renderer final {
       case javascript::lir::StatementForm::indexed_element_assignment:
       case javascript::lir::StatementForm::indexed_section_assignment:
         indentation();
-        if (statement.plan.form == javascript::lir::StatementForm::indexed_section_assignment) {
+        if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow ||
+            statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::erase) {
+          output_ << (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow
+                          ? "__mpf_grow("
+                          : "__mpf_erase(");
+          emit_expression(statement.target_expression.children[0]);
+          output_ << ", [";
+          for (std::size_t index = 1; index < statement.target_expression.children.size();
+               ++index) {
+            if (index != 1) output_ << ", ";
+            emit_selector_descriptor(statement.target_expression, index);
+          }
+          output_ << "], ";
+          if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow) {
+            emit_expression(statement.expression);
+            output_ << ", ";
+          }
+          output_ << statement.target_expression.plan.index_base << ", "
+                  << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
+                  << ", " << (statement.plan.indexed_mutation.linear ? "true" : "false");
+          if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow) {
+            output_ << ", " << statement.plan.array_default;
+          } else {
+            output_ << ", " << statement.plan.indexed_mutation.axis;
+          }
+          output_ << ");\n";
+        } else if (statement.plan.form ==
+                   javascript::lir::StatementForm::indexed_section_assignment) {
           output_ << "__mpf_set_section(";
           emit_expression(statement.target_expression.children[0]);
           output_ << ", [";
