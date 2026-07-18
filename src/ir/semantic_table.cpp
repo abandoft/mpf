@@ -28,6 +28,10 @@ std::string numeric_contract_summary(const ValueType type, const NumericType num
          std::to_string(static_cast<unsigned>(numeric_type.complexity));
 }
 
+NumericType expression_numeric_type(const ExpressionFacts& facts) noexcept {
+  return facts.inferred_type == ValueType::list ? facts.element_numeric_type : facts.numeric_type;
+}
+
 semantic::MatrixOperation matrix_operation_for_operator(const BinaryOperator operation) noexcept {
   switch (operation) {
     case BinaryOperator::multiply: return semantic::MatrixOperation::multiply;
@@ -63,6 +67,35 @@ semantic::MatrixOperation expected_matrix_operation(const Expression& expression
     return semantic::MatrixOperation::integer_power;
   }
   return semantic::MatrixOperation::none;
+}
+
+std::optional<semantic::MatrixNumericDomain> expected_matrix_numeric_domain(
+    const Expression& expression, const SemanticTable& table) noexcept {
+  if (expression.children.size() != 2U) return std::nullopt;
+  const auto* left = table.expression(expression.children[0].id);
+  const auto* right = table.expression(expression.children[1].id);
+  if (left == nullptr || right == nullptr) return std::nullopt;
+  const auto left_numeric = expression_numeric_type(*left);
+  const auto right_numeric = expression_numeric_type(*right);
+  if (!left_numeric.present() || left_numeric.complexity == NumericComplexity::unknown) {
+    return std::nullopt;
+  }
+  if (expression.operation == BinaryOperator::power && left->inferred_type == ValueType::list &&
+      right->inferred_type != ValueType::list) {
+    if (!right_numeric.present() || right_numeric.complexity != NumericComplexity::real) {
+      return std::nullopt;
+    }
+    return left_numeric.complexity == NumericComplexity::complex
+               ? semantic::MatrixNumericDomain::complex
+               : semantic::MatrixNumericDomain::real;
+  }
+  if (!right_numeric.present() || right_numeric.complexity == NumericComplexity::unknown) {
+    return std::nullopt;
+  }
+  return left_numeric.complexity == NumericComplexity::complex ||
+                 right_numeric.complexity == NumericComplexity::complex
+             ? semantic::MatrixNumericDomain::complex
+             : semantic::MatrixNumericDomain::real;
 }
 
 bool static_rank_two(const std::vector<std::size_t>& shape) noexcept {
@@ -104,8 +137,12 @@ void collect_index_extent(const Expression& expression, const SemanticTable& tab
 
 bool valid_matrix_shapes(const MatrixOperationPlan& plan) noexcept {
   if (!static_rank_two(plan.left_shape) || !static_rank_two(plan.result_shape) ||
+      plan.numeric_domain == semantic::MatrixNumericDomain::none ||
       plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
-      plan.structure_policy != semantic::matrix_structure_policy(plan.solve)) {
+      plan.structure_policy != semantic::matrix_structure_policy(plan.solve, plan.numeric_domain) ||
+      (plan.numeric_domain == semantic::MatrixNumericDomain::complex &&
+       plan.solve != semantic::MatrixSolveKind::none &&
+       plan.solve != semantic::MatrixSolveKind::square)) {
     return false;
   }
   switch (plan.operation) {
@@ -312,14 +349,17 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
     add_error(diagnostics, expression.location, stage,
               "matrix-operation identity disagrees with the typed operands");
   } else if (matrix.valid()) {
+    const auto expected_domain = expected_matrix_numeric_domain(expression, table);
     if (facts->array_operation != semantic::ArrayOperation::matlab ||
         expression.kind != ExpressionKind::binary || facts->broadcast.valid ||
         matrix.operation != matrix_operation_for_operator(expression.operation) ||
+        !expected_domain.has_value() || matrix.numeric_domain != *expected_domain ||
         facts->shape != matrix.result_shape || !valid_matrix_shapes(matrix)) {
       add_error(diagnostics, expression.location, stage,
                 "matrix-operation plan has an invalid operator, shape, or result contract");
     }
   } else if (matrix.solve != semantic::MatrixSolveKind::none ||
+             matrix.numeric_domain != semantic::MatrixNumericDomain::none ||
              matrix.condition_policy != semantic::MatrixConditionPolicy::none ||
              matrix.structure_policy != semantic::MatrixStructurePolicy::none ||
              !matrix.left_shape.empty() || !matrix.right_shape.empty() ||

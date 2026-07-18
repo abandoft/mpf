@@ -93,6 +93,32 @@ NumericType matlab_arithmetic_numeric_join(const hir::ExpressionFacts& left,
   return result.valid() ? result : unknown_numeric_type;
 }
 
+std::optional<semantic::MatrixNumericDomain> matlab_matrix_numeric_domain(
+    const hir::ExpressionFacts& left, const hir::ExpressionFacts& right) noexcept {
+  const auto left_numeric = expression_numeric_type(left);
+  const auto right_numeric = expression_numeric_type(right);
+  if (!left_numeric.present() || !right_numeric.present() ||
+      left_numeric.complexity == NumericComplexity::unknown ||
+      right_numeric.complexity == NumericComplexity::unknown) {
+    return std::nullopt;
+  }
+  return left_numeric.complexity == NumericComplexity::complex ||
+                 right_numeric.complexity == NumericComplexity::complex
+             ? semantic::MatrixNumericDomain::complex
+             : semantic::MatrixNumericDomain::real;
+}
+
+std::optional<semantic::MatrixNumericDomain> matlab_matrix_numeric_domain(
+    const hir::ExpressionFacts& value) noexcept {
+  const auto numeric_type = expression_numeric_type(value);
+  if (!numeric_type.present() || numeric_type.complexity == NumericComplexity::unknown) {
+    return std::nullopt;
+  }
+  return numeric_type.complexity == NumericComplexity::complex
+             ? semantic::MatrixNumericDomain::complex
+             : semantic::MatrixNumericDomain::real;
+}
+
 std::optional<std::size_t> normalized_index(const long long value, const std::size_t extent,
                                             const std::size_t base, const bool allow_negative) {
   if (extent == dynamic_extent) return std::nullopt;
@@ -572,10 +598,6 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
       } else {
         facts.numeric_type = default_numeric_type(result);
       }
-      if (complex_operand && facts.matrix_operation.valid()) {
-        diagnose(expression.location.line, "MPF2053",
-                 "Matlab complex matrix operations require the pending complex solver ABI");
-      }
       return result;
     }
     case ExpressionKind::comparison_chain: {
@@ -990,6 +1012,13 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                  "Matlab matrix multiplication requires numeric array operands");
         return semantic(semantics_, expression).inferred_type = ValueType::unknown;
       }
+      const auto numeric_domain = matlab_matrix_numeric_domain(left_facts, right_facts);
+      if (!numeric_domain.has_value()) {
+        diagnose(expression.location.line, "MPF2053",
+                 "Matlab matrix multiplication requires a resolved real or complex numeric "
+                 "domain; dynamic NDArray matrix dispatch is not supported yet");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
       auto& facts = semantic(semantics_, expression);
       facts.array_operation = semantic::ArrayOperation::matlab;
       facts.inferred_type = ValueType::list;
@@ -1002,6 +1031,7 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
       }
       facts.matrix_operation = {semantic::MatrixOperation::multiply,
                                 semantic::MatrixSolveKind::none,
+                                *numeric_domain,
                                 semantic::MatrixConditionPolicy::none,
                                 semantic::MatrixStructurePolicy::none,
                                 left_facts.shape,
@@ -1014,6 +1044,13 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
       if (!numeric_or_unknown(left_element) || !numeric_or_unknown(right_element)) {
         diagnose(expression.location.line, "MPF2046",
                  "Matlab matrix division requires numeric array operands");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      const auto numeric_domain = matlab_matrix_numeric_domain(left_facts, right_facts);
+      if (!numeric_domain.has_value()) {
+        diagnose(expression.location.line, "MPF2053",
+                 "Matlab matrix division requires a resolved real or complex numeric domain; "
+                 "dynamic NDArray solver dispatch is not supported yet");
         return semantic(semantics_, expression).inferred_type = ValueType::unknown;
       }
       const auto left_matrix_shape = static_matlab_matrix_shape(left_facts.shape);
@@ -1037,10 +1074,18 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
         facts.shape = {(*left_matrix_shape)[1], (*right_matrix_shape)[1]};
         const auto solve =
             semantic::matrix_solve_kind((*left_matrix_shape)[0], (*left_matrix_shape)[1]);
+        if (*numeric_domain == semantic::MatrixNumericDomain::complex &&
+            solve != semantic::MatrixSolveKind::square) {
+          diagnose(expression.location.line, "MPF2053",
+                   "Matlab rectangular complex division requires the pending complex CPQR "
+                   "contract");
+          return facts.inferred_type = ValueType::unknown;
+        }
         facts.matrix_operation = {semantic::MatrixOperation::left_divide,
                                   solve,
+                                  *numeric_domain,
                                   semantic::matrix_condition_policy(solve),
-                                  semantic::matrix_structure_policy(solve),
+                                  semantic::matrix_structure_policy(solve, *numeric_domain),
                                   *left_matrix_shape,
                                   *right_matrix_shape,
                                   facts.shape};
@@ -1054,10 +1099,18 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
         facts.shape = {(*left_matrix_shape)[0], (*right_matrix_shape)[0]};
         const auto solve =
             semantic::matrix_solve_kind((*right_matrix_shape)[1], (*right_matrix_shape)[0]);
+        if (*numeric_domain == semantic::MatrixNumericDomain::complex &&
+            solve != semantic::MatrixSolveKind::square) {
+          diagnose(expression.location.line, "MPF2053",
+                   "Matlab rectangular complex right division requires the pending complex CPQR "
+                   "contract");
+          return facts.inferred_type = ValueType::unknown;
+        }
         facts.matrix_operation = {semantic::MatrixOperation::right_divide,
                                   solve,
+                                  *numeric_domain,
                                   semantic::matrix_condition_policy(solve),
-                                  semantic::matrix_structure_policy(solve),
+                                  semantic::matrix_structure_policy(solve, *numeric_domain),
                                   *left_matrix_shape,
                                   *right_matrix_shape,
                                   facts.shape};
@@ -1073,6 +1126,15 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
       if (!static_rank_two_shape(left_facts.shape) || left_facts.shape[0] != left_facts.shape[1]) {
         diagnose(expression.location.line, "MPF2046",
                  "Matlab matrix power currently requires a static square rank-2 matrix");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      const auto numeric_domain = matlab_matrix_numeric_domain(left_facts);
+      const auto exponent_numeric = expression_numeric_type(right_facts);
+      if (!numeric_domain.has_value() || !exponent_numeric.present() ||
+          exponent_numeric.complexity != NumericComplexity::real) {
+        diagnose(expression.location.line, "MPF2053",
+                 "Matlab matrix power requires a resolved real or complex matrix and a real "
+                 "scalar exponent");
         return semantic(semantics_, expression).inferred_type = ValueType::unknown;
       }
       const auto exponent_constant = numeric_constant(expression.children[1]);
@@ -1092,6 +1154,7 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
       facts.shape = left_facts.shape;
       facts.matrix_operation = {semantic::MatrixOperation::integer_power,
                                 semantic::MatrixSolveKind::none,
+                                *numeric_domain,
                                 semantic::MatrixConditionPolicy::none,
                                 semantic::MatrixStructurePolicy::none,
                                 left_facts.shape,

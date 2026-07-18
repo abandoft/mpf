@@ -132,11 +132,17 @@ enum class MatrixConditionPolicy : std::uint8_t {
   square_continue_with_warning,
   basic_solution_with_warning
 };
-// Square Matlab division examines runtime real coefficient values before selecting a numerical
-// kernel. Keeping this policy explicit prevents target lowering from silently adding or removing
-// structure detection based on helper spelling. Complex and sparse representations require their
-// own policies once those value/storage contracts exist.
-enum class MatrixStructurePolicy : std::uint8_t { none, classify_real_square };
+// Matrix arithmetic must not infer its numeric domain from a target representation. The semantic
+// plan fixes whether a kernel consumes real or complex values before target-specific lowering.
+enum class MatrixNumericDomain : std::uint8_t { none, real, complex };
+// Square Matlab division examines runtime coefficient values before selecting a numerical kernel.
+// Keeping this policy explicit prevents target lowering from silently adding or removing structure
+// detection based on helper spelling. Sparse representations require a separate storage policy.
+enum class MatrixStructurePolicy : std::uint8_t {
+  none,
+  classify_real_square,
+  classify_complex_square
+};
 
 [[nodiscard]] constexpr MatrixSolveKind matrix_solve_kind(const std::size_t rows,
                                                           const std::size_t columns) noexcept {
@@ -157,9 +163,13 @@ enum class MatrixStructurePolicy : std::uint8_t { none, classify_real_square };
 }
 
 [[nodiscard]] constexpr MatrixStructurePolicy matrix_structure_policy(
-    const MatrixSolveKind solve) noexcept {
-  return solve == MatrixSolveKind::square ? MatrixStructurePolicy::classify_real_square
-                                          : MatrixStructurePolicy::none;
+    const MatrixSolveKind solve, const MatrixNumericDomain domain) noexcept {
+  if (solve != MatrixSolveKind::square) return MatrixStructurePolicy::none;
+  if (domain == MatrixNumericDomain::real) return MatrixStructurePolicy::classify_real_square;
+  if (domain == MatrixNumericDomain::complex) {
+    return MatrixStructurePolicy::classify_complex_square;
+  }
+  return MatrixStructurePolicy::none;
 }
 // Per-subscript execution contract. Keeping selector identity explicit avoids deriving Matlab
 // indexing semantics again in each target backend.
