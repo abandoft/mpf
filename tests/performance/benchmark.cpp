@@ -200,6 +200,20 @@ std::string matlab_dynamic_broadcast_workload(const std::size_t rounds) {
   return source;
 }
 
+std::string matlab_shape_mutation_workload(const std::size_t rounds) {
+  std::string source =
+      "values = [1 2 3 4 5 6 7 8];\n"
+      "matrix = [1 2 3 4; 5 6 7 8; 9 10 11 12; 13 14 15 16];\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "values(end + 1) = " + std::to_string(round + 1U) + ";\n";
+    source += "values(2) = [];\n";
+    source += "matrix(:, end + 1) = [1; 2; 3; 4];\n";
+    source += "matrix(:, 2) = [];\n";
+  }
+  source += "disp(values(end) + matrix(end, end))\n";
+  return source;
+}
+
 std::string matlab_matrix_solve_workload(const std::size_t rounds) {
   std::string source =
       "coefficient = [4 1 0 0; 2 5 1 0; 0 1 6 2; 0 0 2 7];\n"
@@ -313,6 +327,7 @@ int main() {
       {"matlab-dynamic-end", matlab_dynamic_end_workload(32), mpf::SourceLanguage::matlab},
       {"matlab-dynamic-broadcast", matlab_dynamic_broadcast_workload(32),
        mpf::SourceLanguage::matlab},
+      {"matlab-shape-mutation", matlab_shape_mutation_workload(32), mpf::SourceLanguage::matlab},
       {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
