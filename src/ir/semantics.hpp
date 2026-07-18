@@ -31,13 +31,17 @@ enum class MatrixOperation : std::uint8_t {
 };
 enum class MatrixSolveKind : std::uint8_t { none, square, overdetermined, underdetermined };
 // Numerical conditioning is part of the source-language contract, not a target-runtime guess.
-// Matlab's square solver continues after LU condition warnings, while rectangular division returns
-// a pivoted basic least-squares solution and warns below full numerical rank.
+// Matlab's square solver continues after structure-specific condition warnings, while rectangular
+// division returns a pivoted basic least-squares solution and warns below full numerical rank.
 enum class MatrixConditionPolicy : std::uint8_t {
   none,
-  lu_continue_with_warning,
+  square_continue_with_warning,
   basic_solution_with_warning
 };
+// Square Matlab division examines runtime coefficient values before selecting a numerical kernel.
+// Keeping this policy explicit prevents target lowering from silently adding or removing
+// structure detection based on helper spelling.
+enum class MatrixStructurePolicy : std::uint8_t { none, detect_diagonal_triangular };
 
 [[nodiscard]] constexpr MatrixSolveKind matrix_solve_kind(const std::size_t rows,
                                                           const std::size_t columns) noexcept {
@@ -49,12 +53,18 @@ enum class MatrixConditionPolicy : std::uint8_t {
     const MatrixSolveKind solve) noexcept {
   switch (solve) {
     case MatrixSolveKind::none: return MatrixConditionPolicy::none;
-    case MatrixSolveKind::square: return MatrixConditionPolicy::lu_continue_with_warning;
+    case MatrixSolveKind::square: return MatrixConditionPolicy::square_continue_with_warning;
     case MatrixSolveKind::overdetermined:
     case MatrixSolveKind::underdetermined:
       return MatrixConditionPolicy::basic_solution_with_warning;
   }
   return MatrixConditionPolicy::none;
+}
+
+[[nodiscard]] constexpr MatrixStructurePolicy matrix_structure_policy(
+    const MatrixSolveKind solve) noexcept {
+  return solve == MatrixSolveKind::square ? MatrixStructurePolicy::detect_diagonal_triangular
+                                         : MatrixStructurePolicy::none;
 }
 // Per-subscript execution contract. Keeping selector identity explicit avoids deriving Matlab
 // indexing semantics again in each target backend.
