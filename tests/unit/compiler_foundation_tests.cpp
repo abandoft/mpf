@@ -4,6 +4,7 @@
 
 #include "compiler/expression.hpp"
 #include "compiler/function_graph_generic.hpp"
+#include "compiler/numeric_contract.hpp"
 #include "frontends/common/registry.hpp"
 #include "frontends/fortran/expression_lexer.hpp"
 #include "frontends/fortran/source_form.hpp"
@@ -60,6 +61,21 @@ const mpf::detail::python::ast::Expression& python_expression(
 }
 
 }  // namespace
+
+TEST_CASE("numeric side-table contracts distinguish dynamic scalars from nonnumeric values") {
+  using mpf::detail::ValueType;
+  REQUIRE(
+      mpf::detail::numeric_contract_matches(ValueType::real, mpf::detail::unknown_numeric_type));
+  REQUIRE(
+      mpf::detail::numeric_contract_matches(ValueType::real, mpf::detail::complex_numeric_type));
+  REQUIRE(
+      !mpf::detail::numeric_contract_matches(ValueType::string, mpf::detail::unknown_numeric_type));
+  REQUIRE(mpf::detail::numeric_contract_matches(ValueType::string, mpf::detail::no_numeric_type));
+  REQUIRE(!mpf::detail::element_numeric_contract_matches(ValueType::tuple, ValueType::unknown,
+                                                         mpf::detail::unknown_numeric_type));
+  REQUIRE(mpf::detail::element_numeric_contract_matches(ValueType::tuple, ValueType::unknown,
+                                                        mpf::detail::no_numeric_type));
+}
 
 TEST_CASE("SourceText maps CRLF and UTF-8 byte offsets to logical locations") {
   const mpf::detail::SourceText source(u8"α\r\nx\n", "utf8.py");
@@ -249,6 +265,8 @@ TEST_CASE("Python lexer normalizes logical comparison and floor division tokens"
 TEST_CASE("expression scanner profiles isolate language-specific spellings") {
   const auto python = mpf::detail::lex_python_expression("left ~= right", 1, 1);
   const auto matlab = mpf::detail::lex_matlab_expression("left // right", 1, 1);
+  const auto matlab_imaginary = mpf::detail::lex_matlab_expression("2i + .5j + 1e-3i", 2, 4);
+  const auto python_imaginary = mpf::detail::lex_python_expression("2i", 1, 1);
   const auto fortran = mpf::detail::lex_fortran_expression("left != right", 1, 1);
   const auto typescript = mpf::detail::lex_typescript_expression("left === right", 1, 1);
 
@@ -261,6 +279,19 @@ TEST_CASE("expression scanner profiles isolate language-specific spellings") {
   REQUIRE(typescript.tokens.size() == 4);
   REQUIRE(typescript.tokens[1].kind == mpf::detail::TokenKind::equal_equal);
   REQUIRE(typescript.tokens[1].text == "===");
+  REQUIRE(matlab_imaginary.diagnostics.empty());
+  REQUIRE(matlab_imaginary.tokens.size() == 6);
+  REQUIRE(matlab_imaginary.tokens[0].kind == mpf::detail::TokenKind::number);
+  REQUIRE(matlab_imaginary.tokens[0].text == "2i");
+  REQUIRE(matlab_imaginary.tokens[2].text == ".5j");
+  REQUIRE(matlab_imaginary.tokens[4].text == "1e-3i");
+  REQUIRE(matlab_imaginary.tokens[0].location.line == 2);
+  REQUIRE(matlab_imaginary.tokens[0].location.column == 4);
+  REQUIRE(python_imaginary.diagnostics.empty());
+  REQUIRE(python_imaginary.tokens.size() == 3);
+  REQUIRE(python_imaginary.tokens[0].text == "2");
+  REQUIRE(python_imaginary.tokens[1].kind == mpf::detail::TokenKind::identifier);
+  REQUIRE(python_imaginary.tokens[1].text == "i");
 }
 
 TEST_CASE(

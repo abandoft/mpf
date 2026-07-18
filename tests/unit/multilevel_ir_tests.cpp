@@ -269,6 +269,130 @@ TEST_CASE("Matlab binary operator identity remains typed through HIR and MIR") {
   REQUIRE(!mpf::detail::mir::verify(missing_array_semantics, "missing-array-semantics").empty());
 }
 
+TEST_CASE("Matlab numeric class and complexity remain typed through every IR layer") {
+  using mpf::detail::NumericClass;
+  using mpf::detail::NumericComplexity;
+  using mpf::detail::NumericType;
+
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "z = 2i;\n"
+                              "values = [1 + z, 3 - 4j];\n"
+                              "result = values';\n"
+                              "scaled = scale_complex(1+2i);\n"
+                              "disp(real(result(2, 1)), imag(result(2, 1)), imag(scaled))\n"
+                              "function output = scale_complex(input)\n"
+                              "output = input * 2;\n"
+                              "end\n",
+                              "numeric_complexity.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  REQUIRE(std::any_of(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                      [](const auto& facts) {
+                        return facts.numeric_type.complexity == NumericComplexity::complex;
+                      }));
+  REQUIRE(std::any_of(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                      [](const auto& facts) {
+                        return facts.element_numeric_type.complexity == NumericComplexity::complex;
+                      }));
+  REQUIRE(std::any_of(
+      analysis.semantics.statements.begin(), analysis.semantics.statements.end(),
+      [](const auto& facts) {
+        return std::find(facts.parameter_numeric_types.begin(), facts.parameter_numeric_types.end(),
+                         mpf::detail::unknown_numeric_type) != facts.parameter_numeric_types.end();
+      }));
+  REQUIRE(mpf::detail::dump_semantics(analysis.semantics).find("numeric=4/3") != std::string::npos);
+
+  auto corrupted_semantics = analysis.semantics;
+  const auto complex_facts =
+      std::find_if(corrupted_semantics.expressions.begin(), corrupted_semantics.expressions.end(),
+                   [](const auto& facts) {
+                     return facts.numeric_type.complexity == NumericComplexity::complex;
+                   });
+  REQUIRE(complex_facts != corrupted_semantics.expressions.end());
+  complex_facts->numeric_type = {NumericClass::logical, NumericComplexity::complex};
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, corrupted_semantics,
+                                              "complex-numeric-corruption")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(std::any_of(mir.program.types.begin() + 1, mir.program.types.end(), [](const auto& type) {
+    return type.numeric_type.complexity == NumericComplexity::complex ||
+           type.element_numeric_type.complexity == NumericComplexity::complex;
+  }));
+  REQUIRE(std::any_of(mir.program.types.begin() + 1, mir.program.types.end(), [](const auto& type) {
+    return type.value_type == mpf::detail::ValueType::integer &&
+           type.numeric_type == mpf::detail::unknown_numeric_type;
+  }));
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("numeric=4/3") != std::string::npos);
+
+  auto corrupted_mir = mir.program;
+  const auto complex_type = std::find_if(
+      corrupted_mir.types.begin() + 1, corrupted_mir.types.end(),
+      [](const auto& type) { return type.numeric_type.complexity == NumericComplexity::complex; });
+  REQUIRE(complex_type != corrupted_mir.types.end());
+  complex_type->numeric_type = {NumericClass::logical, NumericComplexity::complex};
+  REQUIRE(!mpf::detail::mir::verify(corrupted_mir, "complex-numeric-corruption").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact != nullptr);
+  REQUIRE(cpp.artifact != nullptr);
+  REQUIRE(javascript.artifact->debug_dump().find("numeric 4/3") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("element-numeric 4/3") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("__mpf_complex") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("__mpf_numeric_multiply") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("numeric 4/3") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("element-numeric 4/3") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("std::complex<double>") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("mpf_runtime::numeric_multiply") != std::string::npos);
+
+  mpf::detail::javascript::lir::SemanticProgram invalid_javascript;
+  invalid_javascript.node_count = 2;
+  invalid_javascript.revision = 1;
+  invalid_javascript.statements.resize(1);
+  invalid_javascript.statements[0].id = mpf::detail::LirNodeId{1};
+  invalid_javascript.statements[0].origin = mpf::detail::HirNodeId{1};
+  invalid_javascript.statements[0].has_expression = true;
+  auto& javascript_expression = invalid_javascript.statements[0].expression;
+  javascript_expression.id = mpf::detail::LirNodeId{2};
+  javascript_expression.origin = mpf::detail::HirNodeId{2};
+  javascript_expression.kind = mpf::detail::ExpressionKind::number_literal;
+  javascript_expression.inferred_type = mpf::detail::ValueType::real;
+  javascript_expression.numeric_type = {NumericClass::logical, NumericComplexity::complex};
+  javascript_expression.value = "1i";
+  const auto javascript_diagnostics =
+      mpf::detail::javascript::verify_semantic_lir(invalid_javascript);
+  REQUIRE(std::any_of(javascript_diagnostics.begin(), javascript_diagnostics.end(),
+                      [](const auto& diagnostic) {
+                        return diagnostic.message.find("numeric metadata") != std::string::npos;
+                      }));
+
+  mpf::detail::cpp::lir::SemanticProgram invalid_cpp;
+  invalid_cpp.node_count = 2;
+  invalid_cpp.revision = 1;
+  invalid_cpp.statements.resize(1);
+  invalid_cpp.statements[0].id = mpf::detail::LirNodeId{1};
+  invalid_cpp.statements[0].origin = mpf::detail::HirNodeId{1};
+  invalid_cpp.statements[0].has_expression = true;
+  auto& cpp_expression = invalid_cpp.statements[0].expression;
+  cpp_expression.id = mpf::detail::LirNodeId{2};
+  cpp_expression.origin = mpf::detail::HirNodeId{2};
+  cpp_expression.kind = mpf::detail::ExpressionKind::number_literal;
+  cpp_expression.inferred_type = mpf::detail::ValueType::real;
+  cpp_expression.numeric_type = {NumericClass::logical, NumericComplexity::complex};
+  cpp_expression.value = "1i";
+  const auto cpp_diagnostics = mpf::detail::cpp::verify_semantic_lir(invalid_cpp);
+  REQUIRE(std::any_of(cpp_diagnostics.begin(), cpp_diagnostics.end(), [](const auto& diagnostic) {
+    return diagnostic.message.find("numeric metadata") != std::string::npos;
+  }));
+}
+
 TEST_CASE("Matlab logical evaluation policy remains explicit through every IR layer") {
   using Evaluation = mpf::detail::semantic::LogicalEvaluation;
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
@@ -462,7 +586,8 @@ TEST_CASE("target LIR verifiers reject corrupted Matlab runtime broadcast source
   javascript.statements.resize(1);
   javascript.statements.front().expression = make_javascript_expression();
   mpf::detail::javascript::plan_lir_representation(javascript);
-  REQUIRE(javascript.statements.front().expression.plan.token == "__mpf_matlab_add_runtime");
+  REQUIRE(javascript.statements.front().expression.plan.token ==
+          "__mpf_matlab_numeric_add_runtime");
   std::vector<mpf::Diagnostic> diagnostics;
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(diagnostics.empty());
@@ -486,7 +611,7 @@ TEST_CASE("target LIR verifiers reject corrupted Matlab runtime broadcast source
   cpp_expression.children[1].kind = mpf::detail::ExpressionKind::identifier;
   cpp_expression.children[1].value = "right";
   mpf::detail::cpp::plan_lir_representation(cpp);
-  REQUIRE(cpp_expression.plan.token == "mpf_runtime::matlab_add_runtime");
+  REQUIRE(cpp_expression.plan.token == "mpf_runtime::matlab_numeric_add_runtime");
   diagnostics.clear();
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(diagnostics.empty());
@@ -1274,7 +1399,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v10") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v11") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -1285,7 +1410,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v16") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v17") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -2754,9 +2879,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v22") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v23") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v22") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v23") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));

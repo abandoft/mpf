@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <string>
 
 #include "mpf/transpiler.hpp"
@@ -145,6 +146,53 @@ TEST_CASE("Python float conversion validates arity and supported source types") 
   REQUIRE(!list.success());
   REQUIRE(missing.diagnostics.front().code == "MPF2033");
   REQUIRE(list.diagnostics.front().code == "MPF2033");
+}
+
+TEST_CASE("Matlab complex semantics fail closed outside the delivered scalar and array subset") {
+  const auto valid = matlab(
+      "z = complex(1, 2);\n"
+      "w = (z + 3i) ./ (2 - 1i);\n"
+      "disp(real(w), imag(w), abs(w), real(conj(w)))\n");
+  const auto valid_cpp = matlab(
+      "z = complex(1, 2);\n"
+      "w = (z + 3i) ./ (2 - 1i);\n"
+      "disp(real(w), imag(w), abs(w), real(conj(w)))\n",
+      mpf::TargetLanguage::cpp);
+  REQUIRE(valid.success());
+  REQUIRE(valid_cpp.success());
+
+  const auto comparison = matlab("value = 1i < 2i;\ndisp(value)\n");
+  const auto matrix_product = matlab("left = [1i 2; 3 4];\nright = left * left;\ndisp(right)\n");
+  const auto reduction = matlab("value = sum([1i 2i]);\ndisp(value)\n");
+  const auto invalid_constructor = matlab("value = complex(1i, 2);\ndisp(value)\n");
+  const auto has_complex_boundary = [](const mpf::TranspileResult& result) {
+    return std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+                       [](const auto& diagnostic) { return diagnostic.code == "MPF2053"; });
+  };
+  REQUIRE(!comparison.success());
+  REQUIRE(!matrix_product.success());
+  REQUIRE(!reduction.success());
+  REQUIRE(!invalid_constructor.success());
+  REQUIRE(has_complex_boundary(comparison));
+  REQUIRE(has_complex_boundary(matrix_product));
+  REQUIRE(has_complex_boundary(reduction));
+  REQUIRE(has_complex_boundary(invalid_constructor));
+}
+
+TEST_CASE("Matlab imaginary unit names are builtin constants until shadowed") {
+  const auto builtin = matlab("disp(imag(i), imag(j))\n");
+  const auto builtin_cpp = matlab("disp(imag(i), imag(j))\n", mpf::TargetLanguage::cpp);
+  REQUIRE(builtin.success());
+  REQUIRE(builtin_cpp.success());
+  REQUIRE(builtin.code.find("__mpf_complex(0, 1)") != std::string::npos);
+  REQUIRE(builtin_cpp.code.find("std::complex<double>{0.0, 1.0}") != std::string::npos);
+
+  const auto shadowed = matlab("i = 40;\nj = 2;\ndisp(i + j)\n");
+  const auto shadowed_cpp = matlab("i = 40;\nj = 2;\ndisp(i + j)\n", mpf::TargetLanguage::cpp);
+  REQUIRE(shadowed.success());
+  REQUIRE(shadowed_cpp.success());
+  REQUIRE(shadowed.code.find("__mpf_complex_tag") == std::string::npos);
+  REQUIRE(shadowed_cpp.code.find("#include <complex>") == std::string::npos);
 }
 
 TEST_CASE("Matlab array operators validate matrix solve and power contracts") {
