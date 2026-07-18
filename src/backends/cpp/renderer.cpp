@@ -781,8 +781,13 @@ class Renderer final {
         output_ << expression.plan.concrete_type << '{';
         for (std::size_t index = 0; index < expression.children.size(); ++index) {
           if (index != 0) output_ << ", ";
-          if (index < expression.plan.widen_children.size() &&
-              expression.plan.widen_children[index]) {
+          if (index < expression.plan.complex_children.size() &&
+              expression.plan.complex_children[index]) {
+            output_ << "mpf_runtime::as_complex(";
+            emit_expression(expression.children[index]);
+            output_ << ')';
+          } else if (index < expression.plan.widen_children.size() &&
+                     expression.plan.widen_children[index]) {
             output_ << "static_cast<double>(";
             emit_expression(expression.children[index]);
             output_ << ')';
