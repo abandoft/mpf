@@ -132,6 +132,10 @@ enum class MatrixConditionPolicy : std::uint8_t {
   square_continue_with_warning,
   basic_solution_with_warning
 };
+// Rectangular division requires an explicit rank-revealing factorization contract. Keeping the
+// algorithm family separate from square-matrix structure classification lets new numeric domains
+// share the same source semantics without selecting a target helper by spelling.
+enum class MatrixFactorizationPolicy : std::uint8_t { none, rank_revealing_column_pivoted_qr };
 // Matrix arithmetic must not infer its numeric domain from a target representation. The semantic
 // plan fixes whether a kernel consumes real or complex values before target-specific lowering.
 enum class MatrixNumericDomain : std::uint8_t { none, real, complex };
@@ -160,6 +164,18 @@ enum class MatrixStructurePolicy : std::uint8_t {
       return MatrixConditionPolicy::basic_solution_with_warning;
   }
   return MatrixConditionPolicy::none;
+}
+
+[[nodiscard]] constexpr MatrixFactorizationPolicy matrix_factorization_policy(
+    const MatrixSolveKind solve) noexcept {
+  switch (solve) {
+    case MatrixSolveKind::overdetermined:
+    case MatrixSolveKind::underdetermined:
+      return MatrixFactorizationPolicy::rank_revealing_column_pivoted_qr;
+    case MatrixSolveKind::none:
+    case MatrixSolveKind::square: return MatrixFactorizationPolicy::none;
+  }
+  return MatrixFactorizationPolicy::none;
 }
 
 [[nodiscard]] constexpr MatrixStructurePolicy matrix_structure_policy(

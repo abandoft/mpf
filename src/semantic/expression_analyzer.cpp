@@ -1033,6 +1033,7 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                 semantic::MatrixSolveKind::none,
                                 *numeric_domain,
                                 semantic::MatrixConditionPolicy::none,
+                                semantic::MatrixFactorizationPolicy::none,
                                 semantic::MatrixStructurePolicy::none,
                                 left_facts.shape,
                                 right_facts.shape,
@@ -1074,17 +1075,11 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
         facts.shape = {(*left_matrix_shape)[1], (*right_matrix_shape)[1]};
         const auto solve =
             semantic::matrix_solve_kind((*left_matrix_shape)[0], (*left_matrix_shape)[1]);
-        if (*numeric_domain == semantic::MatrixNumericDomain::complex &&
-            solve != semantic::MatrixSolveKind::square) {
-          diagnose(expression.location.line, "MPF2053",
-                   "Matlab rectangular complex division requires the pending complex CPQR "
-                   "contract");
-          return facts.inferred_type = ValueType::unknown;
-        }
         facts.matrix_operation = {semantic::MatrixOperation::left_divide,
                                   solve,
                                   *numeric_domain,
                                   semantic::matrix_condition_policy(solve),
+                                  semantic::matrix_factorization_policy(solve),
                                   semantic::matrix_structure_policy(solve, *numeric_domain),
                                   *left_matrix_shape,
                                   *right_matrix_shape,
@@ -1099,17 +1094,11 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
         facts.shape = {(*left_matrix_shape)[0], (*right_matrix_shape)[0]};
         const auto solve =
             semantic::matrix_solve_kind((*right_matrix_shape)[1], (*right_matrix_shape)[0]);
-        if (*numeric_domain == semantic::MatrixNumericDomain::complex &&
-            solve != semantic::MatrixSolveKind::square) {
-          diagnose(expression.location.line, "MPF2053",
-                   "Matlab rectangular complex right division requires the pending complex CPQR "
-                   "contract");
-          return facts.inferred_type = ValueType::unknown;
-        }
         facts.matrix_operation = {semantic::MatrixOperation::right_divide,
                                   solve,
                                   *numeric_domain,
                                   semantic::matrix_condition_policy(solve),
+                                  semantic::matrix_factorization_policy(solve),
                                   semantic::matrix_structure_policy(solve, *numeric_domain),
                                   *left_matrix_shape,
                                   *right_matrix_shape,
@@ -1156,6 +1145,7 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                 semantic::MatrixSolveKind::none,
                                 *numeric_domain,
                                 semantic::MatrixConditionPolicy::none,
+                                semantic::MatrixFactorizationPolicy::none,
                                 semantic::MatrixStructurePolicy::none,
                                 left_facts.shape,
                                 {},

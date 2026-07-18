@@ -139,10 +139,8 @@ bool valid_matrix_shapes(const MatrixOperationPlan& plan) noexcept {
   if (!static_rank_two(plan.left_shape) || !static_rank_two(plan.result_shape) ||
       plan.numeric_domain == semantic::MatrixNumericDomain::none ||
       plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
-      plan.structure_policy != semantic::matrix_structure_policy(plan.solve, plan.numeric_domain) ||
-      (plan.numeric_domain == semantic::MatrixNumericDomain::complex &&
-       plan.solve != semantic::MatrixSolveKind::none &&
-       plan.solve != semantic::MatrixSolveKind::square)) {
+      plan.factorization_policy != semantic::matrix_factorization_policy(plan.solve) ||
+      plan.structure_policy != semantic::matrix_structure_policy(plan.solve, plan.numeric_domain)) {
     return false;
   }
   switch (plan.operation) {
@@ -361,6 +359,7 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
   } else if (matrix.solve != semantic::MatrixSolveKind::none ||
              matrix.numeric_domain != semantic::MatrixNumericDomain::none ||
              matrix.condition_policy != semantic::MatrixConditionPolicy::none ||
+             matrix.factorization_policy != semantic::MatrixFactorizationPolicy::none ||
              matrix.structure_policy != semantic::MatrixStructurePolicy::none ||
              !matrix.left_shape.empty() || !matrix.right_shape.empty() ||
              !matrix.result_shape.empty()) {
