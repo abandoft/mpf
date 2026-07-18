@@ -172,7 +172,8 @@ bool static_rank_two(const std::vector<std::size_t>& shape) noexcept {
 bool valid_matrix_shapes(const lir::MatrixOperationPlan& plan,
                          const std::vector<std::size_t>& expression_shape) noexcept {
   if (!static_rank_two(plan.left_shape) || !static_rank_two(plan.result_shape) ||
-      plan.result_shape != expression_shape) {
+      plan.result_shape != expression_shape ||
+      plan.rank_policy != semantic::matrix_rank_policy(plan.solve)) {
     return false;
   }
   switch (plan.operation) {
@@ -664,6 +665,7 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
   if (expression.matrix_operation.operation != expected_matrix ||
       (!expression.matrix_operation.valid() &&
        (expression.matrix_operation.solve != semantic::MatrixSolveKind::none ||
+        expression.matrix_operation.rank_policy != semantic::MatrixRankPolicy::none ||
         !expression.matrix_operation.left_shape.empty() ||
         !expression.matrix_operation.right_shape.empty() ||
         !expression.matrix_operation.result_shape.empty())) ||
