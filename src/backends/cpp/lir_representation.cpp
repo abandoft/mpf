@@ -144,6 +144,12 @@ std::string matlab_array_helper(const lir::Expression& expression) {
   if (expression.operation == BinaryOperator::elementwise_power) {
     return "mpf_runtime::matlab_power";
   }
+  if (expression.operation == BinaryOperator::elementwise_logical_and) {
+    return "mpf_runtime::matlab_and";
+  }
+  if (expression.operation == BinaryOperator::elementwise_logical_or) {
+    return "mpf_runtime::matlab_or";
+  }
   switch (expression.comparison) {
     case ComparisonOperator::equal: return "mpf_runtime::matlab_equal";
     case ComparisonOperator::not_equal: return "mpf_runtime::matlab_not_equal";
@@ -373,6 +379,12 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
         result.form = lir::ExpressionForm::matlab_transpose;
         if (!expression.children.empty()) result.input_shape = expression.children.front().shape;
         result.result_shape = expression.shape;
+      } else if (source_language == SourceLanguage::matlab &&
+                 expression.logical_evaluation == semantic::LogicalEvaluation::eager_elementwise &&
+                 expression.unary_operation == UnaryOperator::logical_not) {
+        result.precedence = 9;
+        result.token = "mpf_runtime::matlab_not";
+        result.form = lir::ExpressionForm::matlab_logical_not;
       } else {
         result.precedence = 6;
         result.token = expression.value;
@@ -382,8 +394,31 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       }
       break;
     case ExpressionKind::binary: {
-      if (expression.array_operation == semantic::ArrayOperation::matlab &&
-          has_array_operand(expression)) {
+      if (source_language == SourceLanguage::matlab &&
+          expression.logical_evaluation == semantic::LogicalEvaluation::eager_elementwise) {
+        result.precedence = 9;
+        result.token = matlab_array_helper(expression);
+        result.form = lir::ExpressionForm::matlab_logical_operation;
+        result.broadcast = expression.broadcast;
+        if (result.broadcast.valid) {
+          result.token +=
+              result.broadcast.shape_source == semantic::BroadcastShapeSource::runtime_operands
+                  ? "_runtime"
+                  : "_broadcast";
+        }
+      } else if (source_language == SourceLanguage::matlab &&
+                 expression.logical_evaluation ==
+                     semantic::LogicalEvaluation::short_circuit_boolean) {
+        result.precedence = expression.operation == BinaryOperator::logical_or ||
+                                    expression.operation == BinaryOperator::elementwise_logical_or
+                                ? 1
+                                : 2;
+        result.form = expression.operation == BinaryOperator::logical_or ||
+                              expression.operation == BinaryOperator::elementwise_logical_or
+                          ? lir::ExpressionForm::matlab_short_circuit_or
+                          : lir::ExpressionForm::matlab_short_circuit_and;
+      } else if (expression.array_operation == semantic::ArrayOperation::matlab &&
+                 has_array_operand(expression)) {
         result.precedence = 9;
         result.token = matlab_array_helper(expression);
         result.form = lir::ExpressionForm::matlab_array_operation;
@@ -636,11 +671,45 @@ void collect_index_extent(const lir::Expression& expression,
   for (const auto& child : expression.children) collect_index_extent(child, source, valid);
 }
 
+bool logical_composition(const BinaryOperator operation) noexcept {
+  return operation == BinaryOperator::logical_and || operation == BinaryOperator::logical_or ||
+         operation == BinaryOperator::elementwise_logical_and ||
+         operation == BinaryOperator::elementwise_logical_or;
+}
+
+semantic::LogicalEvaluation expected_logical_evaluation(const lir::Expression& expression,
+                                                        const SourceLanguage source_language,
+                                                        const bool condition_context) noexcept {
+  if (source_language == SourceLanguage::matlab && expression.kind == ExpressionKind::unary &&
+      expression.unary_operation == UnaryOperator::logical_not) {
+    return semantic::LogicalEvaluation::eager_elementwise;
+  }
+  if (expression.kind != ExpressionKind::binary) return semantic::LogicalEvaluation::none;
+  if (expression.operation == BinaryOperator::logical_and ||
+      expression.operation == BinaryOperator::logical_or) {
+    return source_language == SourceLanguage::python
+               ? semantic::LogicalEvaluation::short_circuit_operand
+               : semantic::LogicalEvaluation::short_circuit_boolean;
+  }
+  if (source_language == SourceLanguage::matlab &&
+      (expression.operation == BinaryOperator::elementwise_logical_and ||
+       expression.operation == BinaryOperator::elementwise_logical_or)) {
+    return condition_context ? semantic::LogicalEvaluation::short_circuit_boolean
+                             : semantic::LogicalEvaluation::eager_elementwise;
+  }
+  return semantic::LogicalEvaluation::none;
+}
+
 void verify_expression(const lir::Expression& expression, const lir::EmissionPlan& emission,
                        const AccessContext& context, const SourceLanguage source_language,
-                       std::vector<Diagnostic>& diagnostics,
+                       std::vector<Diagnostic>& diagnostics, const bool condition_context = false,
                        const std::optional<ValueType> array_element_type = std::nullopt) {
   if (!expression.valid()) return;
+  if (expression.logical_evaluation !=
+      expected_logical_evaluation(expression, source_language, condition_context)) {
+    add_error(diagnostics, expression.location,
+              "cpp LIR logical evaluation policy is inconsistent");
+  }
   if ((expression.kind == ExpressionKind::end_index) !=
       semantic::requires_runtime_extent(expression.index_extent)) {
     add_error(diagnostics, expression.location,
@@ -713,9 +782,11 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
   const auto planned_element_type = expression.kind == ExpressionKind::list
                                         ? array_element_type.value_or(expression.element_type)
                                         : ValueType::unknown;
+  const bool child_condition = condition_context && expression.kind == ExpressionKind::binary &&
+                               logical_composition(expression.operation);
   for (const auto& child : expression.children) {
     verify_expression(
-        child, emission, context, source_language, diagnostics,
+        child, emission, context, source_language, diagnostics, child_condition,
         expression.kind == ExpressionKind::list && child.inferred_type == ValueType::list
             ? std::optional<ValueType>{planned_element_type}
             : std::nullopt);
@@ -817,8 +888,9 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
       break;
     case StatementKind::if_statement:
       result.form = lir::StatementForm::conditional;
-      result.condition = emission.dynamic_truthiness ? lir::ConditionForm::runtime_truthy
-                                                     : lir::ConditionForm::direct;
+      result.condition = emission.dynamic_truthiness  ? lir::ConditionForm::runtime_truthy
+                         : emission.matlab_truthiness ? lir::ConditionForm::matlab_all_nonzero
+                                                      : lir::ConditionForm::direct;
       result.has_alternative = !statement.alternative.empty();
       break;
     case StatementKind::select_case:
@@ -837,8 +909,9 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
       break;
     case StatementKind::while_loop:
       result.form = lir::StatementForm::while_loop;
-      result.condition = emission.dynamic_truthiness ? lir::ConditionForm::runtime_truthy
-                                                     : lir::ConditionForm::direct;
+      result.condition = emission.dynamic_truthiness  ? lir::ConditionForm::runtime_truthy
+                         : emission.matlab_truthiness ? lir::ConditionForm::matlab_all_nonzero
+                                                      : lir::ConditionForm::direct;
       result.has_alternative = !statement.alternative.empty();
       break;
     case StatementKind::range_loop:
@@ -962,8 +1035,11 @@ void verify_statements(const std::vector<lir::Statement>& statements,
         statement.kind == StatementKind::function ? function_context(statement) : context;
     const auto& expression_context =
         statement.kind == StatementKind::function ? nested_context : context;
+    const bool condition_context = source_language == SourceLanguage::matlab &&
+                                   (statement.kind == StatementKind::if_statement ||
+                                    statement.kind == StatementKind::while_loop);
     verify_expression(statement.expression, emission, expression_context, source_language,
-                      diagnostics);
+                      diagnostics, condition_context);
     verify_expression(statement.secondary_expression, emission, expression_context, source_language,
                       diagnostics);
     verify_expression(statement.tertiary_expression, emission, expression_context, source_language,

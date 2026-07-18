@@ -273,6 +273,11 @@ std::vector<Diagnostic> verify_lir(const lir::SemanticProgram& program) {
     add_error(diagnostics, {1, 1},
               "cpp LIR character-selection policy disagrees with the source semantics");
   }
+  if (program.source_language != SourceLanguage::automatic &&
+      program.emission.matlab_truthiness != (program.source_language == SourceLanguage::matlab)) {
+    add_error(diagnostics, {1, 1},
+              "cpp LIR Matlab truthiness policy disagrees with the source language");
+  }
   if (program.emission.module_top_level == program.emission.entry_function_top_level) {
     add_error(diagnostics, {1, 1}, "cpp LIR must select exactly one top-level storage plan");
   }
@@ -383,6 +388,8 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
   lowered->runtime = semantic_program.runtime;
   lowered->emission.dynamic_truthiness =
       semantic_program.source_semantics.truthiness == mpf::detail::semantic::Truthiness::dynamic;
+  lowered->emission.matlab_truthiness = semantic_program.source_semantics.truthiness ==
+                                        mpf::detail::semantic::Truthiness::matlab_all_nonzero;
   lowered->emission.operand_logical_result = semantic_program.source_semantics.logical_result ==
                                              mpf::detail::semantic::LogicalResult::operand;
   lowered->emission.real_division =
@@ -517,6 +524,7 @@ std::string lir::dump(const SemanticProgram& program) {
          << " entry-error=" << static_cast<int>(program.translation_unit.entry_error_policy)
          << '\n';
   output << "emission dynamic-truthiness=" << program.emission.dynamic_truthiness
+         << " matlab-truthiness=" << program.emission.matlab_truthiness
          << " operand-logical-result=" << program.emission.operand_logical_result
          << " real-division=" << program.emission.real_division
          << " lexical-block-scopes=" << program.emission.lexical_block_scopes

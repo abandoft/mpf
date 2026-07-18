@@ -556,6 +556,11 @@ class Renderer final {
         if (!expression.children.empty()) emit_expression(expression.children.front());
         output_ << ')';
         break;
+      case cpp::lir::ExpressionForm::matlab_logical_not:
+        output_ << expression.plan.token << '(';
+        if (!expression.children.empty()) emit_expression(expression.children.front());
+        output_ << ')';
+        break;
       case cpp::lir::ExpressionForm::unary_operator:
         output_ << expression.plan.token;
         if (!expression.children.empty()) emit_expression(expression.children.front(), own);
@@ -585,6 +590,18 @@ class Renderer final {
         output_ << "); }, [&]() { return (";
         emit_expression(expression.children[1]);
         output_ << "); })";
+        break;
+      case cpp::lir::ExpressionForm::matlab_short_circuit_and:
+      case cpp::lir::ExpressionForm::matlab_short_circuit_or:
+        output_ << "mpf_runtime::matlab_scalar_logical(";
+        emit_expression(expression.children[0]);
+        output_ << ") "
+                << (expression.plan.form == cpp::lir::ExpressionForm::matlab_short_circuit_and
+                        ? "&&"
+                        : "||")
+                << " mpf_runtime::matlab_scalar_logical(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
         break;
       case cpp::lir::ExpressionForm::binary_power:
         output_ << "std::pow(";
@@ -623,6 +640,7 @@ class Renderer final {
         output_ << ' ' << expression.plan.token << ' ';
         emit_expression(expression.children[1], own + 1);
         break;
+      case cpp::lir::ExpressionForm::matlab_logical_operation:
       case cpp::lir::ExpressionForm::matlab_array_operation:
         output_ << expression.plan.token;
         output_ << '(';
@@ -1360,6 +1378,10 @@ class Renderer final {
   void emit_condition(const Expression& expression, const cpp::lir::ConditionForm condition) {
     if (condition == cpp::lir::ConditionForm::runtime_truthy) {
       output_ << "mpf_runtime::truthy(";
+      emit_expression(expression);
+      output_ << ')';
+    } else if (condition == cpp::lir::ConditionForm::matlab_all_nonzero) {
+      output_ << "mpf_runtime::matlab_truthy(";
       emit_expression(expression);
       output_ << ')';
     } else {
