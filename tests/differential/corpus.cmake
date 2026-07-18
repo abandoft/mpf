@@ -33,7 +33,10 @@ mpf_add_differential_case(matlab-switch-case matlab examples/matlab/switch_case.
 mpf_add_differential_case(matlab-operators matlab examples/matlab/operators.m "101")
 mpf_add_differential_case(matlab-matrix-solve matlab examples/matlab/matrix_solve.m "35.4")
 mpf_add_differential_case(
-  matlab-rectangular-solve matlab examples/matlab/rectangular_solve.m "4 7 1 4 5 2 3 1 1")
+  matlab-rectangular-solve matlab examples/matlab/rectangular_solve.m "4 7 0 3 6 2 3 1 1")
+mpf_add_differential_case(
+  matlab-rank-deficient-solve matlab examples/matlab/rank_deficient_solve.m "0 1" tokens
+  "rank deficient to working precision")
 mpf_add_differential_case(matlab-implicit-expansion matlab examples/matlab/implicit_expansion.m "329")
 mpf_add_differential_case(
   matlab-dynamic-broadcast matlab examples/matlab/dynamic_broadcast.m "80 127 2")
