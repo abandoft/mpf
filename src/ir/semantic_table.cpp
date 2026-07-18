@@ -153,6 +153,26 @@ semantic::LogicalEvaluation expected_logical_evaluation(const Expression& expres
   return semantic::LogicalEvaluation::none;
 }
 
+semantic::ReductionOperation expected_reduction_operation(const Expression& expression,
+                                                          const SemanticTable& table,
+                                                          const SourceLanguage language) noexcept {
+  if (language != SourceLanguage::matlab || expression.kind != ExpressionKind::call ||
+      expression.children.empty()) {
+    return semantic::ReductionOperation::none;
+  }
+  const auto* callee = table.expression(expression.children.front().id);
+  if (callee == nullptr || callee->binding != BindingKind::builtin) {
+    return semantic::ReductionOperation::none;
+  }
+  if (callee->intrinsic == IntrinsicId::logical_all) {
+    return semantic::ReductionOperation::logical_all;
+  }
+  if (callee->intrinsic == IntrinsicId::logical_any) {
+    return semantic::ReductionOperation::logical_any;
+  }
+  return semantic::ReductionOperation::none;
+}
+
 void verify_expression(const Expression& expression, const SemanticTable& table,
                        const SourceLanguage source_language, std::vector<bool>& seen,
                        const std::string_view stage, std::vector<Diagnostic>& diagnostics,
@@ -170,6 +190,45 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
                       expected_logical_evaluation(expression, source_language, condition_context)) {
     add_error(diagnostics, expression.location, stage,
               "logical evaluation policy disagrees with the source operator context");
+  }
+  if (analyzed) {
+    const auto expected_reduction =
+        expected_reduction_operation(expression, table, source_language);
+    const auto& reduction = facts->reduction;
+    if (reduction.operation != expected_reduction) {
+      add_error(diagnostics, expression.location, stage,
+                "logical reduction identity disagrees with the source intrinsic");
+    } else if (reduction.valid()) {
+      const bool valid_contract = semantic::valid_logical_reduction_contract(
+          reduction.operation, reduction.axis_policy, reduction.shape_source, reduction.input_shape,
+          reduction.result_shape, reduction.output_shape, reduction.axes, reduction.scalar_result);
+      const bool valid_type =
+          reduction.scalar_result
+              ? facts->inferred_type == ValueType::boolean && facts->shape.empty()
+              : facts->inferred_type == ValueType::list &&
+                    facts->element_type == ValueType::boolean;
+      if (!valid_contract || !valid_type || facts->shape != reduction.output_shape) {
+        add_error(diagnostics, expression.location, stage,
+                  "logical reduction has an invalid type, axis, or shape contract");
+      } else if (reduction.shape_source == semantic::ReductionShapeSource::static_extents &&
+                 expression.children.size() >= 2U) {
+        const auto* operand = table.expression(expression.children[1].id);
+        auto operand_shape = operand == nullptr ? std::vector<std::size_t>{} : operand->shape;
+        if (operand_shape.size() == 1U) operand_shape.insert(operand_shape.begin(), 1U);
+        if (operand != nullptr && operand->inferred_type == ValueType::list &&
+            operand_shape != reduction.input_shape) {
+          add_error(diagnostics, expression.location, stage,
+                    "logical reduction input shape disagrees with its operand");
+        }
+      }
+    } else if (reduction.axis_policy != semantic::ReductionAxisPolicy::none ||
+               reduction.shape_source != semantic::ReductionShapeSource::static_extents ||
+               !reduction.input_shape.empty() || !reduction.result_shape.empty() ||
+               !reduction.output_shape.empty() || !reduction.axes.empty() ||
+               reduction.scalar_result) {
+      add_error(diagnostics, expression.location, stage,
+                "inactive logical reduction retains semantic state");
+    }
   }
   if (analyzed && source_language == SourceLanguage::matlab &&
       expression.kind == ExpressionKind::list && expression.children.empty() &&

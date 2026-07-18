@@ -48,6 +48,8 @@ Effect intrinsic_effects(const IntrinsicId intrinsic) noexcept {
     case IntrinsicId::python_length:
     case IntrinsicId::matlab_length:
     case IntrinsicId::element_count:
+    case IntrinsicId::logical_all:
+    case IntrinsicId::logical_any:
     case IntrinsicId::sum: return Effect::may_fail;
     case IntrinsicId::reshape: return Effect::allocate | Effect::may_fail;
     case IntrinsicId::count: break;

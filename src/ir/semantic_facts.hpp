@@ -35,6 +35,21 @@ struct MatrixOperationPlan {
   [[nodiscard]] bool valid() const noexcept { return operation != semantic::MatrixOperation::none; }
 };
 
+struct ReductionPlan {
+  semantic::ReductionOperation operation{semantic::ReductionOperation::none};
+  semantic::ReductionAxisPolicy axis_policy{semantic::ReductionAxisPolicy::none};
+  semantic::ReductionShapeSource shape_source{semantic::ReductionShapeSource::static_extents};
+  std::vector<std::size_t> input_shape;
+  std::vector<std::size_t> result_shape;
+  std::vector<std::size_t> output_shape;
+  std::vector<std::size_t> axes;
+  bool scalar_result{false};
+
+  [[nodiscard]] bool valid() const noexcept {
+    return operation != semantic::ReductionOperation::none;
+  }
+};
+
 struct ExpressionFacts {
   HirNodeId origin{};
   ValueType inferred_type{ValueType::unknown};
@@ -46,6 +61,7 @@ struct ExpressionFacts {
   semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
   BroadcastPlan broadcast;
   MatrixOperationPlan matrix_operation;
+  ReductionPlan reduction;
   std::vector<ValueType> tuple_types;
   std::vector<ValueType> tuple_element_types;
   std::vector<std::vector<std::size_t>> tuple_shapes;

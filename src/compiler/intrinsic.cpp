@@ -25,6 +25,8 @@ constexpr std::array<IntrinsicDescriptor, static_cast<std::size_t>(IntrinsicId::
         {IntrinsicId::round, "round"},
         {IntrinsicId::sine, "sine"},
         {IntrinsicId::square_root, "square_root"},
+        {IntrinsicId::logical_all, "logical_all"},
+        {IntrinsicId::logical_any, "logical_any"},
         {IntrinsicId::sum, "sum"},
         {IntrinsicId::tangent, "tangent"},
         {IntrinsicId::not_a_number, "not_a_number"},

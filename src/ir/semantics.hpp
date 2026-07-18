@@ -15,6 +15,78 @@ enum class LogicalEvaluation : std::uint8_t {
   short_circuit_operand
 };
 
+// Logical reductions are source-language operations rather than aliases for the target
+// language's container helpers.  The axis policy remains explicit through target lowering so
+// neither renderer has to rediscover Matlab's first-nonsingleton or all-dimensions rules.
+enum class ReductionOperation : std::uint8_t { none, logical_all, logical_any };
+enum class ReductionAxisPolicy : std::uint8_t {
+  none,
+  first_nonsingleton,
+  explicit_dimensions,
+  all_dimensions
+};
+enum class ReductionShapeSource : std::uint8_t { static_extents, runtime_operand };
+
+template <typename Extents, typename Axes>
+[[nodiscard]] bool valid_logical_reduction_contract(const ReductionOperation operation,
+                                                    const ReductionAxisPolicy axis_policy,
+                                                    const ReductionShapeSource shape_source,
+                                                    const Extents& input, const Extents& result,
+                                                    const Extents& output, const Axes& axes,
+                                                    const bool scalar_result) noexcept {
+  if (operation == ReductionOperation::none || axis_policy == ReductionAxisPolicy::none) {
+    return false;
+  }
+  if (shape_source == ReductionShapeSource::runtime_operand) {
+    return axis_policy == ReductionAxisPolicy::all_dimensions && input.empty() && result.empty() &&
+           output.empty() && axes.empty() && scalar_result;
+  }
+  if (input.size() != result.size()) return false;
+  if (input.empty()) {
+    return axes.empty() && result.empty() && output.empty() && scalar_result;
+  }
+  std::size_t previous = 0U;
+  bool has_previous = false;
+  for (const auto axis : axes) {
+    if (axis >= input.size() || (has_previous && axis <= previous)) return false;
+    previous = axis;
+    has_previous = true;
+  }
+  if (axis_policy == ReductionAxisPolicy::all_dimensions) {
+    if (axes.size() != input.size()) return false;
+    for (std::size_t axis = 0; axis < axes.size(); ++axis) {
+      if (axes[axis] != axis) return false;
+    }
+  } else if (axis_policy == ReductionAxisPolicy::first_nonsingleton) {
+    const bool empty_matrix = input.size() == 2U && input[0] == 0U && input[1] == 0U;
+    if ((!empty_matrix && axes.size() != 1U) || (empty_matrix && axes.size() != 2U)) return false;
+  }
+  for (std::size_t axis = 0; axis < input.size(); ++axis) {
+    bool reduced = false;
+    for (const auto candidate : axes) reduced = reduced || candidate == axis;
+    if (result[axis] != (reduced ? 1U : input[axis])) return false;
+  }
+  bool expected_scalar = true;
+  for (const auto extent : result) expected_scalar = expected_scalar && extent == 1U;
+  if (scalar_result != expected_scalar || (scalar_result && !output.empty())) return false;
+  if (!scalar_result && output.empty()) return false;
+  std::size_t result_size = 1U;
+  for (const auto extent : result) {
+    if (extent != 0U && result_size > std::numeric_limits<std::size_t>::max() / extent) {
+      return false;
+    }
+    result_size *= extent;
+  }
+  std::size_t output_size = 1U;
+  for (const auto extent : output) {
+    if (extent != 0U && output_size > std::numeric_limits<std::size_t>::max() / extent) {
+      return false;
+    }
+    output_size *= extent;
+  }
+  return scalar_result || result_size == output_size;
+}
+
 [[nodiscard]] constexpr bool short_circuits(const LogicalEvaluation evaluation) noexcept {
   return evaluation == LogicalEvaluation::short_circuit_boolean ||
          evaluation == LogicalEvaluation::short_circuit_operand;

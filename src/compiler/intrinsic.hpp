@@ -23,6 +23,8 @@ enum class IntrinsicId : std::size_t {
   round,
   sine,
   square_root,
+  logical_all,
+  logical_any,
   sum,
   tangent,
   not_a_number,
