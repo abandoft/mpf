@@ -308,6 +308,65 @@ TEST_CASE("Matlab logical evaluation policy remains explicit through every IR la
   REQUIRE(cpp.artifact->debug_dump().find("logical-evaluation 2") != std::string::npos);
 }
 
+TEST_CASE("Matlab logical reduction plans remain typed through every IR layer") {
+  using Operation = mpf::detail::semantic::ReductionOperation;
+  using AxisPolicy = mpf::detail::semantic::ReductionAxisPolicy;
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "matrix = [1 0 3; 4 5 6];\n"
+                              "by_column = all(matrix);\n"
+                              "by_row = any(matrix, 2);\n"
+                              "total = all(matrix, 'all');\n"
+                              "empty = any([]);\n",
+                              "logical_reduction.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  REQUIRE(std::count_if(analysis.semantics.expressions.begin(),
+                        analysis.semantics.expressions.end(), [](const auto& facts) {
+                          return facts.reduction.operation == Operation::logical_all;
+                        }) == 2);
+  REQUIRE(std::count_if(analysis.semantics.expressions.begin(),
+                        analysis.semantics.expressions.end(), [](const auto& facts) {
+                          return facts.reduction.operation == Operation::logical_any;
+                        }) == 2);
+  const auto default_empty =
+      std::find_if(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                   [](const auto& facts) {
+                     return facts.reduction.operation == Operation::logical_any &&
+                            facts.reduction.axis_policy == AxisPolicy::first_nonsingleton &&
+                            facts.reduction.input_shape == std::vector<std::size_t>{0U, 0U};
+                   });
+  REQUIRE(default_empty != analysis.semantics.expressions.end());
+  REQUIRE((default_empty->reduction.axes == std::vector<std::size_t>{0U, 1U}));
+  REQUIRE(default_empty->reduction.scalar_result);
+  REQUIRE(mpf::detail::dump_semantics(analysis.semantics).find("reduction=1") != std::string::npos);
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "logical-reduction").empty());
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("reduction=2") != std::string::npos);
+
+  auto corrupted = mir.program;
+  const auto reduction =
+      std::find_if(corrupted.attributes.expressions.begin() + 1,
+                   corrupted.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.reduction.axis_policy == AxisPolicy::explicit_dimensions;
+                   });
+  REQUIRE(reduction != corrupted.attributes.expressions.end());
+  reduction->reduction.axes = {0U, 0U};
+  REQUIRE(!mpf::detail::mir::verify(corrupted, "logical-reduction-corruption").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("reduction 1") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("axis-policy 3") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("reduction 2") != std::string::npos);
+}
+
 TEST_CASE("Matlab runtime broadcast shape source remains typed through every IR layer") {
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "function [expanded, mask] = expand_dynamic(left, right)\n"
@@ -413,6 +472,62 @@ TEST_CASE("target LIR verifiers reject corrupted Matlab runtime broadcast source
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(diagnostics.empty());
   cpp_expression.broadcast.shape_source = ShapeSource::static_extents;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+}
+
+TEST_CASE("target LIR verifiers reject corrupted Matlab logical reduction plans") {
+  using Operation = mpf::detail::semantic::ReductionOperation;
+  using AxisPolicy = mpf::detail::semantic::ReductionAxisPolicy;
+  const auto configure = [](auto& expression) {
+    expression.kind = mpf::detail::ExpressionKind::call;
+    expression.inferred_type = mpf::detail::ValueType::list;
+    expression.element_type = mpf::detail::ValueType::boolean;
+    expression.shape = {1U, 2U};
+    expression.reduction.operation = Operation::logical_all;
+    expression.reduction.axis_policy = AxisPolicy::explicit_dimensions;
+    expression.reduction.input_shape = {2U, 2U};
+    expression.reduction.result_shape = {1U, 2U};
+    expression.reduction.output_shape = {1U, 2U};
+    expression.reduction.axes = {0U};
+    expression.children.resize(3);
+    expression.children[0].kind = mpf::detail::ExpressionKind::identifier;
+    expression.children[0].binding = mpf::detail::BindingKind::builtin;
+    expression.children[0].intrinsic = mpf::detail::IntrinsicId::logical_all;
+    expression.children[1].kind = mpf::detail::ExpressionKind::identifier;
+    expression.children[1].inferred_type = mpf::detail::ValueType::list;
+    expression.children[1].element_type = mpf::detail::ValueType::integer;
+    expression.children[1].shape = {2U, 2U};
+    expression.children[2].kind = mpf::detail::ExpressionKind::number_literal;
+    expression.children[2].inferred_type = mpf::detail::ValueType::integer;
+    expression.children[2].value = "1";
+  };
+
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.source_language = mpf::SourceLanguage::matlab;
+  javascript.statements.resize(1);
+  configure(javascript.statements.front().expression);
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  REQUIRE(javascript.statements.front().expression.plan.call ==
+          mpf::detail::javascript::lir::CallForm::matlab_all);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript.statements.front().expression.reduction.result_shape = {2U, 1U};
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.source_language = mpf::SourceLanguage::matlab;
+  cpp.statements.resize(1);
+  configure(cpp.statements.front().expression);
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  REQUIRE(cpp.statements.front().expression.plan.call ==
+          mpf::detail::cpp::lir::CallForm::matlab_all);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp.statements.front().expression.reduction.axes = {1U};
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
 }
@@ -1137,7 +1252,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(first_hir.find("stmt %h") != std::string::npos);
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v9") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v10") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -1145,7 +1260,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v14") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v15") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -2614,9 +2729,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v20") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v21") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v20") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v21") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
