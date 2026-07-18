@@ -515,14 +515,20 @@ endif()
 if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT index_extent_contract MATCHES "matrix_condition_policy" OR
    NOT index_extent_contract MATCHES "square_continue_with_warning" OR
+   NOT index_extent_contract MATCHES "MatrixFactorizationPolicy" OR
+   NOT index_extent_contract MATCHES "matrix_factorization_policy" OR
+   NOT index_extent_contract MATCHES "rank_revealing_column_pivoted_qr" OR
    NOT index_extent_contract MATCHES "MatrixStructurePolicy" OR
    NOT index_extent_contract MATCHES "matrix_structure_policy" OR
    NOT index_extent_contract MATCHES "classify_real_square" OR
    NOT hir_extent_contract MATCHES "MatrixConditionPolicy condition_policy" OR
+   NOT hir_extent_contract MATCHES "MatrixFactorizationPolicy factorization_policy" OR
    NOT hir_extent_contract MATCHES "MatrixStructurePolicy structure_policy" OR
    NOT mir_extent_contract MATCHES "MatrixConditionPolicy condition_policy" OR
+   NOT mir_extent_contract MATCHES "MatrixFactorizationPolicy factorization_policy" OR
    NOT mir_extent_contract MATCHES "MatrixStructurePolicy structure_policy")
-  message(FATAL_ERROR "matrix condition/structure policy is not a typed Semantic/HIR/MIR contract")
+  message(FATAL_ERROR
+    "matrix condition/factorization/structure policy is not a typed Semantic/HIR/MIR contract")
 endif()
 mpf_assert_file_excludes("src/ir/semantics.hpp" "detect_diagonal_triangular"
   "matrix structure policy restored the pre-advanced real classifier")
@@ -530,15 +536,19 @@ file(READ "${SOURCE_DIR}/src/backends/common/lir_builder.hpp" condition_lir_buil
 if(NOT condition_lir_builder_contract MATCHES
      "matrix_operation\.condition_policy = attributes\.matrix_operation\.condition_policy" OR
    NOT condition_lir_builder_contract MATCHES
+     "matrix_operation\.factorization_policy =" OR
+   NOT condition_lir_builder_contract MATCHES
      "matrix_operation\.structure_policy = attributes\.matrix_operation\.structure_policy")
   message(FATAL_ERROR
-    "target LIR builder does not propagate analyzed matrix condition/structure policy")
+    "target LIR builder does not propagate analyzed matrix policies")
 endif()
 foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir.hpp)
   file(READ "${SOURCE_DIR}/${target_lir}" condition_target_lir_contract)
   if(NOT condition_target_lir_contract MATCHES "MatrixConditionPolicy condition_policy" OR
+     NOT condition_target_lir_contract MATCHES
+       "MatrixFactorizationPolicy factorization_policy" OR
      NOT condition_target_lir_contract MATCHES "MatrixStructurePolicy structure_policy")
-    message(FATAL_ERROR "target LIR does not own matrix condition/structure policy: ${target_lir}")
+    message(FATAL_ERROR "target LIR does not own matrix policies: ${target_lir}")
   endif()
 endforeach()
 foreach(representation IN ITEMS
@@ -549,9 +559,14 @@ foreach(representation IN ITEMS
     "condition_policy != semantic::matrix_condition_policy(plan.solve)"
     condition_policy_verification)
   string(FIND "${condition_representation_contract}"
-    "semantic::matrix_structure_policy(plan.solve, plan.numeric_domain)"
+    "factorization_policy != semantic::matrix_factorization_policy(plan.solve)"
+    factorization_policy_verification)
+  string(FIND "${condition_representation_contract}"
+    "semantic::matrix_structure_policy(plan.solve,"
     structure_policy_verification)
-  if(condition_policy_verification EQUAL -1 OR structure_policy_verification EQUAL -1)
+  if(condition_policy_verification EQUAL -1 OR
+     factorization_policy_verification EQUAL -1 OR
+     structure_policy_verification EQUAL -1)
     message(FATAL_ERROR
       "target representation verifier does not enforce matrix policies: ${representation}")
   endif()
@@ -600,17 +615,22 @@ foreach(complex_matrix_runtime IN ITEMS
      NOT complex_matrix_runtime_contract MATCHES "is_hermitian" OR
      NOT complex_matrix_runtime_contract MATCHES "complex_cholesky_factor" OR
      NOT complex_matrix_runtime_contract MATCHES "complex_cholesky_rcond" OR
+     NOT complex_matrix_runtime_contract MATCHES "complex_cpqr_factor" OR
+     NOT complex_matrix_runtime_contract MATCHES "apply_complex_cpqr_qh" OR
+     NOT complex_matrix_runtime_contract MATCHES "complex_basic_least_squares" OR
      NOT complex_matrix_runtime_contract MATCHES "complex_ctranspose" OR
      NOT complex_matrix_runtime_contract MATCHES "structured_complex_square_solve" OR
      NOT complex_matrix_runtime_contract MATCHES "mrdivide_structured_complex_square" OR
      NOT complex_matrix_runtime_contract MATCHES "complex_mpower")
     message(FATAL_ERROR
-      "target complex-matrix runtime does not own multiply, Hermitian/LU solve, right-division, "
-      "condition and integer-power kernels: ${complex_matrix_runtime}")
+      "target complex-matrix runtime does not own multiply, Hermitian/LU/CPQR solve, "
+      "right-division, condition and integer-power kernels: ${complex_matrix_runtime}")
   endif()
   mpf_assert_file_excludes("${complex_matrix_runtime}"
     "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
     "target complex-matrix runtime depends on compiler state")
+  mpf_assert_file_excludes("${complex_matrix_runtime}" "minimum[_ -]?norm"
+    "target complex-matrix runtime restored the incorrect underdetermined minimum-norm contract")
 endforeach()
 mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
   "function __mpf_matlab_lu_"
