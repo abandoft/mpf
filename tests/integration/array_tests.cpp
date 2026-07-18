@@ -229,10 +229,12 @@ TEST_CASE("Matlab static dense matrix solve and integer power use target-owned p
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
   REQUIRE(javascript.code.find(
-              "__mpf_matlab_mldivide_structured_square(coefficient, right_hand_side)") !=
+              "__mpf_matlab_mldivide_structured_real_square(coefficient, right_hand_side)") !=
           std::string::npos);
-  REQUIRE(javascript.code.find("__mpf_matlab_mrdivide_structured_square([5, 7], coefficient)") !=
-          std::string::npos);
+  REQUIRE(
+      javascript.code.find("__mpf_matlab_mrdivide_structured_real_square([5, 7], coefficient)") !=
+      std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mldivide_structured_square") == std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_mpower(coefficient, -1)") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_divide(coefficient, 2, [2, 2], [1, 1], [2, 2])") !=
           std::string::npos);
@@ -247,10 +249,11 @@ TEST_CASE("Matlab static dense matrix solve and integer power use target-owned p
   REQUIRE(javascript.code.find("throw new RangeError('MPF Matlab matrix is singular") ==
           std::string::npos);
   REQUIRE(javascript.code.find("Number.isSafeInteger(exponent)") != std::string::npos);
-  REQUIRE(cpp.code.find(
-              "mpf_runtime::matlab_mldivide_structured_square(coefficient, right_hand_side)") !=
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mldivide_structured_real_square(coefficient, "
+                        "right_hand_side)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_structured_real_square") !=
           std::string::npos);
-  REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_structured_square") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mldivide_structured_square") == std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_mpower(coefficient, -1)") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_divide_broadcast") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_left_divide_broadcast") != std::string::npos);
@@ -267,7 +270,7 @@ TEST_CASE("Matlab static dense matrix solve and integer power use target-owned p
   REQUIRE(cpp.source_map.segments.size() >= 6U);
 }
 
-TEST_CASE("Matlab square division dispatches diagonal triangular and dense kernels") {
+TEST_CASE("Matlab square division dispatches target-owned real structure kernels") {
   const std::string source =
       "diagonal = [2 0 0; 0 4 0; 0 0 5];\n"
       "lower = [2 0 0; 1 3 0; 4 -2 5];\n"
@@ -287,14 +290,60 @@ TEST_CASE("Matlab square division dispatches diagonal triangular and dense kerne
   REQUIRE(javascript.code.find("__mpf_matlab_square_structure") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_diagonal_apply") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_triangular_apply") != std::string::npos);
-  REQUIRE(javascript.code.find("__mpf_matlab_structured_square_solve") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_structured_real_square_solve") != std::string::npos);
   REQUIRE(javascript.code.find("return __mpf_matlab_lu_solve(left, right)") != std::string::npos);
   REQUIRE(cpp.code.find("matlab_classify_square_structure") != std::string::npos);
   REQUIRE(cpp.code.find("matlab_diagonal_apply") != std::string::npos);
   REQUIRE(cpp.code.find("matlab_triangular_apply") != std::string::npos);
-  REQUIRE(cpp.code.find("matlab_structured_square_solve") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_structured_real_square_solve") != std::string::npos);
   REQUIRE(cpp.code.find("return matlab_lu_solve(left, right)") != std::string::npos);
   for (const auto line : {4U, 5U, 6U, 7U, 8U}) {
+    REQUIRE(std::any_of(javascript.source_map.segments.begin(),
+                        javascript.source_map.segments.end(),
+                        [line](const auto& segment) { return segment.original_line == line; }));
+    REQUIRE(std::any_of(cpp.source_map.segments.begin(), cpp.source_map.segments.end(),
+                        [line](const auto& segment) { return segment.original_line == line; }));
+  }
+}
+
+TEST_CASE("Matlab real square policy plans pivoted tridiagonal and Cholesky solves") {
+  const std::string source =
+      "tridiagonal = [0 2 0; 1 3 4; 0 5 6];\n"
+      "tridiagonal_rhs = [4; 19; 28];\n"
+      "tridiagonal_solution = tridiagonal \\ tridiagonal_rhs;\n"
+      "tridiagonal_right = [2 23 26] / tridiagonal;\n"
+      "positive_definite = [4 2 2; 2 10 -2; 2 -2 6];\n"
+      "positive_definite_rhs = [14; 16; 16];\n"
+      "positive_definite_left = positive_definite \\ positive_definite_rhs;\n"
+      "positive_definite_right = [14 16 16] / positive_definite;\n"
+      "symmetric_indefinite = [0 1 2; 1 0 3; 2 3 0];\n"
+      "indefinite_solution = symmetric_indefinite \\ [8; 10; 8];\n"
+      "disp(tridiagonal_solution(2) + tridiagonal_right(3) + positive_definite_left(3) + "
+      "positive_definite_right(1) + indefinite_solution(1))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_tridiagonal_factor") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_tridiagonal_apply_transpose") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_tridiagonal_rcond") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_cholesky_factor") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_cholesky_apply") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_cholesky_rcond") != std::string::npos);
+  REQUIRE(javascript.code.find("structure === 'tridiagonal'") != std::string::npos);
+  REQUIRE(javascript.code.find("structure === 'symmetric'") != std::string::npos);
+  REQUIRE(javascript.code.find("if (factor.positiveDefinite)") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_tridiagonal_factorization") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_tridiagonal_apply_transpose") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_tridiagonal_rcond") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_cholesky_factorization") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_cholesky_apply") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_cholesky_rcond") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_square_structure::tridiagonal") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_square_structure::symmetric") != std::string::npos);
+  REQUIRE(cpp.code.find("if (factor.positive_definite)") != std::string::npos);
+  for (const auto line : {3U, 4U, 7U, 8U, 10U}) {
     REQUIRE(std::any_of(javascript.source_map.segments.begin(),
                         javascript.source_map.segments.end(),
                         [line](const auto& segment) { return segment.original_line == line; }));
