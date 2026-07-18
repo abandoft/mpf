@@ -161,6 +161,11 @@ TEST_CASE("source intrinsic catalog is language scoped and uses stable identitie
   REQUIRE(mpf::detail::find_intrinsic(mpf::SourceLanguage::matlab, "len") == IntrinsicId::none);
   REQUIRE(mpf::detail::find_intrinsic(mpf::SourceLanguage::matlab, "numel") ==
           IntrinsicId::element_count);
+  REQUIRE(mpf::detail::find_intrinsic(mpf::SourceLanguage::matlab, "all") ==
+          IntrinsicId::logical_all);
+  REQUIRE(mpf::detail::find_intrinsic(mpf::SourceLanguage::matlab, "any") ==
+          IntrinsicId::logical_any);
+  REQUIRE(mpf::detail::find_intrinsic(mpf::SourceLanguage::python, "all") == IntrinsicId::none);
   REQUIRE(mpf::detail::find_intrinsic(mpf::SourceLanguage::fortran, "size") ==
           IntrinsicId::element_count);
   REQUIRE(mpf::detail::find_intrinsic(mpf::SourceLanguage::typescript, "len") == IntrinsicId::none);
