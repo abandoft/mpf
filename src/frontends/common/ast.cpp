@@ -14,22 +14,22 @@ namespace {
 
 semantic::Profile semantic_profile(const SourceLanguage language) noexcept {
   semantic::Profile profile;
+  const auto division = semantic::source_division_contract(language);
+  profile.division = division.division;
+  profile.division_by_zero = division.division_by_zero;
   if (language == SourceLanguage::python) {
     profile.truthiness = semantic::Truthiness::dynamic;
     profile.logical_result = semantic::LogicalResult::operand;
     profile.equality = semantic::Equality::structural;
-    profile.division = semantic::Division::real_quotient;
     profile.resizable_sections = true;
     profile.emit_parameter_defaults = true;
   } else if (language == SourceLanguage::matlab) {
     profile.truthiness = semantic::Truthiness::matlab_all_nonzero;
-    profile.division = semantic::Division::real_quotient;
     profile.layout = semantic::IndexLayout::column_major;
     profile.top_level_storage = semantic::TopLevelStorage::entry_function;
   } else if (language == SourceLanguage::fortran) {
     profile.layout = semantic::IndexLayout::column_major;
   } else if (language == SourceLanguage::typescript) {
-    profile.division = semantic::Division::real_quotient;
     profile.export_policy = semantic::ExportPolicy::explicit_only;
     profile.scope_model = semantic::ScopeModel::lexical_blocks;
     profile.emit_parameter_defaults = true;

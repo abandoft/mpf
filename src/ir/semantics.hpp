@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <limits>
 
+#include "mpf/transpiler.hpp"
+
 namespace mpf::detail::semantic {
 
 enum class Truthiness { native, dynamic, matlab_all_nonzero, matlab_scalar };
@@ -93,6 +95,15 @@ template <typename Extents, typename Axes>
 }
 enum class Equality { native, structural };
 enum class Division { native, real_quotient };
+// Division result representation and zero-denominator behavior are independent source-language
+// contracts.  Keeping the latter explicit prevents a target backend from inferring Python
+// exceptions or IEEE-754 results from an operator token.
+enum class DivisionByZero : std::uint8_t { target_native, ieee754, exception };
+
+[[nodiscard]] constexpr bool valid_division_contract(
+    const Division division, const DivisionByZero division_by_zero) noexcept {
+  return (division == Division::native) == (division_by_zero == DivisionByZero::target_native);
+}
 enum class IndexLayout { row_major, column_major };
 enum class TopLevelStorage { module, entry_function };
 enum class ExportPolicy { all_top_level, explicit_only };
@@ -234,6 +245,7 @@ struct Profile {
   LogicalResult logical_result{LogicalResult::boolean};
   Equality equality{Equality::native};
   Division division{Division::native};
+  DivisionByZero division_by_zero{DivisionByZero::target_native};
   IndexLayout layout{IndexLayout::row_major};
   TopLevelStorage top_level_storage{TopLevelStorage::module};
   ExportPolicy export_policy{ExportPolicy::all_top_level};
@@ -241,5 +253,35 @@ struct Profile {
   bool resizable_sections{false};
   bool emit_parameter_defaults{false};
 };
+
+struct SourceDivisionContract {
+  Division division{Division::native};
+  DivisionByZero division_by_zero{DivisionByZero::target_native};
+};
+
+[[nodiscard]] constexpr SourceDivisionContract source_division_contract(
+    const SourceLanguage language) noexcept {
+  switch (language) {
+    case SourceLanguage::python: return {Division::real_quotient, DivisionByZero::exception};
+    case SourceLanguage::matlab:
+    case SourceLanguage::typescript: return {Division::real_quotient, DivisionByZero::ieee754};
+    case SourceLanguage::automatic:
+    case SourceLanguage::fortran: return {};
+  }
+  return {};
+}
+
+[[nodiscard]] constexpr bool source_division_contract_matches(
+    const SourceLanguage language, const Division division,
+    const DivisionByZero division_by_zero) noexcept {
+  const auto expected = source_division_contract(language);
+  return valid_division_contract(division, division_by_zero) && division == expected.division &&
+         division_by_zero == expected.division_by_zero;
+}
+
+[[nodiscard]] constexpr bool source_division_contract_matches(const SourceLanguage language,
+                                                              const Profile& profile) noexcept {
+  return source_division_contract_matches(language, profile.division, profile.division_by_zero);
+}
 
 }  // namespace mpf::detail::semantic

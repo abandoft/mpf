@@ -143,12 +143,13 @@ void dump_memory_accesses(std::ostringstream& output,
 
 std::string dump_hir(const hir::Program& program) {
   std::ostringstream output;
-  output << "hir-v1 language=" << enum_value(program.language) << " nodes=" << program.node_count
+  output << "hir-v2 language=" << enum_value(program.language) << " nodes=" << program.node_count
          << " revision=" << program.revision << '\n';
   output << "semantics truthiness=" << enum_value(program.semantics.truthiness)
          << " logical-result=" << enum_value(program.semantics.logical_result)
          << " equality=" << enum_value(program.semantics.equality)
          << " division=" << enum_value(program.semantics.division)
+         << " division-by-zero=" << enum_value(program.semantics.division_by_zero)
          << " layout=" << enum_value(program.semantics.layout)
          << " top-level=" << enum_value(program.semantics.top_level_storage) << '\n';
   dump_hir_statements(output, program.statements, 0);
@@ -294,7 +295,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v15 language=" << enum_value(program.source_language)
+  output << "mir-v16 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)

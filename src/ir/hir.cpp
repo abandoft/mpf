@@ -108,6 +108,10 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
     add_error(diagnostics, {1, 1}, stage, "source language is unresolved");
     return diagnostics;
   }
+  if (!semantic::source_division_contract_matches(program.language, program.semantics)) {
+    add_error(diagnostics, {1, 1}, stage,
+              "source division profile is inconsistent with the language");
+  }
   std::vector<bool> seen(program.node_count + 1, false);
   verify_statements(program.statements, program.node_count, seen, stage, diagnostics);
   const auto visited = static_cast<std::size_t>(std::count(seen.begin(), seen.end(), true));

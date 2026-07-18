@@ -1647,6 +1647,10 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
     add_error(diagnostics, {1, 1}, stage, "required dense tables are empty");
     return diagnostics;
   }
+  if (!semantic::source_division_contract_matches(program.source_language, program.semantics)) {
+    add_error(diagnostics, {1, 1}, stage,
+              "source division profile is inconsistent with the language");
+  }
   if (program.attributes.mir_revision != program.revision ||
       program.attributes.expression_count + 1U != program.expressions.size() ||
       program.attributes.statement_count + 1U != program.statements.size() ||
