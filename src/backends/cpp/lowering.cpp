@@ -9,6 +9,7 @@
 #include "backends/common/lir_dump.hpp"
 #include "bindings.hpp"
 #include "compiler/function_graph_generic.hpp"
+#include "compiler/numeric_contract.hpp"
 #include "ir/pass_manager.hpp"
 #include "lir_planning.hpp"
 #include "lir_representation.hpp"
@@ -79,6 +80,18 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
   if (expression_node == nullptr || expression_attributes == nullptr) return;
   const auto& expression = *expression_node;
   const auto& attributes = *expression_attributes;
+  if (mir::numeric_type(program, expression.type_id).complexity == NumericComplexity::complex ||
+      mir::element_numeric_type(program, expression.type_id).complexity ==
+          NumericComplexity::complex) {
+    result.runtime.require(lir::RuntimeFeature::complex_numbers);
+  }
+  const auto active_numeric_type = mir::value_type(program, expression.type_id) == ValueType::list
+                                       ? mir::element_numeric_type(program, expression.type_id)
+                                       : mir::numeric_type(program, expression.type_id);
+  if (program.source_language == SourceLanguage::matlab &&
+      expression.kind == ExpressionKind::binary && active_numeric_type == unknown_numeric_type) {
+    result.runtime.require(lir::RuntimeFeature::complex_numbers);
+  }
   if (attributes.binding == BindingKind::builtin && attributes.intrinsic != IntrinsicId::none) {
     const auto* binding = cpp_code_binding(attributes.intrinsic);
     if (binding == nullptr || binding->kind == CodeBindingKind::unavailable) {
@@ -127,6 +140,14 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
         callee_attributes->binding == BindingKind::builtin &&
         array_intrinsic(callee_attributes->intrinsic)) {
       result.runtime.require(lir::RuntimeFeature::arrays);
+    }
+    if (callee != nullptr && callee_attributes != nullptr &&
+        callee_attributes->binding == BindingKind::builtin &&
+        (callee_attributes->intrinsic == IntrinsicId::complex_value ||
+         callee_attributes->intrinsic == IntrinsicId::conjugate ||
+         callee_attributes->intrinsic == IntrinsicId::imaginary_part ||
+         callee_attributes->intrinsic == IntrinsicId::real_part)) {
+      result.runtime.require(lir::RuntimeFeature::complex_numbers);
     }
     if (callee != nullptr && callee_attributes != nullptr &&
         callee_attributes->binding == BindingKind::builtin &&
@@ -233,6 +254,10 @@ void verify_expression(const lir::Expression& expression, const std::size_t node
     return;
   }
   seen[id] = true;
+  if (!expression_numeric_contract_matches(expression)) {
+    add_error(diagnostics, expression.location,
+              "cpp LIR expression has inconsistent numeric metadata");
+  }
   if (expression.binding == BindingKind::builtin && expression.intrinsic != IntrinsicId::none &&
       expression.target_binding.kind == CodeBindingKind::unavailable) {
     add_error(diagnostics, expression.location, "cpp LIR has an unresolved intrinsic binding");
@@ -282,6 +307,10 @@ void verify_statements(const std::vector<lir::Statement>& statements, const std:
       continue;
     }
     seen[id] = true;
+    if (!statement_numeric_contract_matches(statement)) {
+      add_error(diagnostics, {statement.line, 1},
+                "cpp LIR statement has inconsistent numeric metadata");
+    }
     verify_expression(statement.expression, node_count, seen, diagnostics);
     verify_expression(statement.secondary_expression, node_count, seen, diagnostics);
     verify_expression(statement.tertiary_expression, node_count, seen, diagnostics);

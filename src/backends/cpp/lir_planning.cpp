@@ -16,11 +16,14 @@ void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation locati
   diagnostics.push_back({DiagnosticSeverity::error, "MPF0008", std::move(message), location});
 }
 
-const std::vector<std::string>& required_standard_headers() {
-  static const std::vector<std::string> headers = {
+std::vector<std::string> required_standard_headers(const lir::SemanticProgram& program) {
+  std::vector<std::string> headers = {
       "<algorithm>",  "<array>",       "<cmath>",  "<cstddef>", "<cstdint>",  "<exception>",
       "<functional>", "<iostream>",    "<limits>", "<numeric>", "<optional>", "<stdexcept>",
       "<string>",     "<type_traits>", "<tuple>",  "<utility>", "<vector>"};
+  if (program.runtime.contains(lir::RuntimeFeature::complex_numbers)) {
+    headers.insert(headers.begin() + 3, "<complex>");
+  }
   return headers;
 }
 
@@ -37,6 +40,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::scalar_division)) {
     result.push_back(lir::RuntimeFragment::scalar_division);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::complex_numbers)) {
+    result.push_back(lir::RuntimeFragment::complex_numbers);
+  }
   return result;
 }
 
@@ -48,7 +54,7 @@ bool valid_function_index(const lir::SemanticProgram& program, const std::size_t
 lir::TranslationUnitPlan expected_translation_unit(const lir::SemanticProgram& program) {
   lir::TranslationUnitPlan result;
   result.valid = true;
-  result.standard_headers = required_standard_headers();
+  result.standard_headers = required_standard_headers(program);
   result.runtime_fragments = expected_runtime_fragments(program);
   result.runtime_namespace = "mpf_runtime";
   result.generated_namespace = "mpf_generated";
@@ -103,7 +109,9 @@ void verify_translation_unit(const lir::SemanticProgram& program,
   }
 }
 
-const char* cpp_type(const ValueType type) noexcept {
+const char* cpp_type(const ValueType type,
+                     const NumericType numeric_type = unknown_numeric_type) noexcept {
+  if (numeric_type.complexity == NumericComplexity::complex) return "std::complex<double>";
   switch (type) {
     case ValueType::integer: return "std::int64_t";
     case ValueType::real: return "double";
@@ -118,12 +126,13 @@ const char* cpp_type(const ValueType type) noexcept {
   return "double";
 }
 
-std::string cpp_container_type(const ValueType element_type, const std::size_t dimensions) {
+std::string cpp_container_type(const ValueType element_type, const NumericType element_numeric_type,
+                               const std::size_t dimensions) {
   std::string result;
   for (std::size_t dimension = 0; dimension < dimensions; ++dimension) {
     result += "std::vector<";
   }
-  result += cpp_type(element_type);
+  result += cpp_type(element_type, element_numeric_type);
   result.append(dimensions, '>');
   return result;
 }
@@ -131,13 +140,19 @@ std::string cpp_container_type(const ValueType element_type, const std::size_t d
 std::string cpp_parameter_type(const lir::Statement& statement, const std::size_t index) {
   const auto type = index < statement.parameter_types.size() ? statement.parameter_types[index]
                                                              : ValueType::unknown;
-  if (type != ValueType::list) return cpp_type(type);
+  const auto numeric_type = index < statement.parameter_numeric_types.size()
+                                ? statement.parameter_numeric_types[index]
+                                : unknown_numeric_type;
+  if (type != ValueType::list) return cpp_type(type, numeric_type);
   const auto element = index < statement.parameter_element_types.size()
                            ? statement.parameter_element_types[index]
                            : ValueType::unknown;
   const auto rank =
       index < statement.parameter_shapes.size() ? statement.parameter_shapes[index].size() : 0U;
-  return cpp_container_type(element, rank);
+  const auto element_numeric = index < statement.parameter_element_numeric_types.size()
+                                   ? statement.parameter_element_numeric_types[index]
+                                   : unknown_numeric_type;
+  return cpp_container_type(element, element_numeric, rank);
 }
 
 bool primitive_type(const ValueType type) noexcept {
@@ -163,22 +178,24 @@ bool explicit_return_type(const lir::Statement& statement, std::string& type) {
     type = "std::tuple<";
     for (std::size_t index = 0; index < statement.return_types.size(); ++index) {
       if (index != 0) type += ", ";
-      type += cpp_type(statement.return_types[index]);
+      type += cpp_type(statement.return_types[index], index < statement.return_numeric_types.size()
+                                                          ? statement.return_numeric_types[index]
+                                                          : unknown_numeric_type);
     }
     type += '>';
     return true;
   }
   if (!primitive_type(statement.declared_type)) return false;
-  type = cpp_type(statement.declared_type);
+  type = cpp_type(statement.declared_type, statement.declared_numeric_type);
   return true;
 }
 
-lir::DeclarationPlan make_declaration(const SymbolId symbol, std::string name,
-                                      const lir::Expression* initializer,
-                                      const ValueType explicit_type, const ValueType element_type,
-                                      const std::vector<std::size_t>& shape,
-                                      const std::size_t tuple_index = dynamic_extent,
-                                      const AssignmentPattern* pattern_leaf = nullptr) {
+lir::DeclarationPlan make_declaration(
+    const SymbolId symbol, std::string name, const lir::Expression* initializer,
+    const ValueType explicit_type, const NumericType explicit_numeric_type,
+    const ValueType element_type, const NumericType element_numeric_type,
+    const std::vector<std::size_t>& shape, const std::size_t tuple_index = dynamic_extent,
+    const AssignmentPattern* pattern_leaf = nullptr) {
   lir::DeclarationPlan result;
   result.name = std::move(name);
   result.symbol_id = symbol;
@@ -197,17 +214,24 @@ lir::DeclarationPlan make_declaration(const SymbolId symbol, std::string name,
     if (initializer != nullptr && !concrete) {
       result.type_kind = lir::DeclarationTypeKind::decay_expression;
     } else {
-      result.concrete_type = cpp_container_type(element_type, shape.size());
+      result.concrete_type = cpp_container_type(element_type, element_numeric_type, shape.size());
     }
     if (initializer == nullptr && !shape.empty()) {
       result.fixed_shape = shape;
       for (std::size_t dimension = 1; dimension < shape.size(); ++dimension) {
         result.fixed_nested_types.push_back(
-            cpp_container_type(element_type, shape.size() - dimension));
+            cpp_container_type(element_type, element_numeric_type, shape.size() - dimension));
       }
     }
   } else if (primitive_type(explicit_type)) {
-    result.concrete_type = cpp_type(explicit_type);
+    const bool parameter_dependent_numeric =
+        initializer != nullptr && explicit_numeric_type == unknown_numeric_type &&
+        (explicit_type == ValueType::integer || explicit_type == ValueType::real);
+    if (parameter_dependent_numeric) {
+      result.type_kind = lir::DeclarationTypeKind::decay_expression;
+    } else {
+      result.concrete_type = cpp_type(explicit_type, explicit_numeric_type);
+    }
   } else if (initializer != nullptr) {
     result.type_kind = lir::DeclarationTypeKind::decay_expression;
   } else {
@@ -236,16 +260,18 @@ void collect_declarations(const std::vector<lir::Statement>& statements,
     if (statement.kind == StatementKind::declaration &&
         accept_declaration(statement.symbol_id, statement.name, excluded_symbols, excluded_names,
                            found_symbols, found_names)) {
-      declarations.push_back(
-          make_declaration(statement.symbol_id, statement.name,
-                           statement.has_expression ? &statement.expression : nullptr,
-                           statement.declared_type, statement.element_type, statement.shape));
+      declarations.push_back(make_declaration(
+          statement.symbol_id, statement.name,
+          statement.has_expression ? &statement.expression : nullptr, statement.declared_type,
+          statement.declared_numeric_type, statement.element_type, statement.element_numeric_type,
+          statement.shape));
     } else if (!lexical_blocks && statement.kind == StatementKind::assignment &&
                accept_declaration(statement.symbol_id, statement.name, excluded_symbols,
                                   excluded_names, found_symbols, found_names)) {
-      declarations.push_back(make_declaration(statement.symbol_id, statement.name,
-                                              &statement.expression, statement.declared_type,
-                                              statement.element_type, statement.shape));
+      declarations.push_back(make_declaration(
+          statement.symbol_id, statement.name, &statement.expression, statement.declared_type,
+          statement.declared_numeric_type, statement.element_type, statement.element_numeric_type,
+          statement.shape));
     } else if (!lexical_blocks && statement.kind == StatementKind::multi_assignment) {
       if (statement.has_target_pattern) {
         std::vector<const AssignmentPattern*> leaves;
@@ -259,9 +285,9 @@ void collect_declarations(const std::vector<lir::Statement>& statements,
                                   found_symbols, found_names)) {
             continue;
           }
-          declarations.push_back(make_declaration(symbol, leaf->name, &statement.expression,
-                                                  leaf->type, leaf->element_type, leaf->shape,
-                                                  dynamic_extent, leaf));
+          declarations.push_back(make_declaration(
+              symbol, leaf->name, &statement.expression, leaf->type, leaf->numeric_type,
+              leaf->element_type, leaf->element_numeric_type, leaf->shape, dynamic_extent, leaf));
         }
       } else {
         for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
@@ -278,10 +304,17 @@ void collect_declarations(const std::vector<lir::Statement>& statements,
           const auto element_type = index < statement.target_element_types.size()
                                         ? statement.target_element_types[index]
                                         : ValueType::unknown;
+          const auto numeric_type = index < statement.target_numeric_types.size()
+                                        ? statement.target_numeric_types[index]
+                                        : unknown_numeric_type;
+          const auto element_numeric_type = index < statement.target_element_numeric_types.size()
+                                                ? statement.target_element_numeric_types[index]
+                                                : unknown_numeric_type;
           const auto shape = index < statement.target_shapes.size() ? statement.target_shapes[index]
                                                                     : std::vector<std::size_t>{};
           declarations.push_back(make_declaration(symbol, name, &statement.expression, type,
-                                                  element_type, shape, index));
+                                                  numeric_type, element_type, element_numeric_type,
+                                                  shape, index));
         }
       }
     } else if (statement.kind == StatementKind::if_statement ||
@@ -302,9 +335,10 @@ void collect_declarations(const std::vector<lir::Statement>& statements,
       if (!lexical_blocks &&
           accept_declaration(statement.symbol_id, statement.name, excluded_symbols, excluded_names,
                              found_symbols, found_names)) {
-        declarations.push_back(make_declaration(statement.symbol_id, statement.name,
-                                                &statement.expression, statement.declared_type,
-                                                statement.element_type, statement.shape));
+        declarations.push_back(make_declaration(
+            statement.symbol_id, statement.name, &statement.expression, statement.declared_type,
+            statement.declared_numeric_type, statement.element_type, statement.element_numeric_type,
+            statement.shape));
       }
       if (!lexical_blocks) {
         auto loop_symbols = excluded_symbols;
@@ -513,9 +547,10 @@ void plan_scopes(lir::SemanticProgram& program, std::vector<lir::Statement>& sta
       if (statement.kind == StatementKind::range_loop ||
           statement.kind == StatementKind::for_loop) {
         statement.statement_scope.valid = true;
-        statement.statement_scope.declarations.push_back(
-            make_declaration(statement.symbol_id, statement.name, &statement.expression,
-                             statement.declared_type, statement.element_type, statement.shape));
+        statement.statement_scope.declarations.push_back(make_declaration(
+            statement.symbol_id, statement.name, &statement.expression, statement.declared_type,
+            statement.declared_numeric_type, statement.element_type, statement.element_numeric_type,
+            statement.shape));
       }
       if (scoped_control) {
         statement.body_scope = expected_scope(statement.body, true);
@@ -670,9 +705,10 @@ void verify_statement_resources(const lir::SemanticProgram& program,
     if (program.emission.lexical_block_scopes && (statement.kind == StatementKind::range_loop ||
                                                   statement.kind == StatementKind::for_loop)) {
       expected_statement_scope.valid = true;
-      expected_statement_scope.declarations.push_back(
-          make_declaration(statement.symbol_id, statement.name, &statement.expression,
-                           statement.declared_type, statement.element_type, statement.shape));
+      expected_statement_scope.declarations.push_back(make_declaration(
+          statement.symbol_id, statement.name, &statement.expression, statement.declared_type,
+          statement.declared_numeric_type, statement.element_type, statement.element_numeric_type,
+          statement.shape));
     }
     const auto expected_body_scope = program.emission.lexical_block_scopes && scoped_control
                                          ? expected_scope(statement.body, true)

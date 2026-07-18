@@ -40,7 +40,10 @@ lir::VariableAccess variable_access(const AccessContext& context,
   return found == context.rend() ? lir::VariableAccess::direct : found->second;
 }
 
-const char* scalar_type(const ValueType type) noexcept {
+const char* scalar_type(const ValueType type, const NumericType numeric_type) noexcept {
+  if (numeric_type.complexity == NumericComplexity::complex) {
+    return "std::complex<double>";
+  }
   switch (type) {
     case ValueType::integer: return "std::int64_t";
     case ValueType::real: return "double";
@@ -55,14 +58,15 @@ const char* scalar_type(const ValueType type) noexcept {
   return "double";
 }
 
-std::string container_type(const ValueType element_type, const std::size_t dimensions) {
+std::string container_type(const ValueType element_type, const NumericType element_numeric_type,
+                           const std::size_t dimensions) {
   std::string result;
-  result.reserve(std::string_view(scalar_type(element_type)).size() +
+  result.reserve(std::string_view(scalar_type(element_type, element_numeric_type)).size() +
                  dimensions * std::string_view("std::vector<>").size());
   for (std::size_t dimension = 0; dimension < dimensions; ++dimension) {
     result += "std::vector<";
   }
-  result += scalar_type(element_type);
+  result += scalar_type(element_type, element_numeric_type);
   result.append(dimensions, '>');
   return result;
 }
@@ -112,6 +116,11 @@ std::string matlab_solve_helper(const std::string_view operation,
 }
 
 std::string matlab_array_helper(const lir::Expression& expression) {
+  const bool complex = expression.numeric_type.complexity == NumericComplexity::complex ||
+                       expression.element_numeric_type.complexity == NumericComplexity::complex;
+  const bool dynamic_numeric = expression.numeric_type == unknown_numeric_type ||
+                               expression.element_numeric_type == unknown_numeric_type;
+  if (complex && expression.matrix_operation.valid()) return {};
   switch (expression.matrix_operation.operation) {
     case semantic::MatrixOperation::multiply: return "mpf_runtime::matlab_mtimes";
     case semantic::MatrixOperation::left_divide:
@@ -127,22 +136,38 @@ std::string matlab_array_helper(const lir::Expression& expression) {
                            expression.children[0].inferred_type == ValueType::list &&
                            expression.children[1].inferred_type == ValueType::list;
   if (expression.operation == BinaryOperator::multiply && both_arrays) return {};
-  if (expression.operation == BinaryOperator::add) return "mpf_runtime::matlab_add";
-  if (expression.operation == BinaryOperator::subtract) return "mpf_runtime::matlab_subtract";
+  if (expression.operation == BinaryOperator::add) {
+    return complex           ? "mpf_runtime::matlab_complex_add"
+           : dynamic_numeric ? "mpf_runtime::matlab_numeric_add"
+                             : "mpf_runtime::matlab_add";
+  }
+  if (expression.operation == BinaryOperator::subtract) {
+    return complex           ? "mpf_runtime::matlab_complex_subtract"
+           : dynamic_numeric ? "mpf_runtime::matlab_numeric_subtract"
+                             : "mpf_runtime::matlab_subtract";
+  }
   if (expression.operation == BinaryOperator::multiply ||
       expression.operation == BinaryOperator::elementwise_multiply) {
-    return "mpf_runtime::matlab_multiply";
+    return complex           ? "mpf_runtime::matlab_complex_multiply"
+           : dynamic_numeric ? "mpf_runtime::matlab_numeric_multiply"
+                             : "mpf_runtime::matlab_multiply";
   }
   if (expression.operation == BinaryOperator::divide ||
       expression.operation == BinaryOperator::elementwise_divide) {
-    return "mpf_runtime::matlab_divide";
+    return complex           ? "mpf_runtime::matlab_complex_divide"
+           : dynamic_numeric ? "mpf_runtime::matlab_numeric_divide"
+                             : "mpf_runtime::matlab_divide";
   }
   if (expression.operation == BinaryOperator::left_divide ||
       expression.operation == BinaryOperator::elementwise_left_divide) {
-    return "mpf_runtime::matlab_left_divide";
+    return complex           ? "mpf_runtime::matlab_complex_left_divide"
+           : dynamic_numeric ? "mpf_runtime::matlab_numeric_left_divide"
+                             : "mpf_runtime::matlab_left_divide";
   }
   if (expression.operation == BinaryOperator::elementwise_power) {
-    return "mpf_runtime::matlab_power";
+    return complex           ? "mpf_runtime::matlab_complex_power"
+           : dynamic_numeric ? "mpf_runtime::matlab_numeric_power"
+                             : "mpf_runtime::matlab_power";
   }
   if (expression.operation == BinaryOperator::elementwise_logical_and) {
     return "mpf_runtime::matlab_and";
@@ -346,11 +371,11 @@ lir::CallForm call_form(const lir::Expression& expression) noexcept {
   return lir::CallForm::direct;
 }
 
-lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
-                                             const lir::EmissionPlan& emission,
-                                             const AccessContext& context,
-                                             const SourceLanguage source_language,
-                                             const std::optional<ValueType> array_element_type) {
+lir::ExpressionPlan expected_expression_plan(
+    const lir::Expression& expression, const lir::EmissionPlan& emission,
+    const AccessContext& context, const SourceLanguage source_language,
+    const std::optional<ValueType> array_element_type,
+    const std::optional<NumericType> array_element_numeric_type) {
   lir::ExpressionPlan result;
   if (!expression.valid()) return result;
   result.valid = true;
@@ -376,6 +401,14 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       }
       break;
     case ExpressionKind::number_literal:
+      if (expression.numeric_type.complexity == NumericComplexity::complex &&
+          !expression.value.empty()) {
+        result.form = lir::ExpressionForm::scalar_literal;
+        result.token = "std::complex<double>{0.0, static_cast<double>(" +
+                       expression.value.substr(0, expression.value.size() - 1U) + ")}";
+        break;
+      }
+      [[fallthrough]];
     case ExpressionKind::boolean_literal:
       result.form = lir::ExpressionForm::scalar_literal;
       result.token = expression.value;
@@ -392,7 +425,15 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       if (expression.unary_operation == UnaryOperator::transpose ||
           expression.unary_operation == UnaryOperator::conjugate_transpose) {
         result.precedence = 9;
-        result.token = "mpf_runtime::matlab_transpose";
+        const bool complex_operand =
+            !expression.children.empty() &&
+            (expression.children.front().numeric_type.complexity == NumericComplexity::complex ||
+             expression.children.front().element_numeric_type.complexity ==
+                 NumericComplexity::complex);
+        result.token =
+            expression.unary_operation == UnaryOperator::conjugate_transpose && complex_operand
+                ? "mpf_runtime::matlab_ctranspose"
+                : "mpf_runtime::matlab_transpose";
         result.form = lir::ExpressionForm::matlab_transpose;
         if (!expression.children.empty()) result.input_shape = expression.children.front().shape;
         result.result_shape = expression.shape;
@@ -463,11 +504,42 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
         result.token = expression.value;
         result.form = lir::ExpressionForm::binary_lazy_or;
         result.evaluation = lir::EvaluationForm::lazy_reference_lambda_thunks;
+      } else if (source_language == SourceLanguage::matlab &&
+                 expression.numeric_type == unknown_numeric_type) {
+        result.precedence = 9;
+        switch (expression.operation) {
+          case BinaryOperator::add: result.token = "mpf_runtime::numeric_add"; break;
+          case BinaryOperator::subtract: result.token = "mpf_runtime::numeric_subtract"; break;
+          case BinaryOperator::multiply:
+          case BinaryOperator::elementwise_multiply:
+            result.token = "mpf_runtime::numeric_multiply";
+            break;
+          case BinaryOperator::divide:
+          case BinaryOperator::elementwise_divide:
+            result.token = "mpf_runtime::numeric_divide";
+            break;
+          case BinaryOperator::left_divide:
+          case BinaryOperator::elementwise_left_divide:
+            result.token = "mpf_runtime::numeric_left_divide";
+            break;
+          case BinaryOperator::power:
+          case BinaryOperator::elementwise_power:
+            result.token = "mpf_runtime::numeric_power";
+            break;
+          default: break;
+        }
+        result.form = lir::ExpressionForm::binary_runtime_call;
       } else if (expression.operation == BinaryOperator::power ||
                  expression.operation == BinaryOperator::elementwise_power) {
-        result.precedence = binary_precedence(expression.value);
-        result.token = expression.value;
-        result.form = lir::ExpressionForm::binary_power;
+        if (expression.numeric_type.complexity == NumericComplexity::complex) {
+          result.precedence = 9;
+          result.token = "mpf_runtime::complex_power";
+          result.form = lir::ExpressionForm::binary_runtime_call;
+        } else {
+          result.precedence = binary_precedence(expression.value);
+          result.token = expression.value;
+          result.form = lir::ExpressionForm::binary_power;
+        }
       } else if (expression.operation == BinaryOperator::floor_divide) {
         result.precedence = 9;
         result.token = scalar_division_helper(emission, true);
@@ -475,14 +547,46 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       } else if (expression.operation == BinaryOperator::elementwise_divide ||
                  (expression.operation == BinaryOperator::divide &&
                   emission.division == semantic::Division::real_quotient)) {
+        if (expression.numeric_type.complexity == NumericComplexity::complex) {
+          result.precedence = 9;
+          result.token = "mpf_runtime::complex_divide";
+          result.form = lir::ExpressionForm::binary_runtime_call;
+          break;
+        }
         result.precedence = 9;
         result.token = scalar_division_helper(emission);
         result.form = lir::ExpressionForm::binary_runtime_call;
       } else if (expression.operation == BinaryOperator::elementwise_left_divide ||
                  expression.operation == BinaryOperator::left_divide) {
+        if (expression.numeric_type.complexity == NumericComplexity::complex) {
+          result.precedence = 9;
+          result.token = "mpf_runtime::complex_left_divide";
+          result.form = lir::ExpressionForm::binary_runtime_call;
+          break;
+        }
         result.precedence = 9;
         result.token = scalar_division_helper(emission);
         result.form = lir::ExpressionForm::binary_reverse_runtime_call;
+      } else if (expression.numeric_type.complexity == NumericComplexity::complex) {
+        result.precedence = 9;
+        switch (expression.operation) {
+          case BinaryOperator::add: result.token = "mpf_runtime::complex_add"; break;
+          case BinaryOperator::subtract: result.token = "mpf_runtime::complex_subtract"; break;
+          case BinaryOperator::multiply:
+          case BinaryOperator::elementwise_multiply:
+            result.token = "mpf_runtime::complex_multiply";
+            break;
+          case BinaryOperator::divide:
+          case BinaryOperator::elementwise_divide:
+            result.token = "mpf_runtime::complex_divide";
+            break;
+          case BinaryOperator::left_divide:
+          case BinaryOperator::elementwise_left_divide:
+            result.token = "mpf_runtime::complex_left_divide";
+            break;
+          default: break;
+        }
+        result.form = lir::ExpressionForm::binary_runtime_call;
       } else {
         result.precedence = binary_precedence(expression.value);
         result.token =
@@ -597,16 +701,26 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
     case ExpressionKind::list: {
       result.form = lir::ExpressionForm::list;
       const auto planned_element_type = array_element_type.value_or(expression.element_type);
-      result.concrete_type = container_type(planned_element_type, expression.shape.size());
+      const auto planned_element_numeric_type =
+          array_element_numeric_type.value_or(expression.element_numeric_type);
+      result.concrete_type = container_type(planned_element_type, planned_element_numeric_type,
+                                            expression.shape.size());
       result.array_literal.form =
           source_language == SourceLanguage::matlab && expression.children.empty()
               ? lir::ArrayLiteralForm::shaped_empty
               : lir::ArrayLiteralForm::direct;
       result.array_literal.shape = expression.shape;
       result.widen_children.reserve(expression.children.size());
+      result.complex_children.reserve(expression.children.size());
       for (const auto& child : expression.children) {
         result.widen_children.push_back(planned_element_type == ValueType::real &&
+                                        planned_element_numeric_type.complexity !=
+                                            NumericComplexity::complex &&
                                         child.inferred_type != ValueType::list);
+        result.complex_children.push_back(
+            planned_element_numeric_type.complexity == NumericComplexity::complex &&
+            child.inferred_type != ValueType::list &&
+            child.numeric_type.complexity != NumericComplexity::complex);
       }
       break;
     }
@@ -651,7 +765,8 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.inclusive_slice_stop != right.inclusive_slice_stop ||
       left.flatten_base != right.flatten_base || left.string_value != right.string_value ||
       left.concrete_type != right.concrete_type || left.widen_children != right.widen_children ||
-      left.input_shape != right.input_shape || left.result_shape != right.result_shape ||
+      left.complex_children != right.complex_children || left.input_shape != right.input_shape ||
+      left.result_shape != right.result_shape ||
       left.array_literal.form != right.array_literal.form ||
       left.array_literal.shape != right.array_literal.shape) {
     return false;
@@ -667,20 +782,28 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
 
 void plan_expression(lir::Expression& expression, const lir::EmissionPlan& emission,
                      const AccessContext& context, const SourceLanguage source_language,
-                     const std::optional<ValueType> array_element_type = std::nullopt) {
+                     const std::optional<ValueType> array_element_type = std::nullopt,
+                     const std::optional<NumericType> array_element_numeric_type = std::nullopt) {
   if (!expression.valid()) return;
   const auto planned_element_type = expression.kind == ExpressionKind::list
                                         ? array_element_type.value_or(expression.element_type)
                                         : ValueType::unknown;
+  const auto planned_element_numeric_type =
+      expression.kind == ExpressionKind::list
+          ? array_element_numeric_type.value_or(expression.element_numeric_type)
+          : unknown_numeric_type;
   for (auto& child : expression.children) {
     plan_expression(
         child, emission, context, source_language,
         expression.kind == ExpressionKind::list && child.inferred_type == ValueType::list
             ? std::optional<ValueType>{planned_element_type}
+            : std::nullopt,
+        expression.kind == ExpressionKind::list && child.inferred_type == ValueType::list
+            ? std::optional<NumericType>{planned_element_numeric_type}
             : std::nullopt);
   }
-  expression.plan =
-      expected_expression_plan(expression, emission, context, source_language, array_element_type);
+  expression.plan = expected_expression_plan(expression, emission, context, source_language,
+                                             array_element_type, array_element_numeric_type);
 }
 
 void collect_index_extent(const lir::Expression& expression,
@@ -746,7 +869,8 @@ semantic::ReductionOperation expected_reduction_operation(
 void verify_expression(const lir::Expression& expression, const lir::EmissionPlan& emission,
                        const AccessContext& context, const SourceLanguage source_language,
                        std::vector<Diagnostic>& diagnostics, const bool condition_context = false,
-                       const std::optional<ValueType> array_element_type = std::nullopt) {
+                       const std::optional<ValueType> array_element_type = std::nullopt,
+                       const std::optional<NumericType> array_element_numeric_type = std::nullopt) {
   if (!expression.valid()) return;
   if (expression.logical_evaluation !=
       expected_logical_evaluation(expression, source_language, condition_context)) {
@@ -850,14 +974,19 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
     add_error(diagnostics, expression.location,
               "cpp LIR scalar-division runtime plan has no target helper");
   }
-  if (!same_plan(expression.plan, expected_expression_plan(expression, emission, context,
-                                                           source_language, array_element_type))) {
+  if (!same_plan(expression.plan,
+                 expected_expression_plan(expression, emission, context, source_language,
+                                          array_element_type, array_element_numeric_type))) {
     add_error(diagnostics, expression.location,
               "cpp LIR expression representation plan is inconsistent");
   }
   const auto planned_element_type = expression.kind == ExpressionKind::list
                                         ? array_element_type.value_or(expression.element_type)
                                         : ValueType::unknown;
+  const auto planned_element_numeric_type =
+      expression.kind == ExpressionKind::list
+          ? array_element_numeric_type.value_or(expression.element_numeric_type)
+          : unknown_numeric_type;
   const bool child_condition = condition_context && expression.kind == ExpressionKind::binary &&
                                logical_composition(expression.operation);
   for (const auto& child : expression.children) {
@@ -865,6 +994,9 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
         child, emission, context, source_language, diagnostics, child_condition,
         expression.kind == ExpressionKind::list && child.inferred_type == ValueType::list
             ? std::optional<ValueType>{planned_element_type}
+            : std::nullopt,
+        expression.kind == ExpressionKind::list && child.inferred_type == ValueType::list
+            ? std::optional<NumericType>{planned_element_numeric_type}
             : std::nullopt);
   }
 }
@@ -888,8 +1020,11 @@ std::vector<lir::AssignmentLeafPlan> assignment_leaves(const AssignmentPattern& 
     plan.captured_sequence = leaf->kind != AssignmentPatternKind::name;
     const auto dimensions = std::max<std::size_t>(1, leaf->shape.size());
     if (plan.captured_sequence) {
-      plan.concrete_type = container_type(leaf->element_type, dimensions);
-      plan.widen_elements = leaf->element_type == ValueType::real && dimensions == 1;
+      plan.concrete_type =
+          container_type(leaf->element_type, leaf->element_numeric_type, dimensions);
+      plan.widen_elements = leaf->element_type == ValueType::real &&
+                            leaf->element_numeric_type.complexity != NumericComplexity::complex &&
+                            dimensions == 1;
     }
     plan.access_path = leaf->access_path;
     plan.captured_paths = leaf->captured_paths;
