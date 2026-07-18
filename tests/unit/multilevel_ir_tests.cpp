@@ -136,7 +136,26 @@ TEST_CASE("frontends lower language-owned AST artifacts into verified HIR") {
   REQUIRE(lowered.program.node_count > lowered.program.statements.size());
   REQUIRE(lowered.program.statements.front().id.valid());
   REQUIRE(lowered.program.semantics.truthiness == mpf::detail::semantic::Truthiness::dynamic);
+  REQUIRE(lowered.program.semantics.division == mpf::detail::semantic::Division::real_quotient);
+  REQUIRE(lowered.program.semantics.division_by_zero ==
+          mpf::detail::semantic::DivisionByZero::exception);
   REQUIRE(mpf::detail::hir::verify(lowered.program, "test").empty());
+
+  const auto matlab = lower_source(mpf::SourceLanguage::matlab, "value = 1;\n", "profile.m");
+  REQUIRE(matlab.program.semantics.division == mpf::detail::semantic::Division::real_quotient);
+  REQUIRE(matlab.program.semantics.division_by_zero ==
+          mpf::detail::semantic::DivisionByZero::ieee754);
+  const auto fortran =
+      lower_source(mpf::SourceLanguage::fortran,
+                   "program profile\ninteger :: value = 1\nend program profile\n", "profile.f90");
+  REQUIRE(fortran.program.semantics.division == mpf::detail::semantic::Division::native);
+  REQUIRE(fortran.program.semantics.division_by_zero ==
+          mpf::detail::semantic::DivisionByZero::target_native);
+  const auto typescript =
+      lower_source(mpf::SourceLanguage::typescript, "const value: number = 1;\n", "profile.ts");
+  REQUIRE(typescript.program.semantics.division == mpf::detail::semantic::Division::real_quotient);
+  REQUIRE(typescript.program.semantics.division_by_zero ==
+          mpf::detail::semantic::DivisionByZero::ieee754);
 
   mpf::detail::SourceManager sources;
   const auto source_id = sources.add("value = 1\n", "inventory.py");
@@ -1248,8 +1267,11 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto first_hir = mpf::detail::dump_hir(lowered.program);
   const auto second_hir = mpf::detail::dump_hir(lowered.program);
   REQUIRE(first_hir == second_hir);
-  REQUIRE(first_hir.find("hir-v1") != std::string::npos);
+  REQUIRE(first_hir.find("hir-v2") != std::string::npos);
   REQUIRE(first_hir.find("stmt %h") != std::string::npos);
+  auto invalid_hir_profile = lowered.program;
+  invalid_hir_profile.semantics.division_by_zero = mpf::detail::semantic::DivisionByZero::ieee754;
+  REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
   REQUIRE(first_semantics.find("semantic-v10") != std::string::npos);
@@ -1257,10 +1279,13 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
   REQUIRE(mir.diagnostics.empty());
+  auto invalid_mir_profile = mir.program;
+  invalid_mir_profile.semantics.division_by_zero = mpf::detail::semantic::DivisionByZero::ieee754;
+  REQUIRE(!mpf::detail::mir::verify(invalid_mir_profile, "invalid-division-profile").empty());
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v15") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v16") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -2729,9 +2754,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v21") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v22") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v21") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v22") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -2896,6 +2921,8 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   mpf::detail::javascript::lir::SemanticProgram javascript;
   javascript.source_language = mpf::SourceLanguage::python;
   javascript.node_count = 1;
+  javascript.emission.division = mpf::detail::semantic::Division::real_quotient;
+  javascript.emission.division_by_zero = mpf::detail::semantic::DivisionByZero::exception;
   javascript.emission.module =
       mpf::detail::javascript::lir::EmissionPlan::ModuleFormat::strict_script;
   javascript.runtime.require(mpf::detail::javascript::lir::RuntimeFeature::dynamic_values);
@@ -2919,6 +2946,9 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
                mpf::detail::javascript::lir::RuntimeFragment::arrays}));
   REQUIRE((javascript.module.body_order == std::vector<std::size_t>{0}));
   REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript).empty());
+  javascript.emission.division_by_zero = mpf::detail::semantic::DivisionByZero::ieee754;
+  REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
+  javascript.emission.division_by_zero = mpf::detail::semantic::DivisionByZero::exception;
   javascript.emission.padded_character_selection = true;
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
   javascript.emission.padded_character_selection = false;
@@ -2929,6 +2959,8 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   mpf::detail::cpp::lir::SemanticProgram cpp;
   cpp.source_language = mpf::SourceLanguage::python;
   cpp.node_count = 1;
+  cpp.emission.division = mpf::detail::semantic::Division::real_quotient;
+  cpp.emission.division_by_zero = mpf::detail::semantic::DivisionByZero::exception;
   mpf::detail::cpp::lir::Statement cpp_statement;
   cpp_statement.id = mpf::detail::LirNodeId{1};
   cpp_statement.origin = mpf::detail::HirNodeId{1};
@@ -2949,6 +2981,9 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   REQUIRE(cpp.translation_unit.entry_error_policy ==
           mpf::detail::cpp::lir::EntryErrorPolicy::report_standard_exception);
   REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  cpp.emission.division_by_zero = mpf::detail::semantic::DivisionByZero::ieee754;
+  REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  cpp.emission.division_by_zero = mpf::detail::semantic::DivisionByZero::exception;
   cpp.translation_unit.entry_error_policy = mpf::detail::cpp::lir::EntryErrorPolicy::none;
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
   cpp.translation_unit.entry_error_policy =
@@ -3048,7 +3083,8 @@ TEST_CASE("target LIR expression plans own operators calls and concrete represen
 
   mpf::detail::cpp::lir::SemanticProgram cpp;
   cpp.emission.dynamic_truthiness = true;
-  cpp.emission.real_division = true;
+  cpp.emission.division = mpf::detail::semantic::Division::real_quotient;
+  cpp.emission.division_by_zero = mpf::detail::semantic::DivisionByZero::ieee754;
   mpf::detail::cpp::lir::Statement cpp_statement;
   cpp_statement.expression.kind = mpf::detail::ExpressionKind::list;
   cpp_statement.expression.element_type = mpf::detail::ValueType::real;
