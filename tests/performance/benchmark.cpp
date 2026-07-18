@@ -249,12 +249,27 @@ std::string matlab_matrix_solve_workload(const std::size_t rounds) {
     source += "quotient = [1 2 3 4] / coefficient;\n";
     source += "powered = coefficient ^ 3;\n";
     source += "least_squares = tall \\ tall_rhs;\n";
-    source += "minimum_norm = wide \\ wide_rhs;\n";
+    source += "basic_underdetermined = wide \\ wide_rhs;\n";
     source += "rectangular_right = [1 2 3] / tall;\n";
   }
   source +=
       "disp(solution(1) + quotient(4) + powered(1, 1) + "
-      "least_squares(1, 1) + minimum_norm(1, 1) + rectangular_right(1))\n";
+      "least_squares(1, 1) + basic_underdetermined(1, 1) + rectangular_right(1))\n";
+  return source;
+}
+
+std::string matlab_rank_aware_solve_workload(const std::size_t rounds) {
+  std::string source =
+      "rank_deficient_tall = [1 2; 2 4; 3 6; 4 8];\n"
+      "rank_deficient_rhs = [1 2; 2 4; 3 6; 4 8];\n"
+      "wide = [1 0 1 2; 0 1 1 1];\n"
+      "wide_rhs = [2 4; 3 6];\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "ranked_basic = rank_deficient_tall \\ rank_deficient_rhs;\n";
+    source += "wide_basic = wide \\ wide_rhs;\n";
+    source += "ranked_right = [1 2] / rank_deficient_tall;\n";
+  }
+  source += "disp(ranked_basic(2, 1) + wide_basic(3, 2) + ranked_right(1))\n";
   return source;
 }
 
@@ -351,7 +366,9 @@ int main() {
        mpf::SourceLanguage::matlab},
       {"matlab-shape-mutation", matlab_shape_mutation_workload(32), mpf::SourceLanguage::matlab},
       {"matlab-empty-arrays", matlab_empty_array_workload(24), mpf::SourceLanguage::matlab},
-      {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab}};
+      {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab},
+      {"matlab-rank-aware-solve", matlab_rank_aware_solve_workload(24),
+       mpf::SourceLanguage::matlab}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
     Measurement measurement;
