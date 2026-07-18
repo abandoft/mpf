@@ -42,6 +42,7 @@ struct ExpressionFacts {
   IntrinsicId intrinsic{IntrinsicId::none};
   ValueType element_type{ValueType::unknown};
   std::vector<std::size_t> shape;
+  semantic::LogicalEvaluation logical_evaluation{semantic::LogicalEvaluation::none};
   semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
   BroadcastPlan broadcast;
   MatrixOperationPlan matrix_operation;

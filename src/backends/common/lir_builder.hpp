@@ -89,6 +89,7 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
   result.element_type = mir::element_type(program, source.type_id);
   const auto* source_shape = mir::shape(program, source.shape_id);
   if (source_shape != nullptr) result.shape = source_shape->extents;
+  result.logical_evaluation = attributes.logical_evaluation;
   result.array_operation = attributes.array_operation;
   if (attributes.broadcast.valid) {
     result.broadcast.valid = true;

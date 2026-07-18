@@ -39,6 +39,7 @@ struct RuntimeRequirements {
 
 struct EmissionPlan {
   bool dynamic_truthiness{false};
+  bool matlab_truthiness{false};
   bool operand_logical_result{false};
   bool real_division{false};
   bool lexical_block_scopes{false};
@@ -134,9 +135,13 @@ enum class ExpressionForm : std::uint8_t {
   null_literal,
   unary_operator,
   unary_truthiness,
+  matlab_logical_not,
   binary_operator,
   binary_lazy_and,
   binary_lazy_or,
+  matlab_logical_operation,
+  matlab_short_circuit_and,
+  matlab_short_circuit_or,
   binary_power,
   binary_floor_divide,
   binary_real_divide,
@@ -276,7 +281,7 @@ struct ExpressionPlan {
   ArrayLiteralPlan array_literal;
 };
 
-enum class ConditionForm : std::uint8_t { direct, runtime_truthy };
+enum class ConditionForm : std::uint8_t { direct, runtime_truthy, matlab_all_nonzero };
 
 enum class StatementForm : std::uint8_t {
   discard,
@@ -376,6 +381,7 @@ struct Expression {
   CodeBinding target_binding{};
   ValueType element_type{ValueType::unknown};
   std::vector<std::size_t> shape;
+  semantic::LogicalEvaluation logical_evaluation{semantic::LogicalEvaluation::none};
   semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
   BroadcastPlan broadcast;
   MatrixOperationPlan matrix_operation;

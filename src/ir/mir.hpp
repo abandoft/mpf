@@ -322,6 +322,7 @@ struct ExpressionAttributes {
   BinaryOperator operation{BinaryOperator::none};
   ComparisonOperator comparison{ComparisonOperator::none};
   std::vector<ComparisonOperator> comparisons;
+  semantic::LogicalEvaluation logical_evaluation{semantic::LogicalEvaluation::none};
   semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
   BroadcastPlan broadcast;
   MatrixOperationPlan matrix_operation;

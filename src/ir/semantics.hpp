@@ -6,8 +6,19 @@
 
 namespace mpf::detail::semantic {
 
-enum class Truthiness { native, dynamic };
+enum class Truthiness { native, dynamic, matlab_all_nonzero, matlab_scalar };
 enum class LogicalResult { boolean, operand };
+enum class LogicalEvaluation : std::uint8_t {
+  none,
+  eager_elementwise,
+  short_circuit_boolean,
+  short_circuit_operand
+};
+
+[[nodiscard]] constexpr bool short_circuits(const LogicalEvaluation evaluation) noexcept {
+  return evaluation == LogicalEvaluation::short_circuit_boolean ||
+         evaluation == LogicalEvaluation::short_circuit_operand;
+}
 enum class Equality { native, structural };
 enum class Division { native, real_quotient };
 enum class IndexLayout { row_major, column_major };
