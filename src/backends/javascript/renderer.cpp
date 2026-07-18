@@ -158,6 +158,11 @@ class Renderer final {
                         const std::vector<std::string>* replacements = nullptr) {
     const auto& plan = expression.plan;
     switch (plan.call) {
+      case javascript::lir::CallForm::complex_absolute:
+        output_ << "__mpf_abs(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        return;
       case javascript::lir::CallForm::python_float:
         output_ << "__mpf_py_float(";
         emit_expression(expression.children[1]);
@@ -301,6 +306,7 @@ class Renderer final {
         }
         break;
       case javascript::lir::ExpressionForm::matlab_transpose:
+      case javascript::lir::ExpressionForm::unary_runtime_call:
         output_ << expression.plan.token << '(';
         emit_expression(expression.children.front());
         output_ << ')';
