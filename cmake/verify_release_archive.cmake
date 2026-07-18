@@ -16,17 +16,15 @@ foreach(required_file IN ITEMS "${ARCHIVE}" "${CHECKSUM}" "${LICENSE_FILE}")
 endforeach()
 
 file(SHA256 "${ARCHIVE}" actual_digest)
-file(READ "${CHECKSUM}" checksum_text)
-string(STRIP "${checksum_text}" checksum_text)
-if(NOT checksum_text MATCHES "^([0-9A-Fa-f]+)[ \t]+[*]?([^ \t]+)$")
-  message(FATAL_ERROR "invalid checksum file format: ${CHECKSUM}")
-endif()
-string(TOLOWER "${CMAKE_MATCH_1}" expected_digest)
 get_filename_component(archive_name "${ARCHIVE}" NAME)
-if(NOT expected_digest STREQUAL actual_digest OR
-   NOT CMAKE_MATCH_2 STREQUAL archive_name)
+set(expected_checksum_text "${actual_digest}  ${archive_name}")
+string(HEX "${expected_checksum_text}" expected_checksum_hex)
+file(READ "${CHECKSUM}" checksum_hex HEX)
+string(TOLOWER "${checksum_hex}" checksum_hex)
+if(NOT checksum_hex STREQUAL expected_checksum_hex AND
+   NOT checksum_hex STREQUAL "${expected_checksum_hex}0a")
   message(FATAL_ERROR
-    "checksum mismatch for ${archive_name}: expected '${checksum_text}', actual '${actual_digest}'")
+    "checksum for ${archive_name} must match the archive and use portable single-line format")
 endif()
 
 execute_process(
