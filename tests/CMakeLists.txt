@@ -111,7 +111,7 @@ function(mpf_add_generated_cpp_compile_test name input)
     TIMEOUT 300)
 endfunction()
 
-function(mpf_add_generated_runtime_failure_test name input expected_error)
+function(mpf_add_generated_runtime_failure_test name input expected_error source_label)
   set(tool_arguments)
   if(MPF_NODE_EXECUTABLE)
     list(APPEND tool_arguments "-DNODE=${MPF_NODE_EXECUTABLE}")
@@ -131,7 +131,7 @@ function(mpf_add_generated_runtime_failure_test name input expected_error)
       ${tool_arguments}
       -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_generated_runtime_failure.cmake)
   set_tests_properties(mpf.generated.failure.${name} PROPERTIES
-    LABELS "generated;runtime-rejection;matlab"
+    LABELS "generated;runtime-rejection;${source_label}"
     TIMEOUT 300)
 endfunction()
 
@@ -248,13 +248,19 @@ if(TARGET mpfc)
   mpf_add_generated_cpp_compile_test(matlab-basic examples/matlab/basic.m)
   mpf_add_generated_runtime_failure_test(
     matlab-dynamic-logical-mismatch tests/fixtures/matlab_dynamic_logical_mismatch.m
-    "logical selector shape")
+    "logical selector shape" matlab)
   mpf_add_generated_runtime_failure_test(
     matlab-dynamic-broadcast-mismatch tests/fixtures/matlab_dynamic_broadcast_mismatch.m
-    "broadcast sizes are incompatible")
+    "broadcast sizes are incompatible" matlab)
   mpf_add_generated_runtime_failure_test(
     matlab-dynamic-linear-delete-matrix tests/fixtures/matlab_dynamic_linear_delete_matrix.m
-    "linear indexed deletion requires a row or column vector")
+    "linear indexed deletion requires a row or column vector" matlab)
+  mpf_add_generated_runtime_failure_test(
+    python-true-division-by-zero tests/fixtures/python_true_division_by_zero.py
+    "division by zero" python)
+  mpf_add_generated_runtime_failure_test(
+    python-floor-division-by-zero tests/fixtures/python_floor_division_by_zero.py
+    "division by zero" python)
 endif()
 
 mpf_add_backend_isolation_test(javascript-only ON OFF)
