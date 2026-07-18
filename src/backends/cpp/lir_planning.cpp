@@ -43,6 +43,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::complex_numbers)) {
     result.push_back(lir::RuntimeFragment::complex_numbers);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::complex_matrices)) {
+    result.push_back(lir::RuntimeFragment::complex_matrices);
+  }
   return result;
 }
 
@@ -106,6 +109,12 @@ void verify_translation_unit(const lir::SemanticProgram& program,
       actual.emit_main != expected.emit_main ||
       actual.entry_error_policy != expected.entry_error_policy) {
     add_error(diagnostics, {1, 1}, "cpp LIR translation-unit plan is inconsistent");
+  }
+  if (program.runtime.contains(lir::RuntimeFeature::complex_matrices) &&
+      (!program.runtime.contains(lir::RuntimeFeature::complex_numbers) ||
+       !program.runtime.contains(lir::RuntimeFeature::arrays))) {
+    add_error(diagnostics, {1, 1},
+              "cpp complex-matrix runtime requires complex scalar and array features");
   }
 }
 
