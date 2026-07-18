@@ -69,6 +69,8 @@ mpf_add_differential_case(matlab-dynamic-end matlab examples/matlab/dynamic_end.
 mpf_add_differential_case(matlab-logical-indexing matlab examples/matlab/logical_indexing.m "48")
 mpf_add_differential_case(matlab-logical-comparisons matlab examples/matlab/logical_comparisons.m "164")
 mpf_add_differential_case(
+  matlab-logical-semantics matlab examples/matlab/logical_semantics.m "2 5 1 3 10 0 10 20 1 1")
+mpf_add_differential_case(
   matlab-generalized-indexing matlab examples/matlab/generalized_indexing.m "40 20 20 0 9 10 90 7")
 mpf_add_differential_case(
   matlab-shape-mutation matlab examples/matlab/shape_mutation.m "0 9 8 6 30 6 9 3 0 9 7 30")

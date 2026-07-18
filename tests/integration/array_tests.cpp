@@ -612,6 +612,66 @@ TEST_CASE("Matlab array comparisons compose with broadcast logical indexing") {
   REQUIRE(cpp.code.find("mpf_runtime::matlab_greater_broadcast") != std::string::npos);
 }
 
+TEST_CASE("Matlab logical arrays and condition truthiness lower independently per target") {
+  const std::string source =
+      "row = [1 0 3];\n"
+      "column = [1; 0];\n"
+      "both = row & column;\n"
+      "either = row | column;\n"
+      "inverse = ~row;\n"
+      "cube = reshape([1 0 2 0], 2, 1, 2);\n"
+      "pages = reshape([0 1], 1, 1, 2);\n"
+      "tensor_mask = cube | pages;\n"
+      "full_condition = 0;\n"
+      "if [1 2; 3 4]\n"
+      "  full_condition = 1;\n"
+      "end\n"
+      "empty_condition = 1;\n"
+      "if []\n"
+      "  empty_condition = 0;\n"
+      "end\n"
+      "scalar_short = 0 && (1 / 0);\n"
+      "scalar_condition = 0;\n"
+      "if 1 | 0\n"
+      "  scalar_condition = 1;\n"
+      "end\n"
+      "disp(numel(both(both)) + numel(either(either)) + numel(inverse(inverse)) + "
+      "numel(tensor_mask(tensor_mask)) + full_condition + empty_condition + "
+      "scalar_condition)\n"
+      "disp(scalar_short)\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_and(row, column") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_or(cube, pages") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_not(row)") != std::string::npos);
+  REQUIRE(javascript.code.find("if (__mpf_matlab_truthy(") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_scalar_logical(0) &&") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_and_broadcast") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_or_broadcast") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_not(row)") != std::string::npos);
+  REQUIRE(cpp.code.find("if (mpf_runtime::matlab_truthy(") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_scalar_logical(0) &&") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 3U; }));
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 10U; }));
+  }
+
+  const auto short_array = transpile_array("bad = [1 0] && 1;\n", mpf::SourceLanguage::matlab,
+                                           mpf::TargetLanguage::javascript);
+  const auto contextual_array =
+      transpile_array("if [1 0] & 1\n  disp(1)\nend\n", mpf::SourceLanguage::matlab,
+                      mpf::TargetLanguage::javascript);
+  REQUIRE(!short_array.success());
+  REQUIRE(!contextual_array.success());
+  REQUIRE(short_array.diagnostics.front().code == "MPF2051");
+  REQUIRE(contextual_array.diagnostics.front().code == "MPF2051");
+}
+
 TEST_CASE("Fortran constant-shape arrays retain element type and one-based indexing") {
   const std::string source =
       "program arrays\nimplicit none\ninteger :: values(3) = [1, 2, 3]\n"
