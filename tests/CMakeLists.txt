@@ -239,14 +239,17 @@ if(TARGET mpfc)
   include(${CMAKE_CURRENT_SOURCE_DIR}/differential/corpus.cmake)
   mpf_add_generated_cpp_compile_test(matlab-basic examples/matlab/basic.m)
   mpf_add_generated_runtime_failure_test(
-    matlab-rank-deficient tests/fixtures/matlab_rank_deficient.m
-    "rank deficient to working precision")
-  mpf_add_generated_runtime_failure_test(
     matlab-dynamic-logical-mismatch tests/fixtures/matlab_dynamic_logical_mismatch.m
     "logical selector shape")
   mpf_add_generated_runtime_failure_test(
     matlab-dynamic-broadcast-mismatch tests/fixtures/matlab_dynamic_broadcast_mismatch.m
     "broadcast sizes are incompatible")
+  mpf_add_generated_runtime_failure_test(
+    matlab-singular-square tests/fixtures/matlab_singular_square.m
+    "matrix is singular to working precision")
+  mpf_add_generated_runtime_failure_test(
+    matlab-dynamic-linear-delete-matrix tests/fixtures/matlab_dynamic_linear_delete_matrix.m
+    "linear indexed deletion requires a row or column vector")
 endif()
 
 mpf_add_backend_isolation_test(javascript-only ON OFF)
