@@ -146,6 +146,13 @@ function(mpf_add_differential_case name language input expected_output)
   else()
     set(expected_warning "")
   endif()
+  if(ARGC GREATER 6)
+    set(expected_warning_count "${ARGV6}")
+  elseif(expected_warning STREQUAL "")
+    set(expected_warning_count 0)
+  else()
+    set(expected_warning_count 1)
+  endif()
   set(source_kind none)
   set(source_executable "")
   if(language STREQUAL "python" AND Python3_Interpreter_FOUND)
@@ -179,6 +186,7 @@ function(mpf_add_differential_case name language input expected_output)
       -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/differential/${name}
       "-DEXPECTED_OUTPUT=${expected_output}"
       "-DEXPECTED_WARNING=${expected_warning}"
+      "-DEXPECTED_WARNING_COUNT=${expected_warning_count}"
       -DOUTPUT_MODE=${output_mode}
       -DSOURCE_KIND=${source_kind}
       "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}"

@@ -32,10 +32,25 @@ function(require_warning stage stderr)
   if(NOT DEFINED EXPECTED_WARNING OR EXPECTED_WARNING STREQUAL "")
     return()
   endif()
-  string(FIND "${stderr}" "${EXPECTED_WARNING}" warning_offset)
-  if(warning_offset EQUAL -1)
+  if(NOT DEFINED EXPECTED_WARNING_COUNT OR EXPECTED_WARNING_COUNT STREQUAL "")
+    set(EXPECTED_WARNING_COUNT 1)
+  endif()
+  set(remaining "${stderr}")
+  set(warning_count 0)
+  string(LENGTH "${EXPECTED_WARNING}" warning_length)
+  while(TRUE)
+    string(FIND "${remaining}" "${EXPECTED_WARNING}" warning_offset)
+    if(warning_offset EQUAL -1)
+      break()
+    endif()
+    math(EXPR warning_count "${warning_count} + 1")
+    math(EXPR after_warning "${warning_offset} + ${warning_length}")
+    string(SUBSTRING "${remaining}" ${after_warning} -1 remaining)
+  endwhile()
+  if(NOT warning_count EQUAL EXPECTED_WARNING_COUNT)
     message(FATAL_ERROR
-      "${CASE_NAME}: ${stage} did not report warning '${EXPECTED_WARNING}'\nstderr:\n${stderr}")
+      "${CASE_NAME}: ${stage} reported warning '${EXPECTED_WARNING}' ${warning_count} time(s), "
+      "expected ${EXPECTED_WARNING_COUNT}\nstderr:\n${stderr}")
   endif()
 endfunction()
 
@@ -216,6 +231,7 @@ file(WRITE "${TEST_BINARY_DIR}/differential-result.txt"
   "generator=${GENERATOR}\n"
   "expected=${expected_output}\n"
   "expected-warning=${recorded_expected_warning}\n"
+  "expected-warning-count=${EXPECTED_WARNING_COUNT}\n"
   "source=${source_output}\n"
   "javascript=${javascript_output}\n"
   "javascript-stderr=${recorded_javascript_stderr}\n"
