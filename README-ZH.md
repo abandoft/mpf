@@ -16,7 +16,7 @@
 
 | 输入语言 | 自动识别扩展名 | 当前能力摘要 |
 |---|---|---|
-| Matlab | `.m` | 脚本与局部函数、条件/循环/标量 `switch`、矩阵、静态 N 维及 local-function runtime-shape 隐式扩展、数组比较、静态及运行时 extent 的 `end`、保序/重复/空 numeric selector 与线性/逐维 logical selector、转置、section、`reshape`、二维矩阵乘法、静态满秩稠密实数方阵/矩形求解、方阵整数幂与多输出函数 |
+| Matlab | `.m` | 脚本与局部函数、条件/循环/标量 `switch`、矩阵、静态 N 维及 local-function runtime-shape 隐式扩展、数组比较、静态及运行时 extent 的 `end`、保序/重复/空 numeric selector、线性/逐维 logical selector、vector/matrix/N 维扩容与单轴删除、转置、section、`reshape`、二维矩阵乘法、静态满秩稠密实数方阵/矩形求解、方阵整数幂与多输出函数 |
 | Python | `.py`、`.pyw` | 函数与参数、条件和循环、list/tuple、解包、比较链、多维数组、索引和切片 |
 | Fortran | `.f`、`.for`、`.ftn`、`.f77`、`.f90` 等 | free/fixed form、function/subroutine、`INTENT`/`OPTIONAL`、数组与 section、`SELECT CASE` |
 | TypeScript | `.ts`、`.mts`、`.cts` | 类型化标量和数组、函数、块作用域、条件、`while`、标准 C 风格 `for` |
@@ -115,7 +115,7 @@ cmake --install build/release --prefix build/stage
 在项目中查找当前精确版本：
 
 ```cmake
-find_package(mpf 0.5.0 EXACT CONFIG REQUIRED COMPONENTS core cpp)
+find_package(mpf 0.5.1 EXACT CONFIG REQUIRED COMPONENTS core cpp)
 target_link_libraries(my_application PRIVATE mpf::mpf)
 ```
 

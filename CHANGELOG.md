@@ -1,3 +1,18 @@
+## 0.5.1
+
+- Matlab indexed assignment now grows row vectors, column vectors, matrices, and N-dimensional arrays through scalar, colon-range, and ordered numeric selectors.
+- Linear growth preserves Matlab column-major order and vector orientation, extends the final matrix/tensor dimension when required, and initializes gaps with the element type's default value.
+- Matlab `[]` assignment now deletes vector elements or one selected dimension of a matrix/tensor, including scalar, slice, numeric, and logical selectors with duplicate positions removed once.
+- Shape-changing writes support statically known bounds, runtime indexes, local-function parameters, and dynamic `end` expressions in independently generated JavaScript and C++17.
+- Analyzer-owned `IndexedMutationContract` records overwrite, resize, grow, and erase behavior together with linear layout, deletion axis, shape source, and input/result shapes.
+- Semantic, MIR, and target LIR schemas advance to v7, v12, and v18; each layer verifies mutation rank, direction, axis, and shape consistency before emission.
+- MIR now treats growth and deletion as whole-storage writes; memory-dependence analysis forms required hazards and then prunes covered same-root history, avoiding stale partial regions and quadratic frontier growth.
+- Generated JavaScript uses checked nested-array resizing and axis deletion, while generated C++17 uses typed nested-`std::vector` templates without consuming JavaScript output.
+- Both runtimes validate safe sizes, selector bounds and types, rectangular rank, replacement cardinality, and ambiguous multi-dimensional deletion at their owned boundary.
+- Source maps now cover generated growth and deletion calls, and invalid linear matrix deletion, multi-axis deletion, and out-of-bounds deletion fail closed with stable diagnostics.
+- Added static and runtime-shaped executable differential coverage, N-dimensional generated-code checks, cross-layer corruption tests, and a dedicated Matlab fuzz seed.
+- Added a Matlab shape-mutation compilation-performance scenario while retaining the existing latency, throughput, generated-size, sanitizer, portability, and 85% coverage gates; production line coverage is 90.00%.
+
 ## 0.5.0
 
 - Matlab compatible-size arithmetic and relational comparisons now support operands whose rank and extents are available only when a local function is instantiated or executed.

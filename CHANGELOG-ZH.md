@@ -1,3 +1,18 @@
+## 0.5.1
+
+- Matlab 索引赋值现可通过 scalar、colon range 和保序 numeric selector 扩容 row vector、column vector、matrix 与 N 维数组。
+- 线性扩容保持 Matlab 列主序和 vector 方向；矩阵/张量按需扩展末维，并用元素类型默认值初始化中间空位。
+- Matlab `[]` 赋值现可删除 vector 元素或 matrix/tensor 的一个选定维，支持 scalar、slice、numeric 与 logical selector，重复位置只删除一次。
+- shape-changing write 同时支持静态边界、运行时索引、local-function 参数和动态 `end`，生成的 JavaScript 与 C++17 分别独立执行。
+- Analyzer 所有的 `IndexedMutationContract` 显式记录 overwrite、resize、grow、erase、线性布局、删除轴、shape 来源以及输入/结果 shape。
+- Semantic、MIR 与目标 LIR schema 分别升级到 v7、v12 和 v18；每一层都会在发射前验证 mutation rank、方向、axis 与 shape 一致性。
+- MIR 将 growth/deletion 记录为整个 storage 的写入；memory-dependence 在形成必要依赖后裁剪被覆盖的同根历史，避免沿用旧局部区域及 frontier 二次增长。
+- 生成 JavaScript 使用带安全检查的嵌套数组 resize/axis deletion；生成 C++17 使用类型化嵌套 `std::vector` 模板，不消费 JavaScript 产物。
+- 两个 runtime 在各自边界验证安全 size、selector bounds/type、矩形 rank、replacement cardinality 和有歧义的多维删除。
+- source map 已覆盖 growth/deletion 调用；线性 matrix 删除、多轴删除和越界删除以稳定诊断失败关闭。
+- 新增静态及运行时 shape 的可执行差分、N 维生成代码检查、跨层 plan 损坏拒绝和 Matlab 专用 fuzz seed。
+- 新增 Matlab shape-mutation 编译性能场景，并继续执行既有延迟、吞吐、生成大小、sanitizer、可移植性和 85% 覆盖率门禁；生产代码行覆盖率为 90.00%。
+
 ## 0.5.0
 
 - Matlab compatible-size 算术和关系比较现支持 rank 与 extent 只能在 local function 实例化或执行时取得的操作数。
