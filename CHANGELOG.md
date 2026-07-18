@@ -1,3 +1,20 @@
+## 0.5.6
+
+- Matlab now preserves the distinct precedence and evaluation behavior of `~`, `&`, `|`, `&&`, and `||` instead of treating them as interchangeable Boolean operators.
+- Element-wise logical operations support scalar expansion and compatible-size N-dimensional numeric or logical arrays in generated JavaScript and C++17.
+- Scalar short-circuit expressions evaluate operands lazily and at most once in both output targets.
+- Matlab `if` and `while` conditions now follow nonempty, all-elements-nonzero array truth semantics; ambiguous non-scalar condition compositions fail closed.
+- Matlab `all` and `any` now support the default first nonsingleton dimension, constant `dim`, constant `vecdim`, and the `'all'` option.
+- Logical reductions preserve result rank and extents for vectors, matrices, and N-dimensional arrays, including dimensions above the input rank.
+- Empty reductions preserve exact `0×N` and `N×0` shapes and use the Matlab identities `all=true` and `any=false` where applicable.
+- Local functions with runtime-known rank can use `all(values,'all')` and `any(values,'all')` without requiring a statically known container shape.
+- Generated JavaScript uses a checked column-major reduction kernel and retains zero extents through the existing non-enumerable shape descriptor.
+- Generated C++17 uses an independent typed recursive-`std::vector` reduction kernel and remains warning-clean under strict C++17 compilation.
+- Logical evaluation and reduction contracts are independently verified through semantic analysis, MIR, JavaScript LIR, and `cpp` LIR before emission.
+- Source maps cover logical and reduction runtime calls; character arrays, dynamic dimensions, duplicate or invalid dimensions, and unsupported unknown-rank reductions produce stable diagnostics.
+- Added executable dual-target examples, differential cases, cross-layer corruption checks, runtime assertions, and dedicated Matlab fuzz seeds.
+- Release validation now covers 223 internal tests, 79 differential cases, 93 configured CTest entries, and 21 performance scenarios, including separate logical and logical-reduction workloads.
+
 ## 0.5.5
 
 - Matlab square left and right division now detects full real tridiagonal coefficient matrices, matching the structure introduced for dense inputs in Matlab R2024a.

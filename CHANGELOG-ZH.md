@@ -1,3 +1,20 @@
+## 0.5.6
+
+- Matlab 的 `~`、`&`、`|`、`&&` 与 `||` 现会保持各自的优先级和求值行为，不再被当作可互换的布尔运算符。
+- 逐元素逻辑运算现支持 scalar expansion 和 compatible-size N 维 numeric/logical 数组，并可生成 JavaScript 与 C++17。
+- 标量短路表达式在两个输出目标中都惰性求值，且每个操作数最多求值一次。
+- Matlab `if`/`while` condition 现遵循“非空且所有元素非零”的数组 truth 语义；有歧义的非标量 condition composition 会失败关闭。
+- Matlab `all`/`any` 现支持默认首个非 singleton 维、常量 `dim`、常量 `vecdim` 与 `'all'`。
+- 逻辑归约会保持 vector、matrix 和 N 维数组的结果 rank/extent，也正确处理高于输入 rank 的维度。
+- 空归约会保持准确的 `0×N`/`N×0` shape，并在对应位置使用 Matlab 的 `all=true`、`any=false` identity。
+- rank 只能在运行时确定的 local function 现可使用 `all(values,'all')` 和 `any(values,'all')`，无需静态容器 shape。
+- 生成的 JavaScript 使用带检查的列主序归约 kernel，并通过已有的不可枚举 shape descriptor 保持零 extent。
+- 生成的 C++17 使用独立、类型化的递归 `std::vector` 归约 kernel，并可通过严格 C++17 零警告编译。
+- 逻辑求值与归约 contract 会在语义分析、MIR、JavaScript LIR 和 `cpp` LIR 中独立验证后才允许发射代码。
+- source map 现覆盖逻辑与归约 runtime 调用；字符数组、动态维度、重复/非法维度和不支持的未知 rank 归约会给出稳定诊断。
+- 新增双目标可执行示例、差分 case、跨层损坏检查、runtime 断言和 Matlab 专用 fuzz seed。
+- 发布验证现覆盖 223 项内部测试、79 个差分 case、93 项 CTest 和 21 个性能场景，其中 logical 与 logical-reduction 各有独立 workload。
+
 ## 0.5.5
 
 - Matlab 方阵左除和右除现可识别完整实数三对角系数矩阵，对齐 Matlab R2024a 为稠密输入引入的结构能力。
