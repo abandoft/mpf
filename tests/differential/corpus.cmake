@@ -36,6 +36,17 @@ mpf_add_differential_case(
   matlab-structured-square-solve matlab examples/matlab/structured_square_solve.m
   "3 2 1 2 3 2 1.9")
 mpf_add_differential_case(
+  matlab-advanced-structured-square-solve matlab
+  examples/matlab/advanced_structured_square_solve.m
+  "1 2 3 1 2 3 1 2 3 1 2 3 1 2 3")
+mpf_add_differential_case(
+  matlab-singular-tridiagonal-warning matlab examples/matlab/singular_tridiagonal_warning.m "1"
+  tokens "matrix is singular to working precision")
+mpf_add_differential_case(
+  matlab-nearly-singular-cholesky-warning matlab
+  examples/matlab/nearly_singular_cholesky_warning.m "1" tokens
+  "matrix is close to singular or badly scaled")
+mpf_add_differential_case(
   matlab-structured-condition-warnings matlab examples/matlab/structured_condition_warnings.m
   "3" tokens "matrix is close to singular or badly scaled" 3)
 mpf_add_differential_case(
