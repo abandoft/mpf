@@ -61,13 +61,25 @@ std::optional<semantic::IndexSelectorKind> expected_index_selector(
 }
 
 std::string matlab_solve_helper(const std::string_view operation,
-                                const semantic::MatrixSolveKind solve) {
+                                const semantic::MatrixSolveKind solve,
+                                const semantic::MatrixStructurePolicy structure_policy) {
   std::string suffix;
   switch (solve) {
     case semantic::MatrixSolveKind::none: return {};
-    case semantic::MatrixSolveKind::square: suffix = "square"; break;
-    case semantic::MatrixSolveKind::overdetermined: suffix = "overdetermined"; break;
-    case semantic::MatrixSolveKind::underdetermined: suffix = "underdetermined"; break;
+    case semantic::MatrixSolveKind::square:
+      if (structure_policy != semantic::MatrixStructurePolicy::detect_diagonal_triangular) {
+        return {};
+      }
+      suffix = "structured_square";
+      break;
+    case semantic::MatrixSolveKind::overdetermined:
+      if (structure_policy != semantic::MatrixStructurePolicy::none) return {};
+      suffix = "overdetermined";
+      break;
+    case semantic::MatrixSolveKind::underdetermined:
+      if (structure_policy != semantic::MatrixStructurePolicy::none) return {};
+      suffix = "underdetermined";
+      break;
   }
   return "__mpf_matlab_" + std::string(operation) + '_' + suffix;
 }
@@ -76,9 +88,11 @@ std::string matlab_array_helper(const lir::Expression& expression) {
   switch (expression.matrix_operation.operation) {
     case semantic::MatrixOperation::multiply: return "__mpf_matlab_mtimes";
     case semantic::MatrixOperation::left_divide:
-      return matlab_solve_helper("mldivide", expression.matrix_operation.solve);
+      return matlab_solve_helper("mldivide", expression.matrix_operation.solve,
+                                 expression.matrix_operation.structure_policy);
     case semantic::MatrixOperation::right_divide:
-      return matlab_solve_helper("mrdivide", expression.matrix_operation.solve);
+      return matlab_solve_helper("mrdivide", expression.matrix_operation.solve,
+                                 expression.matrix_operation.structure_policy);
     case semantic::MatrixOperation::integer_power: return "__mpf_matlab_mpower";
     case semantic::MatrixOperation::none: break;
   }
@@ -144,7 +158,8 @@ bool valid_matrix_shapes(const lir::MatrixOperationPlan& plan,
                          const std::vector<std::size_t>& expression_shape) noexcept {
   if (!static_rank_two(plan.left_shape) || !static_rank_two(plan.result_shape) ||
       plan.result_shape != expression_shape ||
-      plan.condition_policy != semantic::matrix_condition_policy(plan.solve)) {
+      plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
+      plan.structure_policy != semantic::matrix_structure_policy(plan.solve)) {
     return false;
   }
   switch (plan.operation) {
@@ -563,6 +578,7 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
       (!expression.matrix_operation.valid() &&
        (expression.matrix_operation.solve != semantic::MatrixSolveKind::none ||
         expression.matrix_operation.condition_policy != semantic::MatrixConditionPolicy::none ||
+        expression.matrix_operation.structure_policy != semantic::MatrixStructurePolicy::none ||
         !expression.matrix_operation.left_shape.empty() ||
         !expression.matrix_operation.right_shape.empty() ||
         !expression.matrix_operation.result_shape.empty())) ||
