@@ -1,0 +1,251 @@
+#include "complex_matrix_runtime.hpp"
+
+#include <ostream>
+
+namespace mpf::detail {
+
+void emit_javascript_complex_matrix_runtime(std::ostream& output) {
+  output << R"MPF(function __mpf_matlab_complex_dense_matrix(values, name, requireFinite = true) {
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new RangeError(`MPF Matlab ${name} must be a non-empty matrix`);
+  }
+  if (values.every((value) => !Array.isArray(value))) values = [values];
+  if (!values.every(Array.isArray)) {
+    throw new RangeError(`MPF Matlab ${name} must be a rectangular rank-2 matrix`);
+  }
+  const columns = values[0].length;
+  if (columns === 0 || !values.every((row) => row.length === columns)) {
+    throw new RangeError(`MPF Matlab ${name} must be a non-empty rectangular matrix`);
+  }
+  return values.map((row) => row.map((value) => {
+    const numeric = __mpf_as_complex(value);
+    if (requireFinite && (!Number.isFinite(numeric.re) || !Number.isFinite(numeric.im))) {
+      throw new TypeError(`MPF Matlab ${name} requires finite numeric values`);
+    }
+    return numeric;
+  }));
+}
+function __mpf_matlab_complex_mtimes(leftValue, rightValue) {
+  const left = __mpf_matlab_complex_dense_matrix(leftValue, 'left matrix operand', false);
+  const right = __mpf_matlab_complex_dense_matrix(rightValue, 'right matrix operand', false);
+  const innerExtent = left[0].length;
+  const columns = right[0].length;
+  if (innerExtent !== right.length) {
+    throw new RangeError('MPF Matlab complex matrix multiplication shape mismatch');
+  }
+  return Array.from({ length: left.length }, (_, row) =>
+    Array.from({ length: columns }, (_, column) => {
+      let sum = __mpf_complex(0, 0);
+      for (let inner = 0; inner < innerExtent; ++inner) {
+        sum = __mpf_complex_add(
+          sum, __mpf_complex_multiply(left[row][inner], right[inner][column]));
+      }
+      return sum;
+    }));
+}
+function __mpf_matlab_complex_identity(size) {
+  return Array.from({ length: size }, (_, row) =>
+    Array.from({ length: size }, (_, column) => __mpf_complex(row === column ? 1 : 0, 0)));
+}
+function __mpf_matlab_complex_ctranspose(values) {
+  return Array.from({ length: values[0].length }, (_, column) =>
+    values.map((row) => __mpf_conj(row[column])));
+}
+function __mpf_matlab_complex_matrix_one_norm(values) {
+  let maximum = 0;
+  for (let column = 0; column < values[0].length; ++column) {
+    let sum = 0;
+    for (let row = 0; row < values.length; ++row) sum += __mpf_abs(values[row][column]);
+    maximum = Math.max(maximum, sum);
+  }
+  return maximum;
+}
+function __mpf_matlab_complex_lu_factor(coefficients) {
+  const size = coefficients.length;
+  const lu = coefficients.map((row) => row.slice());
+  const swaps = new Array(size);
+  let singular = false;
+  for (let pivot = 0; pivot < size; ++pivot) {
+    let selected = pivot;
+    for (let row = pivot + 1; row < size; ++row) {
+      if (__mpf_abs(lu[row][pivot]) > __mpf_abs(lu[selected][pivot])) selected = row;
+    }
+    swaps[pivot] = selected;
+    if (selected !== pivot) [lu[pivot], lu[selected]] = [lu[selected], lu[pivot]];
+    const pivotMagnitude = __mpf_abs(lu[pivot][pivot]);
+    if (pivotMagnitude === 0 || !Number.isFinite(pivotMagnitude)) {
+      singular = true;
+      continue;
+    }
+    for (let row = pivot + 1; row < size; ++row) {
+      lu[row][pivot] = __mpf_complex_divide(lu[row][pivot], lu[pivot][pivot]);
+      for (let column = pivot + 1; column < size; ++column) {
+        lu[row][column] = __mpf_complex_subtract(
+          lu[row][column], __mpf_complex_multiply(lu[row][pivot], lu[pivot][column]));
+      }
+    }
+  }
+  return { lu, swaps, singular };
+}
+function __mpf_matlab_complex_lu_apply(factor, values) {
+  const result = values.map((row) => row.slice());
+  const size = factor.lu.length;
+  const columns = result[0].length;
+  for (let pivot = 0; pivot < size; ++pivot) {
+    if (factor.swaps[pivot] !== pivot) {
+      [result[pivot], result[factor.swaps[pivot]]] =
+        [result[factor.swaps[pivot]], result[pivot]];
+    }
+    for (let row = pivot + 1; row < size; ++row) {
+      for (let column = 0; column < columns; ++column) {
+        result[row][column] = __mpf_complex_subtract(
+          result[row][column], __mpf_complex_multiply(
+            factor.lu[row][pivot], result[pivot][column]));
+      }
+    }
+  }
+  for (let reverse = size; reverse > 0; --reverse) {
+    const row = reverse - 1;
+    for (let column = 0; column < columns; ++column) {
+      let value = result[row][column];
+      for (let inner = row + 1; inner < size; ++inner) {
+        value = __mpf_complex_subtract(
+          value, __mpf_complex_multiply(factor.lu[row][inner], result[inner][column]));
+      }
+      result[row][column] = __mpf_complex_divide(value, factor.lu[row][row]);
+    }
+  }
+  return result;
+}
+function __mpf_matlab_complex_lu_rcond(coefficients, factor) {
+  if (factor.singular) return 0;
+  const inverse = __mpf_matlab_complex_lu_apply(
+    factor, __mpf_matlab_complex_identity(coefficients.length));
+  const denominator = __mpf_matlab_complex_matrix_one_norm(coefficients) *
+    __mpf_matlab_complex_matrix_one_norm(inverse);
+  return denominator === 0 || !Number.isFinite(denominator) ? 0 : 1 / denominator;
+}
+function __mpf_matlab_is_hermitian(values) {
+  for (let row = 0; row < values.length; ++row) {
+    if (values[row][row].im !== 0) return false;
+    for (let column = 0; column < row; ++column) {
+      const lower = values[row][column];
+      const upper = values[column][row];
+      if (lower.re !== upper.re || lower.im !== -upper.im) return false;
+    }
+  }
+  return true;
+}
+function __mpf_matlab_complex_cholesky_factor(coefficients) {
+  const size = coefficients.length;
+  const lower = Array.from({ length: size }, () =>
+    Array.from({ length: size }, () => __mpf_complex(0, 0)));
+  for (let row = 0; row < size; ++row) {
+    for (let column = 0; column <= row; ++column) {
+      let value = coefficients[row][column];
+      for (let inner = 0; inner < column; ++inner) {
+        value = __mpf_complex_subtract(value, __mpf_complex_multiply(
+          lower[row][inner], __mpf_conj(lower[column][inner])));
+      }
+      if (row === column) {
+        const tolerance = Number.EPSILON * Math.max(1, Math.abs(value.re));
+        if (!(value.re > 0) || Math.abs(value.im) > tolerance || !Number.isFinite(value.re)) {
+          return { lower, positiveDefinite: false };
+        }
+        lower[row][column] = __mpf_complex(Math.sqrt(value.re), 0);
+      } else {
+        lower[row][column] = __mpf_complex_divide(value, lower[column][column]);
+      }
+    }
+  }
+  return { lower, positiveDefinite: true };
+}
+function __mpf_matlab_complex_cholesky_apply(factor, values) {
+  const result = values.map((row) => row.slice());
+  const size = factor.lower.length;
+  const columns = result[0].length;
+  for (let row = 0; row < size; ++row) {
+    for (let column = 0; column < columns; ++column) {
+      let value = result[row][column];
+      for (let inner = 0; inner < row; ++inner) {
+        value = __mpf_complex_subtract(value, __mpf_complex_multiply(
+          factor.lower[row][inner], result[inner][column]));
+      }
+      result[row][column] = __mpf_complex_divide(value, factor.lower[row][row]);
+    }
+  }
+  for (let reverse = size; reverse > 0; --reverse) {
+    const row = reverse - 1;
+    for (let column = 0; column < columns; ++column) {
+      let value = result[row][column];
+      for (let inner = row + 1; inner < size; ++inner) {
+        value = __mpf_complex_subtract(value, __mpf_complex_multiply(
+          __mpf_conj(factor.lower[inner][row]), result[inner][column]));
+      }
+      result[row][column] = __mpf_complex_divide(
+        value, __mpf_conj(factor.lower[row][row]));
+    }
+  }
+  return result;
+}
+function __mpf_matlab_complex_cholesky_rcond(coefficients, factor) {
+  const inverse = __mpf_matlab_complex_cholesky_apply(
+    factor, __mpf_matlab_complex_identity(coefficients.length));
+  const denominator = __mpf_matlab_complex_matrix_one_norm(coefficients) *
+    __mpf_matlab_complex_matrix_one_norm(inverse);
+  return denominator === 0 || !Number.isFinite(denominator) ? 0 : 1 / denominator;
+}
+function __mpf_matlab_structured_complex_square_solve(left, right) {
+  if (__mpf_matlab_is_hermitian(left)) {
+    const factor = __mpf_matlab_complex_cholesky_factor(left);
+    if (factor.positiveDefinite) {
+      __mpf_matlab_warn_square_condition(
+        __mpf_matlab_complex_cholesky_rcond(left, factor));
+      return __mpf_matlab_complex_cholesky_apply(factor, right);
+    }
+  }
+  const factor = __mpf_matlab_complex_lu_factor(left);
+  __mpf_matlab_warn_square_condition(__mpf_matlab_complex_lu_rcond(left, factor));
+  return __mpf_matlab_complex_lu_apply(factor, right);
+}
+function __mpf_matlab_complex_square_solve(leftValue, rightValue) {
+  const left = __mpf_matlab_complex_dense_matrix(leftValue, 'complex coefficient matrix');
+  const right = __mpf_matlab_complex_dense_matrix(rightValue, 'complex right-hand side');
+  if (left.length !== left[0].length || right.length !== left.length) {
+    throw new RangeError('MPF Matlab complex matrix solve disagrees with its square plan');
+  }
+  return __mpf_matlab_structured_complex_square_solve(left, right);
+}
+function __mpf_matlab_mldivide_structured_complex_square(left, right) {
+  return __mpf_matlab_complex_square_solve(left, right);
+}
+function __mpf_matlab_mrdivide_structured_complex_square(leftValue, rightValue) {
+  const left = __mpf_matlab_complex_dense_matrix(leftValue, 'complex left operand');
+  const right = __mpf_matlab_complex_dense_matrix(rightValue, 'complex right divisor');
+  return __mpf_matlab_complex_ctranspose(__mpf_matlab_complex_square_solve(
+    __mpf_matlab_complex_ctranspose(right), __mpf_matlab_complex_ctranspose(left)));
+}
+function __mpf_matlab_complex_mpower(values, exponent) {
+  let factor = __mpf_matlab_complex_dense_matrix(values, 'complex matrix power base');
+  if (factor.length !== factor[0].length) {
+    throw new RangeError('MPF Matlab complex matrix power requires a square matrix');
+  }
+  if (!Number.isSafeInteger(exponent)) {
+    throw new RangeError('MPF Matlab complex matrix power requires a safe integer exponent');
+  }
+  let result = __mpf_matlab_complex_identity(factor.length);
+  if (exponent < 0) {
+    factor = __mpf_matlab_structured_complex_square_solve(factor, result);
+    exponent = -exponent;
+  }
+  while (exponent > 0) {
+    if (exponent % 2 === 1) result = __mpf_matlab_complex_mtimes(result, factor);
+    exponent = Math.floor(exponent / 2);
+    if (exponent > 0) factor = __mpf_matlab_complex_mtimes(factor, factor);
+  }
+  return result;
+}
+)MPF";
+}
+
+}  // namespace mpf::detail
