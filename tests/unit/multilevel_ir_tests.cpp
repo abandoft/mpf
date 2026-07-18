@@ -374,13 +374,13 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
 
   std::vector<mpf::detail::semantic::MatrixOperation> hir_plans;
   std::vector<mpf::detail::semantic::MatrixSolveKind> solve_plans;
-  std::vector<mpf::detail::semantic::MatrixRankPolicy> rank_policies;
+  std::vector<mpf::detail::semantic::MatrixConditionPolicy> condition_policies;
   for (const auto& facts : analysis.semantics.expressions) {
     if (facts.matrix_operation.valid()) {
       hir_plans.push_back(facts.matrix_operation.operation);
       if (facts.matrix_operation.solve != mpf::detail::semantic::MatrixSolveKind::none) {
         solve_plans.push_back(facts.matrix_operation.solve);
-        rank_policies.push_back(facts.matrix_operation.rank_policy);
+        condition_policies.push_back(facts.matrix_operation.condition_policy);
       }
     }
   }
@@ -396,12 +396,12 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
                     mpf::detail::semantic::MatrixSolveKind::overdetermined) != solve_plans.end());
   REQUIRE(std::find(solve_plans.begin(), solve_plans.end(),
                     mpf::detail::semantic::MatrixSolveKind::underdetermined) != solve_plans.end());
-  REQUIRE(std::find(rank_policies.begin(), rank_policies.end(),
-                    mpf::detail::semantic::MatrixRankPolicy::require_full_rank) !=
-          rank_policies.end());
-  REQUIRE(std::find(rank_policies.begin(), rank_policies.end(),
-                    mpf::detail::semantic::MatrixRankPolicy::basic_solution_with_warning) !=
-          rank_policies.end());
+  REQUIRE(std::find(condition_policies.begin(), condition_policies.end(),
+                    mpf::detail::semantic::MatrixConditionPolicy::lu_continue_with_warning) !=
+          condition_policies.end());
+  REQUIRE(std::find(condition_policies.begin(), condition_policies.end(),
+                    mpf::detail::semantic::MatrixConditionPolicy::basic_solution_with_warning) !=
+          condition_policies.end());
 
   auto contradictory_hir_solve = analysis.semantics;
   const auto hir_rectangular =
@@ -416,18 +416,18 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
                                               "matrix-solve-kind-mismatch")
                .empty());
 
-  auto contradictory_hir_rank = analysis.semantics;
-  const auto hir_ranked =
-      std::find_if(contradictory_hir_rank.expressions.begin(),
-                   contradictory_hir_rank.expressions.end(), [](const auto& facts) {
-                     return facts.matrix_operation.rank_policy ==
-                            mpf::detail::semantic::MatrixRankPolicy::basic_solution_with_warning;
-                   });
-  REQUIRE(hir_ranked != contradictory_hir_rank.expressions.end());
-  hir_ranked->matrix_operation.rank_policy =
-      mpf::detail::semantic::MatrixRankPolicy::require_full_rank;
-  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir_rank,
-                                              "matrix-rank-policy-mismatch")
+  auto contradictory_hir_condition = analysis.semantics;
+  const auto hir_conditioned = std::find_if(
+      contradictory_hir_condition.expressions.begin(),
+      contradictory_hir_condition.expressions.end(), [](const auto& facts) {
+        return facts.matrix_operation.condition_policy ==
+               mpf::detail::semantic::MatrixConditionPolicy::basic_solution_with_warning;
+      });
+  REQUIRE(hir_conditioned != contradictory_hir_condition.expressions.end());
+  hir_conditioned->matrix_operation.condition_policy =
+      mpf::detail::semantic::MatrixConditionPolicy::lu_continue_with_warning;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir_condition,
+                                              "matrix-condition-policy-mismatch")
                .empty());
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
@@ -437,7 +437,8 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   const auto dump = mpf::detail::dump_mir(mir.program);
   REQUIRE(dump.find("matrix-operation=") != std::string::npos);
   REQUIRE(dump.find("solve=2") != std::string::npos);
-  REQUIRE(dump.find("rank-policy=2") != std::string::npos);
+  REQUIRE(dump.find("condition-policy=1") != std::string::npos);
+  REQUIRE(dump.find("condition-policy=2") != std::string::npos);
   const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto javascript =
       mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
@@ -447,8 +448,10 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   REQUIRE(javascript.artifact->debug_dump().find("matrix-operation 2 solve 2") !=
           std::string::npos);
   REQUIRE(cpp.artifact->debug_dump().find("matrix-operation 2 solve 2") != std::string::npos);
-  REQUIRE(javascript.artifact->debug_dump().find("rank-policy 2") != std::string::npos);
-  REQUIRE(cpp.artifact->debug_dump().find("rank-policy 2") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("condition-policy 1") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("condition-policy 1") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("condition-policy 2") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("condition-policy 2") != std::string::npos);
 
   auto missing_plan = mir.program;
   const auto found =
@@ -483,23 +486,24 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   rectangular->matrix_operation.solve = mpf::detail::semantic::MatrixSolveKind::square;
   REQUIRE(!mpf::detail::mir::verify(contradictory_solve, "matrix-solve-kind-mismatch").empty());
 
-  auto contradictory_rank = mir.program;
-  const auto rank_aware =
-      std::find_if(contradictory_rank.attributes.expressions.begin() + 1,
-                   contradictory_rank.attributes.expressions.end(), [](const auto& attributes) {
-                     return attributes.matrix_operation.rank_policy ==
-                            mpf::detail::semantic::MatrixRankPolicy::basic_solution_with_warning;
-                   });
-  REQUIRE(rank_aware != contradictory_rank.attributes.expressions.end());
-  rank_aware->matrix_operation.rank_policy =
-      mpf::detail::semantic::MatrixRankPolicy::require_full_rank;
-  REQUIRE(!mpf::detail::mir::verify(contradictory_rank, "matrix-rank-policy-mismatch").empty());
+  auto contradictory_condition = mir.program;
+  const auto conditioned = std::find_if(
+      contradictory_condition.attributes.expressions.begin() + 1,
+      contradictory_condition.attributes.expressions.end(), [](const auto& attributes) {
+        return attributes.matrix_operation.condition_policy ==
+               mpf::detail::semantic::MatrixConditionPolicy::basic_solution_with_warning;
+      });
+  REQUIRE(conditioned != contradictory_condition.attributes.expressions.end());
+  conditioned->matrix_operation.condition_policy =
+      mpf::detail::semantic::MatrixConditionPolicy::lu_continue_with_warning;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_condition, "matrix-condition-policy-mismatch")
+               .empty());
 }
 
-TEST_CASE("target LIR verifiers reject contradictory Matlab matrix rank policies") {
+TEST_CASE("target LIR verifiers reject contradictory Matlab matrix condition policies") {
   using Operation = mpf::detail::semantic::MatrixOperation;
   using Solve = mpf::detail::semantic::MatrixSolveKind;
-  using RankPolicy = mpf::detail::semantic::MatrixRankPolicy;
+  using ConditionPolicy = mpf::detail::semantic::MatrixConditionPolicy;
   const auto configure_expression = [](auto& expression) {
     expression.kind = mpf::detail::ExpressionKind::binary;
     expression.value = "\\";
@@ -510,7 +514,7 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix rank policies
     expression.array_operation = mpf::detail::semantic::ArrayOperation::matlab;
     expression.matrix_operation = {Operation::left_divide,
                                    Solve::overdetermined,
-                                   RankPolicy::basic_solution_with_warning,
+                                   ConditionPolicy::basic_solution_with_warning,
                                    {3U, 2U},
                                    {3U, 1U},
                                    {2U, 1U}};
@@ -535,8 +539,8 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix rank policies
   std::vector<mpf::Diagnostic> diagnostics;
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(diagnostics.empty());
-  javascript.statements.front().expression.matrix_operation.rank_policy =
-      RankPolicy::require_full_rank;
+  javascript.statements.front().expression.matrix_operation.condition_policy =
+      ConditionPolicy::lu_continue_with_warning;
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(!diagnostics.empty());
 
@@ -548,7 +552,8 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix rank policies
   diagnostics.clear();
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(diagnostics.empty());
-  cpp.statements.front().expression.matrix_operation.rank_policy = RankPolicy::require_full_rank;
+  cpp.statements.front().expression.matrix_operation.condition_policy =
+      ConditionPolicy::lu_continue_with_warning;
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
 }

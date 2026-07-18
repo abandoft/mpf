@@ -448,47 +448,61 @@ if(NOT index_extent_contract MATCHES "IndexExtentSource" OR
   message(FATAL_ERROR "dynamic index extent is not a typed HIR/MIR contract")
 endif()
 
-if(NOT index_extent_contract MATCHES "MatrixRankPolicy" OR
-   NOT index_extent_contract MATCHES "matrix_rank_policy" OR
-   NOT hir_extent_contract MATCHES "MatrixRankPolicy rank_policy" OR
-   NOT mir_extent_contract MATCHES "MatrixRankPolicy rank_policy")
-  message(FATAL_ERROR "matrix rank policy is not a typed Semantic/HIR/MIR contract")
+if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
+   NOT index_extent_contract MATCHES "matrix_condition_policy" OR
+   NOT index_extent_contract MATCHES "lu_continue_with_warning" OR
+   NOT hir_extent_contract MATCHES "MatrixConditionPolicy condition_policy" OR
+   NOT mir_extent_contract MATCHES "MatrixConditionPolicy condition_policy")
+  message(FATAL_ERROR "matrix condition policy is not a typed Semantic/HIR/MIR contract")
 endif()
-file(READ "${SOURCE_DIR}/src/backends/common/lir_builder.hpp" rank_lir_builder_contract)
-if(NOT rank_lir_builder_contract MATCHES
-   "matrix_operation\.rank_policy = attributes\.matrix_operation\.rank_policy")
-  message(FATAL_ERROR "target LIR builder does not propagate the analyzed matrix rank policy")
+file(READ "${SOURCE_DIR}/src/backends/common/lir_builder.hpp" condition_lir_builder_contract)
+if(NOT condition_lir_builder_contract MATCHES
+   "matrix_operation\.condition_policy = attributes\.matrix_operation\.condition_policy")
+  message(FATAL_ERROR
+    "target LIR builder does not propagate the analyzed matrix condition policy")
 endif()
 foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir.hpp)
-  file(READ "${SOURCE_DIR}/${target_lir}" rank_target_lir_contract)
-  if(NOT rank_target_lir_contract MATCHES "MatrixRankPolicy rank_policy")
-    message(FATAL_ERROR "target LIR does not own matrix rank policy: ${target_lir}")
+  file(READ "${SOURCE_DIR}/${target_lir}" condition_target_lir_contract)
+  if(NOT condition_target_lir_contract MATCHES "MatrixConditionPolicy condition_policy")
+    message(FATAL_ERROR "target LIR does not own matrix condition policy: ${target_lir}")
   endif()
 endforeach()
 foreach(representation IN ITEMS
     src/backends/javascript/lir_representation.cpp
     src/backends/cpp/lir_representation.cpp)
-  file(READ "${SOURCE_DIR}/${representation}" rank_representation_contract)
-  string(FIND "${rank_representation_contract}"
-    "rank_policy != semantic::matrix_rank_policy(plan.solve)"
-    rank_policy_verification)
-  if(rank_policy_verification EQUAL -1)
+  file(READ "${SOURCE_DIR}/${representation}" condition_representation_contract)
+  string(FIND "${condition_representation_contract}"
+    "condition_policy != semantic::matrix_condition_policy(plan.solve)"
+    condition_policy_verification)
+  if(condition_policy_verification EQUAL -1)
     message(FATAL_ERROR
-      "target representation verifier does not enforce matrix rank policy: ${representation}")
+      "target representation verifier does not enforce matrix condition policy: ${representation}")
   endif()
 endforeach()
 foreach(matrix_runtime IN ITEMS
     src/backends/javascript/matrix_runtime.cpp
     src/backends/cpp/matrix_runtime.cpp)
-  file(READ "${SOURCE_DIR}/${matrix_runtime}" rank_runtime_contract)
-  if(NOT rank_runtime_contract MATCHES "basic_least_squares" OR
-     NOT rank_runtime_contract MATCHES "rank deficient to working precision")
+  file(READ "${SOURCE_DIR}/${matrix_runtime}" condition_runtime_contract)
+  if(NOT condition_runtime_contract MATCHES "lu_factor" OR
+     NOT condition_runtime_contract MATCHES "lu_apply_transpose" OR
+     NOT condition_runtime_contract MATCHES "lu_rcond" OR
+     NOT condition_runtime_contract MATCHES "singular to working precision" OR
+     NOT condition_runtime_contract MATCHES "close to singular or badly scaled" OR
+     NOT condition_runtime_contract MATCHES "basic_least_squares" OR
+     NOT condition_runtime_contract MATCHES "rank deficient to working precision")
     message(FATAL_ERROR
-      "target matrix runtime does not provide rank-aware basic least squares: ${matrix_runtime}")
+      "target matrix runtime does not provide condition-aware LU and basic least squares: "
+      "${matrix_runtime}")
   endif()
   mpf_assert_file_excludes("${matrix_runtime}" "minimum[_ -]?norm"
     "target matrix runtime restored the incorrect underdetermined minimum-norm contract")
 endforeach()
+mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
+  "function __mpf_matlab_lu_"
+  "generic JavaScript runtime regained matrix factorization ownership")
+mpf_assert_file_excludes("src/backends/cpp/runtime.cpp"
+  "inline[^\n]*matlab_lu_(factor|solve|rcond)"
+  "generic cpp runtime regained matrix factorization ownership")
 
 foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
   file(READ "${SOURCE_DIR}/${renderer}" renderer_contract)

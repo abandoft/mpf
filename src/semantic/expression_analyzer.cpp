@@ -697,7 +697,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
       }
       facts.matrix_operation = {semantic::MatrixOperation::multiply,
                                 semantic::MatrixSolveKind::none,
-                                semantic::MatrixRankPolicy::none,
+                                semantic::MatrixConditionPolicy::none,
                                 left_facts.shape,
                                 right_facts.shape,
                                 facts.shape};
@@ -733,7 +733,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
             semantic::matrix_solve_kind((*left_matrix_shape)[0], (*left_matrix_shape)[1]);
         facts.matrix_operation = {semantic::MatrixOperation::left_divide,
                                   solve,
-                                  semantic::matrix_rank_policy(solve),
+                                  semantic::matrix_condition_policy(solve),
                                   *left_matrix_shape,
                                   *right_matrix_shape,
                                   facts.shape};
@@ -749,7 +749,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
             semantic::matrix_solve_kind((*right_matrix_shape)[1], (*right_matrix_shape)[0]);
         facts.matrix_operation = {semantic::MatrixOperation::right_divide,
                                   solve,
-                                  semantic::matrix_rank_policy(solve),
+                                  semantic::matrix_condition_policy(solve),
                                   *left_matrix_shape,
                                   *right_matrix_shape,
                                   facts.shape};
@@ -784,7 +784,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
       facts.shape = left_facts.shape;
       facts.matrix_operation = {semantic::MatrixOperation::integer_power,
                                 semantic::MatrixSolveKind::none,
-                                semantic::MatrixRankPolicy::none,
+                                semantic::MatrixConditionPolicy::none,
                                 left_facts.shape,
                                 {},
                                 facts.shape};
