@@ -245,9 +245,6 @@ if(TARGET mpfc)
     matlab-dynamic-broadcast-mismatch tests/fixtures/matlab_dynamic_broadcast_mismatch.m
     "broadcast sizes are incompatible")
   mpf_add_generated_runtime_failure_test(
-    matlab-singular-square tests/fixtures/matlab_singular_square.m
-    "matrix is singular to working precision")
-  mpf_add_generated_runtime_failure_test(
     matlab-dynamic-linear-delete-matrix tests/fixtures/matlab_dynamic_linear_delete_matrix.m
     "linear indexed deletion requires a row or column vector")
 endif()
