@@ -347,6 +347,12 @@ struct TargetAttributes {
   StorageId storage{};
 };
 
+struct IndexedMutationPlan {
+  semantic::IndexedMutationContract contract;
+  ShapeId input_shape{};
+  ShapeId result_shape{};
+};
+
 struct StatementAttributes {
   MirStatementId origin{};
   bool procedure_call{false};
@@ -355,6 +361,7 @@ struct StatementAttributes {
   TypeId previous_type{};
   AssignmentPattern target_pattern;
   std::vector<TargetAttributes> targets;
+  IndexedMutationPlan indexed_mutation;
 };
 
 enum class MemoryAccessMode : std::uint8_t { none, read, write, read_write };

@@ -718,6 +718,26 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
         add_error(diagnostics, {statement.line, 1}, stage,
                   "statement attributes reference an invalid previous type");
       }
+      const auto& mutation = statement_attributes->indexed_mutation;
+      if (statement.kind == StatementKind::indexed_assignment) {
+        const auto* input_shape = shape(program, mutation.input_shape);
+        const auto* result_shape = shape(program, mutation.result_shape);
+        if (!mutation.contract.valid() || input_shape == nullptr || result_shape == nullptr ||
+            input_shape->extents.empty() ||
+            input_shape->extents.size() != result_shape->extents.size() ||
+            (mutation.contract.kind == semantic::IndexedMutationKind::erase &&
+             mutation.contract.axis >= input_shape->extents.size()) ||
+            (input_shape != nullptr && result_shape != nullptr &&
+             !semantic::valid_indexed_mutation_shapes(mutation.contract, input_shape->extents,
+                                                      result_shape->extents))) {
+          add_error(diagnostics, {statement.line, 1}, stage,
+                    "indexed assignment has an invalid shape-mutation plan");
+        }
+      } else if (mutation.contract.valid() || mutation.input_shape.valid() ||
+                 mutation.result_shape.valid()) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "non-indexed operation carries an indexed mutation plan");
+      }
       verify_assignment_pattern(statement_attributes->target_pattern, program, diagnostics, stage);
       for (const auto& target : statement_attributes->targets) {
         if (!valid_index(target.type, program.types) ||

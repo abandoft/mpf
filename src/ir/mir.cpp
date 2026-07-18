@@ -185,6 +185,14 @@ class Builder final {
     if (semantic_facts != nullptr) {
       result_attributes.previous_type =
           intern_type(semantic_facts->previous_type, semantic_facts->previous_element_type);
+      result_attributes.indexed_mutation.contract = semantic_facts->indexed_mutation;
+      if (semantic_facts->indexed_mutation.valid()) {
+        const bool column_major = program_.source_language == SourceLanguage::matlab;
+        result_attributes.indexed_mutation.input_shape =
+            intern_shape(semantic_facts->mutation_input_shape, column_major);
+        result_attributes.indexed_mutation.result_shape =
+            intern_shape(semantic_facts->mutation_result_shape, column_major);
+      }
     }
     result.target_expression = lower_expression(std::move(source.target_expression));
     result.has_target_expression = source.has_target_expression;
@@ -1157,8 +1165,10 @@ class Builder final {
     if (writes_storage && instruction.storage.valid()) {
       auto region = full_region(instruction.storage);
       if (statement.kind == StatementKind::indexed_assignment) {
-        const auto* target_attributes = mir::attributes(program_, statement.target_expression);
-        if (target_attributes != nullptr) region = target_attributes->storage_region;
+        if (!attributes.indexed_mutation.contract.changes_shape()) {
+          const auto* target_attributes = mir::attributes(program_, statement.target_expression);
+          if (target_attributes != nullptr) region = target_attributes->storage_region;
+        }
       }
       memory_accesses.push_back(
           make_memory_access(instruction.storage, std::move(region), MemoryAccessMode::write));

@@ -164,7 +164,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v6 hir-nodes=" << table.hir_node_count
+  output << "semantic-v7 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -252,6 +252,12 @@ std::string dump_semantics(const hir::SemanticTable& table) {
       output << "] parameters=" << facts.parameter_types.size()
              << " returns=" << facts.return_types.size() << " targets=" << facts.target_types.size()
              << " exported=" << facts.exported;
+      if (facts.indexed_mutation.valid()) {
+        output << " mutation=" << enum_value(facts.indexed_mutation.kind)
+               << " shape-source=" << enum_value(facts.indexed_mutation.shape_source)
+               << " linear=" << facts.indexed_mutation.linear
+               << " axis=" << facts.indexed_mutation.axis;
+      }
     }
     output << '\n';
   }
@@ -260,7 +266,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v11 language=" << enum_value(program.source_language)
+  output << "mir-v12 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -361,6 +367,14 @@ std::string dump_mir(const mir::Program& program) {
       output << " procedure-call=" << attributes->procedure_call
              << " inclusive-stop=" << attributes->inclusive_stop << " previous=!t"
              << attributes->previous_type.value() << " targets=" << attributes->targets.size();
+      if (attributes->indexed_mutation.contract.valid()) {
+        output << " mutation=" << enum_value(attributes->indexed_mutation.contract.kind)
+               << " shape-source=" << enum_value(attributes->indexed_mutation.contract.shape_source)
+               << " linear=" << attributes->indexed_mutation.contract.linear
+               << " axis=" << attributes->indexed_mutation.contract.axis << " shape=!s"
+               << attributes->indexed_mutation.input_shape.value() << "->!s"
+               << attributes->indexed_mutation.result_shape.value();
+      }
     }
     output << '\n';
   }
