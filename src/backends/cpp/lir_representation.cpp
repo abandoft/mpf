@@ -88,13 +88,25 @@ bool has_array_operand(const lir::Expression& expression) noexcept {
 }
 
 std::string matlab_solve_helper(const std::string_view operation,
-                                const semantic::MatrixSolveKind solve) {
+                                const semantic::MatrixSolveKind solve,
+                                const semantic::MatrixStructurePolicy structure_policy) {
   std::string suffix;
   switch (solve) {
     case semantic::MatrixSolveKind::none: return {};
-    case semantic::MatrixSolveKind::square: suffix = "square"; break;
-    case semantic::MatrixSolveKind::overdetermined: suffix = "overdetermined"; break;
-    case semantic::MatrixSolveKind::underdetermined: suffix = "underdetermined"; break;
+    case semantic::MatrixSolveKind::square:
+      if (structure_policy != semantic::MatrixStructurePolicy::detect_diagonal_triangular) {
+        return {};
+      }
+      suffix = "structured_square";
+      break;
+    case semantic::MatrixSolveKind::overdetermined:
+      if (structure_policy != semantic::MatrixStructurePolicy::none) return {};
+      suffix = "overdetermined";
+      break;
+    case semantic::MatrixSolveKind::underdetermined:
+      if (structure_policy != semantic::MatrixStructurePolicy::none) return {};
+      suffix = "underdetermined";
+      break;
   }
   return "mpf_runtime::matlab_" + std::string(operation) + '_' + suffix;
 }
@@ -103,9 +115,11 @@ std::string matlab_array_helper(const lir::Expression& expression) {
   switch (expression.matrix_operation.operation) {
     case semantic::MatrixOperation::multiply: return "mpf_runtime::matlab_mtimes";
     case semantic::MatrixOperation::left_divide:
-      return matlab_solve_helper("mldivide", expression.matrix_operation.solve);
+      return matlab_solve_helper("mldivide", expression.matrix_operation.solve,
+                                 expression.matrix_operation.structure_policy);
     case semantic::MatrixOperation::right_divide:
-      return matlab_solve_helper("mrdivide", expression.matrix_operation.solve);
+      return matlab_solve_helper("mrdivide", expression.matrix_operation.solve,
+                                 expression.matrix_operation.structure_policy);
     case semantic::MatrixOperation::integer_power: return "mpf_runtime::matlab_mpower";
     case semantic::MatrixOperation::none: break;
   }
@@ -173,7 +187,8 @@ bool valid_matrix_shapes(const lir::MatrixOperationPlan& plan,
                          const std::vector<std::size_t>& expression_shape) noexcept {
   if (!static_rank_two(plan.left_shape) || !static_rank_two(plan.result_shape) ||
       plan.result_shape != expression_shape ||
-      plan.condition_policy != semantic::matrix_condition_policy(plan.solve)) {
+      plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
+      plan.structure_policy != semantic::matrix_structure_policy(plan.solve)) {
     return false;
   }
   switch (plan.operation) {
@@ -311,7 +326,8 @@ lir::CallForm call_form(const lir::Expression& expression) noexcept {
 lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
                                              const lir::EmissionPlan& emission,
                                              const AccessContext& context,
-                                             const SourceLanguage source_language) {
+                                             const SourceLanguage source_language,
+                                             const std::optional<ValueType> array_element_type) {
   lir::ExpressionPlan result;
   if (!expression.valid()) return result;
   result.valid = true;
@@ -525,9 +541,10 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       result.precedence = 9;
       result.token = expression.value;
       break;
-    case ExpressionKind::list:
+    case ExpressionKind::list: {
       result.form = lir::ExpressionForm::list;
-      result.concrete_type = container_type(expression.element_type, expression.shape.size());
+      const auto planned_element_type = array_element_type.value_or(expression.element_type);
+      result.concrete_type = container_type(planned_element_type, expression.shape.size());
       result.array_literal.form =
           source_language == SourceLanguage::matlab && expression.children.empty()
               ? lir::ArrayLiteralForm::shaped_empty
@@ -535,10 +552,11 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       result.array_literal.shape = expression.shape;
       result.widen_children.reserve(expression.children.size());
       for (const auto& child : expression.children) {
-        result.widen_children.push_back(expression.element_type == ValueType::real &&
+        result.widen_children.push_back(planned_element_type == ValueType::real &&
                                         child.inferred_type != ValueType::list);
       }
       break;
+    }
     case ExpressionKind::tuple: result.form = lir::ExpressionForm::tuple; break;
   }
   return result;
@@ -587,12 +605,21 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
 }
 
 void plan_expression(lir::Expression& expression, const lir::EmissionPlan& emission,
-                     const AccessContext& context, const SourceLanguage source_language) {
+                     const AccessContext& context, const SourceLanguage source_language,
+                     const std::optional<ValueType> array_element_type = std::nullopt) {
   if (!expression.valid()) return;
+  const auto planned_element_type = expression.kind == ExpressionKind::list
+                                        ? array_element_type.value_or(expression.element_type)
+                                        : ValueType::unknown;
   for (auto& child : expression.children) {
-    plan_expression(child, emission, context, source_language);
+    plan_expression(
+        child, emission, context, source_language,
+        expression.kind == ExpressionKind::list && child.inferred_type == ValueType::list
+            ? std::optional<ValueType>{planned_element_type}
+            : std::nullopt);
   }
-  expression.plan = expected_expression_plan(expression, emission, context, source_language);
+  expression.plan =
+      expected_expression_plan(expression, emission, context, source_language, array_element_type);
 }
 
 void collect_index_extent(const lir::Expression& expression,
@@ -611,7 +638,8 @@ void collect_index_extent(const lir::Expression& expression,
 
 void verify_expression(const lir::Expression& expression, const lir::EmissionPlan& emission,
                        const AccessContext& context, const SourceLanguage source_language,
-                       std::vector<Diagnostic>& diagnostics) {
+                       std::vector<Diagnostic>& diagnostics,
+                       const std::optional<ValueType> array_element_type = std::nullopt) {
   if (!expression.valid()) return;
   if ((expression.kind == ExpressionKind::end_index) !=
       semantic::requires_runtime_extent(expression.index_extent)) {
@@ -666,6 +694,7 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
       (!expression.matrix_operation.valid() &&
        (expression.matrix_operation.solve != semantic::MatrixSolveKind::none ||
         expression.matrix_operation.condition_policy != semantic::MatrixConditionPolicy::none ||
+        expression.matrix_operation.structure_policy != semantic::MatrixStructurePolicy::none ||
         !expression.matrix_operation.left_shape.empty() ||
         !expression.matrix_operation.right_shape.empty() ||
         !expression.matrix_operation.result_shape.empty())) ||
@@ -676,13 +705,20 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
     add_error(diagnostics, expression.location,
               "cpp LIR Matlab matrix-operation plan is inconsistent");
   }
-  if (!same_plan(expression.plan,
-                 expected_expression_plan(expression, emission, context, source_language))) {
+  if (!same_plan(expression.plan, expected_expression_plan(expression, emission, context,
+                                                           source_language, array_element_type))) {
     add_error(diagnostics, expression.location,
               "cpp LIR expression representation plan is inconsistent");
   }
+  const auto planned_element_type = expression.kind == ExpressionKind::list
+                                        ? array_element_type.value_or(expression.element_type)
+                                        : ValueType::unknown;
   for (const auto& child : expression.children) {
-    verify_expression(child, emission, context, source_language, diagnostics);
+    verify_expression(
+        child, emission, context, source_language, diagnostics,
+        expression.kind == ExpressionKind::list && child.inferred_type == ValueType::list
+            ? std::optional<ValueType>{planned_element_type}
+            : std::nullopt);
   }
 }
 
