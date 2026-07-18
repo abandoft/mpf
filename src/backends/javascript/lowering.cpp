@@ -87,6 +87,10 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
       attributes.array_operation == mpf::detail::semantic::ArrayOperation::matlab) {
     result.runtime.require(lir::RuntimeFeature::arrays);
   }
+  if (program.source_language == SourceLanguage::matlab &&
+      attributes.logical_evaluation != mpf::detail::semantic::LogicalEvaluation::none) {
+    result.runtime.require(lir::RuntimeFeature::arrays);
+  }
   const auto dynamic_truthiness =
       result.source_semantics.truthiness == mpf::detail::semantic::Truthiness::dynamic;
   const auto operand_logical =
@@ -152,6 +156,12 @@ void analyze_statements(const mir::Program& program, const std::vector<MirStatem
          statement.kind == StatementKind::while_loop) &&
         result.source_semantics.truthiness == mpf::detail::semantic::Truthiness::dynamic) {
       result.runtime.require(lir::RuntimeFeature::dynamic_values);
+    }
+    if ((statement.kind == StatementKind::if_statement ||
+         statement.kind == StatementKind::while_loop) &&
+        result.source_semantics.truthiness ==
+            mpf::detail::semantic::Truthiness::matlab_all_nonzero) {
+      result.runtime.require(lir::RuntimeFeature::arrays);
     }
     analyze_expression(program, statement.expression, result, diagnostics, calls);
     analyze_expression(program, statement.secondary_expression, result, diagnostics, calls);
@@ -284,6 +294,11 @@ std::vector<Diagnostic> verify_lir(const lir::SemanticProgram& program) {
     add_error(diagnostics, {1, 1},
               "JavaScript LIR character-selection policy disagrees with the source semantics");
   }
+  if (program.source_language != SourceLanguage::automatic &&
+      program.emission.matlab_truthiness != (program.source_language == SourceLanguage::matlab)) {
+    add_error(diagnostics, {1, 1},
+              "JavaScript LIR Matlab truthiness policy disagrees with the source language");
+  }
   if (program.identifiers.target != TargetLanguage::javascript ||
       !identifier_plan_complete(program.identifiers, collect_identifier_inventory(program))) {
     add_error(diagnostics, {1, 1}, "JavaScript LIR identifier allocation plan is incomplete");
@@ -391,6 +406,8 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
   lowered->runtime = semantic_program.runtime;
   lowered->emission.dynamic_truthiness =
       semantic_program.source_semantics.truthiness == mpf::detail::semantic::Truthiness::dynamic;
+  lowered->emission.matlab_truthiness = semantic_program.source_semantics.truthiness ==
+                                        mpf::detail::semantic::Truthiness::matlab_all_nonzero;
   lowered->emission.operand_logical_result = semantic_program.source_semantics.logical_result ==
                                              mpf::detail::semantic::LogicalResult::operand;
   lowered->emission.explicit_exports_only = semantic_program.source_semantics.export_policy ==
@@ -495,6 +512,7 @@ std::string lir::dump(const SemanticProgram& program) {
   }
   output << "]\n";
   output << "emission dynamic-truthiness=" << program.emission.dynamic_truthiness
+         << " matlab-truthiness=" << program.emission.matlab_truthiness
          << " operand-logical-result=" << program.emission.operand_logical_result
          << " explicit-exports-only=" << program.emission.explicit_exports_only
          << " lexical-block-scopes=" << program.emission.lexical_block_scopes

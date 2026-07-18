@@ -44,6 +44,8 @@ class Renderer final {
     return form == javascript::lir::ExpressionForm::binary_operator ||
            form == javascript::lir::ExpressionForm::binary_lazy_and ||
            form == javascript::lir::ExpressionForm::binary_lazy_or ||
+           form == javascript::lir::ExpressionForm::matlab_short_circuit_and ||
+           form == javascript::lir::ExpressionForm::matlab_short_circuit_or ||
            form == javascript::lir::ExpressionForm::binary_comparison ||
            form == javascript::lir::ExpressionForm::binary_floor_divide ||
            form == javascript::lir::ExpressionForm::binary_reverse_divide;
@@ -261,6 +263,11 @@ class Renderer final {
         if (!expression.children.empty()) emit_expression(expression.children.front());
         output_ << ')';
         break;
+      case javascript::lir::ExpressionForm::matlab_logical_not:
+        output_ << expression.plan.token << '(';
+        if (!expression.children.empty()) emit_expression(expression.children.front());
+        output_ << ')';
+        break;
       case javascript::lir::ExpressionForm::unary_operator:
         output_ << expression.plan.token;
         if (!expression.children.empty() && binary_form(expression.children.front().plan.form)) {
@@ -290,6 +297,19 @@ class Renderer final {
         emit_expression(expression.children[1]);
         output_ << "))";
         break;
+      case javascript::lir::ExpressionForm::matlab_short_circuit_and:
+      case javascript::lir::ExpressionForm::matlab_short_circuit_or:
+        output_ << "__mpf_matlab_scalar_logical(";
+        emit_expression(expression.children[0]);
+        output_ << ") "
+                << (expression.plan.form ==
+                            javascript::lir::ExpressionForm::matlab_short_circuit_and
+                        ? "&&"
+                        : "||")
+                << " __mpf_matlab_scalar_logical(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        break;
       case javascript::lir::ExpressionForm::binary_comparison: {
         emit_binary_comparison(expression);
         break;
@@ -306,6 +326,7 @@ class Renderer final {
         output_ << " / ";
         emit_expression(expression.children[0], precedence + 1);
         break;
+      case javascript::lir::ExpressionForm::matlab_logical_operation:
       case javascript::lir::ExpressionForm::matlab_array_operation:
         output_ << expression.plan.token << '(';
         emit_expression(expression.children[0]);
@@ -1085,6 +1106,10 @@ class Renderer final {
                       const javascript::lir::ConditionForm condition) {
     if (condition == javascript::lir::ConditionForm::runtime_truthy) {
       output_ << "__mpf_truthy(";
+      emit_expression(expression);
+      output_ << ')';
+    } else if (condition == javascript::lir::ConditionForm::matlab_all_nonzero) {
+      output_ << "__mpf_matlab_truthy(";
       emit_expression(expression);
       output_ << ')';
     } else {
