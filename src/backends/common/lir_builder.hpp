@@ -14,6 +14,8 @@ inline ValueMetadata lower_value_metadata(const mir::Program& program,
   ValueMetadata result;
   result.type = mir::value_type(program, source.type);
   result.element_type = mir::element_type(program, source.type);
+  result.numeric_type = mir::numeric_type(program, source.type);
+  result.element_numeric_type = mir::element_numeric_type(program, source.type);
   const auto* source_shape = mir::shape(program, source.shape);
   if (source_shape != nullptr) result.shape = source_shape->extents;
   result.sequence = source.sequence;
@@ -33,10 +35,14 @@ inline AssignmentPattern lower_assignment_pattern(const mir::Program& program,
   result.name = source.name;
   result.type = mir::value_type(program, source.type);
   result.element_type = mir::element_type(program, source.type);
+  result.numeric_type = mir::numeric_type(program, source.type);
+  result.element_numeric_type = mir::element_numeric_type(program, source.type);
   const auto* source_shape = mir::shape(program, source.shape);
   if (source_shape != nullptr) result.shape = source_shape->extents;
   result.previous_type = mir::value_type(program, source.previous_type);
   result.previous_element_type = mir::element_type(program, source.previous_type);
+  result.previous_numeric_type = mir::numeric_type(program, source.previous_type);
+  result.previous_element_numeric_type = mir::element_numeric_type(program, source.previous_type);
   result.access_path = source.access_path;
   result.captured_paths = source.captured_paths;
   result.children.reserve(source.children.size());
@@ -81,12 +87,14 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
         lower_lir_expression<LirExpression>(program, child, ids, resolve_binding, call_sites));
   }
   result.inferred_type = mir::value_type(program, source.type_id);
+  result.numeric_type = mir::numeric_type(program, source.type_id);
   result.binding = attributes.binding;
   result.intrinsic = attributes.intrinsic;
   if (attributes.binding == BindingKind::builtin && attributes.intrinsic != IntrinsicId::none) {
     result.target_binding = resolve_binding(source.origin, attributes.intrinsic);
   }
   result.element_type = mir::element_type(program, source.type_id);
+  result.element_numeric_type = mir::element_numeric_type(program, source.type_id);
   const auto* source_shape = mir::shape(program, source.shape_id);
   if (source_shape != nullptr) result.shape = source_shape->extents;
   result.logical_evaluation = attributes.logical_evaluation;
@@ -132,10 +140,14 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
   const auto* source_type = mir::type(program, source.type_id);
   if (source_type != nullptr && source_type->kind == mir::TypeKind::tuple) {
     result.tuple_types.reserve(source_type->elements.size());
+    result.tuple_numeric_types.reserve(source_type->elements.size());
     result.tuple_element_types.reserve(source_type->elements.size());
+    result.tuple_element_numeric_types.reserve(source_type->elements.size());
     for (const auto element : source_type->elements) {
       result.tuple_types.push_back(mir::value_type(program, element));
+      result.tuple_numeric_types.push_back(mir::numeric_type(program, element));
       result.tuple_element_types.push_back(mir::element_type(program, element));
+      result.tuple_element_numeric_types.push_back(mir::element_numeric_type(program, element));
     }
   }
   result.tuple_shapes.reserve(attributes.tuple_shapes.size());
@@ -228,7 +240,9 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
   result.source_exported = function != nullptr && function->exported;
   if (storage != nullptr) {
     result.declared_type = mir::value_type(program, storage->type);
+    result.declared_numeric_type = mir::numeric_type(program, storage->type);
     result.element_type = mir::element_type(program, storage->type);
+    result.element_numeric_type = mir::element_numeric_type(program, storage->type);
     const auto* storage_shape = mir::shape(program, storage->shape);
     if (storage_shape != nullptr) result.shape = storage_shape->extents;
     result.parameter_intent = storage->intent;
@@ -236,7 +250,10 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
     result.dummy_parameter = storage->kind == mir::StorageKind::parameter;
   } else if (function != nullptr && function->result_types.size() == 1U) {
     result.declared_type = mir::value_type(program, function->result_types.front());
+    result.declared_numeric_type = mir::numeric_type(program, function->result_types.front());
     result.element_type = mir::element_type(program, function->result_types.front());
+    result.element_numeric_type =
+        mir::element_numeric_type(program, function->result_types.front());
     if (!function->result_shapes.empty()) {
       const auto* result_shape = mir::shape(program, function->result_shapes.front());
       if (result_shape != nullptr) result.shape = result_shape->extents;
@@ -244,6 +261,9 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
   }
   result.previous_type = mir::value_type(program, attributes.previous_type);
   result.previous_element_type = mir::element_type(program, attributes.previous_type);
+  result.previous_numeric_type = mir::numeric_type(program, attributes.previous_type);
+  result.previous_element_numeric_type =
+      mir::element_numeric_type(program, attributes.previous_type);
   result.target_expression = lower_lir_expression<LirExpression>(program, source.target_expression,
                                                                  ids, resolve_binding, call_sites);
   result.has_target_expression = source.has_target_expression;
@@ -258,15 +278,21 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
   if (function != nullptr) {
     result.parameter_optional = function->parameter_optional;
     result.parameter_types.reserve(function->parameter_types.size());
+    result.parameter_numeric_types.reserve(function->parameter_types.size());
     result.parameter_element_types.reserve(function->parameter_types.size());
+    result.parameter_element_numeric_types.reserve(function->parameter_types.size());
     result.parameter_shapes.reserve(function->parameter_shapes.size());
     const auto* entry = function->entry.valid() && function->entry.value() < program.blocks.size()
                             ? &program.blocks[function->entry.value()]
                             : nullptr;
     for (std::size_t index = 0; index < function->parameter_types.size(); ++index) {
       result.parameter_types.push_back(mir::value_type(program, function->parameter_types[index]));
+      result.parameter_numeric_types.push_back(
+          mir::numeric_type(program, function->parameter_types[index]));
       result.parameter_element_types.push_back(
           mir::element_type(program, function->parameter_types[index]));
+      result.parameter_element_numeric_types.push_back(
+          mir::element_numeric_type(program, function->parameter_types[index]));
       const auto* parameter_shape = index < function->parameter_shapes.size()
                                         ? mir::shape(program, function->parameter_shapes[index])
                                         : nullptr;
@@ -293,16 +319,22 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
       result.declared_type = ValueType::tuple;
       for (const auto element : tuple_result->elements) {
         result.return_types.push_back(mir::value_type(program, element));
+        result.return_numeric_types.push_back(mir::numeric_type(program, element));
         result.return_element_types.push_back(mir::element_type(program, element));
+        result.return_element_numeric_types.push_back(mir::element_numeric_type(program, element));
         result.return_shapes.push_back({});
       }
     } else {
       result.return_types.reserve(function->result_types.size());
+      result.return_numeric_types.reserve(function->result_types.size());
       result.return_element_types.reserve(function->result_types.size());
+      result.return_element_numeric_types.reserve(function->result_types.size());
       result.return_shapes.reserve(function->result_shapes.size());
       for (const auto type : function->result_types) {
         result.return_types.push_back(mir::value_type(program, type));
+        result.return_numeric_types.push_back(mir::numeric_type(program, type));
         result.return_element_types.push_back(mir::element_type(program, type));
+        result.return_element_numeric_types.push_back(mir::element_numeric_type(program, type));
       }
       for (const auto shape : function->result_shapes) {
         const auto* data = mir::shape(program, shape);
@@ -316,19 +348,29 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
   result.target_pattern = lower_assignment_pattern(program, attributes.target_pattern);
   result.has_target_pattern = source.has_target_pattern;
   result.target_types.reserve(attributes.targets.size());
+  result.target_numeric_types.reserve(attributes.targets.size());
   result.target_element_types.reserve(attributes.targets.size());
+  result.target_element_numeric_types.reserve(attributes.targets.size());
   result.target_shapes.reserve(attributes.targets.size());
   result.target_previous_types.reserve(attributes.targets.size());
+  result.target_previous_numeric_types.reserve(attributes.targets.size());
   result.target_previous_element_types.reserve(attributes.targets.size());
+  result.target_previous_element_numeric_types.reserve(attributes.targets.size());
   for (const auto& target : attributes.targets) {
     result.target_types.push_back(mir::value_type(program, target.type));
+    result.target_numeric_types.push_back(mir::numeric_type(program, target.type));
     result.target_element_types.push_back(mir::element_type(program, target.type));
+    result.target_element_numeric_types.push_back(mir::element_numeric_type(program, target.type));
     const auto* target_shape = mir::shape(program, target.shape);
     result.target_shapes.push_back(target_shape == nullptr ? std::vector<std::size_t>{}
                                                            : target_shape->extents);
     result.target_previous_types.push_back(mir::value_type(program, target.previous_type));
+    result.target_previous_numeric_types.push_back(
+        mir::numeric_type(program, target.previous_type));
     result.target_previous_element_types.push_back(
         mir::element_type(program, target.previous_type));
+    result.target_previous_element_numeric_types.push_back(
+        mir::element_numeric_type(program, target.previous_type));
   }
   result.indexed_mutation = attributes.indexed_mutation.contract;
   if (const auto* shape = mir::shape(program, attributes.indexed_mutation.input_shape);

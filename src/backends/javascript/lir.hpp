@@ -22,6 +22,7 @@ enum class RuntimeFeature : std::uint8_t {
   character_case,
   reference_arguments,
   scalar_division,
+  complex_numbers,
   count
 };
 
@@ -128,7 +129,8 @@ enum class ExpressionForm : std::uint8_t {
   binary_reverse_divide,
   matlab_array_operation,
   matlab_transpose,
-  binary_runtime_call
+  binary_runtime_call,
+  unary_runtime_call
 };
 
 enum class ComparisonForm : std::uint8_t {
@@ -144,6 +146,7 @@ enum class ComparisonForm : std::uint8_t {
 enum class CallForm : std::uint8_t {
   none,
   direct,
+  complex_absolute,
   python_float,
   python_length,
   matlab_length,
@@ -320,6 +323,7 @@ struct StatementPlan {
 enum class RuntimeFragment : std::uint8_t {
   dynamic_values,
   character_case,
+  complex_numbers,
   arrays,
   scalar_division
 };
@@ -346,10 +350,12 @@ struct Expression {
   std::vector<ComparisonOperator> comparisons;
   std::vector<Expression> children;
   ValueType inferred_type{ValueType::unknown};
+  NumericType numeric_type{unknown_numeric_type};
   BindingKind binding{BindingKind::unresolved};
   IntrinsicId intrinsic{IntrinsicId::none};
   CodeBinding target_binding{};
   ValueType element_type{ValueType::unknown};
+  NumericType element_numeric_type{unknown_numeric_type};
   std::vector<std::size_t> shape;
   semantic::LogicalEvaluation logical_evaluation{semantic::LogicalEvaluation::none};
   semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
@@ -357,7 +363,9 @@ struct Expression {
   MatrixOperationPlan matrix_operation;
   ReductionPlan reduction;
   std::vector<ValueType> tuple_types;
+  std::vector<NumericType> tuple_numeric_types;
   std::vector<ValueType> tuple_element_types;
+  std::vector<NumericType> tuple_element_numeric_types;
   std::vector<std::vector<std::size_t>> tuple_shapes;
   bool sequence_is_list{false};
   std::vector<ValueMetadata> sequence_elements;
@@ -404,9 +412,13 @@ struct Statement {
   bool retain_last_loop_value{true};
   bool source_exported{false};
   ValueType declared_type{ValueType::unknown};
+  NumericType declared_numeric_type{unknown_numeric_type};
   ValueType element_type{ValueType::unknown};
+  NumericType element_numeric_type{unknown_numeric_type};
   ValueType previous_type{ValueType::unknown};
+  NumericType previous_numeric_type{unknown_numeric_type};
   ValueType previous_element_type{ValueType::unknown};
+  NumericType previous_element_numeric_type{unknown_numeric_type};
   ParameterIntent parameter_intent{ParameterIntent::none};
   bool optional_parameter{false};
   bool dummy_parameter{false};
@@ -422,13 +434,17 @@ struct Statement {
   std::vector<ParameterIntent> parameter_intents;
   std::vector<bool> parameter_optional;
   std::vector<ValueType> parameter_types;
+  std::vector<NumericType> parameter_numeric_types;
   std::vector<ValueType> parameter_element_types;
+  std::vector<NumericType> parameter_element_numeric_types;
   std::vector<std::vector<std::size_t>> parameter_shapes;
   std::vector<std::string> return_names;
   std::vector<SymbolId> return_symbols;
   bool has_value_return{false};
   std::vector<ValueType> return_types;
+  std::vector<NumericType> return_numeric_types;
   std::vector<ValueType> return_element_types;
+  std::vector<NumericType> return_element_numeric_types;
   std::vector<std::vector<std::size_t>> return_shapes;
   bool return_sequence_is_list{false};
   std::vector<ValueMetadata> return_sequence_elements;
@@ -437,10 +453,14 @@ struct Statement {
   AssignmentPattern target_pattern;
   bool has_target_pattern{false};
   std::vector<ValueType> target_types;
+  std::vector<NumericType> target_numeric_types;
   std::vector<ValueType> target_element_types;
+  std::vector<NumericType> target_element_numeric_types;
   std::vector<std::vector<std::size_t>> target_shapes;
   std::vector<ValueType> target_previous_types;
+  std::vector<NumericType> target_previous_numeric_types;
   std::vector<ValueType> target_previous_element_types;
+  std::vector<NumericType> target_previous_element_numeric_types;
   semantic::IndexedMutationContract indexed_mutation;
   std::vector<std::size_t> mutation_input_shape;
   std::vector<std::size_t> mutation_result_shape;

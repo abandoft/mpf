@@ -12,8 +12,8 @@ namespace mpf::detail {
 template <typename Plan>
 using TargetRepresentationDetails =
     decltype(std::declval<const Plan&>().concrete_type, std::declval<const Plan&>().widen_children,
-             std::declval<const Plan&>().flatten_base, std::declval<const Plan&>().call_outcome,
-             void());
+             std::declval<const Plan&>().complex_children, std::declval<const Plan&>().flatten_base,
+             std::declval<const Plan&>().call_outcome, void());
 
 template <typename Plan, TargetRepresentationDetails<Plan>* = nullptr>
 void dump_representation_details(std::ostream& output, const Plan& plan, int) {
@@ -23,6 +23,14 @@ void dump_representation_details(std::ostream& output, const Plan& plan, int) {
     for (std::size_t index = 0; index < plan.widen_children.size(); ++index) {
       if (index != 0) output << ',';
       output << plan.widen_children[index];
+    }
+    output << ']';
+  }
+  if (!plan.complex_children.empty()) {
+    output << " complex-widen [";
+    for (std::size_t index = 0; index < plan.complex_children.size(); ++index) {
+      if (index != 0) output << ',';
+      output << plan.complex_children[index];
     }
     output << ']';
   }
@@ -52,7 +60,12 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
   if (!expression.valid()) return;
   output << std::string(depth * 2U, ' ') << "expr %l" << expression.id.value() << " origin %h"
          << expression.origin.value() << " kind " << static_cast<int>(expression.kind) << " type "
-         << static_cast<int>(expression.inferred_type) << " binding "
+         << static_cast<int>(expression.inferred_type) << " numeric "
+         << static_cast<int>(expression.numeric_type.value_class) << '/'
+         << static_cast<int>(expression.numeric_type.complexity) << " element "
+         << static_cast<int>(expression.element_type) << " element-numeric "
+         << static_cast<int>(expression.element_numeric_type.value_class) << '/'
+         << static_cast<int>(expression.element_numeric_type.complexity) << " binding "
          << static_cast<int>(expression.binding) << " intrinsic "
          << static_cast<int>(expression.intrinsic) << " symbol @s" << expression.symbol_id.value()
          << " shape [";
@@ -213,8 +226,15 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
     output << std::string(depth * 2U, ' ') << "stmt %l" << statement.id.value() << " origin %h"
            << statement.origin.value() << " kind " << static_cast<int>(statement.kind) << " line "
            << statement.line << " name " << std::quoted(statement.name) << " symbol @s"
-           << statement.symbol_id.value() << " plan " << static_cast<int>(statement.plan.form)
-           << " condition " << static_cast<int>(statement.plan.condition) << " target-access "
+           << statement.symbol_id.value() << " declared "
+           << static_cast<int>(statement.declared_type) << " numeric "
+           << static_cast<int>(statement.declared_numeric_type.value_class) << '/'
+           << static_cast<int>(statement.declared_numeric_type.complexity) << " element "
+           << static_cast<int>(statement.element_type) << " element-numeric "
+           << static_cast<int>(statement.element_numeric_type.value_class) << '/'
+           << static_cast<int>(statement.element_numeric_type.complexity) << " plan "
+           << static_cast<int>(statement.plan.form) << " condition "
+           << static_cast<int>(statement.plan.condition) << " target-access "
            << static_cast<int>(statement.plan.target_access) << " alternative "
            << statement.plan.has_alternative << " range-step " << statement.plan.range_has_step
            << " retain-loop " << statement.plan.retain_loop_value << " inclusive-stop "
@@ -250,7 +270,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v22 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v23 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";
