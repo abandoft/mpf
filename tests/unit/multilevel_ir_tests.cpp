@@ -758,6 +758,113 @@ TEST_CASE("Matlab transpose identity remains typed through HIR and MIR") {
                     mpf::detail::UnaryOperator::transpose) != mir_operations.end());
 }
 
+TEST_CASE("Matlab empty arrays retain typed zero-extent contracts through every IR layer") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "empty = [];\n"
+                              "grown = [];\n"
+                              "grown(3) = 7;\n"
+                              "matrix = reshape([], 0, 5);\n"
+                              "transposed = matrix.';\n"
+                              "scaled = matrix + 2;\n",
+                              "empty_arrays.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+
+  const auto empty_hir =
+      std::find_if(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                   [](const auto& facts) {
+                     return facts.inferred_type == mpf::detail::ValueType::list &&
+                            facts.element_type == mpf::detail::ValueType::real &&
+                            facts.shape == std::vector<std::size_t>{0U, 0U} && facts.column_major;
+                   });
+  REQUIRE(empty_hir != analysis.semantics.expressions.end());
+  auto corrupted_hir = analysis.semantics;
+  const auto corrupted_empty = std::find_if(
+      corrupted_hir.expressions.begin(), corrupted_hir.expressions.end(), [](const auto& facts) {
+        return facts.inferred_type == mpf::detail::ValueType::list &&
+               facts.shape == std::vector<std::size_t>{0U, 0U};
+      });
+  REQUIRE(corrupted_empty != corrupted_hir.expressions.end());
+  corrupted_empty->shape = {0U};
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, corrupted_hir,
+                                              "empty-array-shape-corruption")
+               .empty());
+
+  const auto grown = std::find_if(
+      analysis.semantics.statements.begin(), analysis.semantics.statements.end(),
+      [](const auto& facts) {
+        return facts.indexed_mutation.kind == mpf::detail::semantic::IndexedMutationKind::grow &&
+               facts.mutation_input_shape == std::vector<std::size_t>{0U, 0U};
+      });
+  REQUIRE(grown != analysis.semantics.statements.end());
+  REQUIRE((grown->mutation_result_shape == std::vector<std::size_t>{1U, 3U}));
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  const auto empty_mir = std::find_if(
+      mir.program.expressions.begin() + 1, mir.program.expressions.end(),
+      [](const auto& expression) {
+        return expression.kind == mpf::detail::ExpressionKind::list && expression.children.empty();
+      });
+  REQUIRE(empty_mir != mir.program.expressions.end());
+  REQUIRE(mpf::detail::mir::value_type(mir.program, empty_mir->type_id) ==
+          mpf::detail::ValueType::list);
+  REQUIRE(mpf::detail::mir::element_type(mir.program, empty_mir->type_id) ==
+          mpf::detail::ValueType::real);
+  const auto* empty_shape = mpf::detail::mir::shape(mir.program, empty_mir->shape_id);
+  REQUIRE(empty_shape != nullptr);
+  REQUIRE((empty_shape->extents == std::vector<std::size_t>{0U, 0U}));
+  REQUIRE(empty_shape->layout == mpf::detail::semantic::IndexLayout::column_major);
+
+  auto corrupted_mir = mir.program;
+  corrupted_mir.shapes[empty_mir->shape_id.value()].extents = {0U};
+  REQUIRE(!mpf::detail::mir::verify(corrupted_mir, "empty-array-shape-corruption").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("array-literal 2 array-shape [0,0]") !=
+          std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("array-literal 2 array-shape [0,0]") !=
+          std::string::npos);
+
+  mpf::detail::javascript::lir::SemanticProgram javascript_plan;
+  javascript_plan.source_language = mpf::SourceLanguage::matlab;
+  javascript_plan.statements.resize(1);
+  auto& javascript_empty = javascript_plan.statements.front().expression;
+  javascript_empty.kind = mpf::detail::ExpressionKind::list;
+  javascript_empty.inferred_type = mpf::detail::ValueType::list;
+  javascript_empty.element_type = mpf::detail::ValueType::real;
+  javascript_empty.shape = {0U, 0U};
+  mpf::detail::javascript::plan_lir_representation(javascript_plan);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript_plan, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript_empty.plan.array_literal.shape = {0U};
+  mpf::detail::javascript::verify_lir_representation(javascript_plan, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp_plan;
+  cpp_plan.source_language = mpf::SourceLanguage::matlab;
+  cpp_plan.statements.resize(1);
+  auto& cpp_empty = cpp_plan.statements.front().expression;
+  cpp_empty.kind = mpf::detail::ExpressionKind::list;
+  cpp_empty.inferred_type = mpf::detail::ValueType::list;
+  cpp_empty.element_type = mpf::detail::ValueType::real;
+  cpp_empty.shape = {0U, 0U};
+  mpf::detail::cpp::plan_lir_representation(cpp_plan);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp_plan, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp_empty.plan.array_literal.form = mpf::detail::cpp::lir::ArrayLiteralForm::direct;
+  mpf::detail::cpp::verify_lir_representation(cpp_plan, diagnostics);
+  REQUIRE(!diagnostics.empty());
+}
+
 TEST_CASE("HIR pass manager verifies revisions and records instrumentation") {
   auto lowered = lower_python("value = 1\n");
   mpf::detail::PassManager<mpf::detail::hir::Program> passes(&mpf::detail::hir::verify);
@@ -819,7 +926,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(first_hir.find("stmt %h") != std::string::npos);
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v7") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v8") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -827,7 +934,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v12") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v13") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -2296,9 +2403,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v18") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v19") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v18") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v19") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
