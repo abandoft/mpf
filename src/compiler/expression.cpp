@@ -46,8 +46,10 @@ int binding_power(const TokenKind kind) noexcept {
   switch (kind) {
     case TokenKind::logical_or: return 1;
     case TokenKind::logical_and: return 2;
+    case TokenKind::elementwise_logical_or: return 3;
+    case TokenKind::elementwise_logical_and: return 4;
     case TokenKind::plus:
-    case TokenKind::minus: return 4;
+    case TokenKind::minus: return 6;
     case TokenKind::star:
     case TokenKind::slash:
     case TokenKind::backslash:
@@ -55,9 +57,9 @@ int binding_power(const TokenKind kind) noexcept {
     case TokenKind::dot_slash:
     case TokenKind::dot_backslash:
     case TokenKind::floor_slash:
-    case TokenKind::percent: return 5;
+    case TokenKind::percent: return 7;
     case TokenKind::power:
-    case TokenKind::dot_power: return 7;
+    case TokenKind::dot_power: return 9;
     default: return -1;
   }
 }
@@ -78,6 +80,8 @@ std::string canonical_operator(const TokenKind kind, const SourceLanguage langua
     case TokenKind::power: return language == SourceLanguage::matlab ? "^" : "**";
     case TokenKind::logical_and: return "&&";
     case TokenKind::logical_or: return "||";
+    case TokenKind::elementwise_logical_and: return "&";
+    case TokenKind::elementwise_logical_or: return "|";
     case TokenKind::logical_not: return "!";
     default: return {};
   }
@@ -95,6 +99,8 @@ BinaryOperator binary_operator(const TokenKind kind) noexcept {
     case TokenKind::power: return BinaryOperator::power;
     case TokenKind::logical_and: return BinaryOperator::logical_and;
     case TokenKind::logical_or: return BinaryOperator::logical_or;
+    case TokenKind::elementwise_logical_and: return BinaryOperator::elementwise_logical_and;
+    case TokenKind::elementwise_logical_or: return BinaryOperator::elementwise_logical_or;
     case TokenKind::dot_star: return BinaryOperator::elementwise_multiply;
     case TokenKind::dot_slash: return BinaryOperator::elementwise_divide;
     case TokenKind::dot_backslash: return BinaryOperator::elementwise_left_divide;
@@ -264,7 +270,7 @@ class Parser final {
       }
 
       const auto comparison = current_comparison();
-      const auto power = comparison.has_value() ? 3 : binding_power(current().kind);
+      const auto power = comparison.has_value() ? 5 : binding_power(current().kind);
       if (power < minimum_power) {
         break;
       }
@@ -353,7 +359,7 @@ class Parser final {
         expression.value = canonical_operator(token.kind, language_);
         expression.unary_operation = prefix_operator(token.kind);
         expression.children.push_back(parse_precedence(
-            language_ == SourceLanguage::python && token.kind == TokenKind::logical_not ? 3 : 6));
+            language_ == SourceLanguage::python && token.kind == TokenKind::logical_not ? 3 : 8));
         return expression;
       case TokenKind::left_parenthesis:
         expression = parse_conditional();

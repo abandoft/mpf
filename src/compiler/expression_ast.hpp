@@ -47,6 +47,8 @@ enum class BinaryOperator : std::uint8_t {
   power,
   logical_and,
   logical_or,
+  elementwise_logical_and,
+  elementwise_logical_or,
   elementwise_multiply,
   elementwise_divide,
   elementwise_left_divide,
@@ -76,6 +78,8 @@ enum class UnaryOperator : std::uint8_t {
     case BinaryOperator::power: return "^";
     case BinaryOperator::logical_and: return "&&";
     case BinaryOperator::logical_or: return "||";
+    case BinaryOperator::elementwise_logical_and: return "&";
+    case BinaryOperator::elementwise_logical_or: return "|";
     case BinaryOperator::elementwise_multiply: return ".*";
     case BinaryOperator::elementwise_divide: return "./";
     case BinaryOperator::elementwise_left_divide: return ".\\";

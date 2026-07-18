@@ -31,6 +31,8 @@ const char* to_string(const TokenKind kind) noexcept {
     case TokenKind::greater_equal: return ">=";
     case TokenKind::logical_and: return "and";
     case TokenKind::logical_or: return "or";
+    case TokenKind::elementwise_logical_and: return "&";
+    case TokenKind::elementwise_logical_or: return "|";
     case TokenKind::logical_not: return "not";
     case TokenKind::identity_is: return "is";
     case TokenKind::membership_in: return "in";

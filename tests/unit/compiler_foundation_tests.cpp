@@ -574,6 +574,34 @@ TEST_CASE("Matlab parser preserves matrix and element-wise operator identity") {
   REQUIRE(power.expression.children[1].value == ".^");
 }
 
+TEST_CASE("Matlab parser preserves logical identity and documented precedence") {
+  using mpf::detail::BinaryOperator;
+  using mpf::detail::ExpressionKind;
+
+  const auto expression =
+      parse_expression("a < b & c < d | e && f || g", mpf::SourceLanguage::matlab, 1);
+  REQUIRE(expression.diagnostics.empty());
+  REQUIRE(expression.expression.kind == ExpressionKind::binary);
+  REQUIRE(expression.expression.operation == BinaryOperator::logical_or);
+
+  const auto& short_and = expression.expression.children[0];
+  REQUIRE(short_and.operation == BinaryOperator::logical_and);
+  const auto& elementwise_or = short_and.children[0];
+  REQUIRE(elementwise_or.operation == BinaryOperator::elementwise_logical_or);
+  const auto& elementwise_and = elementwise_or.children[0];
+  REQUIRE(elementwise_and.operation == BinaryOperator::elementwise_logical_and);
+  REQUIRE(elementwise_and.children[0].comparison == mpf::detail::ComparisonOperator::less);
+  REQUIRE(elementwise_and.children[1].comparison == mpf::detail::ComparisonOperator::less);
+
+  const auto negated = parse_expression("~a & b == c", mpf::SourceLanguage::matlab, 1);
+  REQUIRE(negated.diagnostics.empty());
+  REQUIRE(negated.expression.operation == BinaryOperator::elementwise_logical_and);
+  REQUIRE(negated.expression.children[0].kind == ExpressionKind::unary);
+  REQUIRE(negated.expression.children[0].unary_operation ==
+          mpf::detail::UnaryOperator::logical_not);
+  REQUIRE(negated.expression.children[1].comparison == mpf::detail::ComparisonOperator::equal);
+}
+
 TEST_CASE("Matlab parser preserves conjugating and non-conjugating transpose identity") {
   using mpf::detail::UnaryOperator;
   const auto conjugating = parse_expression("values'", mpf::SourceLanguage::matlab, 1);
