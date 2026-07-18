@@ -231,6 +231,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
         output << " matrix-operation=" << enum_value(facts.matrix_operation.operation)
                << " solve=" << enum_value(facts.matrix_operation.solve)
                << " condition-policy=" << enum_value(facts.matrix_operation.condition_policy)
+               << " structure-policy=" << enum_value(facts.matrix_operation.structure_policy)
                << ' ';
         dump_shape(facts.matrix_operation.left_shape);
         if (!facts.matrix_operation.right_shape.empty()) {
@@ -343,6 +344,7 @@ std::string dump_mir(const mir::Program& program) {
         output << " matrix-operation=" << enum_value(attributes->matrix_operation.operation)
                << " solve=" << enum_value(attributes->matrix_operation.solve)
                << " condition-policy=" << enum_value(attributes->matrix_operation.condition_policy)
+               << " structure-policy=" << enum_value(attributes->matrix_operation.structure_policy)
                << " !s" << attributes->matrix_operation.left_shape.value();
         if (attributes->matrix_operation.right_shape.valid()) {
           output << ",!s" << attributes->matrix_operation.right_shape.value();
