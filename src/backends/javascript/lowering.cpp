@@ -85,6 +85,11 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
           NumericComplexity::complex) {
     result.runtime.require(lir::RuntimeFeature::complex_numbers);
   }
+  if (attributes.matrix_operation.numeric_domain ==
+      ::mpf::detail::semantic::MatrixNumericDomain::complex) {
+    result.runtime.require(lir::RuntimeFeature::complex_numbers);
+    result.runtime.require(lir::RuntimeFeature::complex_matrices);
+  }
   const auto active_numeric_type = mir::value_type(program, expression.type_id) == ValueType::list
                                        ? mir::element_numeric_type(program, expression.type_id)
                                        : mir::numeric_type(program, expression.type_id);

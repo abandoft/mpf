@@ -35,6 +35,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::arrays)) {
     result.push_back(lir::RuntimeFragment::arrays);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::complex_matrices)) {
+    result.push_back(lir::RuntimeFragment::complex_matrices);
+  }
   if (program.runtime.contains(lir::RuntimeFeature::scalar_division)) {
     result.push_back(lir::RuntimeFragment::scalar_division);
   }
@@ -74,6 +77,12 @@ void verify_module(const lir::SemanticProgram& program, std::vector<Diagnostic>&
       program.module.runtime_fragments != expected_runtime_fragments(program) ||
       program.module.body_order != expected_body_order(program)) {
     add_error(diagnostics, {1, 1}, "JavaScript LIR module plan is inconsistent");
+  }
+  if (program.runtime.contains(lir::RuntimeFeature::complex_matrices) &&
+      (!program.runtime.contains(lir::RuntimeFeature::complex_numbers) ||
+       !program.runtime.contains(lir::RuntimeFeature::arrays))) {
+    add_error(diagnostics, {1, 1},
+              "JavaScript complex-matrix runtime requires complex scalar and array fragments");
   }
 }
 

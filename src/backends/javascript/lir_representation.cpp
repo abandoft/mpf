@@ -67,10 +67,13 @@ std::string matlab_solve_helper(const std::string_view operation,
   switch (solve) {
     case semantic::MatrixSolveKind::none: return {};
     case semantic::MatrixSolveKind::square:
-      if (structure_policy != semantic::MatrixStructurePolicy::classify_real_square) {
+      if (structure_policy == semantic::MatrixStructurePolicy::classify_real_square) {
+        suffix = "structured_real_square";
+      } else if (structure_policy == semantic::MatrixStructurePolicy::classify_complex_square) {
+        suffix = "structured_complex_square";
+      } else {
         return {};
       }
-      suffix = "structured_real_square";
       break;
     case semantic::MatrixSolveKind::overdetermined:
       if (structure_policy != semantic::MatrixStructurePolicy::none) return {};
@@ -89,16 +92,21 @@ std::string matlab_array_helper(const lir::Expression& expression) {
                        expression.element_numeric_type.complexity == NumericComplexity::complex;
   const bool dynamic_numeric = expression.numeric_type == unknown_numeric_type ||
                                expression.element_numeric_type == unknown_numeric_type;
-  if (complex && expression.matrix_operation.valid()) return {};
   switch (expression.matrix_operation.operation) {
-    case semantic::MatrixOperation::multiply: return "__mpf_matlab_mtimes";
+    case semantic::MatrixOperation::multiply:
+      return expression.matrix_operation.numeric_domain == semantic::MatrixNumericDomain::complex
+                 ? "__mpf_matlab_complex_mtimes"
+                 : "__mpf_matlab_mtimes";
     case semantic::MatrixOperation::left_divide:
       return matlab_solve_helper("mldivide", expression.matrix_operation.solve,
                                  expression.matrix_operation.structure_policy);
     case semantic::MatrixOperation::right_divide:
       return matlab_solve_helper("mrdivide", expression.matrix_operation.solve,
                                  expression.matrix_operation.structure_policy);
-    case semantic::MatrixOperation::integer_power: return "__mpf_matlab_mpower";
+    case semantic::MatrixOperation::integer_power:
+      return expression.matrix_operation.numeric_domain == semantic::MatrixNumericDomain::complex
+                 ? "__mpf_matlab_complex_mpower"
+                 : "__mpf_matlab_mpower";
     case semantic::MatrixOperation::none: break;
   }
   const bool both_arrays = expression.children.size() == 2U &&
@@ -185,6 +193,36 @@ semantic::MatrixOperation expected_matrix_operation(const lir::Expression& expre
   return semantic::MatrixOperation::none;
 }
 
+std::optional<semantic::MatrixNumericDomain> expected_matrix_numeric_domain(
+    const lir::Expression& expression) noexcept {
+  if (expression.children.size() != 2U) return std::nullopt;
+  const auto& left = expression.children[0];
+  const auto& right = expression.children[1];
+  const auto left_numeric =
+      left.inferred_type == ValueType::list ? left.element_numeric_type : left.numeric_type;
+  const auto right_numeric =
+      right.inferred_type == ValueType::list ? right.element_numeric_type : right.numeric_type;
+  if (!left_numeric.present() || left_numeric.complexity == NumericComplexity::unknown) {
+    return std::nullopt;
+  }
+  if (expression.operation == BinaryOperator::power && left.inferred_type == ValueType::list &&
+      right.inferred_type != ValueType::list) {
+    if (!right_numeric.present() || right_numeric.complexity != NumericComplexity::real) {
+      return std::nullopt;
+    }
+    return left_numeric.complexity == NumericComplexity::complex
+               ? semantic::MatrixNumericDomain::complex
+               : semantic::MatrixNumericDomain::real;
+  }
+  if (!right_numeric.present() || right_numeric.complexity == NumericComplexity::unknown) {
+    return std::nullopt;
+  }
+  return left_numeric.complexity == NumericComplexity::complex ||
+                 right_numeric.complexity == NumericComplexity::complex
+             ? semantic::MatrixNumericDomain::complex
+             : semantic::MatrixNumericDomain::real;
+}
+
 bool static_rank_two(const std::vector<std::size_t>& shape) noexcept {
   return shape.size() == 2U && std::find(shape.begin(), shape.end(), dynamic_extent) == shape.end();
 }
@@ -193,8 +231,12 @@ bool valid_matrix_shapes(const lir::MatrixOperationPlan& plan,
                          const std::vector<std::size_t>& expression_shape) noexcept {
   if (!static_rank_two(plan.left_shape) || !static_rank_two(plan.result_shape) ||
       plan.result_shape != expression_shape ||
+      plan.numeric_domain == semantic::MatrixNumericDomain::none ||
       plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
-      plan.structure_policy != semantic::matrix_structure_policy(plan.solve)) {
+      plan.structure_policy != semantic::matrix_structure_policy(plan.solve, plan.numeric_domain) ||
+      (plan.numeric_domain == semantic::MatrixNumericDomain::complex &&
+       plan.solve != semantic::MatrixSolveKind::none &&
+       plan.solve != semantic::MatrixSolveKind::square)) {
     return false;
   }
   switch (plan.operation) {
@@ -804,9 +846,11 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
   const auto expected_matrix = source_language == SourceLanguage::matlab
                                    ? expected_matrix_operation(expression)
                                    : semantic::MatrixOperation::none;
+  const auto expected_matrix_domain = expected_matrix_numeric_domain(expression);
   if (expression.matrix_operation.operation != expected_matrix ||
       (!expression.matrix_operation.valid() &&
        (expression.matrix_operation.solve != semantic::MatrixSolveKind::none ||
+        expression.matrix_operation.numeric_domain != semantic::MatrixNumericDomain::none ||
         expression.matrix_operation.condition_policy != semantic::MatrixConditionPolicy::none ||
         expression.matrix_operation.structure_policy != semantic::MatrixStructurePolicy::none ||
         !expression.matrix_operation.left_shape.empty() ||
@@ -814,7 +858,8 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
         !expression.matrix_operation.result_shape.empty())) ||
       (expression.matrix_operation.valid() &&
        (expression.array_operation != semantic::ArrayOperation::matlab ||
-        expression.broadcast.valid ||
+        expression.broadcast.valid || !expected_matrix_domain.has_value() ||
+        expression.matrix_operation.numeric_domain != *expected_matrix_domain ||
         !valid_matrix_shapes(expression.matrix_operation, expression.shape)))) {
     add_error(diagnostics, expression.location,
               "JavaScript LIR Matlab matrix-operation plan is inconsistent");
