@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -283,10 +284,12 @@ struct ExpressionVerificationIndex {
   std::vector<const CallSite*> calls_by_instruction;
   std::vector<const Instruction*> instructions_by_value;
   std::vector<const BlockArgument*> block_arguments_by_value;
+  std::vector<bool> condition_context;
 };
 
 ExpressionVerificationIndex build_expression_verification_index(const Program& program) {
   ExpressionVerificationIndex result;
+  result.condition_context.resize(program.expressions.size(), false);
   result.calls_by_instruction.resize(program.instructions.size());
   for (const auto& call : program.calls) {
     if (valid_index(call.instruction, result.calls_by_instruction)) {
@@ -305,6 +308,7 @@ ExpressionVerificationIndex build_expression_verification_index(const Program& p
   }
   result.instructions_by_value.resize(maximum_value + 1U);
   result.block_arguments_by_value.resize(maximum_value + 1U);
+  std::vector<std::uint8_t> expression_traversal(program.expressions.size(), 0U);
   for (std::size_t index = 1; index < program.instructions.size(); ++index) {
     const auto& instruction = program.instructions[index];
     if (instruction.result.valid()) {
@@ -318,6 +322,49 @@ ExpressionVerificationIndex build_expression_verification_index(const Program& p
       }
     }
   }
+  const auto mark_expression = [&](const auto& self, const MirExpressionId id,
+                                   const bool condition) -> void {
+    const auto* expression_node = mir::expression(program, id);
+    const auto* expression_attributes = attributes(program, id);
+    if (expression_node == nullptr || expression_attributes == nullptr) return;
+    const auto traversal_bit = static_cast<std::uint8_t>(condition ? 2U : 1U);
+    if ((expression_traversal[id.value()] & traversal_bit) != 0U) return;
+    expression_traversal[id.value()] |= traversal_bit;
+    if (condition) result.condition_context[id.value()] = true;
+    const bool logical =
+        expression_node->kind == ExpressionKind::binary &&
+        (expression_attributes->operation == BinaryOperator::logical_and ||
+         expression_attributes->operation == BinaryOperator::logical_or ||
+         expression_attributes->operation == BinaryOperator::elementwise_logical_and ||
+         expression_attributes->operation == BinaryOperator::elementwise_logical_or);
+    for (const auto child : expression_node->children) {
+      self(self, child, condition && logical);
+    }
+  };
+  const auto mark_statements = [&](const auto& self,
+                                   const std::vector<MirStatementId>& statements) -> void {
+    for (const auto id : statements) {
+      const auto* statement_node = mir::statement(program, id);
+      if (statement_node == nullptr) continue;
+      const bool condition = program.source_language == SourceLanguage::matlab &&
+                             (statement_node->kind == StatementKind::if_statement ||
+                              statement_node->kind == StatementKind::while_loop);
+      mark_expression(mark_expression, statement_node->expression, condition);
+      mark_expression(mark_expression, statement_node->secondary_expression, false);
+      mark_expression(mark_expression, statement_node->tertiary_expression, false);
+      mark_expression(mark_expression, statement_node->target_expression, false);
+      for (const auto expression : statement_node->parameter_defaults) {
+        mark_expression(mark_expression, expression, false);
+      }
+      for (const auto& selector : statement_node->case_selectors) {
+        mark_expression(mark_expression, selector.lower, false);
+        mark_expression(mark_expression, selector.upper, false);
+      }
+      self(self, statement_node->body);
+      self(self, statement_node->alternative);
+    }
+  };
+  mark_statements(mark_statements, program.roots);
   return result;
 }
 
@@ -339,6 +386,7 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->origin != expression.id || !retired_attributes->spelling.empty() ||
         retired_attributes->unary_operation != UnaryOperator::none ||
         retired_attributes->operation != BinaryOperator::none ||
+        retired_attributes->logical_evaluation != semantic::LogicalEvaluation::none ||
         retired_attributes->comparison != ComparisonOperator::none ||
         !retired_attributes->comparisons.empty() ||
         retired_attributes->array_operation != semantic::ArrayOperation::native ||
@@ -398,8 +446,7 @@ void verify_expression(const Expression& expression, const Program& program,
       const bool lazy_kind = expression.kind == ExpressionKind::conditional ||
                              expression.kind == ExpressionKind::comparison_chain ||
                              (expression.kind == ExpressionKind::binary &&
-                              (expression_attributes->operation == BinaryOperator::logical_and ||
-                               expression_attributes->operation == BinaryOperator::logical_or));
+                              semantic::short_circuits(expression_attributes->logical_evaluation));
       const auto merged_value =
           instruction.operands.size() == 1U ? instruction.operands.front() : ValueId{};
       const auto* merge_argument =
@@ -442,6 +489,37 @@ void verify_expression(const Expression& expression, const Program& program,
       add_error(diagnostics, expression.location, stage,
                 "expression arena disagrees with its MIR instruction definition");
     }
+  }
+  const bool condition_context = expression.id.value() < index.condition_context.size() &&
+                                 index.condition_context[expression.id.value()];
+  auto expected_logical = semantic::LogicalEvaluation::none;
+  if (program.source_language == SourceLanguage::matlab &&
+      expression.kind == ExpressionKind::unary &&
+      expression_attributes->unary_operation == UnaryOperator::logical_not) {
+    expected_logical = semantic::LogicalEvaluation::eager_elementwise;
+  } else if (expression.kind == ExpressionKind::binary &&
+             (expression_attributes->operation == BinaryOperator::logical_and ||
+              expression_attributes->operation == BinaryOperator::logical_or)) {
+    expected_logical = program.source_language == SourceLanguage::python
+                           ? semantic::LogicalEvaluation::short_circuit_operand
+                           : semantic::LogicalEvaluation::short_circuit_boolean;
+  } else if (program.source_language == SourceLanguage::matlab &&
+             expression.kind == ExpressionKind::binary &&
+             (expression_attributes->operation == BinaryOperator::elementwise_logical_and ||
+              expression_attributes->operation == BinaryOperator::elementwise_logical_or)) {
+    expected_logical = condition_context ? semantic::LogicalEvaluation::short_circuit_boolean
+                                         : semantic::LogicalEvaluation::eager_elementwise;
+  }
+  if (expression_attributes->logical_evaluation != expected_logical) {
+    add_error(diagnostics, expression.location, stage,
+              "logical evaluation attribute disagrees with the source operator context");
+  }
+  const bool expected_lazy = expression.kind == ExpressionKind::conditional ||
+                             expression.kind == ExpressionKind::comparison_chain ||
+                             semantic::short_circuits(expected_logical);
+  if (expression_attributes->lazy_cfg != expected_lazy) {
+    add_error(diagnostics, expression.location, stage,
+              "lazy CFG ownership disagrees with the logical evaluation policy");
   }
   if (expression.storage_id.valid() && !valid_index(expression.storage_id, program.storages)) {
     add_error(diagnostics, expression.location, stage,

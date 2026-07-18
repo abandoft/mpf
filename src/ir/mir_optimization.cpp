@@ -371,6 +371,7 @@ bool fold_expression(Program& program, const MirExpressionId id, OptimizationSta
   facts->operation = BinaryOperator::none;
   facts->comparison = ComparisonOperator::none;
   facts->comparisons.clear();
+  facts->logical_evaluation = semantic::LogicalEvaluation::none;
   facts->array_operation = semantic::ArrayOperation::native;
   facts->broadcast = {};
   facts->matrix_operation = {};

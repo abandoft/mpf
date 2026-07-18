@@ -664,7 +664,8 @@ class Builder final {
     std::vector<ControlEdge> break_edges;
   };
 
-  ValueId emit_truthiness(const Expression& operand, const HirNodeId origin) {
+  ValueId emit_truthiness(const Expression& operand, const HirNodeId origin,
+                          const std::optional<semantic::Truthiness> truthiness = std::nullopt) {
     Instruction instruction;
     instruction.id = instruction_ids_.next();
     instruction.opcode = Opcode::truthiness;
@@ -673,7 +674,7 @@ class Builder final {
     instruction.result = value_ids_.next();
     instruction.type = intern_type(ValueType::boolean, ValueType::unknown);
     instruction.shape = intern_shape({}, false);
-    instruction.truthiness = program_.semantics.truthiness;
+    instruction.truthiness = truthiness.value_or(program_.semantics.truthiness);
     instruction.operands.push_back(operand.value_id);
     const auto result = instruction.result;
     append_instruction(std::move(instruction));
@@ -730,6 +731,7 @@ class Builder final {
     result_attributes.comparison = source.comparison;
     result_attributes.comparisons = std::move(source.comparisons);
     if (semantic_facts != nullptr) {
+      result_attributes.logical_evaluation = semantic_facts->logical_evaluation;
       result_attributes.array_operation = semantic_facts->array_operation;
       if (semantic_facts->broadcast.valid) {
         result_attributes.broadcast.valid = true;
@@ -799,8 +801,7 @@ class Builder final {
         result.kind == ExpressionKind::conditional && source.children.size() == 3U;
     const bool lazy_logical = result.kind == ExpressionKind::binary &&
                               source.children.size() == 2U &&
-                              (result_attributes.operation == BinaryOperator::logical_and ||
-                               result_attributes.operation == BinaryOperator::logical_or);
+                              semantic::short_circuits(result_attributes.logical_evaluation);
     const bool lazy_comparison =
         result.kind == ExpressionKind::comparison_chain && source.children.size() >= 3U &&
         result_attributes.comparisons.size() + 1U == source.children.size();
@@ -832,27 +833,43 @@ class Builder final {
     } else if (lazy_logical) {
       result_attributes.lazy_cfg = true;
       const auto* left = lower_child(std::move(source.children[0]));
-      const auto condition_value = emit_truthiness(*left, result.origin);
+      const auto logical_truthiness =
+          program_.source_language == SourceLanguage::matlab &&
+                  result_attributes.logical_evaluation ==
+                      semantic::LogicalEvaluation::short_circuit_boolean
+              ? std::optional<semantic::Truthiness>{semantic::Truthiness::matlab_scalar}
+              : std::nullopt;
+      const auto condition_value = emit_truthiness(*left, result.origin, logical_truthiness);
       lazy_fallback = storage_values_;
       const auto right_block = make_function_block();
       const auto bypass_block = make_function_block();
       lazy_merge = make_function_block();
-      const bool logical_and = result_attributes.operation == BinaryOperator::logical_and;
+      const bool logical_and =
+          result_attributes.operation == BinaryOperator::logical_and ||
+          result_attributes.operation == BinaryOperator::elementwise_logical_and;
       set_conditional(condition_value, logical_and ? right_block : bypass_block,
                       logical_and ? bypass_block : right_block, result.origin);
 
       current_block_ = bypass_block;
       storage_values_ = lazy_fallback;
       set_branch(lazy_merge, result.origin);
-      lazy_edges.push_back({bypass_block, storage_values_, left->value_id});
+      lazy_edges.push_back({bypass_block, storage_values_,
+                            result_attributes.logical_evaluation ==
+                                    semantic::LogicalEvaluation::short_circuit_operand
+                                ? left->value_id
+                                : condition_value});
 
       current_block_ = right_block;
       storage_values_ = lazy_fallback;
       const auto* right = lower_child(std::move(source.children[1]));
+      const auto right_value =
+          result_attributes.logical_evaluation == semantic::LogicalEvaluation::short_circuit_operand
+              ? right->value_id
+              : emit_truthiness(*right, result.origin, logical_truthiness);
       const auto right_exit = current_block_;
       const auto right_versions = storage_values_;
       set_branch(lazy_merge, result.origin);
-      lazy_edges.push_back({right_exit, right_versions, right->value_id});
+      lazy_edges.push_back({right_exit, right_versions, right_value});
     } else if (lazy_comparison) {
       result_attributes.lazy_cfg = true;
       const auto* first = lower_child(std::move(source.children[0]));

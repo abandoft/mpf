@@ -164,7 +164,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v8 hir-nodes=" << table.hir_node_count
+  output << "semantic-v9 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -180,7 +180,8 @@ std::string dump_semantics(const hir::SemanticTable& table) {
         if (extent != 0) output << ',';
         output << facts.shape[extent];
       }
-      output << "] outputs=" << facts.requested_outputs;
+      output << "] outputs=" << facts.requested_outputs
+             << " logical-evaluation=" << enum_value(facts.logical_evaluation);
       if (!facts.index_selectors.empty()) {
         output << " selectors=[";
         for (std::size_t selector = 0; selector < facts.index_selectors.size(); ++selector) {
@@ -269,7 +270,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v13 language=" << enum_value(program.source_language)
+  output << "mir-v14 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -298,7 +299,9 @@ std::string dump_mir(const mir::Program& program) {
              << " intrinsic=" << enum_value(attributes->intrinsic)
              << " comparison=" << enum_value(attributes->comparison)
              << " requested=" << attributes->requested_results
-             << " lazy-cfg=" << attributes->lazy_cfg << " tuple-shapes=";
+             << " lazy-cfg=" << attributes->lazy_cfg
+             << " logical-evaluation=" << enum_value(attributes->logical_evaluation)
+             << " tuple-shapes=";
       dump_ids(output, attributes->tuple_shapes, "!s");
       if (attributes->unary_operation != UnaryOperator::none) {
         output << " unary=" << enum_value(attributes->unary_operation);
