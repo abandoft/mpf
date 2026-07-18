@@ -94,7 +94,8 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
       output << ']';
     };
     output << " matrix-operation " << static_cast<int>(expression.matrix_operation.operation)
-           << " solve " << static_cast<int>(expression.matrix_operation.solve) << ' ';
+           << " solve " << static_cast<int>(expression.matrix_operation.solve) << " rank-policy "
+           << static_cast<int>(expression.matrix_operation.rank_policy) << ' ';
     dump_shape(expression.matrix_operation.left_shape);
     if (!expression.matrix_operation.right_shape.empty()) {
       output << ',';

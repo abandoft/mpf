@@ -189,6 +189,7 @@ struct BroadcastPlan {
 struct MatrixOperationPlan {
   semantic::MatrixOperation operation{semantic::MatrixOperation::none};
   semantic::MatrixSolveKind solve{semantic::MatrixSolveKind::none};
+  semantic::MatrixRankPolicy rank_policy{semantic::MatrixRankPolicy::none};
   std::vector<std::size_t> left_shape;
   std::vector<std::size_t> right_shape;
   std::vector<std::size_t> result_shape;
