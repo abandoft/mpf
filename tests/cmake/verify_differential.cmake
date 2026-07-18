@@ -28,11 +28,30 @@ function(require_success stage status stdout stderr)
   endif()
 endfunction()
 
+function(require_warning stage stderr)
+  if(NOT DEFINED EXPECTED_WARNING OR EXPECTED_WARNING STREQUAL "")
+    return()
+  endif()
+  string(FIND "${stderr}" "${EXPECTED_WARNING}" warning_offset)
+  if(warning_offset EQUAL -1)
+    message(FATAL_ERROR
+      "${CASE_NAME}: ${stage} did not report warning '${EXPECTED_WARNING}'\nstderr:\n${stderr}")
+  endif()
+endfunction()
+
+function(record_text value output_variable)
+  string(REPLACE "\\" "\\\\" recorded "${value}")
+  string(REPLACE "\r" "\\r" recorded "${recorded}")
+  string(REPLACE "\n" "\\n" recorded "${recorded}")
+  set(${output_variable} "${recorded}" PARENT_SCOPE)
+endfunction()
+
 file(REMOVE_RECURSE "${TEST_BINARY_DIR}")
 file(MAKE_DIRECTORY "${TEST_BINARY_DIR}")
 
 set(javascript_source "${TEST_BINARY_DIR}/generated.mjs")
 set(javascript_output "<not-run>")
+set(javascript_run_error "<not-run>")
 set(javascript_available FALSE)
 if(DEFINED NODE AND NOT NODE STREQUAL "" AND NOT NODE MATCHES "-NOTFOUND$")
   execute_process(
@@ -56,6 +75,7 @@ if(DEFINED NODE AND NOT NODE STREQUAL "" AND NOT NODE MATCHES "-NOTFOUND$")
     ERROR_VARIABLE javascript_run_error)
   require_success("JavaScript execution" "${javascript_run_status}"
                   "${javascript_run_output}" "${javascript_run_error}")
+  require_warning("JavaScript execution" "${javascript_run_error}")
   normalize_output("${javascript_run_output}" javascript_output)
   set(javascript_available TRUE)
 endif()
@@ -123,6 +143,7 @@ execute_process(
   ERROR_VARIABLE cpp_run_error)
 require_success("generated C++ execution" "${cpp_run_status}"
                 "${cpp_run_output}" "${cpp_run_error}")
+require_warning("generated C++ execution" "${cpp_run_error}")
 normalize_output("${cpp_run_output}" cpp_output)
 
 set(source_output "<not-run>")
@@ -175,6 +196,14 @@ elseif(DEFINED SOURCE_KIND AND SOURCE_KIND STREQUAL "typescript" AND
 endif()
 
 normalize_output("${EXPECTED_OUTPUT}" expected_output)
+if(DEFINED EXPECTED_WARNING)
+  set(expected_warning "${EXPECTED_WARNING}")
+else()
+  set(expected_warning "")
+endif()
+record_text("${expected_warning}" recorded_expected_warning)
+record_text("${javascript_run_error}" recorded_javascript_stderr)
+record_text("${cpp_run_error}" recorded_cpp_stderr)
 file(WRITE "${TEST_BINARY_DIR}/differential-result.txt"
   "case=${CASE_NAME}\n"
   "input=${INPUT}\n"
@@ -186,9 +215,12 @@ file(WRITE "${TEST_BINARY_DIR}/differential-result.txt"
   "cxx-compiler=${CXX_COMPILER}\n"
   "generator=${GENERATOR}\n"
   "expected=${expected_output}\n"
+  "expected-warning=${recorded_expected_warning}\n"
   "source=${source_output}\n"
   "javascript=${javascript_output}\n"
-  "cpp=${cpp_output}\n")
+  "javascript-stderr=${recorded_javascript_stderr}\n"
+  "cpp=${cpp_output}\n"
+  "cpp-stderr=${recorded_cpp_stderr}\n")
 
 if(NOT cpp_output STREQUAL expected_output)
   message(FATAL_ERROR
