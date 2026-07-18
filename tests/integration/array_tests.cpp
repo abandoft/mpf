@@ -228,9 +228,11 @@ TEST_CASE("Matlab static dense matrix solve and integer power use target-owned p
   const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
-  REQUIRE(javascript.code.find("__mpf_matlab_mldivide_square(coefficient, right_hand_side)") !=
+  REQUIRE(javascript.code.find(
+              "__mpf_matlab_mldivide_structured_square(coefficient, right_hand_side)") !=
           std::string::npos);
-  REQUIRE(javascript.code.find("__mpf_matlab_mrdivide_square([5, 7], coefficient)") !=
+  REQUIRE(javascript.code.find(
+              "__mpf_matlab_mrdivide_structured_square([5, 7], coefficient)") !=
           std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_mpower(coefficient, -1)") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_divide(coefficient, 2, [2, 2], [1, 1], [2, 2])") !=
@@ -246,9 +248,10 @@ TEST_CASE("Matlab static dense matrix solve and integer power use target-owned p
   REQUIRE(javascript.code.find("throw new RangeError('MPF Matlab matrix is singular") ==
           std::string::npos);
   REQUIRE(javascript.code.find("Number.isSafeInteger(exponent)") != std::string::npos);
-  REQUIRE(cpp.code.find("mpf_runtime::matlab_mldivide_square(coefficient, right_hand_side)") !=
+  REQUIRE(cpp.code.find(
+              "mpf_runtime::matlab_mldivide_structured_square(coefficient, right_hand_side)") !=
           std::string::npos);
-  REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_square") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_structured_square") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_mpower(coefficient, -1)") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_divide_broadcast") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_left_divide_broadcast") != std::string::npos);
@@ -263,6 +266,43 @@ TEST_CASE("Matlab static dense matrix solve and integer power use target-owned p
   REQUIRE(cpp.code.find("MPF runtime error: ") != std::string::npos);
   REQUIRE(javascript.source_map.segments.size() >= 6U);
   REQUIRE(cpp.source_map.segments.size() >= 6U);
+}
+
+TEST_CASE("Matlab square division dispatches diagonal triangular and dense kernels") {
+  const std::string source =
+      "diagonal = [2 0 0; 0 4 0; 0 0 5];\n"
+      "lower = [2 0 0; 1 3 0; 4 -2 5];\n"
+      "upper = [2 1 4; 0 3 -2; 0 0 5];\n"
+      "diagonal_solution = diagonal \\ [4; 8; 15];\n"
+      "lower_solution = lower \\ [2; 7; 15];\n"
+      "upper_solution = upper \\ [16; 0; 15];\n"
+      "dense_solution = [4 1; 2 3] \\ [9; 8];\n"
+      "right_solution = [2 7 15] / upper;\n"
+      "disp(diagonal_solution(3) + lower_solution(2) + upper_solution(1) + "
+      "dense_solution(1) + right_solution(2))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_square_structure") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_diagonal_apply") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_triangular_apply") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_structured_square_solve") != std::string::npos);
+  REQUIRE(javascript.code.find("return __mpf_matlab_lu_solve(left, right)") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("matlab_classify_square_structure") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_diagonal_apply") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_triangular_apply") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_structured_square_solve") != std::string::npos);
+  REQUIRE(cpp.code.find("return matlab_lu_solve(left, right)") != std::string::npos);
+  for (const auto line : {4U, 5U, 6U, 7U, 8U}) {
+    REQUIRE(std::any_of(javascript.source_map.segments.begin(),
+                        javascript.source_map.segments.end(),
+                        [line](const auto& segment) { return segment.original_line == line; }));
+    REQUIRE(std::any_of(cpp.source_map.segments.begin(), cpp.source_map.segments.end(),
+                        [line](const auto& segment) { return segment.original_line == line; }));
+  }
 }
 
 TEST_CASE("Matlab rectangular solve selects rank-aware basic CPQR solutions for both targets") {
@@ -315,9 +355,9 @@ TEST_CASE("Matlab square solve condition warnings remain target-owned and source
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
   REQUIRE(javascript.code.find("__mpf_matlab_lu_rcond") != std::string::npos);
-  REQUIRE(javascript.code.find("__mpf_matlab_warn_lu_condition") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_warn_square_condition") != std::string::npos);
   REQUIRE(cpp.code.find("matlab_lu_rcond") != std::string::npos);
-  REQUIRE(cpp.code.find("matlab_warn_lu_condition") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_warn_square_condition") != std::string::npos);
   for (const auto line : {2U, 4U}) {
     REQUIRE(std::any_of(javascript.source_map.segments.begin(),
                         javascript.source_map.segments.end(),
