@@ -256,6 +256,10 @@ if(TARGET mpfc)
     matlab-dynamic-linear-delete-matrix tests/fixtures/matlab_dynamic_linear_delete_matrix.m
     "linear indexed deletion requires a row or column vector" matlab)
   mpf_add_generated_runtime_failure_test(
+    matlab-complex-matrix-invalid-exponent
+    tests/fixtures/matlab_complex_matrix_invalid_exponent.m
+    "complex matrix power requires a safe integer exponent" matlab)
+  mpf_add_generated_runtime_failure_test(
     python-true-division-by-zero tests/fixtures/python_true_division_by_zero.py
     "division by zero" python)
   mpf_add_generated_runtime_failure_test(
