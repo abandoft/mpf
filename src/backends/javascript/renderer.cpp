@@ -58,6 +58,16 @@ class Renderer final {
     output_ << ']';
   }
 
+  void emit_optional_shape(const std::vector<std::size_t>& shape) {
+    for (const auto extent : shape) {
+      if (extent == dynamic_extent) {
+        output_ << "undefined";
+        return;
+      }
+    }
+    emit_shape(shape);
+  }
+
   void emit_comparison(const javascript::lir::ComparisonPlan& comparison, const std::string& left,
                        const std::string& right) {
     switch (comparison.form) {
@@ -351,7 +361,9 @@ class Renderer final {
           }
           output_ << "], " << expression.plan.index_base << ", "
                   << (expression.plan.allow_negative_index ? "true" : "false") << ", "
-                  << (expression.plan.column_major ? "true" : "false") << ')';
+                  << (expression.plan.column_major ? "true" : "false") << ", ";
+          emit_optional_shape(expression.plan.result_shape);
+          output_ << ')';
         } else {
           output_ << "__mpf_get(";
           emit_expression(expression.children[0]);
@@ -371,6 +383,12 @@ class Renderer final {
         output_ << '.' << expression.plan.token;
         break;
       case javascript::lir::ExpressionForm::array:
+        if (expression.plan.array_literal.form == javascript::lir::ArrayLiteralForm::shaped_empty) {
+          output_ << "__mpf_empty_array(";
+          emit_shape(expression.plan.array_literal.shape);
+          output_ << ')';
+          break;
+        }
         output_ << '[';
         for (std::size_t index = 0; index < expression.children.size(); ++index) {
           if (index != 0) output_ << ", ";
@@ -766,6 +784,8 @@ class Renderer final {
           } else {
             output_ << ", " << statement.plan.indexed_mutation.axis;
           }
+          output_ << ", ";
+          emit_optional_shape(statement.plan.mutation_result_shape);
           output_ << ");\n";
         } else if (statement.plan.form ==
                    javascript::lir::StatementForm::indexed_section_assignment) {
