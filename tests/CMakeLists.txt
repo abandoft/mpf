@@ -44,6 +44,7 @@ else()
 endif()
 if(NOT MPF_ENABLE_SANITIZERS)
   add_test(NAME mpf.performance.release-gate
+    CONFIGURATIONS Release RelWithDebInfo
     COMMAND ${CMAKE_COMMAND}
       -DBENCHMARK=$<TARGET_FILE:mpf-benchmark>
       -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/performance/baseline.json

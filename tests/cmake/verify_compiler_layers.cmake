@@ -578,9 +578,11 @@ endforeach()
 
 file(READ "${SOURCE_DIR}/tests/CMakeLists.txt" test_build_contract)
 if(NOT test_build_contract MATCHES
+   "mpf\\.performance\\.release-gate[^)]*CONFIGURATIONS Release RelWithDebInfo[^)]*COMMAND" OR
+   NOT test_build_contract MATCHES
    "mpf\\.performance\\.release-gate PROPERTIES[^)]*RUN_SERIAL TRUE")
   message(FATAL_ERROR
-    "performance release gate must run serially without competing CTest workloads")
+    "performance release gate must run serially and only in optimized configurations")
 endif()
 
 foreach(lir_header IN ITEMS
