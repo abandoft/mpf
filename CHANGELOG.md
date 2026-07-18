@@ -10,6 +10,7 @@
 - Invalid non-vector linear deletion remains rejected consistently, while singular-square execution is no longer misclassified as an unsupported runtime operation.
 - Source maps now retain both left-division and right-division locations for condition-aware square solves.
 - Generated C++ now rejects impossible zero-extent coordinate conversion before division, keeping empty-array output warning-clean under MSVC `/WX`.
+- Release SHA-256 sidecars now use a carriage-return-free format that standard Unix checksum tools can verify even when the package is built on Windows.
 - Added executable exact-singular and nearly-singular Matlab examples with two-target output and warning-count validation.
 - Expanded cross-layer corruption checks, generated-code assertions, architecture checks, and the Matlab fuzz corpus for conditioned solves.
 - The release gate now covers 214 internal tests, 72 differential cases, 17 performance scenarios, and 90.22% production-line coverage.

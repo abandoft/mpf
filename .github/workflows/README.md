@@ -57,10 +57,12 @@ and byte-identical license must all pass. Archive validation rejects multiple ro
 traversal, repository/build residue, missing public components, version mismatches, license
 changes, and checksum mismatches.
 
-Published releases contain exactly three ZIP files and three SHA-256 files. ZIP files receive
-GitHub build-provenance attestations. The final job downloads the public Release rather than
-reusing runner-local files, checks its draft/prerelease state and exact asset set, and repeats
-archive, checksum, version, license, and GitHub attestation verification.
+Published releases contain exactly three ZIP files and three SHA-256 files. Checksum sidecars
+use a carriage-return-free coreutils format that remains consumable by Unix checksum tools even
+when produced on Windows. ZIP files receive GitHub build-provenance attestations. The final job
+downloads the public Release rather than reusing runner-local files, checks its draft/prerelease
+state and exact asset set, and repeats archive, checksum, version, license, and GitHub attestation
+verification.
 
 Every external Action is pinned to a full commit SHA with a version comment; Dependabot owns
 the update path. CodeQL results from branch and pull-request runs are uploaded to code scanning.
