@@ -1,0 +1,7 @@
+row = [1 0 3];
+column = [1; 0];
+mask = row & column;
+inverse = ~(row | column);
+if [1 2; 3 4]
+  disp(sum(mask) + sum(inverse))
+end
