@@ -1,3 +1,22 @@
+## 0.5.8
+
+- Matlab 二维复数矩阵现可在生成的 JavaScript 与 C++17 中执行真正的矩阵乘法。
+- 稠密复数方阵左除现支持向量或多列右端项。
+- 复数方阵右除按共轭转置求解恒等式执行，不再复用实数转置语义。
+- exact Hermitian 正定系数矩阵现使用专用复数 Cholesky 分解与求解路径。
+- 非 Hermitian 或非正定复数方阵会确定性回退到按模选主元的稠密 LU。
+- 复数方阵求解器现估计倒条件数，并保持既有精确奇异与近奇异 warning 行为。
+- 复数方阵幂通过平方求幂支持零、正、负 ECMAScript-safe integer 指数。
+- 生成 runtime 会在各自边界拒绝畸形、非有限、shape 不一致或分数指数的复数矩阵操作。
+- 矩阵计划现通过所有编译层显式携带实数/复数 numeric domain 与独立 complex-square 结构策略。
+- Semantic、MIR、JavaScript LIR 与 `cpp` LIR 调试 schema 提升到 v12、v18、v24，并验证 numeric domain 与损坏事实。
+- JavaScript 与 C++17 使用彼此独立的复数矩阵 runtime，任一目标都不读取另一目标的生成代码或 runtime 产物。
+- complex-matrix runtime fragment 会验证依赖，并在纯实数矩阵程序中完全裁剪。
+- source map 保留复数矩阵乘法、左右除及正/负矩阵幂的原始位置。
+- 新增 Hermitian、稠密换行主元、精确奇异和近奇异复数矩阵可执行示例及双目标差分验证。
+- 新增复数矩阵 fuzz seed，以及动态非法矩阵幂指数的生成 runtime 拒错覆盖。
+- 发布门禁现包含 23 个性能场景、230 项内部测试、85 项差分 case 和 90.83% 生产代码行覆盖率。
+
 ## 0.5.7
 
 - Matlab 现支持以 `i` 或 `j` 结尾的虚数数值字面量；预定义虚数单位名称仍是可被正常遮蔽的普通标识符。

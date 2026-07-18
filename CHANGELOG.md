@@ -1,3 +1,22 @@
+## 0.5.8
+
+- Matlab complex rank-two matrices now support true matrix multiplication in generated JavaScript and C++17.
+- Dense complex square left division now supports vector or multiple-column right-hand sides.
+- Complex square right division follows the conjugate-transpose solve identity instead of reusing real transpose semantics.
+- Exact Hermitian positive-definite coefficient matrices now use a dedicated complex Cholesky factorization and solve path.
+- Non-Hermitian and non-positive-definite complex square systems fall back to magnitude-pivoted dense LU deterministically.
+- Complex square solvers now estimate reciprocal condition and preserve the existing singular and nearly-singular warning behavior.
+- Complex square matrix power supports zero, positive, and negative ECMAScript-safe integer exponents through exponentiation by squaring.
+- Generated runtimes reject malformed, nonfinite, shape-inconsistent, or fractional complex matrix operations at their owned boundaries.
+- Matrix plans now carry an explicit real or complex numeric domain and a distinct complex-square structure policy through every compiler layer.
+- Semantic, MIR, JavaScript LIR, and `cpp` LIR debug schemas advance to v12, v18, and v24 with numeric-domain validation and corruption rejection.
+- JavaScript and C++17 use independent complex-matrix runtimes; neither target reads generated code or runtime artifacts from the other.
+- Complex-matrix runtime fragments are dependency-checked and omitted entirely from real-only matrix programs.
+- Source maps retain the original locations of complex multiplication, left/right division, and positive or negative matrix powers.
+- Added executable examples for Hermitian, dense pivoted, singular, and nearly-singular complex matrix behavior with dual-target differential validation.
+- Added a complex matrix fuzz seed and generated-runtime rejection coverage for dynamically supplied invalid power exponents.
+- The release gate now contains 23 performance scenarios, 230 internal tests, 85 differential cases, and 90.83% production line coverage.
+
 ## 0.5.7
 
 - Matlab now accepts imaginary numeric literals with trailing `i` or `j`; the predefined imaginary-unit names remain ordinary, shadowable identifiers.

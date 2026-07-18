@@ -24,7 +24,7 @@ A modern, high-performance multilingual transpilation framework. MPF converts su
 
 | Input language | Recognized extensions | Current capabilities |
 |---|---|---|
-| Matlab | `.m` | Scripts and local functions, conditionals/loops/scalar `switch`, element-wise N-D `~`/`&`/`|`, scalar short-circuit `&&`/`||`, array condition truthiness, shape-aware `all`/`any` logical reductions, real and complex scalars/arrays, shape-preserving `0×0` and zero-extent arrays, static N-D and local-function runtime-shape implicit expansion, array comparisons, static and runtime-sized `end`, ordered/repeated/empty numeric and linear/per-dimension logical selectors, vector/matrix/N-D growth and single-axis deletion, ordinary/conjugate transpose, sections, `reshape`, complex element-wise arithmetic, two-dimensional real matrix multiplication, structure-aware diagonal/triangular/pivoted-tridiagonal/symmetric-positive-definite/dense real square solves, rank-aware real rectangular solves, real square integer power, and multiple-output functions |
+| Matlab | `.m` | Scripts and local functions, conditionals/loops/scalar `switch`, element-wise N-D `~`/`&`/`|`, scalar short-circuit `&&`/`||`, array condition truthiness, shape-aware `all`/`any` logical reductions, real and complex scalars/arrays, shape-preserving `0×0` and zero-extent arrays, static N-D and local-function runtime-shape implicit expansion, array comparisons, static and runtime-sized `end`, ordered/repeated/empty numeric and linear/per-dimension logical selectors, vector/matrix/N-D growth and single-axis deletion, ordinary/conjugate transpose, sections, `reshape`, complex element-wise arithmetic, two-dimensional real/complex matrix multiplication, structure-aware real square solves, Hermitian-positive-definite/dense complex square solves, rank-aware real rectangular solves, safe-integer real/complex square matrix power, and multiple-output functions |
 | Python | `.py`, `.pyw` | Functions and parameters, conditionals and loops, lists/tuples, unpacking, comparison chains, multidimensional arrays, indexing, and slicing |
 | Fortran | `.f`, `.for`, `.ftn`, `.f77`, `.f90`, and others | Free/fixed form, functions/subroutines, `INTENT`/`OPTIONAL`, arrays and sections, and `SELECT CASE` |
 | TypeScript | `.ts`, `.mts`, `.cts` | Typed scalars and arrays, functions, block scope, conditionals, `while`, and standard C-style `for` loops |
@@ -123,7 +123,7 @@ cmake --install build/release --prefix build/stage
 Find the exact current version in another project:
 
 ```cmake
-find_package(mpf 0.5.7 EXACT CONFIG REQUIRED COMPONENTS core cpp)
+find_package(mpf 0.5.8 EXACT CONFIG REQUIRED COMPONENTS core cpp)
 target_link_libraries(my_application PRIVATE mpf::mpf)
 ```
 
@@ -151,7 +151,7 @@ int main() {
 }
 ```
 
-The installed package provides the `core`, `javascript`, and `cpp` components; the `mpf::core`, `mpf::backend-javascript`, and `mpf::backend-cpp` targets; and the unified `mpf::mpf` entry point. See [`examples/embedding`](examples/embedding) for a complete integration example; configure it with `-DMPF_REQUIRED_VERSION=0.5.7` so the consumer keeps exact-version matching.
+The installed package provides the `core`, `javascript`, and `cpp` components; the `mpf::core`, `mpf::backend-javascript`, and `mpf::backend-cpp` targets; and the unified `mpf::mpf` entry point. See [`examples/embedding`](examples/embedding) for a complete integration example; configure it with `-DMPF_REQUIRED_VERSION=0.5.8` so the consumer keeps exact-version matching.
 
 MPF 0.x installs static libraries deliberately. A supported shared-library ABI will require an explicit symbol-export, allocator/ownership, and version-negotiation contract; setting `BUILD_SHARED_LIBS` does not silently expose the current internal C++ ABI.
 
