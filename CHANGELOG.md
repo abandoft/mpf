@@ -1,3 +1,19 @@
+## 0.5.4
+
+- Matlab square left and right division now detects diagonal, upper-triangular, lower-triangular, and general dense real coefficient matrices at runtime.
+- Diagonal systems now use direct element-wise solves instead of allocating and factoring a dense LU matrix.
+- Upper- and lower-triangular systems now use dedicated forward or backward substitution in generated JavaScript and C++17.
+- General square systems continue to use partial-pivoting dense LU as the deterministic fallback.
+- Matlab right division classifies the transposed divisor and uses the same structure-aware solver contract as left division.
+- Reciprocal-condition estimation now follows the selected diagonal, triangular, or dense kernel, including transpose solves required by the estimator.
+- Exact singular and nearly singular structured systems emit the existing stable Matlab-style warnings and continue with the computed IEEE result.
+- Generated C++17 now recursively widens mixed integer and floating-point matrix rows to one concrete numeric container type.
+- Matrix structure policy is verified through semantic analysis, MIR, JavaScript LIR, and `cpp` LIR before code emission.
+- Source maps now retain the original locations of structured left and right division expressions.
+- Added executable structured-solve and condition-warning examples, dual-target differential cases, verifier corruption tests, and a Matlab fuzz regression seed.
+- The release performance gate now includes an eighteenth compile scenario covering diagonal, triangular, dense, left-division, right-division, and mixed numeric matrix literals.
+- Release validation now covers 215 internal tests, 74 differential cases, 18 performance scenarios, and 90.30% production line coverage.
+
 ## 0.5.3
 
 - Matlab rectangular left and right division now use rank-aware column-pivoted QR for both overdetermined and underdetermined systems.
