@@ -1,0 +1,8 @@
+matrix = [1 0 3; 4 5 6];
+cube = reshape([1 0 3 4 5 6 0 8], 2, 2, 2);
+columns = all(matrix);
+rows = any(matrix, 2);
+pages = all(cube, [1 2]);
+total = any(cube, 'all');
+empty_identity = all([]);
+disp(columns(1, 1) + rows(2, 1) + pages(1, 1, 1) + total + empty_identity)
