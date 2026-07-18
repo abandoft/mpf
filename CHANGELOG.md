@@ -1,3 +1,20 @@
+## 0.5.5
+
+- Matlab square left and right division now detects full real tridiagonal coefficient matrices, matching the structure introduced for dense inputs in Matlab R2024a.
+- Tridiagonal systems now use an adjacent-row partial-pivoting LU factorization with compact diagonal storage instead of general dense LU.
+- The tridiagonal runtime supports multiple right-hand sides and dedicated transpose solves, so right division uses the same specialized contract.
+- Exact symmetric positive-definite matrices now use Cholesky factorization and triangular substitution in generated JavaScript and C++17.
+- Symmetric matrices that are not positive definite fall back deterministically to partial-pivoting dense LU without exposing a failed Cholesky result.
+- Square structure selection now follows diagonal, triangular, tridiagonal, symmetric-positive-definite, and dense fallback priority in both output targets.
+- Tridiagonal and Cholesky kernels now participate in the same iterative 1-norm reciprocal-condition estimation used for square-system warnings.
+- Exact singular tridiagonal systems and nearly singular positive-definite systems emit the stable Matlab-style warning and continue with the computed result.
+- The verified matrix structure policy now represents full real-square classification through semantic analysis, MIR, JavaScript LIR, and `cpp` LIR.
+- Generated helper names now describe the real structured-square contract and no longer retain the earlier diagonal/triangular-only helper identity.
+- Added executable left/right tridiagonal, positive-definite, symmetric-indefinite, singular, and nearly singular examples with dual-target output and warning validation.
+- Expanded source-map assertions, verifier corruption checks, architecture checks, and Matlab fuzz seeds for the advanced structure paths.
+- The release performance gate now covers nineteen compile scenarios, including a dedicated advanced structured-square workload.
+- Release validation now covers 216 internal tests, 77 differential cases, 19 performance scenarios, and 90.40% production line coverage.
+
 ## 0.5.4
 
 - Matlab square left and right division now detects diagonal, upper-triangular, lower-triangular, and general dense real coefficient matrices at runtime.
