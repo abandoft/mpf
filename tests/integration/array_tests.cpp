@@ -266,6 +266,7 @@ TEST_CASE("Matlab static dense matrix solve and integer power use target-owned p
           std::string::npos);
   REQUIRE(cpp.code.find("maximum_safe_integer") != std::string::npos);
   REQUIRE(cpp.code.find("MPF runtime error: ") != std::string::npos);
+  REQUIRE(cpp.code.find("inline double ieee_divide") == std::string::npos);
   REQUIRE(javascript.source_map.segments.size() >= 6U);
   REQUIRE(cpp.source_map.segments.size() >= 6U);
 }
@@ -654,6 +655,8 @@ TEST_CASE("Matlab logical arrays and condition truthiness lower independently pe
   REQUIRE(cpp.code.find("mpf_runtime::matlab_not(row)") != std::string::npos);
   REQUIRE(cpp.code.find("if (mpf_runtime::matlab_truthy(") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_scalar_logical(0) &&") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::ieee_divide(1, 0)") != std::string::npos);
+  REQUIRE(cpp.code.find("static_cast<double>(1) / static_cast<double>(0)") == std::string::npos);
   for (const auto* result : {&javascript, &cpp}) {
     REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
                         [](const auto& segment) { return segment.original_line == 3U; }));

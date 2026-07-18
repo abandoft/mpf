@@ -37,9 +37,9 @@ TEST_CASE("both backends lower power and floor division from the same AST") {
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
   REQUIRE(javascript.code.find("power = -(2 ** 2);") != std::string::npos);
-  REQUIRE(javascript.code.find("Math.floor(7 / 2)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_python_floor_divide(7, 2)") != std::string::npos);
   REQUIRE(cpp.code.find("std::pow(2, 2)") != std::string::npos);
-  REQUIRE(cpp.code.find("std::floor(static_cast<double>(7)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::python_floor_divide(7, 2)") != std::string::npos);
 }
 
 TEST_CASE("C++17 target preserves Python strings and true division") {
@@ -47,7 +47,7 @@ TEST_CASE("C++17 target preserves Python strings and true division") {
                                 mpf::SourceLanguage::python, mpf::TargetLanguage::cpp);
   REQUIRE(result.success());
   REQUIRE(result.code.find("std::string{\"value\"}") != std::string::npos);
-  REQUIRE(result.code.find("static_cast<double>(7) / static_cast<double>(2)") != std::string::npos);
+  REQUIRE(result.code.find("mpf_runtime::python_true_divide(7, 2)") != std::string::npos);
 }
 
 TEST_CASE("Python chained comparisons and conditional expressions lower lazily in both backends") {
@@ -1115,7 +1115,7 @@ TEST_CASE("TypeScript functions defaults control flow and strict equality lower 
   REQUIRE(javascript.code.find("export function accumulate(limit, step = 1)") != std::string::npos);
   REQUIRE(javascript.code.find("total === 42") != std::string::npos);
   REQUIRE(javascript.code.find("accumulate(42, 1)") != std::string::npos);
-  REQUIRE(cpp.code.find("static_cast<double>(7) / static_cast<double>(2)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::ieee_divide(7, 2)") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::optional_argument<double> step") != std::string::npos);
 
   const auto private_function =
