@@ -444,12 +444,21 @@ ValueType Analyzer::analyze_expression(Expression& expression) {
         diagnose(expression.location.line, "MPF2020",
                  "target array/list requires a homogeneous element type");
       }
-      semantic(semantics_, expression).element_type = element_type;
-      semantic(semantics_, expression).shape = {expression.children.size()};
+      auto& facts = semantic(semantics_, expression);
+      // Matlab defines [] as a 0-by-0 double array.  Keep that source-language
+      // contract in the semantic side table instead of collapsing it to a
+      // language-neutral rank-one empty container.  Other frontends retain
+      // their native empty-list model.
+      if (program_.language == SourceLanguage::matlab && expression.children.empty()) {
+        element_type = ValueType::real;
+        facts.shape = {0U, 0U};
+      } else {
+        facts.shape = {expression.children.size()};
+      }
+      facts.element_type = element_type;
+      facts.column_major = program_.semantics.layout == semantic::IndexLayout::column_major;
       if (nested && !nested_shape.empty() && !ragged) {
-        semantic(semantics_, expression)
-            .shape.insert(semantic(semantics_, expression).shape.end(), nested_shape.begin(),
-                          nested_shape.end());
+        facts.shape.insert(facts.shape.end(), nested_shape.begin(), nested_shape.end());
       } else if (nested && ragged) {
         const auto maximum =
             std::max_element(expression.children.begin(), expression.children.end(),
@@ -458,20 +467,17 @@ ValueType Analyzer::analyze_expression(Expression& expression) {
                                       semantic(semantics_, right).shape.size();
                              });
         const auto maximum_rank = semantic(semantics_, *maximum).shape.size();
-        semantic(semantics_, expression)
-            .shape.insert(semantic(semantics_, expression).shape.end(), maximum_rank,
-                          dynamic_extent);
+        facts.shape.insert(facts.shape.end(), maximum_rank, dynamic_extent);
       } else if (mixed_nesting) {
-        semantic(semantics_, expression).element_type = ValueType::unknown;
+        facts.element_type = ValueType::unknown;
       }
-      semantic(semantics_, expression).sequence_is_list = true;
-      semantic(semantics_, expression).sequence_elements.clear();
-      semantic(semantics_, expression).sequence_elements.reserve(expression.children.size());
+      facts.sequence_is_list = true;
+      facts.sequence_elements.clear();
+      facts.sequence_elements.reserve(expression.children.size());
       for (const auto& child : expression.children) {
-        semantic(semantics_, expression)
-            .sequence_elements.push_back(expression_metadata(child, semantics_));
+        facts.sequence_elements.push_back(expression_metadata(child, semantics_));
       }
-      return semantic(semantics_, expression).inferred_type = ValueType::list;
+      return facts.inferred_type = ValueType::list;
     }
     case ExpressionKind::tuple:
       semantic(semantics_, expression).tuple_types.clear();
@@ -526,14 +532,16 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
         facts.array_operation = semantic::ArrayOperation::matlab;
         if (runtime_operand) {
           facts.broadcast = matlab_runtime_broadcast_plan();
-        } else if (left_array && right_array) {
-          const auto broadcast = matlab_broadcast_plan(left_facts.shape, right_facts.shape);
+        } else {
+          const auto broadcast =
+              matlab_broadcast_plan(left_array ? left_facts.shape : std::vector<std::size_t>{},
+                                    right_array ? right_facts.shape : std::vector<std::size_t>{});
           if (!broadcast.has_value()) {
             diagnose(expression.location.line, "MPF2046",
                      "Matlab array comparison operands have incompatible sizes");
             return facts.inferred_type = ValueType::unknown;
           }
-          if (left_facts.shape != right_facts.shape ||
+          if (!left_array || !right_array || left_facts.shape != right_facts.shape ||
               broadcast->shape_source == semantic::BroadcastShapeSource::runtime_operands) {
             facts.broadcast = *broadcast;
           }
@@ -629,8 +637,10 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
       facts.array_operation = semantic::ArrayOperation::matlab;
       if (runtime_operand) {
         facts.broadcast = matlab_runtime_broadcast_plan();
-      } else if (left_array && right_array) {
-        const auto broadcast = matlab_broadcast_plan(left_facts.shape, right_facts.shape);
+      } else {
+        const auto broadcast =
+            matlab_broadcast_plan(left_array ? left_facts.shape : std::vector<std::size_t>{},
+                                  right_array ? right_facts.shape : std::vector<std::size_t>{});
         if (!broadcast.has_value()) {
           diagnose(expression.location.line, "MPF2046",
                    "Matlab element-wise operands have incompatible sizes; every dimension must "
@@ -639,7 +649,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
         }
         // Preserve the direct same-shape runtime fast path. A side-table plan is needed only
         // when lowering must expand at least one compatible singleton dimension.
-        if (left_facts.shape != right_facts.shape ||
+        if (!left_array || !right_array || left_facts.shape != right_facts.shape ||
             broadcast->shape_source == semantic::BroadcastShapeSource::runtime_operands) {
           facts.broadcast = *broadcast;
         }
@@ -1735,6 +1745,10 @@ void Analyzer::analyze_indexed_mutation(Statement& statement, const ValueType va
       const auto required_size = *required;
       if (input_shape.size() == 1U) {
         result_shape[0] = std::max(result_shape[0], required_size);
+      } else if (input_shape == std::vector<std::size_t>{0U, 0U}) {
+        // Linear assignment grows Matlab's canonical 0-by-0 empty array as a
+        // row vector, matching the orientation Matlab chooses for A(k)=value.
+        result_shape = {1U, required_size};
       } else if (const auto vector_axis = matlab_vector_axis(input_shape);
                  vector_axis.has_value()) {
         result_shape[*vector_axis] = std::max(result_shape[*vector_axis], required_size);
@@ -1983,11 +1997,11 @@ ValueType Analyzer::analyze_reshape(Expression& expression) {
   }
   for (const auto* dimension : dimension_expressions) {
     const auto value = numeric_constant(*dimension);
-    if (!value.has_value() || *value <= 0.0 ||
+    if (!value.has_value() || *value < 0.0 ||
         *value > static_cast<double>(std::numeric_limits<std::size_t>::max()) ||
         *value != static_cast<double>(static_cast<std::size_t>(*value))) {
       diagnose(dimension->location.line, "MPF2027",
-               "RESHAPE dimensions must be positive integer constants");
+               "RESHAPE dimensions must be non-negative integer constants");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
     dimensions.push_back(static_cast<std::size_t>(*value));
