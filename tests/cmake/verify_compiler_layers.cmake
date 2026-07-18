@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "compiler layer verification requires SOURCE_DIR")
 endif()
@@ -8,6 +10,18 @@ function(mpf_assert_file_excludes file pattern message_text)
     message(FATAL_ERROR "${message_text}: ${file}")
   endif()
 endfunction()
+
+file(GLOB script_mode_contracts
+  "${SOURCE_DIR}/cmake/*.cmake"
+  "${SOURCE_DIR}/tests/cmake/*.cmake")
+foreach(script_mode_contract IN LISTS script_mode_contracts)
+  file(STRINGS "${script_mode_contract}" first_line LIMIT_COUNT 1)
+  if(NOT first_line STREQUAL "cmake_minimum_required(VERSION 3.20)")
+    message(FATAL_ERROR
+      "script-mode CMake entry point does not establish the project policy baseline: "
+      "${script_mode_contract}")
+  endif()
+endforeach()
 
 file(READ "${SOURCE_DIR}/CMakeLists.txt" root_build_contract)
 if(NOT root_build_contract MATCHES "COMPATIBILITY ExactVersion" OR
@@ -127,7 +141,7 @@ foreach(statement_parser IN ITEMS
   if(NOT statement_parser_contract MATCHES "FrontendAstBuilder<" OR
      NOT statement_parser_contract MATCHES "std::vector<AstNodeId> parse_block" OR
      statement_parser_contract MATCHES "std::vector<Statement>" OR
-     statement_parser_contract MATCHES "compiler/ir\.hpp|make_(python|matlab|fortran)_ast")
+     statement_parser_contract MATCHES "compiler/ir\\.hpp|make_(python|matlab|fortran)_ast")
     message(FATAL_ERROR
       "statement parser does not build its language arena directly: ${statement_parser}")
   endif()
@@ -338,7 +352,7 @@ if(NOT target_lir_builder_contract MATCHES "mir::expression\\(program" OR
    NOT target_lir_builder_contract MATCHES "mir::attributes\\(program" OR
    NOT target_lir_builder_contract MATCHES "mir::value_type\\(program" OR
    NOT target_lir_builder_contract MATCHES "mir::shape\\(program" OR
-   target_lir_builder_contract MATCHES "source\.statements")
+   target_lir_builder_contract MATCHES "source\\.statements")
   message(FATAL_ERROR "target LIR builder does not consume the flat MIR value/operation arena")
 endif()
 if(mir_contract MATCHES "struct LoweringResult[^{]*\\{[^}]*AliasEffectTable" OR
