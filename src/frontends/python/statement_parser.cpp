@@ -62,6 +62,21 @@ std::size_t matching_token(const PythonStatementLine& line, const std::size_t op
   return token_count(line);
 }
 
+ValueType scalar_annotation_type(const PythonStatementLine& line, const std::size_t first,
+                                 const std::size_t last) noexcept {
+  if (last != first + 1 || first >= token_count(line) ||
+      line.tokens[first].kind != Kind::identifier) {
+    return ValueType::unknown;
+  }
+  const auto& name = line.tokens[first].text;
+  if (name == "int") return ValueType::integer;
+  if (name == "float") return ValueType::real;
+  if (name == "bool") return ValueType::boolean;
+  if (name == "str") return ValueType::string;
+  if (name == "None") return ValueType::null_value;
+  return ValueType::unknown;
+}
+
 class Parser final {
  public:
   Parser(std::vector<PythonStatementLine> lines, std::vector<Diagnostic> diagnostics,
@@ -346,6 +361,8 @@ class Parser final {
                                            annotation_begin + 1 >= count - 1)) {
         frontend::unsupported(diagnostics_, line.source.number,
                               "malformed Python function return annotation");
+      } else if (annotation_begin < count - 1) {
+        statement.declared_type = scalar_annotation_type(line, annotation_begin + 1, count - 1);
       }
     }
     ++index_;
