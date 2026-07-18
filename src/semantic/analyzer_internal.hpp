@@ -26,12 +26,16 @@ struct Symbol {
          ValueType symbol_element_type, std::vector<std::size_t> symbol_shape);
 
   ValueType type{ValueType::unknown};
+  NumericType numeric_type{unknown_numeric_type};
   BindingKind binding{BindingKind::variable};
   bool assigned{false};
   ValueType element_type{ValueType::unknown};
+  NumericType element_numeric_type{unknown_numeric_type};
   std::vector<std::size_t> shape;
   std::vector<ValueType> tuple_types;
+  std::vector<NumericType> tuple_numeric_types;
   std::vector<ValueType> tuple_element_types;
+  std::vector<NumericType> tuple_element_numeric_types;
   std::vector<std::vector<std::size_t>> tuple_shapes;
   bool sequence_is_list{false};
   std::vector<ValueMetadata> sequence_elements;
@@ -44,6 +48,10 @@ struct ScopeState {
 
 [[nodiscard]] bool numeric(ValueType type) noexcept;
 [[nodiscard]] ValueType join_types(ValueType left, ValueType right) noexcept;
+[[nodiscard]] NumericType default_numeric_type(ValueType type) noexcept;
+[[nodiscard]] NumericType expression_numeric_type(const hir::ExpressionFacts& facts) noexcept;
+[[nodiscard]] NumericType join_expression_numeric_types(const hir::ExpressionFacts& left,
+                                                        const hir::ExpressionFacts& right) noexcept;
 [[nodiscard]] bool same_metadata(const ValueMetadata& left, const ValueMetadata& right);
 [[nodiscard]] bool same_metadata(const std::vector<ValueMetadata>& left,
                                  const std::vector<ValueMetadata>& right);

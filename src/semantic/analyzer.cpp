@@ -29,10 +29,134 @@ Symbol::Symbol(const ValueType symbol_type, const BindingKind symbol_binding,
                const bool symbol_assigned, const ValueType symbol_element_type,
                std::vector<std::size_t> symbol_shape)
     : type(symbol_type),
+      numeric_type(default_numeric_type(symbol_type)),
       binding(symbol_binding),
       assigned(symbol_assigned),
       element_type(symbol_element_type),
+      element_numeric_type(default_numeric_type(symbol_element_type)),
       shape(std::move(symbol_shape)) {}
+
+NumericType default_numeric_type(const ValueType type) noexcept {
+  switch (type) {
+    case ValueType::unknown: return unknown_numeric_type;
+    case ValueType::integer: return integer_numeric_type;
+    case ValueType::real: return real_numeric_type;
+    case ValueType::boolean: return logical_numeric_type;
+    case ValueType::string:
+    case ValueType::null_value:
+    case ValueType::list:
+    case ValueType::tuple:
+    case ValueType::function: return no_numeric_type;
+  }
+  return unknown_numeric_type;
+}
+
+namespace {
+
+void finalize_numeric_slot(const ValueType type, NumericType& numeric_type) noexcept {
+  if (type == ValueType::unknown) {
+    if (!numeric_type.valid()) numeric_type = unknown_numeric_type;
+    return;
+  }
+  const auto fallback = default_numeric_type(type);
+  if (fallback == no_numeric_type) {
+    numeric_type = no_numeric_type;
+  } else if (!numeric_type.valid() || numeric_type == no_numeric_type) {
+    numeric_type = fallback;
+  }
+}
+
+void finalize_value_numeric(const ValueType type, NumericType& numeric_type,
+                            const ValueType element_type,
+                            NumericType& element_numeric_type) noexcept {
+  finalize_numeric_slot(type, numeric_type);
+  if (type == ValueType::list) {
+    finalize_numeric_slot(element_type, element_numeric_type);
+  } else if (type == ValueType::unknown) {
+    if (element_numeric_type != no_numeric_type) {
+      finalize_numeric_slot(element_type, element_numeric_type);
+    }
+  } else {
+    element_numeric_type = no_numeric_type;
+  }
+}
+
+void finalize_value_metadata(ValueMetadata& metadata) {
+  finalize_value_numeric(metadata.type, metadata.numeric_type, metadata.element_type,
+                         metadata.element_numeric_type);
+  for (auto& element : metadata.elements) finalize_value_metadata(element);
+}
+
+void finalize_assignment_pattern(AssignmentPattern& pattern) {
+  finalize_value_numeric(pattern.type, pattern.numeric_type, pattern.element_type,
+                         pattern.element_numeric_type);
+  finalize_value_numeric(pattern.previous_type, pattern.previous_numeric_type,
+                         pattern.previous_element_type, pattern.previous_element_numeric_type);
+  for (auto& child : pattern.children) finalize_assignment_pattern(child);
+}
+
+void finalize_numeric_vector(const std::vector<ValueType>& types,
+                             std::vector<NumericType>& numeric_types) noexcept {
+  const auto size = std::min(types.size(), numeric_types.size());
+  for (std::size_t index = 0; index < size; ++index) {
+    finalize_numeric_slot(types[index], numeric_types[index]);
+  }
+}
+
+void finalize_element_numeric_vector(const std::vector<ValueType>& container_types,
+                                     const std::vector<ValueType>& element_types,
+                                     std::vector<NumericType>& element_numeric_types) noexcept {
+  const auto size =
+      std::min({container_types.size(), element_types.size(), element_numeric_types.size()});
+  for (std::size_t index = 0; index < size; ++index) {
+    NumericType ignored = no_numeric_type;
+    finalize_value_numeric(container_types[index], ignored, element_types[index],
+                           element_numeric_types[index]);
+  }
+}
+
+void finalize_numeric_facts(hir::SemanticTable& semantics) {
+  for (auto& facts : semantics.expressions) {
+    finalize_value_numeric(facts.inferred_type, facts.numeric_type, facts.element_type,
+                           facts.element_numeric_type);
+    finalize_numeric_vector(facts.tuple_types, facts.tuple_numeric_types);
+    finalize_element_numeric_vector(facts.tuple_types, facts.tuple_element_types,
+                                    facts.tuple_element_numeric_types);
+    for (auto& element : facts.sequence_elements) finalize_value_metadata(element);
+  }
+  for (auto& facts : semantics.statements) {
+    finalize_value_numeric(facts.declared_type, facts.declared_numeric_type, facts.element_type,
+                           facts.element_numeric_type);
+    finalize_value_numeric(facts.previous_type, facts.previous_numeric_type,
+                           facts.previous_element_type, facts.previous_element_numeric_type);
+    finalize_numeric_vector(facts.parameter_types, facts.parameter_numeric_types);
+    finalize_element_numeric_vector(facts.parameter_types, facts.parameter_element_types,
+                                    facts.parameter_element_numeric_types);
+    finalize_numeric_vector(facts.return_types, facts.return_numeric_types);
+    finalize_element_numeric_vector(facts.return_types, facts.return_element_types,
+                                    facts.return_element_numeric_types);
+    finalize_numeric_vector(facts.target_types, facts.target_numeric_types);
+    finalize_element_numeric_vector(facts.target_types, facts.target_element_types,
+                                    facts.target_element_numeric_types);
+    finalize_numeric_vector(facts.target_previous_types, facts.target_previous_numeric_types);
+    finalize_element_numeric_vector(facts.target_previous_types,
+                                    facts.target_previous_element_types,
+                                    facts.target_previous_element_numeric_types);
+    finalize_assignment_pattern(facts.target_pattern);
+    for (auto& element : facts.return_sequence_elements) finalize_value_metadata(element);
+  }
+}
+
+}  // namespace
+
+NumericType expression_numeric_type(const hir::ExpressionFacts& facts) noexcept {
+  return facts.inferred_type == ValueType::list ? facts.element_numeric_type : facts.numeric_type;
+}
+
+NumericType join_expression_numeric_types(const hir::ExpressionFacts& left,
+                                          const hir::ExpressionFacts& right) noexcept {
+  return join_numeric_types(expression_numeric_type(left), expression_numeric_type(right));
+}
 
 bool numeric(const ValueType type) noexcept {
   return type == ValueType::integer || type == ValueType::real || type == ValueType::unknown;
@@ -48,8 +172,10 @@ ValueType join_types(const ValueType left, const ValueType right) noexcept {
 
 bool same_metadata(const ValueMetadata& left, const ValueMetadata& right) {
   if (left.type != right.type || left.element_type != right.element_type ||
-      left.shape != right.shape || left.sequence != right.sequence ||
-      left.list_sequence != right.list_sequence || left.elements.size() != right.elements.size()) {
+      left.numeric_type != right.numeric_type ||
+      left.element_numeric_type != right.element_numeric_type || left.shape != right.shape ||
+      left.sequence != right.sequence || left.list_sequence != right.list_sequence ||
+      left.elements.size() != right.elements.size()) {
     return false;
   }
   for (std::size_t index = 0; index < left.elements.size(); ++index) {
@@ -72,6 +198,8 @@ ValueMetadata expression_metadata(const Expression& expression, const hir::Seman
   ValueMetadata metadata;
   metadata.type = facts.inferred_type;
   metadata.element_type = facts.element_type;
+  metadata.numeric_type = facts.numeric_type;
+  metadata.element_numeric_type = facts.element_numeric_type;
   metadata.shape = facts.shape;
   metadata.sequence =
       facts.inferred_type == ValueType::tuple || facts.inferred_type == ValueType::list;
@@ -256,6 +384,7 @@ std::vector<Diagnostic> Analyzer::analyze() {
     refresh_call_intents(program_.statements);
   }
   annotate_types(program_.statements);
+  finalize_numeric_facts(semantics_);
   return std::move(diagnostics_);
 }
 
@@ -304,12 +433,18 @@ ScopeState Analyzer::make_scope_state(const ScopeId id) const {
         name->kind == NameSymbolKind::function ? BindingKind::function : BindingKind::variable;
     symbol.assigned = name->kind == NameSymbolKind::function;
     if (name->kind == NameSymbolKind::function) symbol.type = ValueType::function;
-    if (name->kind == NameSymbolKind::loop_variable) symbol.type = ValueType::integer;
+    if (name->kind == NameSymbolKind::function) symbol.numeric_type = no_numeric_type;
+    if (name->kind == NameSymbolKind::loop_variable) {
+      symbol.type = ValueType::integer;
+      symbol.numeric_type = integer_numeric_type;
+    }
     if (name->kind == NameSymbolKind::variable && name->declaration.valid()) {
       const auto* facts = semantics_.statement(name->declaration);
       if (facts != nullptr) {
         symbol.type = facts->declared_type;
+        symbol.numeric_type = facts->declared_numeric_type;
         symbol.element_type = facts->element_type;
+        symbol.element_numeric_type = facts->element_numeric_type;
         symbol.shape = facts->shape;
       }
     }
@@ -389,9 +524,12 @@ ValueMetadata Analyzer::materialize_sequence(ValueMetadata metadata) const {
   ValueMetadata child;
   if (metadata.shape.size() == 1) {
     child.type = metadata.element_type;
+    child.numeric_type = metadata.element_numeric_type;
   } else {
     child.type = ValueType::list;
+    child.numeric_type = no_numeric_type;
     child.element_type = metadata.element_type;
+    child.element_numeric_type = metadata.element_numeric_type;
     child.shape.assign(metadata.shape.begin() + 1, metadata.shape.end());
     child.sequence = true;
     child.list_sequence = true;
@@ -407,30 +545,47 @@ void Analyzer::bind_assignment_leaf(Statement& statement, AssignmentPattern& lea
   auto& symbol = definition_state(statement, NameRole::assignment, target_ordinal);
   leaf.type = metadata.type;
   leaf.element_type = metadata.element_type;
+  leaf.numeric_type = metadata.numeric_type;
+  leaf.element_numeric_type = metadata.element_numeric_type;
   leaf.shape = metadata.shape;
   leaf.previous_type = symbol.type;
   leaf.previous_element_type = symbol.element_type;
+  leaf.previous_numeric_type = symbol.numeric_type;
+  leaf.previous_element_numeric_type = symbol.element_numeric_type;
   semantic(semantics_, statement).target_previous_types.push_back(symbol.type);
+  semantic(semantics_, statement).target_previous_numeric_types.push_back(symbol.numeric_type);
   semantic(semantics_, statement).target_previous_element_types.push_back(symbol.element_type);
+  semantic(semantics_, statement)
+      .target_previous_element_numeric_types.push_back(symbol.element_numeric_type);
   symbol.binding = BindingKind::variable;
   symbol.type = join_types(symbol.type, metadata.type);
+  symbol.numeric_type = join_numeric_types(symbol.numeric_type, metadata.numeric_type);
   symbol.element_type = join_types(symbol.element_type, metadata.element_type);
+  symbol.element_numeric_type =
+      join_numeric_types(symbol.element_numeric_type, metadata.element_numeric_type);
   if (symbol.shape.empty()) symbol.shape = metadata.shape;
   symbol.sequence_is_list = metadata.list_sequence;
   symbol.sequence_elements = metadata.elements;
   if (metadata.type == ValueType::tuple) {
     symbol.tuple_types.clear();
+    symbol.tuple_numeric_types.clear();
     symbol.tuple_element_types.clear();
+    symbol.tuple_element_numeric_types.clear();
     symbol.tuple_shapes.clear();
     for (const auto& element : metadata.elements) {
       symbol.tuple_types.push_back(element.type);
+      symbol.tuple_numeric_types.push_back(element.numeric_type);
       symbol.tuple_element_types.push_back(element.element_type);
+      symbol.tuple_element_numeric_types.push_back(element.element_numeric_type);
       symbol.tuple_shapes.push_back(element.shape);
     }
   }
   symbol.assigned = true;
   semantic(semantics_, statement).target_types.push_back(metadata.type);
+  semantic(semantics_, statement).target_numeric_types.push_back(metadata.numeric_type);
   semantic(semantics_, statement).target_element_types.push_back(metadata.element_type);
+  semantic(semantics_, statement)
+      .target_element_numeric_types.push_back(metadata.element_numeric_type);
   semantic(semantics_, statement).target_shapes.push_back(metadata.shape);
 }
 
@@ -445,14 +600,20 @@ ValueMetadata Analyzer::captured_metadata(const std::vector<ValueMetadata>& elem
 
   bool all_lists = true;
   auto element_type = ValueType::unknown;
+  auto element_numeric_type = unknown_numeric_type;
   auto child_shape = elements.front().shape;
   for (const auto& element : elements) {
     all_lists = all_lists && element.type == ValueType::list;
     const auto scalar_type = element.type == ValueType::list ? element.element_type : element.type;
     element_type = join_types(element_type, scalar_type);
+    element_numeric_type = join_numeric_types(
+        element_numeric_type,
+        element.type == ValueType::list ? element.element_numeric_type : element.numeric_type);
     if (element.shape != child_shape) child_shape.clear();
   }
   result.element_type = element_type;
+  result.numeric_type = no_numeric_type;
+  result.element_numeric_type = element_numeric_type;
   if (all_lists && !child_shape.empty()) {
     result.shape.insert(result.shape.end(), child_shape.begin(), child_shape.end());
   }
@@ -561,11 +722,22 @@ bool Analyzer::analyze_statement(Statement& statement) {
       }
       symbol.binding = BindingKind::variable;
       symbol.type = semantic(semantics_, statement).declared_type;
+      symbol.numeric_type = semantic(semantics_, statement).declared_numeric_type;
+      if (!symbol.numeric_type.known()) symbol.numeric_type = default_numeric_type(symbol.type);
+      semantic(semantics_, statement).declared_numeric_type = symbol.numeric_type;
       symbol.element_type = semantic(semantics_, statement).element_type;
+      symbol.element_numeric_type = semantic(semantics_, statement).element_numeric_type;
+      if (!symbol.element_numeric_type.known()) {
+        symbol.element_numeric_type = default_numeric_type(symbol.element_type);
+      }
+      semantic(semantics_, statement).element_numeric_type = symbol.element_numeric_type;
       symbol.shape = semantic(semantics_, statement).shape;
       if (statement.has_expression) {
         const auto initializer_type = analyze_expression(statement.expression);
+        const auto& initializer_facts = semantic(semantics_, statement.expression);
         symbol.type = join_types(symbol.type, initializer_type);
+        symbol.numeric_type =
+            join_numeric_types(symbol.numeric_type, initializer_facts.numeric_type);
         if (semantic(semantics_, statement.expression).inferred_type == ValueType::list) {
           if (symbol.element_type != ValueType::unknown &&
               semantic(semantics_, statement.expression).element_type != ValueType::unknown &&
@@ -577,7 +749,12 @@ bool Analyzer::analyze_statement(Statement& statement) {
           }
           symbol.element_type = join_types(symbol.element_type,
                                            semantic(semantics_, statement.expression).element_type);
+          symbol.element_numeric_type =
+              join_numeric_types(symbol.element_numeric_type,
+                                 semantic(semantics_, statement.expression).element_numeric_type);
           semantic(semantics_, statement.expression).element_type = symbol.element_type;
+          semantic(semantics_, statement.expression).element_numeric_type =
+              symbol.element_numeric_type;
           if (!symbol.shape.empty() && !semantic(semantics_, statement.expression).shape.empty() &&
               known_shape(symbol.shape) &&
               known_shape(semantic(semantics_, statement.expression).shape) &&
@@ -601,13 +778,20 @@ bool Analyzer::analyze_statement(Statement& statement) {
       auto& symbol = definition_state(statement, NameRole::assignment);
       symbol.binding = BindingKind::variable;
       semantic(semantics_, statement).previous_type = symbol.type;
+      semantic(semantics_, statement).previous_numeric_type = symbol.numeric_type;
       semantic(semantics_, statement).previous_element_type = symbol.element_type;
+      semantic(semantics_, statement).previous_element_numeric_type = symbol.element_numeric_type;
       const auto joined = join_types(symbol.type, type);
       symbol.type = joined;
+      symbol.numeric_type = join_numeric_types(
+          symbol.numeric_type, semantic(semantics_, statement.expression).numeric_type);
       if (type == ValueType::list) {
         const auto joined_element = join_types(
             symbol.element_type, semantic(semantics_, statement.expression).element_type);
         symbol.element_type = joined_element;
+        symbol.element_numeric_type =
+            join_numeric_types(symbol.element_numeric_type,
+                               semantic(semantics_, statement.expression).element_numeric_type);
         if (program_.language == SourceLanguage::fortran && !symbol.shape.empty() &&
             !semantic(semantics_, statement.expression).shape.empty() &&
             known_shape(symbol.shape) &&
@@ -622,15 +806,25 @@ bool Analyzer::analyze_statement(Statement& statement) {
       } else if (type == ValueType::tuple) {
         if (semantic(semantics_, statement).previous_type == ValueType::unknown) {
           symbol.tuple_types = semantic(semantics_, statement.expression).tuple_types;
+          symbol.tuple_numeric_types =
+              semantic(semantics_, statement.expression).tuple_numeric_types;
           symbol.tuple_element_types =
               semantic(semantics_, statement.expression).tuple_element_types;
+          symbol.tuple_element_numeric_types =
+              semantic(semantics_, statement.expression).tuple_element_numeric_types;
           symbol.tuple_shapes = semantic(semantics_, statement.expression).tuple_shapes;
         } else if (symbol.tuple_types != semantic(semantics_, statement.expression).tuple_types ||
+                   symbol.tuple_numeric_types !=
+                       semantic(semantics_, statement.expression).tuple_numeric_types ||
                    symbol.tuple_element_types !=
                        semantic(semantics_, statement.expression).tuple_element_types ||
+                   symbol.tuple_element_numeric_types !=
+                       semantic(semantics_, statement.expression).tuple_element_numeric_types ||
                    symbol.tuple_shapes != semantic(semantics_, statement.expression).tuple_shapes) {
           symbol.tuple_types.clear();
+          symbol.tuple_numeric_types.clear();
           symbol.tuple_element_types.clear();
+          symbol.tuple_element_numeric_types.clear();
           symbol.tuple_shapes.clear();
         }
       }
@@ -653,16 +847,27 @@ bool Analyzer::analyze_statement(Statement& statement) {
       semantic(semantics_, statement.expression).requested_outputs = statement.target_names.size();
       analyze_expression(statement.expression);
       semantic(semantics_, statement).target_types.clear();
+      semantic(semantics_, statement).target_numeric_types.clear();
       semantic(semantics_, statement).target_element_types.clear();
+      semantic(semantics_, statement).target_element_numeric_types.clear();
       semantic(semantics_, statement).target_shapes.clear();
       semantic(semantics_, statement).target_previous_types.clear();
+      semantic(semantics_, statement).target_previous_numeric_types.clear();
       semantic(semantics_, statement).target_previous_element_types.clear();
+      semantic(semantics_, statement).target_previous_element_numeric_types.clear();
       semantic(semantics_, statement).target_types.reserve(statement.target_names.size());
+      semantic(semantics_, statement).target_numeric_types.reserve(statement.target_names.size());
       semantic(semantics_, statement).target_element_types.reserve(statement.target_names.size());
+      semantic(semantics_, statement)
+          .target_element_numeric_types.reserve(statement.target_names.size());
       semantic(semantics_, statement).target_shapes.reserve(statement.target_names.size());
       semantic(semantics_, statement).target_previous_types.reserve(statement.target_names.size());
       semantic(semantics_, statement)
+          .target_previous_numeric_types.reserve(statement.target_names.size());
+      semantic(semantics_, statement)
           .target_previous_element_types.reserve(statement.target_names.size());
+      semantic(semantics_, statement)
+          .target_previous_element_numeric_types.reserve(statement.target_names.size());
       if (program_.language == SourceLanguage::matlab) {
         if (statement.expression.kind != ExpressionKind::call ||
             !semantic(semantics_, statement.expression).multi_output_call) {
@@ -687,10 +892,19 @@ bool Analyzer::analyze_statement(Statement& statement) {
                index < semantic(semantics_, statement.expression).tuple_types.size(); ++index) {
             ValueMetadata element;
             element.type = semantic(semantics_, statement.expression).tuple_types[index];
+            element.numeric_type =
+                index < semantic(semantics_, statement.expression).tuple_numeric_types.size()
+                    ? semantic(semantics_, statement.expression).tuple_numeric_types[index]
+                    : default_numeric_type(element.type);
             element.element_type =
                 index < semantic(semantics_, statement.expression).tuple_element_types.size()
                     ? semantic(semantics_, statement.expression).tuple_element_types[index]
                     : ValueType::unknown;
+            element.element_numeric_type =
+                index < semantic(semantics_, statement.expression)
+                            .tuple_element_numeric_types.size()
+                    ? semantic(semantics_, statement.expression).tuple_element_numeric_types[index]
+                    : default_numeric_type(element.element_type);
             element.shape = index < semantic(semantics_, statement.expression).tuple_shapes.size()
                                 ? semantic(semantics_, statement.expression).tuple_shapes[index]
                                 : std::vector<std::size_t>{};
@@ -723,26 +937,44 @@ bool Analyzer::analyze_statement(Statement& statement) {
             index < semantic(semantics_, statement.expression).tuple_element_types.size()
                 ? semantic(semantics_, statement.expression).tuple_element_types[index]
                 : ValueType::unknown;
+        const auto numeric_type =
+            index < semantic(semantics_, statement.expression).tuple_numeric_types.size()
+                ? semantic(semantics_, statement.expression).tuple_numeric_types[index]
+                : default_numeric_type(type);
+        const auto element_numeric_type =
+            index < semantic(semantics_, statement.expression).tuple_element_numeric_types.size()
+                ? semantic(semantics_, statement.expression).tuple_element_numeric_types[index]
+                : default_numeric_type(element_type);
         const auto shape = index < semantic(semantics_, statement.expression).tuple_shapes.size()
                                ? semantic(semantics_, statement.expression).tuple_shapes[index]
                                : std::vector<std::size_t>{};
         semantic(semantics_, statement).target_previous_types.push_back(symbol.type);
         semantic(semantics_, statement)
+            .target_previous_numeric_types.push_back(symbol.numeric_type);
+        semantic(semantics_, statement)
             .target_previous_element_types.push_back(symbol.element_type);
+        semantic(semantics_, statement)
+            .target_previous_element_numeric_types.push_back(symbol.element_numeric_type);
         symbol.binding = BindingKind::variable;
         symbol.type = join_types(symbol.type, type);
+        symbol.numeric_type = join_numeric_types(symbol.numeric_type, numeric_type);
         symbol.element_type = join_types(symbol.element_type, element_type);
+        symbol.element_numeric_type =
+            join_numeric_types(symbol.element_numeric_type, element_numeric_type);
         if (symbol.shape.empty()) symbol.shape = shape;
         symbol.assigned = true;
         semantic(semantics_, statement).target_types.push_back(type);
+        semantic(semantics_, statement).target_numeric_types.push_back(numeric_type);
         semantic(semantics_, statement).target_element_types.push_back(element_type);
+        semantic(semantics_, statement)
+            .target_element_numeric_types.push_back(element_numeric_type);
         semantic(semantics_, statement).target_shapes.push_back(shape);
       }
       return false;
     }
     case StatementKind::indexed_assignment: {
-      const auto* root = root_container(statement.target_expression);
-      const auto* root_use = root == nullptr ? nullptr : names_.reference(root->id);
+      auto* root = root_container(statement.target_expression);
+      auto* root_use = root == nullptr ? nullptr : names_.reference(root->id);
       diagnose_fortran_parameter_write(root_use == nullptr ? SymbolId{} : root_use->symbol,
                                        statement.line);
       const auto value_type = analyze_expression(statement.expression);
@@ -764,6 +996,10 @@ bool Analyzer::analyze_statement(Statement& statement) {
           semantic(semantics_, statement.target_expression).column_major = true;
         }
       }
+      // Matlab uses call syntax for indexed assignment. Re-resolve the storage root after the
+      // semantic conversion to an index expression so type widening reaches the owning symbol.
+      root = root_container(statement.target_expression);
+      root_use = root == nullptr ? nullptr : names_.reference(root->id);
       const auto target_type =
           statement.target_expression.kind == ExpressionKind::index &&
                   program_.language == SourceLanguage::matlab
@@ -795,6 +1031,18 @@ bool Analyzer::analyze_statement(Statement& statement) {
                         semantic::selector_preserves_dimension)
               ? semantic(semantics_, statement.target_expression).element_type
               : target_type;
+      const auto target_numeric =
+          expression_numeric_type(semantic(semantics_, statement.target_expression));
+      const auto value_numeric =
+          expression_numeric_type(semantic(semantics_, statement.expression));
+      semantic(semantics_, statement).element_numeric_type =
+          erase ? target_numeric : join_numeric_types(target_numeric, value_numeric);
+      if (root_use != nullptr && root_use->symbol.valid()) {
+        if (auto* symbol = lookup(root_use->symbol); symbol != nullptr) {
+          symbol->element_numeric_type = join_numeric_types(
+              symbol->element_numeric_type, semantic(semantics_, statement).element_numeric_type);
+        }
+      }
       return false;
     }
     case StatementKind::print:
@@ -869,6 +1117,12 @@ bool Analyzer::analyze_statement(Statement& statement) {
       if (loop_scope.valid()) push_scope(loop_scope);
       auto& variable = definition_state(statement, NameRole::loop_variable);
       variable.type = join_types(join_types(start, stop), step);
+      variable.numeric_type = join_numeric_types(
+          join_numeric_types(semantic(semantics_, statement.expression).numeric_type,
+                             semantic(semantics_, statement.secondary_expression).numeric_type),
+          statement.has_tertiary_expression
+              ? semantic(semantics_, statement.tertiary_expression).numeric_type
+              : integer_numeric_type);
       variable.binding = BindingKind::variable;
       if (program_.language == SourceLanguage::python &&
           ((start != ValueType::integer && start != ValueType::unknown) ||
@@ -924,6 +1178,9 @@ bool Analyzer::analyze_statement(Statement& statement) {
       const auto initializer_type = analyze_expression(statement.expression);
       auto& variable = definition_state(statement, NameRole::loop_variable);
       variable.type = join_types(semantic(semantics_, statement).declared_type, initializer_type);
+      variable.numeric_type =
+          join_numeric_types(semantic(semantics_, statement).declared_numeric_type,
+                             semantic(semantics_, statement.expression).numeric_type);
       variable.binding = BindingKind::variable;
       variable.assigned = true;
       const auto condition_type = analyze_expression(statement.secondary_expression);
@@ -932,13 +1189,17 @@ bool Analyzer::analyze_statement(Statement& statement) {
                  "TypeScript for condition currently requires a boolean value");
       }
       const auto update_type = analyze_expression(statement.tertiary_expression);
+      variable.numeric_type = join_numeric_types(
+          variable.numeric_type, semantic(semantics_, statement.tertiary_expression).numeric_type);
       if (variable.type != ValueType::unknown && update_type != ValueType::unknown &&
           join_types(variable.type, update_type) == ValueType::unknown) {
         diagnose(statement.line, "MPF2020",
                  "TypeScript for update changes the induction binding type");
       }
       semantic(semantics_, statement).declared_type = variable.type;
+      semantic(semantics_, statement).declared_numeric_type = variable.numeric_type;
       semantic(semantics_, statement).element_type = variable.element_type;
+      semantic(semantics_, statement).element_numeric_type = variable.element_numeric_type;
       semantic(semantics_, statement).shape = variable.shape;
       ++loop_depth_;
       analyze_statements_in_scope(statement.body, names_.body_scope(statement.id));
@@ -969,18 +1230,28 @@ bool Analyzer::analyze_branches(Statement& statement) {
     const auto& alternative_symbol = after_alternative.symbols[index];
     symbol.assigned = body_symbol.assigned && alternative_symbol.assigned;
     symbol.type = join_types(body_symbol.type, alternative_symbol.type);
+    symbol.numeric_type =
+        join_numeric_types(body_symbol.numeric_type, alternative_symbol.numeric_type);
     symbol.element_type = join_types(body_symbol.element_type, alternative_symbol.element_type);
+    symbol.element_numeric_type = join_numeric_types(body_symbol.element_numeric_type,
+                                                     alternative_symbol.element_numeric_type);
     symbol.shape = body_symbol.shape == alternative_symbol.shape ? body_symbol.shape
                                                                  : std::vector<std::size_t>{};
     if (body_symbol.tuple_types == alternative_symbol.tuple_types &&
+        body_symbol.tuple_numeric_types == alternative_symbol.tuple_numeric_types &&
         body_symbol.tuple_element_types == alternative_symbol.tuple_element_types &&
+        body_symbol.tuple_element_numeric_types == alternative_symbol.tuple_element_numeric_types &&
         body_symbol.tuple_shapes == alternative_symbol.tuple_shapes) {
       symbol.tuple_types = body_symbol.tuple_types;
+      symbol.tuple_numeric_types = body_symbol.tuple_numeric_types;
       symbol.tuple_element_types = body_symbol.tuple_element_types;
+      symbol.tuple_element_numeric_types = body_symbol.tuple_element_numeric_types;
       symbol.tuple_shapes = body_symbol.tuple_shapes;
     } else {
       symbol.tuple_types.clear();
+      symbol.tuple_numeric_types.clear();
       symbol.tuple_element_types.clear();
+      symbol.tuple_element_numeric_types.clear();
       symbol.tuple_shapes.clear();
     }
     if (body_symbol.sequence_is_list == alternative_symbol.sequence_is_list &&
@@ -1028,6 +1299,15 @@ void Analyzer::merge_select_flows(const ScopeState& before, const std::vector<Sc
     };
     symbol.type = merge_type(&Symbol::type);
     symbol.element_type = merge_type(&Symbol::element_type);
+    const auto merge_numeric_type = [&](const auto member) {
+      NumericType merged = unknown_numeric_type;
+      for (const auto* candidate : candidates) {
+        merged = join_numeric_types(merged, candidate->*member);
+      }
+      return merged;
+    };
+    symbol.numeric_type = merge_numeric_type(&Symbol::numeric_type);
+    symbol.element_numeric_type = merge_numeric_type(&Symbol::element_numeric_type);
 
     const auto merged_shape = candidates.front()->shape;
     symbol.shape = merged_shape;
@@ -1039,16 +1319,22 @@ void Analyzer::merge_select_flows(const ScopeState& before, const std::vector<Sc
     const bool same_tuple =
         std::all_of(candidates.begin() + 1, candidates.end(), [&](const Symbol* candidate) {
           return candidate->tuple_types == first.tuple_types &&
+                 candidate->tuple_numeric_types == first.tuple_numeric_types &&
                  candidate->tuple_element_types == first.tuple_element_types &&
+                 candidate->tuple_element_numeric_types == first.tuple_element_numeric_types &&
                  candidate->tuple_shapes == first.tuple_shapes;
         });
     if (same_tuple) {
       symbol.tuple_types = first.tuple_types;
+      symbol.tuple_numeric_types = first.tuple_numeric_types;
       symbol.tuple_element_types = first.tuple_element_types;
+      symbol.tuple_element_numeric_types = first.tuple_element_numeric_types;
       symbol.tuple_shapes = first.tuple_shapes;
     } else {
       symbol.tuple_types.clear();
+      symbol.tuple_numeric_types.clear();
       symbol.tuple_element_types.clear();
+      symbol.tuple_element_numeric_types.clear();
       symbol.tuple_shapes.clear();
     }
     const bool same_sequence =
@@ -1263,15 +1549,22 @@ void Analyzer::infer_python_tuple_returns(Statement& function) const {
   }
 
   semantic(semantics_, function).return_types = first_return.tuple_types;
+  semantic(semantics_, function).return_numeric_types = first_return.tuple_numeric_types;
   semantic(semantics_, function).return_element_types = first_return.tuple_element_types;
+  semantic(semantics_, function).return_element_numeric_types =
+      first_return.tuple_element_numeric_types;
   semantic(semantics_, function).return_shapes = first_return.tuple_shapes;
+  semantic(semantics_, function).return_numeric_types.resize(arity, unknown_numeric_type);
   semantic(semantics_, function).return_element_types.resize(arity, ValueType::unknown);
+  semantic(semantics_, function).return_element_numeric_types.resize(arity, unknown_numeric_type);
   semantic(semantics_, function).return_shapes.resize(arity);
   for (std::size_t index = 0; index < arity; ++index) {
     bool type_conflict = false;
     bool element_conflict = false;
     auto type = semantic(semantics_, function).return_types[index];
+    auto numeric_type = semantic(semantics_, function).return_numeric_types[index];
     auto element = semantic(semantics_, function).return_element_types[index];
+    auto element_numeric_type = semantic(semantics_, function).return_element_numeric_types[index];
     auto shape = semantic(semantics_, function).return_shapes[index];
     for (std::size_t path = 1; path < returns.size(); ++path) {
       const auto& next = semantic(semantics_, *returns[path]);
@@ -1282,6 +1575,9 @@ void Analyzer::infer_python_tuple_returns(Statement& function) const {
         type_conflict = true;
       }
       type = joined_type;
+      numeric_type = join_numeric_types(numeric_type, index < next.tuple_numeric_types.size()
+                                                          ? next.tuple_numeric_types[index]
+                                                          : unknown_numeric_type);
       const auto next_element = index < next.tuple_element_types.size()
                                     ? next.tuple_element_types[index]
                                     : ValueType::unknown;
@@ -1291,13 +1587,19 @@ void Analyzer::infer_python_tuple_returns(Statement& function) const {
         element_conflict = true;
       }
       element = joined_element;
+      element_numeric_type =
+          join_numeric_types(element_numeric_type, index < next.tuple_element_numeric_types.size()
+                                                       ? next.tuple_element_numeric_types[index]
+                                                       : unknown_numeric_type);
       const auto next_shape =
           index < next.tuple_shapes.size() ? next.tuple_shapes[index] : std::vector<std::size_t>{};
       if (shape != next_shape) shape.clear();
     }
     semantic(semantics_, function).return_types[index] = type_conflict ? ValueType::unknown : type;
+    semantic(semantics_, function).return_numeric_types[index] = numeric_type;
     semantic(semantics_, function).return_element_types[index] =
         element_conflict ? ValueType::unknown : element;
+    semantic(semantics_, function).return_element_numeric_types[index] = element_numeric_type;
     semantic(semantics_, function).return_shapes[index] = std::move(shape);
   }
 }
@@ -1312,6 +1614,7 @@ void Analyzer::infer_python_sequence_metadata(Statement& function) const {
     if (!same_metadata(first, expression_metadata(*returns[index], semantics_))) return;
   }
   semantic(semantics_, function).element_type = first.element_type;
+  semantic(semantics_, function).element_numeric_type = first.element_numeric_type;
   semantic(semantics_, function).shape = first.shape;
   semantic(semantics_, function).return_sequence_is_list = first.list_sequence;
   semantic(semantics_, function).return_sequence_elements = first.elements;
@@ -1390,6 +1693,11 @@ void Analyzer::analyze_function(Statement& function) {
                 function.parameter_defaults[index].valid()
             ? semantic(semantics_, function.parameter_defaults[index]).inferred_type
             : ValueType::unknown;
+    const auto default_numeric =
+        program_.semantics.emit_parameter_defaults && index < function.parameter_defaults.size() &&
+                function.parameter_defaults[index].valid()
+            ? semantic(semantics_, function.parameter_defaults[index]).numeric_type
+            : unknown_numeric_type;
     const auto type = join_types(annotated_type, default_type);
     const auto element_type = index < semantic(semantics_, function).parameter_element_types.size()
                                   ? semantic(semantics_, function).parameter_element_types[index]
@@ -1402,6 +1710,22 @@ void Analyzer::analyze_function(Statement& function) {
         program_.language != SourceLanguage::fortran ||
             semantic(semantics_, function).parameter_intents[index] != ParameterIntent::out,
         element_type, shape};
+    auto& parameter_state = definition_state(function, NameRole::parameter, index);
+    parameter_state.numeric_type =
+        index < semantic(semantics_, function).parameter_numeric_types.size()
+            ? join_numeric_types(semantic(semantics_, function).parameter_numeric_types[index],
+                                 default_numeric)
+            : default_numeric;
+    if (!parameter_state.numeric_type.known() && type != ValueType::unknown) {
+      parameter_state.numeric_type = default_numeric_type(type);
+    }
+    parameter_state.element_numeric_type =
+        index < semantic(semantics_, function).parameter_element_numeric_types.size()
+            ? semantic(semantics_, function).parameter_element_numeric_types[index]
+            : default_numeric_type(element_type);
+    if (!parameter_state.element_numeric_type.known() && element_type != ValueType::unknown) {
+      parameter_state.element_numeric_type = default_numeric_type(element_type);
+    }
   }
   for (std::size_t index = 0; index < function.return_names.size(); ++index) {
     const auto type = index < semantic(semantics_, function).return_types.size()
@@ -1409,6 +1733,10 @@ void Analyzer::analyze_function(Statement& function) {
                           : ValueType::unknown;
     definition_state(function, NameRole::result, index) = {
         type, BindingKind::variable, false, ValueType::unknown, {}};
+    auto& result_state = definition_state(function, NameRole::result, index);
+    result_state.numeric_type = index < semantic(semantics_, function).return_numeric_types.size()
+                                    ? semantic(semantics_, function).return_numeric_types[index]
+                                    : default_numeric_type(type);
   }
   ++function_depth_;
   const auto saved_loop_depth = loop_depth_;
@@ -1418,18 +1746,29 @@ void Analyzer::analyze_function(Statement& function) {
   --function_depth_;
   annotate_types(function.body);
   semantic(semantics_, function).parameter_types.clear();
+  semantic(semantics_, function).parameter_numeric_types.clear();
   semantic(semantics_, function).parameter_element_types.clear();
+  semantic(semantics_, function).parameter_element_numeric_types.clear();
   semantic(semantics_, function).parameter_shapes.clear();
   semantic(semantics_, function).parameter_types.reserve(function.parameters.size());
+  semantic(semantics_, function).parameter_numeric_types.reserve(function.parameters.size());
   semantic(semantics_, function).parameter_element_types.reserve(function.parameters.size());
+  semantic(semantics_, function)
+      .parameter_element_numeric_types.reserve(function.parameters.size());
   semantic(semantics_, function).parameter_shapes.reserve(function.parameters.size());
   for (std::size_t index = 0; index < function.parameters.size(); ++index) {
     const auto* parameter = lookup(definition(function, NameRole::parameter, index)->symbol);
     semantic(semantics_, function)
         .parameter_types.push_back(parameter == nullptr ? ValueType::unknown : parameter->type);
     semantic(semantics_, function)
+        .parameter_numeric_types.push_back(parameter == nullptr ? unknown_numeric_type
+                                                                : parameter->numeric_type);
+    semantic(semantics_, function)
         .parameter_element_types.push_back(parameter == nullptr ? ValueType::unknown
                                                                 : parameter->element_type);
+    semantic(semantics_, function)
+        .parameter_element_numeric_types.push_back(
+            parameter == nullptr ? unknown_numeric_type : parameter->element_numeric_type);
     semantic(semantics_, function)
         .parameter_shapes.push_back(parameter == nullptr ? std::vector<std::size_t>{}
                                                          : parameter->shape);
@@ -1458,18 +1797,42 @@ void Analyzer::analyze_function(Statement& function) {
   bool has_value_return = false;
   bool has_empty_return = false;
   bool incompatible_returns = false;
+  const auto annotated_return_type = semantic(semantics_, function).declared_type;
   semantic(semantics_, function).declared_type =
       collect_return_type(function.body, has_value_return, has_empty_return, incompatible_returns);
+  if (function.return_names.empty()) {
+    std::vector<const Expression*> value_returns;
+    collect_value_returns(function.body, value_returns);
+    if (value_returns.empty()) {
+      semantic(semantics_, function).declared_numeric_type = no_numeric_type;
+    } else {
+      auto numeric_type = semantic(semantics_, *value_returns.front()).numeric_type;
+      for (std::size_t index = 1; index < value_returns.size(); ++index) {
+        const auto candidate = semantic(semantics_, *value_returns[index]).numeric_type;
+        numeric_type = numeric_type == unknown_numeric_type || candidate == unknown_numeric_type
+                           ? unknown_numeric_type
+                           : join_numeric_types(numeric_type, candidate);
+      }
+      if (numeric_type == unknown_numeric_type && annotated_return_type != ValueType::unknown) {
+        numeric_type = default_numeric_type(annotated_return_type);
+      }
+      semantic(semantics_, function).declared_numeric_type = numeric_type;
+    }
+  }
   semantic(semantics_, function).has_value_return = has_value_return;
   (void)body_terminates;
   (void)has_value_return;
   (void)has_empty_return;
   (void)incompatible_returns;
   std::vector<ValueType> output_types;
+  std::vector<NumericType> output_numeric_types;
   std::vector<ValueType> output_element_types;
+  std::vector<NumericType> output_element_numeric_types;
   std::vector<std::vector<std::size_t>> output_shapes;
   output_types.reserve(function.return_names.size());
+  output_numeric_types.reserve(function.return_names.size());
   output_element_types.reserve(function.return_names.size());
+  output_element_numeric_types.reserve(function.return_names.size());
   output_shapes.reserve(function.return_names.size());
   for (std::size_t index = 0; index < function.return_names.size(); ++index) {
     const auto& result = function.return_names[index];
@@ -1478,21 +1841,29 @@ void Analyzer::analyze_function(Statement& function) {
       diagnose(function.line, "MPF2004",
                "function result '" + result + "' is not definitely assigned");
       output_types.push_back(ValueType::unknown);
+      output_numeric_types.push_back(unknown_numeric_type);
       output_element_types.push_back(ValueType::unknown);
+      output_element_numeric_types.push_back(unknown_numeric_type);
       output_shapes.emplace_back();
     } else {
       output_types.push_back(symbol->type);
+      output_numeric_types.push_back(symbol->numeric_type);
       output_element_types.push_back(symbol->element_type);
+      output_element_numeric_types.push_back(symbol->element_numeric_type);
       output_shapes.push_back(symbol->shape);
     }
   }
   semantic(semantics_, function).return_types = output_types;
+  semantic(semantics_, function).return_numeric_types = output_numeric_types;
   semantic(semantics_, function).return_element_types = output_element_types;
+  semantic(semantics_, function).return_element_numeric_types = output_element_numeric_types;
   semantic(semantics_, function).return_shapes = output_shapes;
   if (output_types.size() == 1) {
     semantic(semantics_, function).declared_type = output_types.front();
+    semantic(semantics_, function).declared_numeric_type = output_numeric_types.front();
   } else if (output_types.size() > 1) {
     semantic(semantics_, function).declared_type = ValueType::tuple;
+    semantic(semantics_, function).declared_numeric_type = no_numeric_type;
   }
   if (program_.semantics.emit_parameter_defaults &&
       semantic(semantics_, function).declared_type == ValueType::tuple) {
@@ -1560,11 +1931,15 @@ void Analyzer::annotate_types(std::vector<Statement>& statements) {
       const auto* symbol = use == nullptr ? nullptr : lookup(use->symbol);
       if (symbol != nullptr) {
         semantic(semantics_, statement).declared_type = symbol->type;
+        semantic(semantics_, statement).declared_numeric_type = symbol->numeric_type;
         semantic(semantics_, statement).element_type = symbol->element_type;
+        semantic(semantics_, statement).element_numeric_type = symbol->element_numeric_type;
         semantic(semantics_, statement).shape = symbol->shape;
         if (statement.kind == StatementKind::assignment &&
             statement.expression.kind == ExpressionKind::list) {
           semantic(semantics_, statement.expression).element_type = symbol->element_type;
+          semantic(semantics_, statement.expression).element_numeric_type =
+              symbol->element_numeric_type;
         }
       }
     }

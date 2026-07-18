@@ -71,6 +71,28 @@ ValueType matlab_arithmetic_join(const ValueType left, const ValueType right) no
   return join_types(promoted(left), promoted(right));
 }
 
+bool matlab_imaginary_literal(const Expression& expression) noexcept {
+  return expression.kind == ExpressionKind::number_literal && expression.value.size() > 1U &&
+         (expression.value.back() == 'i' || expression.value.back() == 'j');
+}
+
+NumericType matlab_arithmetic_numeric_join(const hir::ExpressionFacts& left,
+                                           const hir::ExpressionFacts& right,
+                                           const bool floating_result) noexcept {
+  const auto left_numeric = expression_numeric_type(left);
+  const auto right_numeric = expression_numeric_type(right);
+  if (left_numeric == unknown_numeric_type || right_numeric == unknown_numeric_type) {
+    if (left_numeric.complexity == NumericComplexity::complex ||
+        right_numeric.complexity == NumericComplexity::complex) {
+      return complex_numeric_type;
+    }
+    return unknown_numeric_type;
+  }
+  auto result = join_expression_numeric_types(left, right);
+  if (floating_result && result.present()) result.value_class = NumericClass::binary64;
+  return result.valid() ? result : unknown_numeric_type;
+}
+
 std::optional<std::size_t> normalized_index(const long long value, const std::size_t extent,
                                             const std::size_t base, const bool allow_negative) {
   if (extent == dynamic_extent) return std::nullopt;
@@ -338,24 +360,41 @@ std::optional<std::size_t> matlab_vector_axis(const std::vector<std::size_t>& sh
 ValueType Analyzer::analyze_expression(Expression& expression, const bool condition_context) {
   switch (expression.kind) {
     case ExpressionKind::invalid:
+      semantic(semantics_, expression).numeric_type = unknown_numeric_type;
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
-    case ExpressionKind::number_literal:
+    case ExpressionKind::number_literal: {
+      auto& facts = semantic(semantics_, expression);
+      if (program_.language == SourceLanguage::matlab && matlab_imaginary_literal(expression)) {
+        facts.numeric_type = complex_numeric_type;
+        facts.inferred_type = ValueType::real;
+        return facts.inferred_type;
+      }
       semantic(semantics_, expression).inferred_type =
           program_.language == SourceLanguage::typescript ||
                   expression.value.find_first_of(".eE") != std::string::npos
               ? ValueType::real
               : ValueType::integer;
+      facts.numeric_type = program_.language == SourceLanguage::matlab ||
+                                   program_.language == SourceLanguage::typescript
+                               ? real_numeric_type
+                               : default_numeric_type(facts.inferred_type);
       return semantic(semantics_, expression).inferred_type;
+    }
     case ExpressionKind::string_literal:
+      semantic(semantics_, expression).numeric_type = no_numeric_type;
       return semantic(semantics_, expression).inferred_type = ValueType::string;
     case ExpressionKind::boolean_literal:
+      semantic(semantics_, expression).numeric_type = logical_numeric_type;
       return semantic(semantics_, expression).inferred_type = ValueType::boolean;
     case ExpressionKind::null_literal:
+      semantic(semantics_, expression).numeric_type = no_numeric_type;
       return semantic(semantics_, expression).inferred_type = ValueType::null_value;
     case ExpressionKind::omitted_argument:
+      semantic(semantics_, expression).numeric_type = unknown_numeric_type;
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     case ExpressionKind::end_index:
       if (semantic::requires_runtime_extent(semantic(semantics_, expression).index_extent)) {
+        semantic(semantics_, expression).numeric_type = integer_numeric_type;
         return semantic(semantics_, expression).inferred_type = ValueType::integer;
       }
       diagnose(expression.location.line, "MPF2048",
@@ -367,10 +406,15 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
         auto* symbol = lookup(use->symbol);
         semantic(semantics_, expression).binding = symbol->binding;
         semantic(semantics_, expression).inferred_type = symbol->type;
+        semantic(semantics_, expression).numeric_type = symbol->numeric_type;
         semantic(semantics_, expression).element_type = symbol->element_type;
+        semantic(semantics_, expression).element_numeric_type = symbol->element_numeric_type;
         semantic(semantics_, expression).shape = symbol->shape;
         semantic(semantics_, expression).tuple_types = symbol->tuple_types;
+        semantic(semantics_, expression).tuple_numeric_types = symbol->tuple_numeric_types;
         semantic(semantics_, expression).tuple_element_types = symbol->tuple_element_types;
+        semantic(semantics_, expression).tuple_element_numeric_types =
+            symbol->tuple_element_numeric_types;
         semantic(semantics_, expression).tuple_shapes = symbol->tuple_shapes;
         semantic(semantics_, expression).sequence_is_list = symbol->sequence_is_list;
         semantic(semantics_, expression).sequence_elements = symbol->sequence_elements;
@@ -392,9 +436,15 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
         semantic(semantics_, expression).binding = BindingKind::builtin;
         semantic(semantics_, expression).intrinsic = intrinsic;
         semantic(semantics_, expression).inferred_type =
-            intrinsic == IntrinsicId::not_a_number || intrinsic == IntrinsicId::infinity
+            intrinsic == IntrinsicId::not_a_number || intrinsic == IntrinsicId::infinity ||
+                    intrinsic == IntrinsicId::imaginary_unit
                 ? ValueType::real
                 : ValueType::function;
+        semantic(semantics_, expression).numeric_type =
+            intrinsic == IntrinsicId::imaginary_unit ? complex_numeric_type
+            : intrinsic == IntrinsicId::not_a_number || intrinsic == IntrinsicId::infinity
+                ? real_numeric_type
+                : no_numeric_type;
         return semantic(semantics_, expression).inferred_type;
       }
       diagnose(expression.location.line, "MPF2001",
@@ -409,6 +459,8 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
           expression.unary_operation == UnaryOperator::conjugate_transpose) {
         auto& facts = semantic(semantics_, expression);
         const auto& operand_facts = semantic(semantics_, expression.children.front());
+        facts.numeric_type = operand_facts.numeric_type;
+        facts.element_numeric_type = operand_facts.element_numeric_type;
         if (operand == ValueType::list) {
           if (operand_facts.shape.size() == 1U) {
             facts.shape = {operand_facts.shape.front(), 1U};
@@ -451,24 +503,106 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
         if (operand == ValueType::list) {
           facts.inferred_type = ValueType::list;
           facts.element_type = ValueType::boolean;
+          facts.numeric_type = no_numeric_type;
+          facts.element_numeric_type = logical_numeric_type;
           facts.shape = operand_facts.shape;
           return facts.inferred_type;
         }
         facts.inferred_type =
             operand == ValueType::unknown ? ValueType::unknown : ValueType::boolean;
         facts.element_type = ValueType::boolean;
+        facts.numeric_type = logical_numeric_type;
+        facts.element_numeric_type = no_numeric_type;
         return facts.inferred_type;
       }
-      semantic(semantics_, expression).inferred_type =
-          expression.value == "!" ? ValueType::boolean : operand;
+      const bool logical_not = expression.unary_operation == UnaryOperator::logical_not;
+      semantic(semantics_, expression).inferred_type = logical_not ? ValueType::boolean : operand;
+      semantic(semantics_, expression).numeric_type =
+          logical_not ? logical_numeric_type
+                      : semantic(semantics_, expression.children.front()).numeric_type;
+      semantic(semantics_, expression).element_numeric_type =
+          logical_not ? no_numeric_type
+                      : semantic(semantics_, expression.children.front()).element_numeric_type;
       return semantic(semantics_, expression).inferred_type;
     }
-    case ExpressionKind::binary: return analyze_binary(expression, condition_context);
-    case ExpressionKind::comparison_chain: return analyze_comparison_chain(expression);
-    case ExpressionKind::conditional: return analyze_conditional(expression);
+    case ExpressionKind::binary: {
+      const auto result = analyze_binary(expression, condition_context);
+      auto& facts = semantic(semantics_, expression);
+      const auto& left = semantic(semantics_, expression.children[0]);
+      const auto& right = semantic(semantics_, expression.children[1]);
+      const bool logical_result = expression.comparison != ComparisonOperator::none ||
+                                  expression.operation == BinaryOperator::logical_and ||
+                                  expression.operation == BinaryOperator::logical_or ||
+                                  expression.operation == BinaryOperator::elementwise_logical_and ||
+                                  expression.operation == BinaryOperator::elementwise_logical_or;
+      const bool complex_operand =
+          expression_numeric_type(left).complexity == NumericComplexity::complex ||
+          expression_numeric_type(right).complexity == NumericComplexity::complex;
+      if (complex_operand && logical_result) {
+        diagnose(expression.location.line, "MPF2053",
+                 "Matlab complex comparison and logical operations are not supported yet");
+      }
+      if (result == ValueType::boolean) {
+        facts.numeric_type = logical_numeric_type;
+      } else if (result == ValueType::list) {
+        if (logical_result) {
+          facts.element_numeric_type = logical_numeric_type;
+        } else if (!facts.element_numeric_type.known()) {
+          const bool floating_result =
+              expression.operation == BinaryOperator::divide ||
+              expression.operation == BinaryOperator::left_divide ||
+              expression.operation == BinaryOperator::elementwise_divide ||
+              expression.operation == BinaryOperator::elementwise_left_divide ||
+              expression.operation == BinaryOperator::power ||
+              expression.operation == BinaryOperator::elementwise_power;
+          facts.element_numeric_type = matlab_arithmetic_numeric_join(left, right, floating_result);
+        }
+        facts.numeric_type = no_numeric_type;
+      } else if (numeric(result)) {
+        const bool floating_result =
+            expression.operation == BinaryOperator::divide ||
+            expression.operation == BinaryOperator::left_divide ||
+            expression.operation == BinaryOperator::elementwise_divide ||
+            expression.operation == BinaryOperator::elementwise_left_divide ||
+            expression.operation == BinaryOperator::power ||
+            expression.operation == BinaryOperator::elementwise_power;
+        facts.numeric_type = program_.language == SourceLanguage::matlab
+                                 ? matlab_arithmetic_numeric_join(left, right, floating_result)
+                                 : default_numeric_type(result);
+      } else {
+        facts.numeric_type = default_numeric_type(result);
+      }
+      if (complex_operand && facts.matrix_operation.valid()) {
+        diagnose(expression.location.line, "MPF2053",
+                 "Matlab complex matrix operations require the pending complex solver ABI");
+      }
+      return result;
+    }
+    case ExpressionKind::comparison_chain: {
+      const auto result = analyze_comparison_chain(expression);
+      semantic(semantics_, expression).numeric_type = logical_numeric_type;
+      return result;
+    }
+    case ExpressionKind::conditional: {
+      const auto result = analyze_conditional(expression);
+      auto& facts = semantic(semantics_, expression);
+      if (expression.children.size() == 3U) {
+        const auto& when_true = semantic(semantics_, expression.children[0]);
+        const auto& when_false = semantic(semantics_, expression.children[2]);
+        if (result == ValueType::list) {
+          facts.numeric_type = no_numeric_type;
+          facts.element_numeric_type =
+              join_numeric_types(when_true.element_numeric_type, when_false.element_numeric_type);
+        } else {
+          facts.numeric_type = join_numeric_types(when_true.numeric_type, when_false.numeric_type);
+        }
+      }
+      return result;
+    }
     case ExpressionKind::call: return analyze_call(expression);
     case ExpressionKind::member:
       if (!expression.children.empty()) analyze_expression(expression.children.front());
+      semantic(semantics_, expression).numeric_type = unknown_numeric_type;
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     case ExpressionKind::index: return analyze_index(expression);
     case ExpressionKind::slice:
@@ -477,6 +611,7 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     case ExpressionKind::list: {
       ValueType element_type = ValueType::unknown;
+      NumericType element_numeric_type = unknown_numeric_type;
       bool incompatible = false;
       bool ragged = false;
       bool nested = !expression.children.empty();
@@ -495,11 +630,15 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
         }
         const auto scalar_type =
             child_type == ValueType::list ? child_facts.element_type : child_type;
+        const auto scalar_numeric_type = child_type == ValueType::list
+                                             ? child_facts.element_numeric_type
+                                             : child_facts.numeric_type;
         const auto joined = join_types(element_type, scalar_type);
         if (element_type != ValueType::unknown && child_type != ValueType::unknown &&
             joined == ValueType::unknown)
           incompatible = true;
         element_type = joined;
+        element_numeric_type = join_numeric_types(element_numeric_type, scalar_numeric_type);
       }
       const bool mixed_nesting =
           std::any_of(expression.children.begin(), expression.children.end(),
@@ -519,11 +658,14 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
       // their native empty-list model.
       if (program_.language == SourceLanguage::matlab && expression.children.empty()) {
         element_type = ValueType::real;
+        element_numeric_type = real_numeric_type;
         facts.shape = {0U, 0U};
       } else {
         facts.shape = {expression.children.size()};
       }
       facts.element_type = element_type;
+      facts.numeric_type = no_numeric_type;
+      facts.element_numeric_type = element_numeric_type;
       facts.column_major = program_.semantics.layout == semantic::IndexLayout::column_major;
       if (nested && !nested_shape.empty() && !ragged) {
         facts.shape.insert(facts.shape.end(), nested_shape.begin(), nested_shape.end());
@@ -538,6 +680,7 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
         facts.shape.insert(facts.shape.end(), maximum_rank, dynamic_extent);
       } else if (mixed_nesting) {
         facts.element_type = ValueType::unknown;
+        facts.element_numeric_type = unknown_numeric_type;
       }
       facts.sequence_is_list = true;
       facts.sequence_elements.clear();
@@ -548,13 +691,22 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
       return facts.inferred_type = ValueType::list;
     }
     case ExpressionKind::tuple:
+      semantic(semantics_, expression).numeric_type = no_numeric_type;
+      semantic(semantics_, expression).element_numeric_type = no_numeric_type;
       semantic(semantics_, expression).tuple_types.clear();
+      semantic(semantics_, expression).tuple_numeric_types.clear();
       semantic(semantics_, expression).tuple_element_types.clear();
+      semantic(semantics_, expression).tuple_element_numeric_types.clear();
       semantic(semantics_, expression).tuple_shapes.clear();
       for (auto& child : expression.children) {
         semantic(semantics_, expression).tuple_types.push_back(analyze_expression(child));
         semantic(semantics_, expression)
+            .tuple_numeric_types.push_back(semantic(semantics_, child).numeric_type);
+        semantic(semantics_, expression)
             .tuple_element_types.push_back(semantic(semantics_, child).element_type);
+        semantic(semantics_, expression)
+            .tuple_element_numeric_types.push_back(
+                semantic(semantics_, child).element_numeric_type);
         semantic(semantics_, expression).tuple_shapes.push_back(semantic(semantics_, child).shape);
       }
       semantic(semantics_, expression).sequence_is_list = false;
@@ -1095,10 +1247,15 @@ ValueType Analyzer::analyze_conditional(Expression& expression) {
   }
   if (true_type == ValueType::tuple && false_type == ValueType::tuple &&
       true_facts.tuple_types == false_facts.tuple_types &&
+      true_facts.tuple_numeric_types == false_facts.tuple_numeric_types &&
       true_facts.tuple_element_types == false_facts.tuple_element_types &&
+      true_facts.tuple_element_numeric_types == false_facts.tuple_element_numeric_types &&
       true_facts.tuple_shapes == false_facts.tuple_shapes) {
     semantic(semantics_, expression).tuple_types = true_facts.tuple_types;
+    semantic(semantics_, expression).tuple_numeric_types = true_facts.tuple_numeric_types;
     semantic(semantics_, expression).tuple_element_types = true_facts.tuple_element_types;
+    semantic(semantics_, expression).tuple_element_numeric_types =
+        true_facts.tuple_element_numeric_types;
     semantic(semantics_, expression).tuple_shapes = true_facts.tuple_shapes;
   }
   if ((true_type == ValueType::list || true_type == ValueType::tuple) && true_type == false_type &&
@@ -1355,7 +1512,9 @@ ValueType Analyzer::analyze_call(Expression& expression) {
         auto& argument_facts = semantic(semantics_, expression.children[1]);
         argument_facts.binding = symbol->binding;
         argument_facts.inferred_type = symbol->type;
+        argument_facts.numeric_type = symbol->numeric_type;
         argument_facts.element_type = symbol->element_type;
+        argument_facts.element_numeric_type = symbol->element_numeric_type;
         argument_facts.shape = symbol->shape;
       }
     } else if (expression.children.size() == 2) {
@@ -1365,6 +1524,7 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       diagnose(expression.location.line, "MPF2040",
                "Fortran PRESENT requires one OPTIONAL dummy argument");
     }
+    semantic(semantics_, expression).numeric_type = logical_numeric_type;
     return semantic(semantics_, expression).inferred_type = ValueType::boolean;
   }
   ValueType argument_type = ValueType::unknown;
@@ -1504,6 +1664,7 @@ ValueType Analyzer::analyze_call(Expression& expression) {
                    "Python float argument is not convertible in the current subset");
         }
       }
+      semantic(semantics_, expression).numeric_type = real_numeric_type;
       return semantic(semantics_, expression).inferred_type = ValueType::real;
     }
     if (associated_callee_facts.intrinsic == IntrinsicId::python_length ||
@@ -1515,6 +1676,7 @@ ValueType Analyzer::analyze_call(Expression& expression) {
                  semantic(semantics_, expression.children[1]).inferred_type != ValueType::unknown) {
         diagnose(expression.location.line, "MPF2022", "length/size argument is not an array/list");
       }
+      semantic(semantics_, expression).numeric_type = integer_numeric_type;
       return semantic(semantics_, expression).inferred_type = ValueType::integer;
     }
     if (associated_callee_facts.intrinsic == IntrinsicId::sum && expression.children.size() == 2) {
@@ -1526,9 +1688,17 @@ ValueType Analyzer::analyze_call(Expression& expression) {
         diagnose(expression.location.line, "MPF2028",
                  "multidimensional SUM semantics are not supported for this source language");
       }
-      return semantic(semantics_, expression).inferred_type =
-                 argument_facts.element_type == ValueType::boolean ? ValueType::integer
-                                                                   : argument_facts.element_type;
+      if (argument_facts.element_numeric_type.complexity == NumericComplexity::complex) {
+        diagnose(expression.location.line, "MPF2053",
+                 "Matlab complex SUM requires the pending complex reduction ABI");
+      }
+      auto& facts = semantic(semantics_, expression);
+      facts.numeric_type = argument_facts.element_type == ValueType::boolean
+                               ? integer_numeric_type
+                               : argument_facts.element_numeric_type;
+      return facts.inferred_type = argument_facts.element_type == ValueType::boolean
+                                       ? ValueType::integer
+                                       : argument_facts.element_type;
     }
     if (associated_callee_facts.intrinsic == IntrinsicId::sum && expression.children.size() != 2) {
       diagnose(expression.location.line, "MPF2026", "sum builtin requires one argument");
@@ -1543,11 +1713,60 @@ ValueType Analyzer::analyze_call(Expression& expression) {
     if (associated_callee_facts.intrinsic == IntrinsicId::reshape) {
       return analyze_reshape(expression);
     }
+    if (associated_callee_facts.intrinsic == IntrinsicId::complex_value) {
+      auto& facts = semantic(semantics_, expression);
+      const bool valid_arity = expression.children.size() == 2U || expression.children.size() == 3U;
+      bool valid_arguments = valid_arity;
+      for (std::size_t index = 1; index < expression.children.size(); ++index) {
+        const auto& argument = semantic(semantics_, expression.children[index]);
+        const auto argument_numeric = expression_numeric_type(argument);
+        valid_arguments = valid_arguments && argument.inferred_type != ValueType::list &&
+                          argument_numeric.present() &&
+                          argument_numeric.complexity != NumericComplexity::complex;
+      }
+      if (!valid_arguments) {
+        diagnose(expression.location.line, "MPF2053",
+                 "Matlab complex currently requires one or two real scalar arguments");
+      }
+      facts.numeric_type = complex_numeric_type;
+      return facts.inferred_type = ValueType::real;
+    }
+    if (associated_callee_facts.intrinsic == IntrinsicId::conjugate ||
+        associated_callee_facts.intrinsic == IntrinsicId::imaginary_part ||
+        associated_callee_facts.intrinsic == IntrinsicId::real_part) {
+      auto& facts = semantic(semantics_, expression);
+      const bool valid_arity = expression.children.size() == 2U;
+      const auto* argument = valid_arity ? &semantic(semantics_, expression.children[1]) : nullptr;
+      const auto argument_numeric =
+          argument == nullptr ? unknown_numeric_type : expression_numeric_type(*argument);
+      if (!valid_arity || argument->inferred_type == ValueType::list ||
+          !argument_numeric.present()) {
+        diagnose(expression.location.line, "MPF2053",
+                 "Matlab complex projection currently requires one numeric scalar argument");
+      }
+      if (associated_callee_facts.intrinsic == IntrinsicId::conjugate) {
+        facts.numeric_type = argument_numeric;
+        return facts.inferred_type =
+                   argument == nullptr ? ValueType::unknown : argument->inferred_type;
+      }
+      facts.numeric_type = real_numeric_type;
+      return facts.inferred_type = ValueType::real;
+    }
     if (associated_callee_facts.intrinsic == IntrinsicId::absolute ||
         associated_callee_facts.intrinsic == IntrinsicId::minimum ||
         associated_callee_facts.intrinsic == IntrinsicId::maximum) {
-      return semantic(semantics_, expression).inferred_type = argument_type;
+      auto& facts = semantic(semantics_, expression);
+      if (expression.children.size() > 1U) {
+        const auto& argument = semantic(semantics_, expression.children[1]);
+        facts.numeric_type =
+            associated_callee_facts.intrinsic == IntrinsicId::absolute &&
+                    expression_numeric_type(argument).complexity == NumericComplexity::complex
+                ? real_numeric_type
+                : expression_numeric_type(argument);
+      }
+      return facts.inferred_type = argument_type;
     }
+    semantic(semantics_, expression).numeric_type = real_numeric_type;
     return semantic(semantics_, expression).inferred_type = ValueType::real;
   }
   if (associated_callee_facts.binding == BindingKind::variable &&
@@ -1576,7 +1795,10 @@ ValueType Analyzer::analyze_call(Expression& expression) {
     if (program_.language == SourceLanguage::matlab && function->return_names.size() > 1) {
       semantic(semantics_, expression).multi_output_call = true;
       semantic(semantics_, expression).tuple_types = function_facts.return_types;
+      semantic(semantics_, expression).tuple_numeric_types = function_facts.return_numeric_types;
       semantic(semantics_, expression).tuple_element_types = function_facts.return_element_types;
+      semantic(semantics_, expression).tuple_element_numeric_types =
+          function_facts.return_element_numeric_types;
       semantic(semantics_, expression).tuple_shapes = function_facts.return_shapes;
       if (semantic(semantics_, expression).requested_outputs > function->return_names.size()) {
         diagnose(expression.location.line, "MPF2034",
@@ -1588,6 +1810,14 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       if (semantic(semantics_, expression).requested_outputs == 1 &&
           !function_facts.return_types.empty()) {
         semantic(semantics_, expression).element_type = function_facts.return_element_types.front();
+        semantic(semantics_, expression).numeric_type =
+            function_facts.return_numeric_types.empty()
+                ? default_numeric_type(function_facts.return_types.front())
+                : function_facts.return_numeric_types.front();
+        semantic(semantics_, expression).element_numeric_type =
+            function_facts.return_element_numeric_types.empty()
+                ? default_numeric_type(function_facts.return_element_types.front())
+                : function_facts.return_element_numeric_types.front();
         semantic(semantics_, expression).shape = function_facts.return_shapes.front();
         return semantic(semantics_, expression).inferred_type = function_facts.return_types.front();
       }
@@ -1596,17 +1826,23 @@ ValueType Analyzer::analyze_call(Expression& expression) {
     if (program_.language == SourceLanguage::python &&
         function_facts.declared_type == ValueType::tuple) {
       semantic(semantics_, expression).tuple_types = function_facts.return_types;
+      semantic(semantics_, expression).tuple_numeric_types = function_facts.return_numeric_types;
       semantic(semantics_, expression).tuple_element_types = function_facts.return_element_types;
+      semantic(semantics_, expression).tuple_element_numeric_types =
+          function_facts.return_element_numeric_types;
       semantic(semantics_, expression).tuple_shapes = function_facts.return_shapes;
     }
     if (program_.language == SourceLanguage::python &&
         (function_facts.declared_type == ValueType::tuple ||
          function_facts.declared_type == ValueType::list)) {
       semantic(semantics_, expression).element_type = function_facts.element_type;
+      semantic(semantics_, expression).element_numeric_type = function_facts.element_numeric_type;
       semantic(semantics_, expression).shape = function_facts.shape;
       semantic(semantics_, expression).sequence_is_list = function_facts.return_sequence_is_list;
       semantic(semantics_, expression).sequence_elements = function_facts.return_sequence_elements;
     }
+    semantic(semantics_, expression).numeric_type = function_facts.declared_numeric_type;
+    semantic(semantics_, expression).element_numeric_type = function_facts.element_numeric_type;
     return semantic(semantics_, expression).inferred_type = function_facts.declared_type;
   }
   return semantic(semantics_, expression).inferred_type = ValueType::unknown;
@@ -1624,6 +1860,10 @@ ValueType Analyzer::analyze_logical_reduction(Expression& expression,
   }
 
   const auto& input = semantic(semantics_, expression.children[1]);
+  if (expression_numeric_type(input).complexity == NumericComplexity::complex) {
+    diagnose(expression.location.line, "MPF2053",
+             "Matlab logical reduction over complex values is not supported yet");
+  }
   const auto scalar_input = input.inferred_type != ValueType::list;
   const auto scalar_type = scalar_input ? input.inferred_type : input.element_type;
   if (scalar_type != ValueType::unknown && !numeric(scalar_type) &&
@@ -1718,6 +1958,8 @@ ValueType Analyzer::analyze_logical_reduction(Expression& expression,
   facts.reduction.scalar_result = scalar_result;
   facts.shape = output_shape;
   facts.inferred_type = scalar_result ? ValueType::boolean : ValueType::list;
+  facts.numeric_type = scalar_result ? logical_numeric_type : no_numeric_type;
+  facts.element_numeric_type = scalar_result ? no_numeric_type : logical_numeric_type;
   return facts.inferred_type;
 }
 
@@ -1789,6 +2031,7 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
         if (extent == dynamic_extent) {
           semantic(semantics_, candidate).index_extent = dynamic_source;
           semantic(semantics_, candidate).inferred_type = ValueType::integer;
+          semantic(semantics_, candidate).numeric_type = integer_numeric_type;
           selector_extent = dynamic_source;
           return;
         }
@@ -1909,9 +2152,11 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
     semantic(semantics_, expression).storage_region = {};
   }
   semantic(semantics_, expression).element_type = container_facts.element_type;
+  semantic(semantics_, expression).element_numeric_type = container_facts.element_numeric_type;
   if (container_facts.shape.empty()) {
     if (has_expanding_selector) {
       semantic(semantics_, expression).shape = std::move(result_shape);
+      semantic(semantics_, expression).numeric_type = no_numeric_type;
       return semantic(semantics_, expression).inferred_type = ValueType::list;
     }
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
@@ -1925,8 +2170,11 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
   }
   if (has_expanding_selector || !result_shape.empty()) {
     semantic(semantics_, expression).shape = std::move(result_shape);
+    semantic(semantics_, expression).numeric_type = no_numeric_type;
     return semantic(semantics_, expression).inferred_type = ValueType::list;
   }
+  semantic(semantics_, expression).numeric_type = container_facts.element_numeric_type;
+  semantic(semantics_, expression).element_numeric_type = no_numeric_type;
   return semantic(semantics_, expression).inferred_type = container_facts.element_type;
 }
 
@@ -2330,6 +2578,8 @@ ValueType Analyzer::analyze_reshape(Expression& expression) {
   }
   semantic(semantics_, expression).inferred_type = ValueType::list;
   semantic(semantics_, expression).element_type = source_facts.element_type;
+  semantic(semantics_, expression).numeric_type = no_numeric_type;
+  semantic(semantics_, expression).element_numeric_type = source_facts.element_numeric_type;
   semantic(semantics_, expression).shape = std::move(dimensions);
   semantic(semantics_, expression).column_major = true;
   return semantic(semantics_, expression).inferred_type;

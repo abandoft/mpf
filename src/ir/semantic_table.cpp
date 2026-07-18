@@ -5,6 +5,8 @@
 #include <string>
 #include <utility>
 
+#include "compiler/numeric_contract.hpp"
+
 namespace mpf::detail::hir {
 namespace {
 
@@ -18,6 +20,12 @@ void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation locati
   diagnostics.push_back(
       {DiagnosticSeverity::error, "MPF0005",
        "invalid semantic table at '" + std::string(stage) + "': " + std::move(message), location});
+}
+
+std::string numeric_contract_summary(const ValueType type, const NumericType numeric_type) {
+  return std::to_string(static_cast<unsigned>(type)) + ':' +
+         std::to_string(static_cast<unsigned>(numeric_type.value_class)) + '/' +
+         std::to_string(static_cast<unsigned>(numeric_type.complexity));
 }
 
 semantic::MatrixOperation matrix_operation_for_operator(const BinaryOperator operation) noexcept {
@@ -186,6 +194,14 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
   }
   seen[expression.id.value()] = true;
   const bool analyzed = stage != "ast-to-hir" && stage != "frontend-seed" && stage != "conformance";
+  if (analyzed && !expression_numeric_contract_matches(*facts)) {
+    add_error(diagnostics, expression.location, stage,
+              "expression numeric metadata is inconsistent (value " +
+                  numeric_contract_summary(facts->inferred_type, facts->numeric_type) +
+                  ", element " +
+                  numeric_contract_summary(facts->element_type, facts->element_numeric_type) +
+                  ", tuple arity " + std::to_string(facts->tuple_types.size()) + ')');
+  }
   if (analyzed && facts->logical_evaluation !=
                       expected_logical_evaluation(expression, source_language, condition_context)) {
     add_error(diagnostics, expression.location, stage,
@@ -348,10 +364,12 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
     add_error(diagnostics, expression.location, stage,
               "expression storage-region fact is invalid for its expression kind");
   }
-  if (facts->tuple_types.size() != facts->tuple_element_types.size() ||
+  if (facts->tuple_types.size() != facts->tuple_numeric_types.size() ||
+      facts->tuple_types.size() != facts->tuple_element_types.size() ||
+      facts->tuple_types.size() != facts->tuple_element_numeric_types.size() ||
       facts->tuple_types.size() != facts->tuple_shapes.size()) {
     add_error(diagnostics, expression.location, stage,
-              "tuple type, element-type, and shape arities disagree");
+              "tuple type, numeric-class, element-type, and shape arities disagree");
   }
   if (expression.kind == ExpressionKind::call && !facts->argument_names.empty() &&
       facts->argument_names.size() + 1U != expression.children.size()) {
@@ -380,6 +398,16 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
       continue;
     }
     seen[statement.id.value()] = true;
+    const bool analyzed =
+        stage != "ast-to-hir" && stage != "frontend-seed" && stage != "conformance";
+    if (analyzed && !statement_numeric_contract_matches(*facts)) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "statement numeric metadata is inconsistent (declared " +
+                    numeric_contract_summary(facts->declared_type, facts->declared_numeric_type) +
+                    ", element " +
+                    numeric_contract_summary(facts->element_type, facts->element_numeric_type) +
+                    ')');
+    }
     const auto parameters = statement.parameters.size();
     if (facts->exported && statement.kind != StatementKind::function) {
       add_error(diagnostics, {statement.line, 1}, stage,
@@ -388,14 +416,18 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
     if (!compatible_arity(facts->parameter_intents.size(), parameters) ||
         !compatible_arity(facts->parameter_optional.size(), parameters) ||
         !compatible_arity(facts->parameter_types.size(), parameters) ||
+        !compatible_arity(facts->parameter_numeric_types.size(), parameters) ||
         !compatible_arity(facts->parameter_element_types.size(), parameters) ||
+        !compatible_arity(facts->parameter_element_numeric_types.size(), parameters) ||
         !compatible_arity(facts->parameter_shapes.size(), parameters)) {
       add_error(diagnostics, {statement.line, 1}, stage,
                 "function parameter semantic arity disagrees with HIR");
     }
     const auto returns = statement.return_names.size();
     if (returns != 0 && (!compatible_arity(facts->return_types.size(), returns) ||
+                         !compatible_arity(facts->return_numeric_types.size(), returns) ||
                          !compatible_arity(facts->return_element_types.size(), returns) ||
+                         !compatible_arity(facts->return_element_numeric_types.size(), returns) ||
                          !compatible_arity(facts->return_shapes.size(), returns))) {
       add_error(diagnostics, {statement.line, 1}, stage,
                 "function result semantic arity disagrees with HIR");
@@ -406,10 +438,14 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
                 "analyzed assignment pattern is missing from the semantic table");
     }
     if (!compatible_arity(facts->target_types.size(), targets) ||
+        !compatible_arity(facts->target_numeric_types.size(), targets) ||
         !compatible_arity(facts->target_element_types.size(), targets) ||
+        !compatible_arity(facts->target_element_numeric_types.size(), targets) ||
         !compatible_arity(facts->target_shapes.size(), targets) ||
         !compatible_arity(facts->target_previous_types.size(), targets) ||
-        !compatible_arity(facts->target_previous_element_types.size(), targets)) {
+        !compatible_arity(facts->target_previous_numeric_types.size(), targets) ||
+        !compatible_arity(facts->target_previous_element_types.size(), targets) ||
+        !compatible_arity(facts->target_previous_element_numeric_types.size(), targets)) {
       add_error(diagnostics, {statement.line, 1}, stage,
                 "assignment target semantic arity disagrees with HIR");
     }
