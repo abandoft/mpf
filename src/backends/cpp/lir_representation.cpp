@@ -93,11 +93,14 @@ bool has_array_operand(const lir::Expression& expression) noexcept {
 
 std::string matlab_solve_helper(const std::string_view operation,
                                 const semantic::MatrixSolveKind solve,
+                                const semantic::MatrixNumericDomain numeric_domain,
+                                const semantic::MatrixFactorizationPolicy factorization_policy,
                                 const semantic::MatrixStructurePolicy structure_policy) {
   std::string suffix;
   switch (solve) {
     case semantic::MatrixSolveKind::none: return {};
     case semantic::MatrixSolveKind::square:
+      if (factorization_policy != semantic::MatrixFactorizationPolicy::none) return {};
       if (structure_policy == semantic::MatrixStructurePolicy::classify_real_square) {
         suffix = "structured_real_square";
       } else if (structure_policy == semantic::MatrixStructurePolicy::classify_complex_square) {
@@ -107,12 +110,22 @@ std::string matlab_solve_helper(const std::string_view operation,
       }
       break;
     case semantic::MatrixSolveKind::overdetermined:
-      if (structure_policy != semantic::MatrixStructurePolicy::none) return {};
-      suffix = "overdetermined";
+      if (factorization_policy !=
+              semantic::MatrixFactorizationPolicy::rank_revealing_column_pivoted_qr ||
+          structure_policy != semantic::MatrixStructurePolicy::none) {
+        return {};
+      }
+      suffix = numeric_domain == semantic::MatrixNumericDomain::complex ? "complex_overdetermined"
+                                                                        : "overdetermined";
       break;
     case semantic::MatrixSolveKind::underdetermined:
-      if (structure_policy != semantic::MatrixStructurePolicy::none) return {};
-      suffix = "underdetermined";
+      if (factorization_policy !=
+              semantic::MatrixFactorizationPolicy::rank_revealing_column_pivoted_qr ||
+          structure_policy != semantic::MatrixStructurePolicy::none) {
+        return {};
+      }
+      suffix = numeric_domain == semantic::MatrixNumericDomain::complex ? "complex_underdetermined"
+                                                                        : "underdetermined";
       break;
   }
   return "mpf_runtime::matlab_" + std::string(operation) + '_' + suffix;
@@ -130,9 +143,13 @@ std::string matlab_array_helper(const lir::Expression& expression) {
                  : "mpf_runtime::matlab_mtimes";
     case semantic::MatrixOperation::left_divide:
       return matlab_solve_helper("mldivide", expression.matrix_operation.solve,
+                                 expression.matrix_operation.numeric_domain,
+                                 expression.matrix_operation.factorization_policy,
                                  expression.matrix_operation.structure_policy);
     case semantic::MatrixOperation::right_divide:
       return matlab_solve_helper("mrdivide", expression.matrix_operation.solve,
+                                 expression.matrix_operation.numeric_domain,
+                                 expression.matrix_operation.factorization_policy,
                                  expression.matrix_operation.structure_policy);
     case semantic::MatrixOperation::integer_power:
       return expression.matrix_operation.numeric_domain == semantic::MatrixNumericDomain::complex
@@ -269,10 +286,8 @@ bool valid_matrix_shapes(const lir::MatrixOperationPlan& plan,
       plan.result_shape != expression_shape ||
       plan.numeric_domain == semantic::MatrixNumericDomain::none ||
       plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
-      plan.structure_policy != semantic::matrix_structure_policy(plan.solve, plan.numeric_domain) ||
-      (plan.numeric_domain == semantic::MatrixNumericDomain::complex &&
-       plan.solve != semantic::MatrixSolveKind::none &&
-       plan.solve != semantic::MatrixSolveKind::square)) {
+      plan.factorization_policy != semantic::matrix_factorization_policy(plan.solve) ||
+      plan.structure_policy != semantic::matrix_structure_policy(plan.solve, plan.numeric_domain)) {
     return false;
   }
   switch (plan.operation) {
@@ -1001,6 +1016,8 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
        (expression.matrix_operation.solve != semantic::MatrixSolveKind::none ||
         expression.matrix_operation.numeric_domain != semantic::MatrixNumericDomain::none ||
         expression.matrix_operation.condition_policy != semantic::MatrixConditionPolicy::none ||
+        expression.matrix_operation.factorization_policy !=
+            semantic::MatrixFactorizationPolicy::none ||
         expression.matrix_operation.structure_policy != semantic::MatrixStructurePolicy::none ||
         !expression.matrix_operation.left_shape.empty() ||
         !expression.matrix_operation.right_shape.empty() ||
