@@ -310,6 +310,8 @@ struct MatrixOperationPlan {
   semantic::MatrixSolveKind solve{semantic::MatrixSolveKind::none};
   semantic::MatrixNumericDomain numeric_domain{semantic::MatrixNumericDomain::none};
   semantic::MatrixConditionPolicy condition_policy{semantic::MatrixConditionPolicy::none};
+  semantic::MatrixFactorizationPolicy factorization_policy{
+      semantic::MatrixFactorizationPolicy::none};
   semantic::MatrixStructurePolicy structure_policy{semantic::MatrixStructurePolicy::none};
   ShapeId left_shape{};
   ShapeId right_shape{};

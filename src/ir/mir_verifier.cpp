@@ -283,10 +283,8 @@ bool valid_matrix_shapes(const Program& program, const MatrixOperationPlan& plan
   if (!static_rank_two(left) || !static_rank_two(result) || plan.result_shape != expression_shape ||
       plan.numeric_domain == semantic::MatrixNumericDomain::none ||
       plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
-      plan.structure_policy != semantic::matrix_structure_policy(plan.solve, plan.numeric_domain) ||
-      (plan.numeric_domain == semantic::MatrixNumericDomain::complex &&
-       plan.solve != semantic::MatrixSolveKind::none &&
-       plan.solve != semantic::MatrixSolveKind::square)) {
+      plan.factorization_policy != semantic::matrix_factorization_policy(plan.solve) ||
+      plan.structure_policy != semantic::matrix_structure_policy(plan.solve, plan.numeric_domain)) {
     return false;
   }
   switch (plan.operation) {
@@ -463,6 +461,8 @@ void verify_expression(const Expression& expression, const Program& program,
             semantic::MatrixNumericDomain::none ||
         retired_attributes->matrix_operation.condition_policy !=
             semantic::MatrixConditionPolicy::none ||
+        retired_attributes->matrix_operation.factorization_policy !=
+            semantic::MatrixFactorizationPolicy::none ||
         retired_attributes->matrix_operation.structure_policy !=
             semantic::MatrixStructurePolicy::none ||
         retired_attributes->matrix_operation.left_shape.valid() ||
@@ -756,12 +756,14 @@ void verify_expression(const Expression& expression, const Program& program,
                 "expression matrix-operation attributes have an invalid operator, numeric "
                 "domain, or shape contract");
     }
-  } else if (!matrix.valid() && (matrix.solve != semantic::MatrixSolveKind::none ||
-                                 matrix.numeric_domain != semantic::MatrixNumericDomain::none ||
-                                 matrix.condition_policy != semantic::MatrixConditionPolicy::none ||
-                                 matrix.structure_policy != semantic::MatrixStructurePolicy::none ||
-                                 matrix.left_shape.valid() || matrix.right_shape.valid() ||
-                                 matrix.result_shape.valid())) {
+  } else if (!matrix.valid() &&
+             (matrix.solve != semantic::MatrixSolveKind::none ||
+              matrix.numeric_domain != semantic::MatrixNumericDomain::none ||
+              matrix.condition_policy != semantic::MatrixConditionPolicy::none ||
+              matrix.factorization_policy != semantic::MatrixFactorizationPolicy::none ||
+              matrix.structure_policy != semantic::MatrixStructurePolicy::none ||
+              matrix.left_shape.valid() || matrix.right_shape.valid() ||
+              matrix.result_shape.valid())) {
     add_error(diagnostics, expression.location, stage,
               "inactive expression matrix-operation attributes retain solve or shape facts");
   }

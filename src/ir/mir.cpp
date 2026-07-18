@@ -805,6 +805,8 @@ class Builder final {
             semantic_facts->matrix_operation.numeric_domain;
         result_attributes.matrix_operation.condition_policy =
             semantic_facts->matrix_operation.condition_policy;
+        result_attributes.matrix_operation.factorization_policy =
+            semantic_facts->matrix_operation.factorization_policy;
         result_attributes.matrix_operation.structure_policy =
             semantic_facts->matrix_operation.structure_policy;
         result_attributes.matrix_operation.left_shape =
