@@ -375,6 +375,7 @@ bool fold_expression(Program& program, const MirExpressionId id, OptimizationSta
   facts->array_operation = semantic::ArrayOperation::native;
   facts->broadcast = {};
   facts->matrix_operation = {};
+  facts->reduction = {};
   facts->binding = BindingKind::unresolved;
   facts->intrinsic = IntrinsicId::none;
   facts->tuple_shapes.clear();

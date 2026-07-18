@@ -760,6 +760,19 @@ class Builder final {
         result_attributes.matrix_operation.result_shape =
             intern_shape(semantic_facts->matrix_operation.result_shape, false);
       }
+      if (semantic_facts->reduction.valid()) {
+        result_attributes.reduction.operation = semantic_facts->reduction.operation;
+        result_attributes.reduction.axis_policy = semantic_facts->reduction.axis_policy;
+        result_attributes.reduction.shape_source = semantic_facts->reduction.shape_source;
+        result_attributes.reduction.input_shape =
+            intern_shape(semantic_facts->reduction.input_shape, false);
+        result_attributes.reduction.result_shape =
+            intern_shape(semantic_facts->reduction.result_shape, false);
+        result_attributes.reduction.output_shape =
+            intern_shape(semantic_facts->reduction.output_shape, false);
+        result_attributes.reduction.axes = semantic_facts->reduction.axes;
+        result_attributes.reduction.scalar_result = semantic_facts->reduction.scalar_result;
+      }
       result_attributes.binding = semantic_facts->binding;
       result_attributes.intrinsic = semantic_facts->intrinsic;
       result_attributes.tuple_shapes.reserve(semantic_facts->tuple_shapes.size());

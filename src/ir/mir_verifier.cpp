@@ -209,6 +209,26 @@ semantic::MatrixOperation expected_matrix_operation(
   return semantic::MatrixOperation::none;
 }
 
+semantic::ReductionOperation expected_reduction_operation(const Program& program,
+                                                          const Expression& expression) noexcept {
+  if (program.source_language != SourceLanguage::matlab ||
+      expression.kind != ExpressionKind::call || expression.children.empty()) {
+    return semantic::ReductionOperation::none;
+  }
+  const auto* callee = mir::expression(program, expression.children.front());
+  const auto* callee_attributes = callee == nullptr ? nullptr : attributes(program, callee->id);
+  if (callee_attributes == nullptr || callee_attributes->binding != BindingKind::builtin) {
+    return semantic::ReductionOperation::none;
+  }
+  if (callee_attributes->intrinsic == IntrinsicId::logical_all) {
+    return semantic::ReductionOperation::logical_all;
+  }
+  if (callee_attributes->intrinsic == IntrinsicId::logical_any) {
+    return semantic::ReductionOperation::logical_any;
+  }
+  return semantic::ReductionOperation::none;
+}
+
 bool static_rank_two(const ShapeData* shape_data) noexcept {
   return shape_data != nullptr && shape_data->extents.size() == 2U &&
          std::find(shape_data->extents.begin(), shape_data->extents.end(), dynamic_extent) ==
@@ -402,6 +422,15 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->matrix_operation.left_shape.valid() ||
         retired_attributes->matrix_operation.right_shape.valid() ||
         retired_attributes->matrix_operation.result_shape.valid() ||
+        retired_attributes->reduction.valid() ||
+        retired_attributes->reduction.axis_policy != semantic::ReductionAxisPolicy::none ||
+        retired_attributes->reduction.shape_source !=
+            semantic::ReductionShapeSource::static_extents ||
+        retired_attributes->reduction.input_shape.valid() ||
+        retired_attributes->reduction.result_shape.valid() ||
+        retired_attributes->reduction.output_shape.valid() ||
+        !retired_attributes->reduction.axes.empty() ||
+        retired_attributes->reduction.scalar_result ||
         retired_attributes->binding != BindingKind::unresolved ||
         retired_attributes->intrinsic != IntrinsicId::none ||
         !retired_attributes->tuple_shapes.empty() ||
@@ -684,6 +713,51 @@ void verify_expression(const Expression& expression, const Program& program,
                                  matrix.result_shape.valid())) {
     add_error(diagnostics, expression.location, stage,
               "inactive expression matrix-operation attributes retain solve or shape facts");
+  }
+  const auto& reduction = expression_attributes->reduction;
+  const auto expected_reduction = expected_reduction_operation(program, expression);
+  if (reduction.operation != expected_reduction) {
+    add_error(diagnostics, expression.location, stage,
+              "logical reduction identity disagrees with its source intrinsic");
+  } else if (reduction.valid()) {
+    const auto* input_shape = shape(program, reduction.input_shape);
+    const auto* result_shape = shape(program, reduction.result_shape);
+    const auto* output_shape = shape(program, reduction.output_shape);
+    const auto expression_type = value_type(program, expression.type_id);
+    const bool valid_type =
+        reduction.scalar_result
+            ? expression_type == ValueType::boolean
+            : expression_type == ValueType::list &&
+                  element_type(program, expression.type_id) == ValueType::boolean;
+    const bool valid_shapes = input_shape != nullptr && result_shape != nullptr &&
+                              output_shape != nullptr &&
+                              reduction.output_shape == expression.shape_id;
+    if (!valid_type || !valid_shapes ||
+        (valid_shapes && !semantic::valid_logical_reduction_contract(
+                             reduction.operation, reduction.axis_policy, reduction.shape_source,
+                             input_shape->extents, result_shape->extents, output_shape->extents,
+                             reduction.axes, reduction.scalar_result))) {
+      add_error(diagnostics, expression.location, stage,
+                "logical reduction has an invalid MIR type, axis, or shape contract");
+    } else if (reduction.shape_source == semantic::ReductionShapeSource::static_extents &&
+               expression.children.size() >= 2U) {
+      const auto* operand = mir::expression(program, expression.children[1]);
+      const auto* operand_shape = operand == nullptr ? nullptr : shape(program, operand->shape_id);
+      auto normalized =
+          operand_shape == nullptr ? std::vector<std::size_t>{} : operand_shape->extents;
+      if (normalized.size() == 1U) normalized.insert(normalized.begin(), 1U);
+      if (operand != nullptr && value_type(program, operand->type_id) == ValueType::list &&
+          normalized != input_shape->extents) {
+        add_error(diagnostics, expression.location, stage,
+                  "logical reduction input shape disagrees with its MIR operand");
+      }
+    }
+  } else if (reduction.axis_policy != semantic::ReductionAxisPolicy::none ||
+             reduction.shape_source != semantic::ReductionShapeSource::static_extents ||
+             reduction.input_shape.valid() || reduction.result_shape.valid() ||
+             reduction.output_shape.valid() || !reduction.axes.empty() || reduction.scalar_result) {
+    add_error(diagnostics, expression.location, stage,
+              "inactive logical reduction retains MIR attributes");
   }
   if (expression.instruction.valid() &&
       expression.instruction.value() < program.instructions.size()) {

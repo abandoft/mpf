@@ -315,6 +315,21 @@ struct MatrixOperationPlan {
   [[nodiscard]] bool valid() const noexcept { return operation != semantic::MatrixOperation::none; }
 };
 
+struct ReductionPlan {
+  semantic::ReductionOperation operation{semantic::ReductionOperation::none};
+  semantic::ReductionAxisPolicy axis_policy{semantic::ReductionAxisPolicy::none};
+  semantic::ReductionShapeSource shape_source{semantic::ReductionShapeSource::static_extents};
+  ShapeId input_shape{};
+  ShapeId result_shape{};
+  ShapeId output_shape{};
+  std::vector<std::size_t> axes;
+  bool scalar_result{false};
+
+  [[nodiscard]] bool valid() const noexcept {
+    return operation != semantic::ReductionOperation::none;
+  }
+};
+
 struct ExpressionAttributes {
   MirExpressionId origin{};
   std::string spelling;
@@ -326,6 +341,7 @@ struct ExpressionAttributes {
   semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
   BroadcastPlan broadcast;
   MatrixOperationPlan matrix_operation;
+  ReductionPlan reduction;
   BindingKind binding{BindingKind::unresolved};
   IntrinsicId intrinsic{IntrinsicId::none};
   std::vector<ShapeId> tuple_shapes;
