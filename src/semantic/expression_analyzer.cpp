@@ -698,6 +698,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
       facts.matrix_operation = {semantic::MatrixOperation::multiply,
                                 semantic::MatrixSolveKind::none,
                                 semantic::MatrixConditionPolicy::none,
+                                semantic::MatrixStructurePolicy::none,
                                 left_facts.shape,
                                 right_facts.shape,
                                 facts.shape};
@@ -734,6 +735,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
         facts.matrix_operation = {semantic::MatrixOperation::left_divide,
                                   solve,
                                   semantic::matrix_condition_policy(solve),
+                                  semantic::matrix_structure_policy(solve),
                                   *left_matrix_shape,
                                   *right_matrix_shape,
                                   facts.shape};
@@ -750,6 +752,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
         facts.matrix_operation = {semantic::MatrixOperation::right_divide,
                                   solve,
                                   semantic::matrix_condition_policy(solve),
+                                  semantic::matrix_structure_policy(solve),
                                   *left_matrix_shape,
                                   *right_matrix_shape,
                                   facts.shape};
@@ -785,6 +788,7 @@ ValueType Analyzer::analyze_binary(Expression& expression) {
       facts.matrix_operation = {semantic::MatrixOperation::integer_power,
                                 semantic::MatrixSolveKind::none,
                                 semantic::MatrixConditionPolicy::none,
+                                semantic::MatrixStructurePolicy::none,
                                 left_facts.shape,
                                 {},
                                 facts.shape};

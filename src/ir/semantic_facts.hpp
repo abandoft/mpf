@@ -27,6 +27,7 @@ struct MatrixOperationPlan {
   semantic::MatrixOperation operation{semantic::MatrixOperation::none};
   semantic::MatrixSolveKind solve{semantic::MatrixSolveKind::none};
   semantic::MatrixConditionPolicy condition_policy{semantic::MatrixConditionPolicy::none};
+  semantic::MatrixStructurePolicy structure_policy{semantic::MatrixStructurePolicy::none};
   std::vector<std::size_t> left_shape;
   std::vector<std::size_t> right_shape;
   std::vector<std::size_t> result_shape;

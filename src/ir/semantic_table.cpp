@@ -96,7 +96,8 @@ void collect_index_extent(const Expression& expression, const SemanticTable& tab
 
 bool valid_matrix_shapes(const MatrixOperationPlan& plan) noexcept {
   if (!static_rank_two(plan.left_shape) || !static_rank_two(plan.result_shape) ||
-      plan.condition_policy != semantic::matrix_condition_policy(plan.solve)) {
+      plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
+      plan.structure_policy != semantic::matrix_structure_policy(plan.solve)) {
     return false;
   }
   switch (plan.operation) {
@@ -210,6 +211,7 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
     }
   } else if (matrix.solve != semantic::MatrixSolveKind::none ||
              matrix.condition_policy != semantic::MatrixConditionPolicy::none ||
+             matrix.structure_policy != semantic::MatrixStructurePolicy::none ||
              !matrix.left_shape.empty() || !matrix.right_shape.empty() ||
              !matrix.result_shape.empty()) {
     add_error(diagnostics, expression.location, stage,
