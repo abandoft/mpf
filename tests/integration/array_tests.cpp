@@ -245,19 +245,21 @@ TEST_CASE("Matlab static dense matrix solve and integer power use target-owned p
   REQUIRE(cpp.source_map.segments.size() >= 6U);
 }
 
-TEST_CASE("Matlab rectangular solve selects full-rank CPQR for both targets") {
+TEST_CASE("Matlab rectangular solve selects rank-aware basic CPQR solutions for both targets") {
   const std::string source =
       "over = [1 0; 0 1; 1 1] \\ [1; 2; 4];\n"
       "under = [1 0 1; 0 1 1] \\ [2; 3];\n"
       "right_over = [2 3 0] / [1 0 0; 0 1 0];\n"
       "right_under = [1 2] / [1 0; 0 1; 1 1];\n"
-      "disp(over(1) + under(1) + right_over(1) + right_under(1))\n";
+      "ranked = [1 2; 2 4; 3 6] \\ [1; 2; 3];\n"
+      "disp(over(1) + under(1) + right_over(1) + right_under(1) + ranked(2))\n";
   const auto javascript =
       transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
   const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
   REQUIRE(javascript.code.find("__mpf_matlab_cpqr_factor") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_basic_least_squares") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_overdetermined_solve") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_underdetermined_solve") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_mldivide_overdetermined") != std::string::npos);
@@ -266,6 +268,7 @@ TEST_CASE("Matlab rectangular solve selects full-rank CPQR for both targets") {
   REQUIRE(javascript.code.find("__mpf_matlab_mrdivide_underdetermined") != std::string::npos);
   REQUIRE(javascript.code.find("rank deficient to working precision") != std::string::npos);
   REQUIRE(cpp.code.find("matlab_cpqr_factorization") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_basic_least_squares") != std::string::npos);
   REQUIRE(cpp.code.find("matlab_overdetermined_solve") != std::string::npos);
   REQUIRE(cpp.code.find("matlab_underdetermined_solve") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_mldivide_overdetermined") != std::string::npos);
@@ -273,6 +276,10 @@ TEST_CASE("Matlab rectangular solve selects full-rank CPQR for both targets") {
   REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_overdetermined") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_underdetermined") != std::string::npos);
   REQUIRE(cpp.code.find("rank deficient to working precision") != std::string::npos);
+  REQUIRE(std::any_of(javascript.source_map.segments.begin(), javascript.source_map.segments.end(),
+                      [](const auto& segment) { return segment.original_line == 5U; }));
+  REQUIRE(std::any_of(cpp.source_map.segments.begin(), cpp.source_map.segments.end(),
+                      [](const auto& segment) { return segment.original_line == 5U; }));
 }
 
 TEST_CASE("Matlab contextual end uses static fast paths and typed dynamic extent plans") {
@@ -367,12 +374,17 @@ TEST_CASE("Matlab indexed deletion rejects ambiguous dimensions and invalid sele
   const auto outside =
       transpile_array("matrix = [1 2; 3 4];\nmatrix(:, 3) = [];\n", mpf::SourceLanguage::matlab,
                       mpf::TargetLanguage::javascript);
+  const auto partial_tensor =
+      transpile_array("tensor = reshape([1 2 3 4 5 6 7 8], 2, 2, 2);\ntensor(1, :, 1) = [];\n",
+                      mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
   REQUIRE(!linear_matrix.success());
   REQUIRE(!element.success());
   REQUIRE(!outside.success());
+  REQUIRE(!partial_tensor.success());
   REQUIRE(linear_matrix.diagnostics.front().code == "MPF2050");
   REQUIRE(element.diagnostics.front().code == "MPF2050");
   REQUIRE(outside.diagnostics.front().code == "MPF2021");
+  REQUIRE(partial_tensor.diagnostics.front().code == "MPF2050");
 }
 
 TEST_CASE("Matlab logical indexing reads and writes in column-major linear order") {
