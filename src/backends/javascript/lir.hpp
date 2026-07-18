@@ -23,6 +23,7 @@ enum class RuntimeFeature : std::uint8_t {
   reference_arguments,
   scalar_division,
   complex_numbers,
+  complex_matrices,
   count
 };
 
@@ -202,6 +203,7 @@ struct BroadcastPlan {
 struct MatrixOperationPlan {
   semantic::MatrixOperation operation{semantic::MatrixOperation::none};
   semantic::MatrixSolveKind solve{semantic::MatrixSolveKind::none};
+  semantic::MatrixNumericDomain numeric_domain{semantic::MatrixNumericDomain::none};
   semantic::MatrixConditionPolicy condition_policy{semantic::MatrixConditionPolicy::none};
   semantic::MatrixStructurePolicy structure_policy{semantic::MatrixStructurePolicy::none};
   std::vector<std::size_t> left_shape;
@@ -325,6 +327,7 @@ enum class RuntimeFragment : std::uint8_t {
   character_case,
   complex_numbers,
   arrays,
+  complex_matrices,
   scalar_division
 };
 

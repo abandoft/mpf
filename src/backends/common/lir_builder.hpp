@@ -113,6 +113,7 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
   if (attributes.matrix_operation.valid()) {
     result.matrix_operation.operation = attributes.matrix_operation.operation;
     result.matrix_operation.solve = attributes.matrix_operation.solve;
+    result.matrix_operation.numeric_domain = attributes.matrix_operation.numeric_domain;
     result.matrix_operation.condition_policy = attributes.matrix_operation.condition_policy;
     result.matrix_operation.structure_policy = attributes.matrix_operation.structure_policy;
     const auto* left_shape = mir::shape(program, attributes.matrix_operation.left_shape);
