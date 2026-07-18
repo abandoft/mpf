@@ -9,6 +9,7 @@
 - 生成的 JavaScript 与 C++17 现分别拥有独立的部分主元 LU、转置求解、条件估计和带列主元 QR runtime。
 - 非 vector 线性删除继续被一致拒绝；奇异方阵执行不再被错误归类为不支持的 runtime 操作。
 - source map 现可保留 condition-aware 方阵左除与右除的源码位置。
+- 生成 C++ 现会在除法前拒绝不可能成立的零 extent 坐标转换，使空数组输出可在 MSVC `/WX` 下保持零警告。
 - 新增精确奇异和近奇异 Matlab 可执行示例，并验证两个目标的输出与警告次数。
 - 扩充 conditioned solve 的跨层损坏检查、生成代码断言、架构门禁与 Matlab fuzz corpus。
 - 发布门禁现覆盖 214 项内部测试、72 个差分 case、17 个性能场景和 90.22% 生产代码行覆盖率。

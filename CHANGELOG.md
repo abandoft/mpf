@@ -9,6 +9,7 @@
 - Generated JavaScript and C++17 now own independent partial-pivoted LU, transpose-solve, condition-estimation, and column-pivoted QR runtimes.
 - Invalid non-vector linear deletion remains rejected consistently, while singular-square execution is no longer misclassified as an unsupported runtime operation.
 - Source maps now retain both left-division and right-division locations for condition-aware square solves.
+- Generated C++ now rejects impossible zero-extent coordinate conversion before division, keeping empty-array output warning-clean under MSVC `/WX`.
 - Added executable exact-singular and nearly-singular Matlab examples with two-target output and warning-count validation.
 - Expanded cross-layer corruption checks, generated-code assertions, architecture checks, and the Matlab fuzz corpus for conditioned solves.
 - The release gate now covers 214 internal tests, 72 differential cases, 17 performance scenarios, and 90.22% production-line coverage.
