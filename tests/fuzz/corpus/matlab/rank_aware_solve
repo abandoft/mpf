@@ -1,0 +1,4 @@
+ranked = [1 2; 2 4; 3 6] \ [1; 2; 3];
+basic = [1 0 1; 0 1 1] \ [2; 3];
+right_basic = [1 2] / [1 0; 0 1; 1 1];
+disp(ranked(2) + basic(3) + right_basic(3))
