@@ -44,6 +44,8 @@ mpf_add_differential_case(matlab-logical-indexing matlab examples/matlab/logical
 mpf_add_differential_case(matlab-logical-comparisons matlab examples/matlab/logical_comparisons.m "164")
 mpf_add_differential_case(
   matlab-generalized-indexing matlab examples/matlab/generalized_indexing.m "40 20 20 0 9 10 90 7")
+mpf_add_differential_case(
+  matlab-shape-mutation matlab examples/matlab/shape_mutation.m "0 9 8 6 30 6 9 3 0 9 7 30")
 
 mpf_add_differential_case(fortran-loops fortran examples/fortran/loops.f90 "12 -1")
 mpf_add_differential_case(python-loops python examples/python/loops.py "12 1")
