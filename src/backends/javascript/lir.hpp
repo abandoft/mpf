@@ -196,6 +196,13 @@ struct MatrixOperationPlan {
   [[nodiscard]] bool valid() const noexcept { return operation != semantic::MatrixOperation::none; }
 };
 
+enum class ArrayLiteralForm : std::uint8_t { none, direct, shaped_empty };
+
+struct ArrayLiteralPlan {
+  ArrayLiteralForm form{ArrayLiteralForm::none};
+  std::vector<std::size_t> shape;
+};
+
 struct ExpressionPlan {
   bool valid{false};
   ExpressionForm form{ExpressionForm::invalid};
@@ -216,6 +223,8 @@ struct ExpressionPlan {
   bool column_major{false};
   bool inclusive_slice_stop{false};
   bool string_value{false};
+  std::vector<std::size_t> result_shape;
+  ArrayLiteralPlan array_literal;
 };
 
 enum class ConditionForm : std::uint8_t { direct, runtime_truthy };
