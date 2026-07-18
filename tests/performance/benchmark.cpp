@@ -214,6 +214,28 @@ std::string matlab_shape_mutation_workload(const std::size_t rounds) {
   return source;
 }
 
+std::string matlab_empty_array_workload(const std::size_t rounds) {
+  std::string source;
+  for (std::size_t round = 0; round < rounds; ++round) {
+    const auto suffix = std::to_string(round);
+    source += "empty_" + suffix + " = reshape([], 0, 32);\n";
+    source.append("scaled_").append(suffix).append(" = empty_").append(suffix).append(" + ");
+    source.append(std::to_string(round + 1U)).append(";\n");
+    source.append("transposed_").append(suffix).append(" = scaled_").append(suffix).append(".';\n");
+    source.append("selected_")
+        .append(suffix)
+        .append(" = empty_")
+        .append(suffix)
+        .append("([], :);\n");
+    source += "grown_" + suffix + " = [];\n";
+    source += "grown_" + suffix + "(1, 32) = " + std::to_string(round + 1U) + ";\n";
+  }
+  const auto last = std::to_string(rounds - 1U);
+  source += "disp(length(transposed_" + last + ") + length(selected_" + last + ") + grown_" + last +
+            "(1, 32))\n";
+  return source;
+}
+
 std::string matlab_matrix_solve_workload(const std::size_t rounds) {
   std::string source =
       "coefficient = [4 1 0 0; 2 5 1 0; 0 1 6 2; 0 0 2 7];\n"
@@ -328,6 +350,7 @@ int main() {
       {"matlab-dynamic-broadcast", matlab_dynamic_broadcast_workload(32),
        mpf::SourceLanguage::matlab},
       {"matlab-shape-mutation", matlab_shape_mutation_workload(32), mpf::SourceLanguage::matlab},
+      {"matlab-empty-arrays", matlab_empty_array_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
