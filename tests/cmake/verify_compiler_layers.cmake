@@ -56,7 +56,10 @@ foreach(example IN ITEMS
     examples/installed/frontend/CMakeLists.txt
     examples/installed/backend/CMakeLists.txt)
   file(READ "${SOURCE_DIR}/${example}" example_contract)
-  if(NOT example_contract MATCHES "find_package\\(mpf [0-9]+\\.[0-9]+\\.[0-9]+ EXACT")
+  string(FIND "${example_contract}"
+    [=[find_package(mpf ${MPF_REQUIRED_VERSION} EXACT]=]
+    exact_version_contract)
+  if(exact_version_contract EQUAL -1)
     message(FATAL_ERROR "installed example does not require the exact MPF version: ${example}")
   endif()
 endforeach()

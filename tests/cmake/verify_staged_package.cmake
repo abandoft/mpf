@@ -76,6 +76,7 @@ foreach(example IN ITEMS frontend backend)
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -S "${SOURCE_DIR}/examples/installed/${example}"
       -B "${example_build}" -DCMAKE_BUILD_TYPE=${CONFIG} -DCMAKE_PREFIX_PATH=${STAGE}
+      -DMPF_REQUIRED_VERSION=${PROJECT_VERSION}
     RESULT_VARIABLE configure_status
     OUTPUT_VARIABLE configure_output
     ERROR_VARIABLE configure_error)
