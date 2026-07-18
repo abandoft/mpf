@@ -17,7 +17,7 @@ MPF 的验证体系分为七层：
 | 指标 | 数量/结果 |
 |---|---:|
 | C++ 单元与集成测试 | 210 项，零失败 |
-| CTest | 82 项，包含 68 项 differential、1 项 C++ 单元/集成、3 项生成 runtime 拒绝、1 项 fuzz smoke、1 项性能发布门禁、1 项编译器分层门禁、2 项 CLI、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
+| CTest | Release/RelWithDebInfo 82 项、Debug 81 项；包含 68 项 differential、1 项 C++ 单元/集成、3 项生成 runtime 拒绝、1 项 fuzz smoke、1 项仅优化配置启用的性能发布门禁、1 项编译器分层门禁、2 项 CLI、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
 | Differential corpus | Python 22、Fortran 19、Matlab 23、TypeScript 4，共 68 个 case |
 | 工具完整环境执行路径 | 181 条程序路径，另有每 case 一条 oracle |
 | 生产代码行覆盖率 | 0.5.1 实测 90.00%（25,457/28,285），门槛 85% |

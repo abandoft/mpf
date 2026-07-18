@@ -18,7 +18,7 @@
 | Python 最新能力 | relational/equality/identity/membership 比较链、右结合条件表达式、短路/惰性/单次求值；list/tuple 种类相等规则、singleton/reference identity、string/list/tuple membership；基础参数关联和递归固定序列解包 |
 | Matlab 最新能力 | scalar numeric/logical/character `switch/case/otherwise`；矩阵/逐元素及共轭/非共轭转置 identity 保留；二维矩阵乘法、静态满秩稠密实数方阵/超定/欠定 solve、safe-integer 方阵 power、静态 N 维及 local-function runtime rank/extent 的 compatible-size 算术/关系比较、静态及运行时 extent 的逐维/线性 `end`、保序/重复/空 numeric selector、线性/逐维 logical selector，以及 vector/matrix/N 维多轴自动扩容与单轴索引删除进入双目标专属 LIR/runtime |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流；已知静态 shape 下可证明不相交的同根连续、步长与 N 维矩形 writable section actual |
-| 工程门禁 | 210 项内部测试；68 个差分 case、181 条工具完整环境执行路径；82 项 CTest；四语言 fuzz smoke、可选 libFuzzer、3 项生成 runtime 拒绝测试、版本化通用及 Matlab 专项性能阈值、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率硬门槛 85% |
+| 工程门禁 | 210 项内部测试；68 个差分 case、181 条工具完整环境执行路径；Release/RelWithDebInfo 82 项、Debug 81 项 CTest；四语言 fuzz smoke、可选 libFuzzer、3 项生成 runtime 拒绝测试、仅优化配置启用的版本化通用及 Matlab 专项性能阈值、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率硬门槛 85% |
 | 发布状态 | 0.x 开发快照；包消费要求精确当前版本，不提供旧 MPF API/ABI/schema/CLI/CMake 兼容承诺或迁移 shim |
 
 ## 本轮商业级收尾验收（完成）
