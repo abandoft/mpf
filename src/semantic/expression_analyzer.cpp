@@ -200,6 +200,94 @@ std::optional<std::size_t> boolean_literal_count(const Expression& expression) {
   return result;
 }
 
+bool empty_list_literal(const Expression& expression) noexcept {
+  return expression.kind == ExpressionKind::list && expression.children.empty();
+}
+
+bool full_slice(const Expression& expression) noexcept {
+  return expression.kind == ExpressionKind::slice && expression.children.size() == 3U &&
+         std::none_of(expression.children.begin(), expression.children.end(),
+                      [](const Expression& child) { return child.valid(); });
+}
+
+bool collect_integral_selector_values(const Expression& expression,
+                                      std::vector<long long>& values) {
+  if (expression.kind == ExpressionKind::list) {
+    for (const auto& child : expression.children) {
+      if (!collect_integral_selector_values(child, values)) return false;
+    }
+    return true;
+  }
+  const auto value = integral_constant(expression);
+  if (!value.has_value()) return false;
+  values.push_back(*value);
+  return true;
+}
+
+std::optional<std::size_t> selector_required_extent(const Expression& selector,
+                                                    const semantic::IndexSelectorKind kind,
+                                                    const std::size_t current_extent) {
+  if (kind == semantic::IndexSelectorKind::empty || kind == semantic::IndexSelectorKind::logical) {
+    return current_extent == dynamic_extent ? std::nullopt
+                                            : std::optional<std::size_t>{current_extent};
+  }
+  std::vector<long long> values;
+  if (kind == semantic::IndexSelectorKind::slice) {
+    if (full_slice(selector)) {
+      return current_extent == dynamic_extent ? std::nullopt
+                                              : std::optional<std::size_t>{current_extent};
+    }
+    if (selector.children.size() != 3U) return std::nullopt;
+    for (std::size_t position = 0; position < 2U; ++position) {
+      const auto& bound = selector.children[position];
+      if (!bound.valid()) continue;
+      const auto value = integral_constant(bound);
+      if (!value.has_value()) return std::nullopt;
+      values.push_back(*value);
+    }
+  } else if (!collect_integral_selector_values(selector, values)) {
+    return std::nullopt;
+  }
+  if (values.empty()) return current_extent;
+  const auto maximum = *std::max_element(values.begin(), values.end());
+  return maximum < 1 ? std::optional<std::size_t>{0U}
+                     : std::optional<std::size_t>{static_cast<std::size_t>(maximum)};
+}
+
+std::optional<std::size_t> selector_erased_count(const Expression& selector,
+                                                 const semantic::IndexSelectorKind kind,
+                                                 const hir::SemanticTable& semantics,
+                                                 const std::size_t current_extent) {
+  switch (kind) {
+    case semantic::IndexSelectorKind::scalar: return 1U;
+    case semantic::IndexSelectorKind::empty: return 0U;
+    case semantic::IndexSelectorKind::logical: return boolean_literal_count(selector);
+    case semantic::IndexSelectorKind::slice:
+      if (full_slice(selector)) return current_extent;
+      if (const auto& shape = semantic(semantics, selector).shape;
+          shape.size() == 1U && shape.front() != dynamic_extent) {
+        return shape.front();
+      }
+      return std::nullopt;
+    case semantic::IndexSelectorKind::numeric: {
+      std::vector<long long> values;
+      if (!collect_integral_selector_values(selector, values)) return std::nullopt;
+      std::sort(values.begin(), values.end());
+      values.erase(std::unique(values.begin(), values.end()), values.end());
+      return values.size();
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<std::size_t> matlab_vector_axis(const std::vector<std::size_t>& shape) {
+  if (shape.size() == 1U) return 0U;
+  if (shape.size() != 2U) return std::nullopt;
+  if (shape[0] == 1U) return 1U;
+  if (shape[1] == 1U) return 0U;
+  return std::nullopt;
+}
+
 }  // namespace
 
 ValueType Analyzer::analyze_expression(Expression& expression) {
@@ -1327,7 +1415,8 @@ ValueType Analyzer::analyze_call(Expression& expression) {
   return semantic(semantics_, expression).inferred_type = ValueType::unknown;
 }
 
-ValueType Analyzer::analyze_index(Expression& expression, const bool container_already_analyzed) {
+ValueType Analyzer::analyze_index(Expression& expression, const bool container_already_analyzed,
+                                  const bool allow_matlab_growth) {
   if (expression.children.size() < 2) {
     diagnose(expression.location.line, "MPF2025", "index expression requires at least one index");
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
@@ -1418,7 +1507,7 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
     if (index.kind == ExpressionKind::slice) {
       has_expanding_selector = true;
       index_selectors.push_back(semantic::IndexSelectorKind::slice);
-      const auto count = analyze_slice(index, extent);
+      const auto count = analyze_slice(index, extent, allow_matlab_growth);
       result_shape.push_back(count);
       const auto dimension =
           slice_region_dimension(index, semantic(semantics_, index), extent, count);
@@ -1471,7 +1560,8 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
           }
           validate_static_index(candidate.location.line, candidate, extent,
                                 semantic(semantics_, expression).index_base,
-                                semantic(semantics_, expression).allow_negative_index);
+                                semantic(semantics_, expression).allow_negative_index,
+                                allow_matlab_growth);
         };
         validate_elements(validate_elements, index);
         continue;
@@ -1491,9 +1581,9 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
         !typescript_integral_number) {
       diagnose(index.location.line, "MPF2023", "array/list index must be an integer");
     }
-    validate_static_index(index.location.line, index, extent,
-                          semantic(semantics_, expression).index_base,
-                          semantic(semantics_, expression).allow_negative_index);
+    validate_static_index(
+        index.location.line, index, extent, semantic(semantics_, expression).index_base,
+        semantic(semantics_, expression).allow_negative_index, allow_matlab_growth);
     const auto dimension =
         scalar_region_dimension(index, extent, semantic(semantics_, expression).index_base,
                                 semantic(semantics_, expression).allow_negative_index);
@@ -1532,6 +1622,175 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
     return semantic(semantics_, expression).inferred_type = ValueType::list;
   }
   return semantic(semantics_, expression).inferred_type = container_facts.element_type;
+}
+
+void Analyzer::analyze_indexed_mutation(Statement& statement, const ValueType value_type,
+                                        const ValueType target_type) {
+  auto& statement_facts = semantic(semantics_, statement);
+  auto& target = statement.target_expression;
+  auto& target_facts = semantic(semantics_, target);
+  auto& contract = statement_facts.indexed_mutation;
+  contract.kind = semantic::IndexedMutationKind::overwrite;
+  contract.shape_source = semantic::IndexedMutationShapeSource::preserve;
+  contract.linear = target_facts.column_major && target.children.size() == 2U;
+
+  if (target.kind != ExpressionKind::index || target.children.size() < 2U) return;
+  const auto& container_facts = semantic(semantics_, target.children.front());
+  const auto selector_count = target.children.size() - 1U;
+  statement_facts.mutation_input_shape =
+      container_facts.shape.empty()
+          ? std::vector<std::size_t>(std::max<std::size_t>(1U, selector_count), dynamic_extent)
+          : container_facts.shape;
+  statement_facts.mutation_result_shape = statement_facts.mutation_input_shape;
+
+  if (program_.language == SourceLanguage::python &&
+      std::any_of(target_facts.index_selectors.begin(), target_facts.index_selectors.end(),
+                  semantic::selector_preserves_dimension)) {
+    contract.kind = semantic::IndexedMutationKind::resize;
+    contract.shape_source = semantic::IndexedMutationShapeSource::runtime_selectors;
+    statement_facts.mutation_result_shape.assign(statement_facts.mutation_input_shape.size(),
+                                                 dynamic_extent);
+    return;
+  }
+  if (program_.language != SourceLanguage::matlab) return;
+
+  const bool erase = value_type == ValueType::list && empty_list_literal(statement.expression);
+  const auto input_shape = statement_facts.mutation_input_shape;
+  auto result_shape = input_shape;
+  const bool input_shape_known = known_shape(input_shape);
+
+  if (erase) {
+    contract.kind = semantic::IndexedMutationKind::erase;
+    std::optional<std::size_t> axis;
+    std::size_t selector_position = 0U;
+    if (contract.linear) {
+      axis = matlab_vector_axis(input_shape);
+      if (!axis.has_value()) {
+        diagnose(statement.line, "MPF2050",
+                 "Matlab linear indexed deletion currently requires a row or column vector");
+        return;
+      }
+    } else {
+      if (selector_count != input_shape.size()) {
+        diagnose(statement.line, "MPF2050",
+                 "Matlab dimensional deletion requires one selector per array dimension");
+        return;
+      }
+      for (std::size_t position = 0; position < selector_count; ++position) {
+        if (full_slice(target.children[position + 1U])) continue;
+        if (axis.has_value()) {
+          diagnose(statement.line, "MPF2050",
+                   "Matlab indexed deletion may remove elements along only one dimension");
+          return;
+        }
+        axis = position;
+        selector_position = position;
+      }
+      if (!axis.has_value()) {
+        diagnose(statement.line, "MPF2050",
+                 "Matlab indexed deletion requires a non-colon selector dimension");
+        return;
+      }
+    }
+    contract.axis = *axis;
+    const auto& selector = target.children[selector_position + 1U];
+    const auto kind = target_facts.index_selectors[selector_position];
+    const auto selection_extent = contract.linear
+                                      ? static_element_count(input_shape).value_or(dynamic_extent)
+                                      : input_shape[*axis];
+    const auto required = selector_required_extent(selector, kind, selection_extent);
+    if (required.has_value() && selection_extent != dynamic_extent &&
+        *required > selection_extent) {
+      diagnose(statement.line, "MPF2021", "Matlab indexed deletion selector is out of bounds");
+    }
+    const auto erased = selector_erased_count(selector, kind, semantics_, selection_extent);
+    if (!input_shape_known || !erased.has_value() || selection_extent == dynamic_extent) {
+      contract.shape_source = semantic::IndexedMutationShapeSource::runtime_selectors;
+      result_shape[*axis] = dynamic_extent;
+    } else if (*erased > result_shape[*axis]) {
+      diagnose(statement.line, "MPF2021", "Matlab indexed deletion selector is out of bounds");
+    } else {
+      contract.shape_source = semantic::IndexedMutationShapeSource::static_extents;
+      result_shape[*axis] -= *erased;
+    }
+    statement_facts.declared_type = ValueType::list;
+    statement_facts.element_type = container_facts.element_type;
+    statement_facts.shape = result_shape;
+    statement_facts.mutation_result_shape = result_shape;
+    if (const auto* root = root_container(target); root != nullptr) {
+      if (auto* symbol = lookup(*root)) symbol->shape = result_shape;
+    }
+    return;
+  }
+
+  bool runtime_shape = !input_shape_known;
+  bool may_grow = false;
+  if (contract.linear) {
+    const auto current_size = static_element_count(input_shape).value_or(dynamic_extent);
+    const auto required =
+        selector_required_extent(target.children[1], target_facts.index_selectors[0], current_size);
+    runtime_shape = runtime_shape || !required.has_value();
+    may_grow = runtime_shape || (current_size != dynamic_extent && *required > current_size);
+    if (may_grow && !runtime_shape) {
+      const auto required_size = *required;
+      if (input_shape.size() == 1U) {
+        result_shape[0] = std::max(result_shape[0], required_size);
+      } else if (const auto vector_axis = matlab_vector_axis(input_shape);
+                 vector_axis.has_value()) {
+        result_shape[*vector_axis] = std::max(result_shape[*vector_axis], required_size);
+      } else {
+        std::size_t leading = 1U;
+        for (std::size_t axis = 0; axis + 1U < input_shape.size(); ++axis) {
+          if (input_shape[axis] != 0U &&
+              leading > std::numeric_limits<std::size_t>::max() / input_shape[axis]) {
+            runtime_shape = true;
+            break;
+          }
+          leading *= input_shape[axis];
+        }
+        if (!runtime_shape && leading != 0U) {
+          result_shape.back() =
+              std::max(result_shape.back(), (required_size + leading - 1U) / leading);
+        }
+      }
+    }
+  } else {
+    for (std::size_t position = 0; position < selector_count; ++position) {
+      const auto current_extent =
+          position < input_shape.size() ? input_shape[position] : dynamic_extent;
+      const auto required = selector_required_extent(
+          target.children[position + 1U], target_facts.index_selectors[position], current_extent);
+      if (!required.has_value() || current_extent == dynamic_extent) {
+        runtime_shape = true;
+        may_grow = true;
+      } else if (*required > current_extent) {
+        may_grow = true;
+        if (position < result_shape.size()) result_shape[position] = *required;
+      }
+    }
+    if (may_grow && selector_count != input_shape.size()) {
+      diagnose(statement.line, "MPF2050",
+               "Matlab shape-changing dimensional assignment requires one selector per dimension");
+      return;
+    }
+  }
+
+  if (!may_grow) return;
+  contract.kind = semantic::IndexedMutationKind::grow;
+  contract.shape_source = runtime_shape ? semantic::IndexedMutationShapeSource::runtime_selectors
+                                        : semantic::IndexedMutationShapeSource::static_extents;
+  if (runtime_shape) {
+    result_shape.assign(input_shape.size(), dynamic_extent);
+  }
+  statement_facts.declared_type = ValueType::list;
+  statement_facts.element_type = container_facts.element_type != ValueType::unknown
+                                     ? container_facts.element_type
+                                     : target_type;
+  statement_facts.shape = result_shape;
+  statement_facts.mutation_result_shape = result_shape;
+  if (const auto* root = root_container(target); root != nullptr) {
+    if (auto* symbol = lookup(*root)) symbol->shape = result_shape;
+  }
 }
 
 void Analyzer::analyze_section_assignment(Statement& statement, const ValueType value_type) {
@@ -1586,7 +1845,8 @@ void Analyzer::analyze_section_assignment(Statement& statement, const ValueType 
   }
 }
 
-std::size_t Analyzer::analyze_slice(Expression& slice, const std::size_t extent) {
+std::size_t Analyzer::analyze_slice(Expression& slice, const std::size_t extent,
+                                    const bool allow_matlab_growth) {
   auto& slice_facts = semantic(semantics_, slice);
   slice_facts.inferred_type = ValueType::list;
   for (auto& bound : slice.children) {
@@ -1657,16 +1917,16 @@ std::size_t Analyzer::analyze_slice(Expression& slice, const std::size_t extent)
   Expression last_expression = first_expression;
   last_expression.value = std::to_string(first + static_cast<long long>(count - 1) * step);
   validate_static_index(slice.location.line, first_expression, extent, slice_facts.index_base,
-                        slice_facts.allow_negative_index);
+                        slice_facts.allow_negative_index, allow_matlab_growth);
   validate_static_index(slice.location.line, last_expression, extent, slice_facts.index_base,
-                        slice_facts.allow_negative_index);
+                        slice_facts.allow_negative_index, allow_matlab_growth);
   slice_facts.shape = {count};
   return count;
 }
 
 void Analyzer::validate_static_index(const std::size_t line, const Expression& index,
                                      const std::size_t extent, const std::size_t base,
-                                     const bool allow_negative) {
+                                     const bool allow_negative, const bool allow_matlab_growth) {
   if (extent == dynamic_extent) return;
   const auto constant = numeric_constant(index);
   if (!constant.has_value()) return;
@@ -1682,6 +1942,12 @@ void Analyzer::validate_static_index(const std::size_t line, const Expression& i
     return;
   }
   if (!integral.has_value()) return;
+  if (allow_matlab_growth && !allow_negative) {
+    if (*integral < 0 || static_cast<unsigned long long>(*integral) < base) {
+      diagnose(line, "MPF2021", "constant array/list index is out of bounds");
+    }
+    return;
+  }
   if (!normalized_index(*integral, extent, base, allow_negative).has_value()) {
     diagnose(line, "MPF2021", "constant array/list index is out of bounds");
   }

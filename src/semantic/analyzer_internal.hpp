@@ -127,11 +127,15 @@ class Analyzer final {
   void normalize_python_arguments(Expression& expression, const Statement& function);
   [[nodiscard]] ValueType analyze_call(Expression& expression);
   [[nodiscard]] ValueType analyze_index(Expression& expression,
-                                        bool container_already_analyzed = false);
+                                        bool container_already_analyzed = false,
+                                        bool allow_matlab_growth = false);
   void analyze_section_assignment(Statement& statement, ValueType value_type);
-  [[nodiscard]] std::size_t analyze_slice(Expression& slice, std::size_t extent);
+  void analyze_indexed_mutation(Statement& statement, ValueType value_type, ValueType target_type);
+  [[nodiscard]] std::size_t analyze_slice(Expression& slice, std::size_t extent,
+                                          bool allow_matlab_growth = false);
   void validate_static_index(std::size_t line, const Expression& index, std::size_t extent,
-                             std::size_t base, bool allow_negative);
+                             std::size_t base, bool allow_negative,
+                             bool allow_matlab_growth = false);
   [[nodiscard]] ValueType analyze_reshape(Expression& expression);
 
   Program& program_;

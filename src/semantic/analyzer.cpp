@@ -744,10 +744,37 @@ bool Analyzer::analyze_statement(Statement& statement) {
       diagnose_fortran_parameter_write(root_use == nullptr ? SymbolId{} : root_use->symbol,
                                        statement.line);
       const auto value_type = analyze_expression(statement.expression);
-      const auto target_type = analyze_expression(statement.target_expression);
+      bool container_already_analyzed = false;
+      if (program_.language == SourceLanguage::matlab &&
+          statement.target_expression.kind == ExpressionKind::call &&
+          !statement.target_expression.children.empty()) {
+        auto& container = statement.target_expression.children.front();
+        analyze_expression(container);
+        container_already_analyzed = true;
+        const auto& container_facts = semantic(semantics_, container);
+        if (container.kind == ExpressionKind::identifier &&
+            container_facts.binding == BindingKind::variable &&
+            (container_facts.inferred_type == ValueType::list ||
+             container_facts.inferred_type == ValueType::unknown)) {
+          statement.target_expression.kind = ExpressionKind::index;
+          semantic(semantics_, statement.target_expression).index_base = 1U;
+          semantic(semantics_, statement.target_expression).allow_negative_index = false;
+          semantic(semantics_, statement.target_expression).column_major = true;
+        }
+      }
+      const auto target_type =
+          statement.target_expression.kind == ExpressionKind::index &&
+                  program_.language == SourceLanguage::matlab
+              ? analyze_index(statement.target_expression, container_already_analyzed, true)
+              : analyze_expression(statement.target_expression);
+      analyze_indexed_mutation(statement, value_type, target_type);
+      const bool erase = semantic(semantics_, statement).indexed_mutation.kind ==
+                         semantic::IndexedMutationKind::erase;
       if (statement.target_expression.kind != ExpressionKind::index) {
         diagnose(statement.line, "MPF2022",
                  "indexed assignment target is not an array/list element");
+      } else if (erase) {
+        // Matlab's [] right-hand side is a deletion operation, not a section replacement value.
       } else if (std::any_of(
                      semantic(semantics_, statement.target_expression).index_selectors.begin(),
                      semantic(semantics_, statement.target_expression).index_selectors.end(),
@@ -760,9 +787,10 @@ bool Analyzer::analyze_statement(Statement& statement) {
         diagnose(statement.line, "MPF2020", "indexed assignment changes the array element type");
       }
       semantic(semantics_, statement).element_type =
-          std::any_of(semantic(semantics_, statement.target_expression).index_selectors.begin(),
-                      semantic(semantics_, statement.target_expression).index_selectors.end(),
-                      semantic::selector_preserves_dimension)
+          erase ? semantic(semantics_, statement.target_expression).element_type
+          : std::any_of(semantic(semantics_, statement.target_expression).index_selectors.begin(),
+                        semantic(semantics_, statement.target_expression).index_selectors.end(),
+                        semantic::selector_preserves_dimension)
               ? semantic(semantics_, statement.target_expression).element_type
               : target_type;
       return false;
