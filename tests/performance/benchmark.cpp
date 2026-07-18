@@ -308,6 +308,25 @@ std::string matlab_structured_square_solve_workload(const std::size_t rounds) {
   return source;
 }
 
+std::string matlab_advanced_structured_square_solve_workload(const std::size_t rounds) {
+  std::string source =
+      "tridiagonal = [0 2 0 0; 1 3 4 0; 0 5 6 7; 0 0 8 9];\n"
+      "positive_definite = [8 1 2 3; 1 9 3 2; 2 3 10 1; 3 2 1 11.5];\n"
+      "symmetric_indefinite = [0 1 2 3; 1 0 4 5; 2 4 0 6; 3 5 6 0];\n"
+      "right_hand_side = [4; 6; 8; 10];\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "tridiagonal_left = tridiagonal \\ right_hand_side;\n";
+    source += "tridiagonal_right = [1 2 3 4] / tridiagonal;\n";
+    source += "positive_definite_left = positive_definite \\ right_hand_side;\n";
+    source += "positive_definite_right = [1 2 3 4] / positive_definite;\n";
+    source += "indefinite_left = symmetric_indefinite \\ right_hand_side;\n";
+  }
+  source +=
+      "disp(tridiagonal_left(1) + tridiagonal_right(2) + positive_definite_left(3) + "
+      "positive_definite_right(4) + indefinite_left(1))\n";
+  return source;
+}
+
 std::string source_extension(const mpf::SourceLanguage language) {
   switch (language) {
     case mpf::SourceLanguage::python: return ".py";
@@ -407,7 +426,9 @@ int main() {
       {"matlab-conditioned-square-solve", matlab_conditioned_square_solve_workload(24),
        mpf::SourceLanguage::matlab},
       {"matlab-structured-square-solve", matlab_structured_square_solve_workload(24),
-       mpf::SourceLanguage::matlab}};
+       mpf::SourceLanguage::matlab},
+      {"matlab-advanced-structured-square-solve",
+       matlab_advanced_structured_square_solve_workload(24), mpf::SourceLanguage::matlab}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
     Measurement measurement;
