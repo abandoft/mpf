@@ -81,6 +81,13 @@ mpf_add_differential_case(
   matlab-complex-nearly-singular-square-warning matlab
   examples/matlab/complex_nearly_singular_square_warning.m "1" tokens
   "matrix is close to singular or badly scaled")
+mpf_add_differential_case(
+  matlab-complex-rectangular-solve matlab examples/matlab/complex_rectangular_solve.m
+  "2 1 -1 2 3 -1 4 1 2 1 3 -1 0 2 1 3 -1 2 1 3 -1 0")
+mpf_add_differential_case(
+  matlab-complex-rank-deficient-solve matlab
+  examples/matlab/complex_rank_deficient_solve.m "0 1 1" tokens
+  "matrix is rank deficient to working precision")
 mpf_add_differential_case(matlab-end-indexing matlab examples/matlab/end_indexing.m "122")
 mpf_add_differential_case(matlab-dynamic-end matlab examples/matlab/dynamic_end.m "260")
 mpf_add_differential_case(matlab-logical-indexing matlab examples/matlab/logical_indexing.m "48")
