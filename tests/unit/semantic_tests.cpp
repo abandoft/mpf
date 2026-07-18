@@ -148,7 +148,7 @@ TEST_CASE("Python float conversion validates arity and supported source types") 
   REQUIRE(list.diagnostics.front().code == "MPF2033");
 }
 
-TEST_CASE("Matlab complex semantics authorize square matrix kernels and fail closed beyond them") {
+TEST_CASE("Matlab complex semantics authorize dense matrix kernels and fail closed beyond them") {
   const auto valid = matlab(
       "z = complex(1, 2);\n"
       "w = (z + 3i) ./ (2 - 1i);\n"
@@ -169,6 +169,9 @@ TEST_CASE("Matlab complex semantics authorize square matrix kernels and fail clo
              mpf::TargetLanguage::cpp);
   const auto rectangular_solve =
       matlab("left = [1i 2; 3 4; 5 6];\nright = left \\ [1; 2; 3];\ndisp(right)\n");
+  const auto rectangular_solve_cpp =
+      matlab("left = [1i 2; 3 4; 5 6];\nright = left \\ [1; 2; 3];\ndisp(right)\n",
+             mpf::TargetLanguage::cpp);
   const auto reduction = matlab("value = sum([1i 2i]);\ndisp(value)\n");
   const auto invalid_constructor = matlab("value = complex(1i, 2);\ndisp(value)\n");
   const auto has_complex_boundary = [](const mpf::TranspileResult& result) {
@@ -180,11 +183,15 @@ TEST_CASE("Matlab complex semantics authorize square matrix kernels and fail clo
   REQUIRE(matrix_product_cpp.success());
   REQUIRE(matrix_product.code.find("__mpf_matlab_complex_mtimes") != std::string::npos);
   REQUIRE(matrix_product_cpp.code.find("mpf_runtime::matlab_complex_mtimes") != std::string::npos);
-  REQUIRE(!rectangular_solve.success());
+  REQUIRE(rectangular_solve.success());
+  REQUIRE(rectangular_solve_cpp.success());
+  REQUIRE(rectangular_solve.code.find("__mpf_matlab_mldivide_complex_overdetermined") !=
+          std::string::npos);
+  REQUIRE(rectangular_solve_cpp.code.find("mpf_runtime::matlab_mldivide_complex_overdetermined") !=
+          std::string::npos);
   REQUIRE(!reduction.success());
   REQUIRE(!invalid_constructor.success());
   REQUIRE(has_complex_boundary(comparison));
-  REQUIRE(has_complex_boundary(rectangular_solve));
   REQUIRE(has_complex_boundary(reduction));
   REQUIRE(has_complex_boundary(invalid_constructor));
 }

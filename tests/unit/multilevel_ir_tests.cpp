@@ -687,6 +687,10 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
                               "powered = coefficient ^ -2;\n"
                               "complex_coefficient = [4 2i; -2i 5];\n"
                               "complex_solution = complex_coefficient \\ [6+8i; 12-7i];\n"
+                              "complex_least_squares = [1+1i 0; 0 1-1i; 1+1i 1-1i] \\ "
+                              "[1+3i; 2-4i; 3-1i];\n"
+                              "complex_basic_solution = [1+1i 0 0; 0 1-1i 0] \\ "
+                              "[1+3i; 2-4i];\n"
                               "complex_product = complex_coefficient * complex_coefficient;\n"
                               "complex_power = complex_coefficient ^ -1;\n",
                               "matrix_solve.m");
@@ -696,6 +700,7 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   std::vector<mpf::detail::semantic::MatrixOperation> hir_plans;
   std::vector<mpf::detail::semantic::MatrixSolveKind> solve_plans;
   std::vector<mpf::detail::semantic::MatrixConditionPolicy> condition_policies;
+  std::vector<mpf::detail::semantic::MatrixFactorizationPolicy> factorization_policies;
   std::vector<mpf::detail::semantic::MatrixStructurePolicy> structure_policies;
   std::vector<mpf::detail::semantic::MatrixNumericDomain> numeric_domains;
   for (const auto& facts : analysis.semantics.expressions) {
@@ -705,6 +710,7 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
       if (facts.matrix_operation.solve != mpf::detail::semantic::MatrixSolveKind::none) {
         solve_plans.push_back(facts.matrix_operation.solve);
         condition_policies.push_back(facts.matrix_operation.condition_policy);
+        factorization_policies.push_back(facts.matrix_operation.factorization_policy);
         structure_policies.push_back(facts.matrix_operation.structure_policy);
       }
     }
@@ -727,6 +733,10 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   REQUIRE(std::find(condition_policies.begin(), condition_policies.end(),
                     mpf::detail::semantic::MatrixConditionPolicy::basic_solution_with_warning) !=
           condition_policies.end());
+  REQUIRE(std::find(
+              factorization_policies.begin(), factorization_policies.end(),
+              mpf::detail::semantic::MatrixFactorizationPolicy::rank_revealing_column_pivoted_qr) !=
+          factorization_policies.end());
   REQUIRE(std::find(structure_policies.begin(), structure_policies.end(),
                     mpf::detail::semantic::MatrixStructurePolicy::classify_real_square) !=
           structure_policies.end());
@@ -782,6 +792,20 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
                                               "matrix-structure-policy-mismatch")
                .empty());
 
+  auto contradictory_hir_factorization = analysis.semantics;
+  const auto hir_factorized = std::find_if(
+      contradictory_hir_factorization.expressions.begin(),
+      contradictory_hir_factorization.expressions.end(), [](const auto& facts) {
+        return facts.matrix_operation.factorization_policy ==
+               mpf::detail::semantic::MatrixFactorizationPolicy::rank_revealing_column_pivoted_qr;
+      });
+  REQUIRE(hir_factorized != contradictory_hir_factorization.expressions.end());
+  hir_factorized->matrix_operation.factorization_policy =
+      mpf::detail::semantic::MatrixFactorizationPolicy::none;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir_factorization,
+                                              "matrix-factorization-policy-mismatch")
+               .empty());
+
   auto contradictory_hir_domain = analysis.semantics;
   const auto hir_complex =
       std::find_if(contradictory_hir_domain.expressions.begin(),
@@ -804,6 +828,7 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   REQUIRE(dump.find("solve=2") != std::string::npos);
   REQUIRE(dump.find("condition-policy=1") != std::string::npos);
   REQUIRE(dump.find("condition-policy=2") != std::string::npos);
+  REQUIRE(dump.find("factorization-policy=1") != std::string::npos);
   REQUIRE(dump.find("structure-policy=1") != std::string::npos);
   REQUIRE(dump.find("structure-policy=2") != std::string::npos);
   REQUIRE(dump.find("numeric-domain=1") != std::string::npos);
@@ -821,6 +846,8 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   REQUIRE(cpp.artifact->debug_dump().find("condition-policy 1") != std::string::npos);
   REQUIRE(javascript.artifact->debug_dump().find("condition-policy 2") != std::string::npos);
   REQUIRE(cpp.artifact->debug_dump().find("condition-policy 2") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("factorization-policy 1") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("factorization-policy 1") != std::string::npos);
   REQUIRE(javascript.artifact->debug_dump().find("structure-policy 1") != std::string::npos);
   REQUIRE(cpp.artifact->debug_dump().find("structure-policy 1") != std::string::npos);
   REQUIRE(javascript.artifact->debug_dump().find("structure-policy 2") != std::string::npos);
@@ -887,6 +914,20 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   REQUIRE(!mpf::detail::mir::verify(contradictory_structure, "matrix-structure-policy-mismatch")
                .empty());
 
+  auto contradictory_factorization = mir.program;
+  const auto factorized = std::find_if(
+      contradictory_factorization.attributes.expressions.begin() + 1,
+      contradictory_factorization.attributes.expressions.end(), [](const auto& attributes) {
+        return attributes.matrix_operation.factorization_policy ==
+               mpf::detail::semantic::MatrixFactorizationPolicy::rank_revealing_column_pivoted_qr;
+      });
+  REQUIRE(factorized != contradictory_factorization.attributes.expressions.end());
+  factorized->matrix_operation.factorization_policy =
+      mpf::detail::semantic::MatrixFactorizationPolicy::none;
+  REQUIRE(
+      !mpf::detail::mir::verify(contradictory_factorization, "matrix-factorization-policy-mismatch")
+           .empty());
+
   auto contradictory_domain = mir.program;
   const auto complex =
       std::find_if(contradictory_domain.attributes.expressions.begin() + 1,
@@ -905,6 +946,7 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   using Solve = mpf::detail::semantic::MatrixSolveKind;
   using NumericDomain = mpf::detail::semantic::MatrixNumericDomain;
   using ConditionPolicy = mpf::detail::semantic::MatrixConditionPolicy;
+  using FactorizationPolicy = mpf::detail::semantic::MatrixFactorizationPolicy;
   using StructurePolicy = mpf::detail::semantic::MatrixStructurePolicy;
   const auto configure_expression = [](auto& expression) {
     expression.kind = mpf::detail::ExpressionKind::binary;
@@ -919,6 +961,7 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
                                    Solve::overdetermined,
                                    NumericDomain::real,
                                    ConditionPolicy::basic_solution_with_warning,
+                                   FactorizationPolicy::rank_revealing_column_pivoted_qr,
                                    StructurePolicy::none,
                                    {3U, 2U},
                                    {3U, 1U},
@@ -944,6 +987,7 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
                                    Solve::square,
                                    NumericDomain::complex,
                                    ConditionPolicy::square_continue_with_warning,
+                                   FactorizationPolicy::none,
                                    StructurePolicy::classify_complex_square,
                                    {2U, 2U},
                                    {2U, 1U},
@@ -969,6 +1013,13 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   diagnostics.clear();
   javascript.statements.front().expression.matrix_operation.condition_policy =
       ConditionPolicy::basic_solution_with_warning;
+  javascript.statements.front().expression.matrix_operation.factorization_policy =
+      FactorizationPolicy::none;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  javascript.statements.front().expression.matrix_operation.factorization_policy =
+      FactorizationPolicy::rank_revealing_column_pivoted_qr;
   javascript.statements.front().expression.matrix_operation.numeric_domain = NumericDomain::complex;
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(!diagnostics.empty());
@@ -1007,6 +1058,13 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   diagnostics.clear();
   cpp.statements.front().expression.matrix_operation.condition_policy =
       ConditionPolicy::basic_solution_with_warning;
+  cpp.statements.front().expression.matrix_operation.factorization_policy =
+      FactorizationPolicy::none;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  cpp.statements.front().expression.matrix_operation.factorization_policy =
+      FactorizationPolicy::rank_revealing_column_pivoted_qr;
   cpp.statements.front().expression.matrix_operation.numeric_domain = NumericDomain::complex;
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
@@ -1500,7 +1558,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v12") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v13") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -1511,7 +1569,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v18") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v19") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -2980,9 +3038,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v24") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v25") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v24") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v25") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
