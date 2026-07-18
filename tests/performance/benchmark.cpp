@@ -288,6 +288,26 @@ std::string matlab_conditioned_square_solve_workload(const std::size_t rounds) {
   return source;
 }
 
+std::string matlab_structured_square_solve_workload(const std::size_t rounds) {
+  std::string source =
+      "diagonal = [4 0 0 0; 0 5 0 0; 0 0 6 0; 0 0 0 7.5];\n"
+      "lower = [4 0 0 0; 1 5 0 0; 2 1 6 0; 3 2 1 7.5];\n"
+      "upper = [4 1 2 3; 0 5 1 2; 0 0 6 1; 0 0 0 7.5];\n"
+      "dense = [8 1 2 3; 1 9 3 2; 2 3 10 1; 3 2 1 11.5];\n"
+      "right_hand_side = [4; 6; 8; 10];\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "diagonal_left = diagonal \\ right_hand_side;\n";
+    source += "lower_left = lower \\ right_hand_side;\n";
+    source += "upper_left = upper \\ right_hand_side;\n";
+    source += "dense_left = dense \\ right_hand_side;\n";
+    source += "upper_right = [1 2 3 4] / upper;\n";
+  }
+  source +=
+      "disp(diagonal_left(1) + lower_left(2) + upper_left(3) + dense_left(4) + "
+      "upper_right(1))\n";
+  return source;
+}
+
 std::string source_extension(const mpf::SourceLanguage language) {
   switch (language) {
     case mpf::SourceLanguage::python: return ".py";
@@ -385,6 +405,8 @@ int main() {
       {"matlab-rank-aware-solve", matlab_rank_aware_solve_workload(24),
        mpf::SourceLanguage::matlab},
       {"matlab-conditioned-square-solve", matlab_conditioned_square_solve_workload(24),
+       mpf::SourceLanguage::matlab},
+      {"matlab-structured-square-solve", matlab_structured_square_solve_workload(24),
        mpf::SourceLanguage::matlab}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
