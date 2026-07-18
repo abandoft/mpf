@@ -656,6 +656,8 @@ TEST_CASE("Matlab logical arrays and condition truthiness lower independently pe
   REQUIRE(cpp.code.find("if (mpf_runtime::matlab_truthy(") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_scalar_logical(0) &&") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::ieee_divide(1, 0)") != std::string::npos);
+  REQUIRE(cpp.code.find("if (right != 0.0) return left / right;") != std::string::npos);
+  REQUIRE(cpp.code.find("std::signbit(left) != std::signbit(right)") != std::string::npos);
   REQUIRE(cpp.code.find("static_cast<double>(1) / static_cast<double>(0)") == std::string::npos);
   for (const auto* result : {&javascript, &cpp}) {
     REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),

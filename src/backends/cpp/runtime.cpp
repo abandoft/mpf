@@ -1516,7 +1516,12 @@ class RuntimeEmitter final {
     if (include_scalar_division) {
       output_
           << "inline double ieee_divide(const double left, const double right) noexcept {\n"
-             "  return left / right;\n"
+             "  if (right != 0.0) return left / right;\n"
+             "  if (left == 0.0 || std::isnan(left)) {\n"
+             "    return std::numeric_limits<double>::quiet_NaN();\n"
+             "  }\n"
+             "  const double infinity = std::numeric_limits<double>::infinity();\n"
+             "  return std::signbit(left) != std::signbit(right) ? -infinity : infinity;\n"
              "}\n"
              "inline double python_true_divide(const double left, const double right) {\n"
              "  if (right == 0.0) throw std::domain_error(\"division by zero\");\n"

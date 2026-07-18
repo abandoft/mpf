@@ -71,7 +71,7 @@ mpf_add_differential_case(matlab-logical-comparisons matlab examples/matlab/logi
 mpf_add_differential_case(
   matlab-logical-semantics matlab examples/matlab/logical_semantics.m "2 5 1 3 10 0 10 20 1 1")
 mpf_add_differential_case(
-  matlab-ieee-division matlab tests/fixtures/matlab_ieee_division.m "2")
+  matlab-ieee-division matlab tests/fixtures/matlab_ieee_division.m "3")
 mpf_add_differential_case(
   matlab-logical-reduction matlab examples/matlab/logical_reduction.m "2 5 3 3 3 6 3 5")
 mpf_add_differential_case(

@@ -486,6 +486,15 @@ foreach(runtime IN ITEMS src/backends/javascript/runtime.cpp src/backends/cpp/ru
     message(FATAL_ERROR "target runtime does not own checked Python division: ${runtime}")
   endif()
 endforeach()
+file(READ "${SOURCE_DIR}/src/backends/cpp/runtime.cpp" cpp_division_runtime)
+if(NOT cpp_division_runtime MATCHES "right != 0.0" OR
+   NOT cpp_division_runtime MATCHES "quiet_NaN" OR
+   NOT cpp_division_runtime MATCHES "std::signbit")
+  message(FATAL_ERROR "cpp IEEE division does not handle signed zero without a zero-divide")
+endif()
+if(cpp_division_runtime MATCHES "warning\\(disable|diagnostic ignored")
+  message(FATAL_ERROR "cpp IEEE division suppresses compiler diagnostics")
+endif()
 foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
   mpf_assert_file_excludes("${renderer}"
     "DivisionByZero|ieee_divide|python_true_divide|python_floor_divide"
