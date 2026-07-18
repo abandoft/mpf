@@ -65,6 +65,13 @@ AliasClass site_relation(const AliasEffectTable& alias_effects, const MemoryAcce
              : alias_between(alias_effects, *left_access, *right_access);
 }
 
+bool site_writes_entire_root(const AliasEffectTable& alias_effects, const MemoryAccessSite& site) {
+  if (!memory_access_writes(site.mode)) return false;
+  const auto* access = access_for_site(alias_effects, site);
+  return access != nullptr && access->root.valid() &&
+         access->region == full_storage_region(access->region.root_shape);
+}
+
 bool scalar_aggregate_disjoint(const Program& program, const AliasEffectTable& alias_effects,
                                const MemoryAccessSite& left, const MemoryAccessSite& right,
                                const std::vector<bool>& aggregate_roots) noexcept {
@@ -201,11 +208,19 @@ void update_frontier(const AliasEffectTable& alias_effects, std::vector<Frontier
                      const std::vector<bool>& retain) {
   for (const auto& site : current) {
     if (!memory_access_writes(site.mode) || site.unknown) continue;
+    const auto* write = access_for_site(alias_effects, site);
+    const bool writes_entire_root = site_writes_entire_root(alias_effects, site);
     frontier.erase(std::remove_if(frontier.begin(), frontier.end(),
                                   [&](const FrontierAccess& previous) {
-                                    return !previous.site.unknown &&
-                                           site_relation(alias_effects, previous.site, site) ==
-                                               AliasClass::must_alias;
+                                    if (previous.site.unknown) return false;
+                                    const auto* earlier =
+                                        access_for_site(alias_effects, previous.site);
+                                    if (writes_entire_root && write != nullptr &&
+                                        earlier != nullptr && write->root == earlier->root) {
+                                      return true;
+                                    }
+                                    return site_relation(alias_effects, previous.site, site) ==
+                                           AliasClass::must_alias;
                                   }),
                    frontier.end());
   }
