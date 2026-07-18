@@ -529,6 +529,52 @@ TEST_CASE("Matlab rectangular solve selects rank-aware basic CPQR solutions for 
                       [](const auto& segment) { return segment.original_line == 5U; }));
 }
 
+TEST_CASE("Matlab complex rectangular solve uses target-owned CPQR and conjugate right division") {
+  const std::string source =
+      "over = [1+1i 0; 0 1-1i; 1+1i 1-1i] \\ [1+3i; 2-4i; 3-1i];\n"
+      "under = [1+1i 0 0; 0 1-1i 0] \\ [1+3i; 2-4i];\n"
+      "right_over = [1+3i 2-4i 0] / [1+1i 0 0; 0 1-1i 0];\n"
+      "right_under = [3-1i 4+2i] / [1-1i 0; 0 1+1i; 0 0];\n"
+      "disp(real(over(1)) + real(under(2)) + real(right_over(1)) + "
+      "real(right_under(2)))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_complex_cpqr_factor") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_apply_complex_cpqr_qh") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_complex_basic_least_squares") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mldivide_complex_overdetermined") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mldivide_complex_underdetermined") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mrdivide_complex_overdetermined") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mrdivide_complex_underdetermined") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_complex_ctranspose") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_complex_cpqr_factorization") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_apply_complex_cpqr_qh") != std::string::npos);
+  REQUIRE(cpp.code.find("matlab_complex_basic_least_squares") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mldivide_complex_overdetermined") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mldivide_complex_underdetermined") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_complex_overdetermined") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_complex_underdetermined") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("matlab_complex_ctranspose") != std::string::npos);
+  for (const auto line : {1U, 2U, 3U, 4U}) {
+    REQUIRE(std::any_of(javascript.source_map.segments.begin(),
+                        javascript.source_map.segments.end(),
+                        [line](const auto& segment) { return segment.original_line == line; }));
+    REQUIRE(std::any_of(cpp.source_map.segments.begin(), cpp.source_map.segments.end(),
+                        [line](const auto& segment) { return segment.original_line == line; }));
+  }
+}
+
 TEST_CASE("Matlab square solve condition warnings remain target-owned and source-mapped") {
   const std::string source =
       "singular = [1 0; 0 0];\n"
