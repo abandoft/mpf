@@ -1,5 +1,13 @@
 # MPF
 
+[![构建与测试](https://github.com/abandoft/mpf/actions/workflows/build-and-test.yml/badge.svg?branch=main)](https://github.com/abandoft/mpf/actions/workflows/build-and-test.yml)
+[![平台兼容](https://github.com/abandoft/mpf/actions/workflows/platform-compatibility.yml/badge.svg?branch=main)](https://github.com/abandoft/mpf/actions/workflows/platform-compatibility.yml)
+[![代码质量](https://github.com/abandoft/mpf/actions/workflows/code-quality.yml/badge.svg?branch=main)](https://github.com/abandoft/mpf/actions/workflows/code-quality.yml)
+[![内存安全](https://github.com/abandoft/mpf/actions/workflows/memory-safety.yml/badge.svg?branch=main)](https://github.com/abandoft/mpf/actions/workflows/memory-safety.yml)
+[![测试覆盖率](https://github.com/abandoft/mpf/actions/workflows/test-coverage.yml/badge.svg?branch=main)](https://github.com/abandoft/mpf/actions/workflows/test-coverage.yml)
+[![性能回归](https://github.com/abandoft/mpf/actions/workflows/performance-regression.yml/badge.svg?branch=main)](https://github.com/abandoft/mpf/actions/workflows/performance-regression.yml)
+[![安全分析](https://github.com/abandoft/mpf/actions/workflows/security-analysis.yml/badge.svg?branch=main)](https://github.com/abandoft/mpf/actions/workflows/security-analysis.yml)
+
 现代化、高性能的多语言转译框架。MPF 可以把受支持的源语言代码转换为现代 JavaScript 或可移植的 C++17。项目同时提供 `mpfc` 命令行工具和 C++ 库接口，使用 CMake 构建，两个输出后端可以独立启用。
 
 ## 功能

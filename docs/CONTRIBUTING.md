@@ -27,11 +27,14 @@ cmake --preset coverage
 cmake --build --preset coverage
 ```
 
-修改 `.github/workflows/` 时还应运行与 `Quality / actionlint` 相同的检查：
+修改 `.github/workflows/` 或 `.github/actions/` 时还应运行与 `Code Quality / actionlint` 相同的检查：
 
 ```sh
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
 ```
+
+流水线职责、可复用 workflow、稳定 required check 名称和 Release 依赖图见
+[GitHub Actions 职责矩阵](../.github/workflows/README.md)。新增发布步骤不得绕过七类 canonical 门禁，打包步骤必须位于完整候选测试和安装后 consumer 验证之后。
 
 `quality` 对全部项目 C++ 源码执行零告警 clang-tidy；`coverage` 运行完整 CTest，生成
 `build/coverage/coverage/html/` 和 `summary.json`，并强制生产代码行覆盖率不低于 85%。需要重写格式时运行

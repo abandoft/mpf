@@ -1,6 +1,6 @@
 # 测试与差分执行
 
-MPF 的验证体系分为七层：
+MPF 的验证体系分为八层：
 
 1. C++ 单元/集成测试验证公共 API、lexer/parser、AST/HIR/MIR/LIR verifier、pass/analysis、capability/legalization、extension conformance 和 emitter 结构；
 2. declarative differential corpus 验证可执行语言语义；
@@ -9,6 +9,7 @@ MPF 的验证体系分为七层：
 5. clang-format、零告警 clang-tidy、85% 生产代码行覆盖率，以及仓库能力可用时的 CodeQL 和依赖审查构成工程质量门禁。
 6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖四种前端、两个目标、资源耗尽和确定性重放；
 7. 小文件延迟、吞吐、深 CFG、大 shape、跨函数图、区域访问、CFG memory dependence、Matlab 数组/tensor/matrix-solve/dynamic-broadcast kernel、峰值 arena、产物大小和并发 session 进入发布性能门禁。
+8. Release 在标签提交上重新调用以上 canonical workflow；七类门禁全部成功后，三平台候选才可执行完整功能/差分测试、安装后外部消费、ZIP/许可证/版本/校验和验证、build-provenance attestation、发布及公开资产回读验证。
 
 当前 CFG memory-dependence 单元/负向测试覆盖 revision/count/density/sentinel、强类型 access site、incoming/outgoing adjacency、RAW/flow、WAR/anti、WAW/output、分支多定义合流、自然/不可归约 loop-carried、自环、unknown-memory barrier、同根 disjoint region 消边、full-root hazard 后 frontier kill、确定性 dump、`AnalysisManager` 缓存和损坏 edge 拒绝；`InstructionAttributes`、copy/writeback、跨函数 actual region、alias/conflict 与优化重映射继续回归。生产 API 测试要求编译报告公开 `mir-memory-dependence` stage 和分类计数。Python fuzz seed 覆盖分支/循环/索引写入，第八个 `memory-dependence` 性能场景同时要求最低依赖规模和非零 loop-carried 事实。0.4.8 为 Matlab implicit expansion、转置、`end` 和逻辑索引加入差分/fuzz 回归及数组/tensor 专项性能预算；0.4.9 又加入静态满秩方阵/超定/欠定求解、整数幂、广义 selector、跨层 plan 损坏拒绝、双目标差分、两类生成 runtime 拒绝、fuzz seed 和矩阵/索引编译场景；0.5.0 增加动态 axis/linear `end` 与 runtime-operands broadcast 的跨层损坏拒绝、双目标差分、source map、fuzz seed 和专项性能场景；0.5.1 增加 overwrite/grow/erase contract 的 HIR/MIR/双目标 LIR 传播、损坏事实拒绝、完整 storage-root write、vector/matrix/N 维扩容删除、差分/source map/fuzz 与性能场景。MemorySSA/region-aware DCE/store forwarding 尚未启用，继续按 [TODO](../TODO.md) 推进。
 
@@ -17,7 +18,7 @@ MPF 的验证体系分为七层：
 | 指标 | 数量/结果 |
 |---|---:|
 | C++ 单元与集成测试 | 210 项，零失败 |
-| CTest | Release/RelWithDebInfo 82 项、Debug 81 项；包含 68 项 differential、1 项 C++ 单元/集成、3 项生成 runtime 拒绝、1 项 fuzz smoke、1 项仅优化配置启用的性能发布门禁、1 项编译器分层门禁、2 项 CLI、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
+| CTest | Release/RelWithDebInfo 83 项、Debug 82 项；包含 68 项 differential、1 项 C++ 单元/集成、3 项生成 runtime 拒绝、1 项 fuzz smoke、1 项仅优化配置启用的性能发布门禁、1 项编译器分层门禁、1 项发布脚本正/负契约、2 项 CLI、1 项生成 C++ 编译、3 项后端隔离和 1 项安装后示例测试 |
 | Differential corpus | Python 22、Fortran 19、Matlab 23、TypeScript 4，共 68 个 case |
 | 工具完整环境执行路径 | 181 条程序路径，另有每 case 一条 oracle |
 | 生产代码行覆盖率 | 0.5.1 实测 90.00%（25,457/28,285），门槛 85% |
@@ -69,7 +70,7 @@ build/fuzz/tests/mpf-transpiler-fuzzer build/fuzz/corpus
 
 ## 性能门禁
 
-`mpf.performance.release-gate` 运行两个目标的十四类编译场景和八路并发 session，重复编译还会逐字节比较代码与 source map。场景覆盖 small、吞吐、深 CFG、大 shape、函数图、TypeScript 吞吐、128 个同根交错 section 调用的 storage-region 分析、branch/loop/index-write memory-dependence fixed point，以及 Matlab 数组、N 维 tensor、矩阵 solve/power、动态 `end`、runtime-shape broadcast 和 shape mutation kernel。Matlab 六个场景另有独立的最大延迟、最低吞吐和最大产物预算，避免被全局宽阈值掩盖。结果写入 `build/<preset>/performance-report.json`，并由 [`tests/performance/baseline.json`](../tests/performance/baseline.json) 的精确当前版本上限/下限检查延迟、吞吐、峰值 arena 和最大生成大小；不读取旧版本 baseline。CTest 将该门禁标记为 `RUN_SERIAL`，避免其他重型测试争抢 CPU 后制造伪回归；该非插桩性能门禁不在 ASan/UBSan 配置中注册。独立 `Performance` workflow 显式运行 `mpf-performance` 并归档机器可读报告。
+`mpf.performance.release-gate` 运行两个目标的十四类编译场景和八路并发 session，重复编译还会逐字节比较代码与 source map。场景覆盖 small、吞吐、深 CFG、大 shape、函数图、TypeScript 吞吐、128 个同根交错 section 调用的 storage-region 分析、branch/loop/index-write memory-dependence fixed point，以及 Matlab 数组、N 维 tensor、矩阵 solve/power、动态 `end`、runtime-shape broadcast 和 shape mutation kernel。Matlab 六个场景另有独立的最大延迟、最低吞吐和最大产物预算，避免被全局宽阈值掩盖。结果写入 `build/<preset>/performance-report.json`，并由 [`tests/performance/baseline.json`](../tests/performance/baseline.json) 的精确当前版本上限/下限检查延迟、吞吐、峰值 arena 和最大生成大小；不读取旧版本 baseline。CTest 将该门禁标记为 `RUN_SERIAL`，避免其他重型测试争抢 CPU 后制造伪回归；该非插桩性能门禁不在 ASan/UBSan 配置中注册。独立 `Performance Regression` workflow 显式运行 `mpf-performance` 并归档机器可读报告。
 
 质量与覆盖率门禁：
 
@@ -82,9 +83,9 @@ cmake --preset coverage
 cmake --build --preset coverage
 ```
 
-coverage preset 使用 Clang source-based coverage，将多进程 `.profraw` 合并后排除 `build/`、`tests/`、不贡献 profile 的子构建 isolation case 和已由独立 workflow 拥有的性能阈值，只统计生产源码；报告位于 `build/coverage/coverage/`。当前门槛为 85%；每个正式版本的实测值记录在 changelog，历史数据不覆写。独立 `Security` workflow 先探测仓库的 GitHub Advanced Security 能力；公共仓库或已授权 GHAS 的私有仓库对 C/C++ 运行 CodeQL `security-extended`，并在 pull request 上拒绝引入 moderate 及以上已知漏洞的依赖变更。未授权私有仓库明确记录 capability notice，并继续依赖始终执行的 clang-tidy/Clang analyzer、Sanitizer 和零告警构建门禁。
+coverage preset 使用 Clang source-based coverage，将多进程 `.profraw` 合并后排除 `build/`、`tests/`、不贡献 profile 的子构建 isolation case 和已由独立 workflow 拥有的性能阈值，只统计生产源码；报告位于 `build/coverage/coverage/`。当前门槛为 85%；每个正式版本的实测值记录在 changelog，历史数据不覆写。独立 `Security Analysis` workflow 先探测仓库的 GitHub Advanced Security 能力；公共仓库或已授权 GHAS 的私有仓库对 C/C++ 运行 CodeQL `security-extended`，并在 pull request 上拒绝引入 moderate 及以上已知漏洞的依赖变更。未授权私有仓库明确记录 capability notice，并继续依赖始终执行的 clang-tidy/Clang analyzer、`Memory Safety` 和零告警构建门禁。
 
-完整的 workflow 边界、required check 名称、超时和产物策略见
-[GitHub Actions 职责矩阵](../.github/workflows/README.md)。仓库公开后八类流水线已经恢复自动执行。
+完整的 workflow 边界、稳定 required check 名称、Release 依赖图、超时和产物策略见
+[GitHub Actions 职责矩阵](../.github/workflows/README.md)。主分支、pull request 与 merge queue 使用同一组七类 required workflow；Release 通过 `workflow_call` 在标签 SHA 上复用这些定义，任何门禁失败都会在打包前终止。
 
 新增可执行语言能力时，必须在 manifest 增加 case；若输出中的空白属于语义，使用 `lines` 模式，否则数值/list-directed 输出可使用 `tokens` 模式。只有编译不执行的输入应保留为独立 compile-only gate。

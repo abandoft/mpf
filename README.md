@@ -1,5 +1,13 @@
 # MPF
 
+[![Build & Test](https://github.com/abandoft/mpf/actions/workflows/build-and-test.yml/badge.svg?branch=main)](https://github.com/abandoft/mpf/actions/workflows/build-and-test.yml)
+[![Platform Compatibility](https://github.com/abandoft/mpf/actions/workflows/platform-compatibility.yml/badge.svg?branch=main)](https://github.com/abandoft/mpf/actions/workflows/platform-compatibility.yml)
+[![Code Quality](https://github.com/abandoft/mpf/actions/workflows/code-quality.yml/badge.svg?branch=main)](https://github.com/abandoft/mpf/actions/workflows/code-quality.yml)
+[![Memory Safety](https://github.com/abandoft/mpf/actions/workflows/memory-safety.yml/badge.svg?branch=main)](https://github.com/abandoft/mpf/actions/workflows/memory-safety.yml)
+[![Test Coverage](https://github.com/abandoft/mpf/actions/workflows/test-coverage.yml/badge.svg?branch=main)](https://github.com/abandoft/mpf/actions/workflows/test-coverage.yml)
+[![Performance Regression](https://github.com/abandoft/mpf/actions/workflows/performance-regression.yml/badge.svg?branch=main)](https://github.com/abandoft/mpf/actions/workflows/performance-regression.yml)
+[![Security Analysis](https://github.com/abandoft/mpf/actions/workflows/security-analysis.yml/badge.svg?branch=main)](https://github.com/abandoft/mpf/actions/workflows/security-analysis.yml)
+
 A modern, high-performance multilingual transpilation framework. MPF converts supported source languages into modern JavaScript or portable C++17. The project provides both the `mpfc` command-line tool and a C++ library API, uses CMake for its build system, and allows the two output backends to be enabled independently.
 
 ## Features
