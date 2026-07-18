@@ -1,0 +1,1 @@
+empty = []; grown = []; grown(3) = 7; matrix = reshape([], 0, 5); transposed = matrix.'; scaled = matrix + 2; selected = matrix([], :); expanded = reshape([], 0, 4); expanded(1, 2) = 9;
