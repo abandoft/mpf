@@ -24,7 +24,7 @@
 
 | 输入语言 | 自动识别扩展名 | 当前能力摘要 |
 |---|---|---|
-| Matlab | `.m` | 脚本与局部函数、条件/循环/标量 `switch`、矩阵、保持 shape 的 `0×0` 与零 extent 数组、静态 N 维及 local-function runtime-shape 隐式扩展、数组比较、静态及运行时 extent 的 `end`、保序/重复/空 numeric selector、线性/逐维 logical selector、vector/matrix/N 维扩容与单轴删除、转置、section、`reshape`、二维矩阵乘法、静态满秩稠密实数方阵/矩形求解、方阵整数幂与多输出函数 |
+| Matlab | `.m` | 脚本与局部函数、条件/循环/标量 `switch`、矩阵、保持 shape 的 `0×0` 与零 extent 数组、静态 N 维及 local-function runtime-shape 隐式扩展、数组比较、静态及运行时 extent 的 `end`、保序/重复/空 numeric selector、线性/逐维 logical selector、vector/matrix/N 维扩容与单轴删除、转置、section、`reshape`、二维矩阵乘法、结构感知的对角/三角/稠密实数方阵求解、rank-aware 矩形求解、方阵整数幂与多输出函数 |
 | Python | `.py`、`.pyw` | 函数与参数、条件和循环、list/tuple、解包、比较链、多维数组、索引和切片 |
 | Fortran | `.f`、`.for`、`.ftn`、`.f77`、`.f90` 等 | free/fixed form、function/subroutine、`INTENT`/`OPTIONAL`、数组与 section、`SELECT CASE` |
 | TypeScript | `.ts`、`.mts`、`.cts` | 类型化标量和数组、函数、块作用域、条件、`while`、标准 C 风格 `for` |
@@ -123,7 +123,7 @@ cmake --install build/release --prefix build/stage
 在项目中查找当前精确版本：
 
 ```cmake
-find_package(mpf 0.5.3 EXACT CONFIG REQUIRED COMPONENTS core cpp)
+find_package(mpf 0.5.4 EXACT CONFIG REQUIRED COMPONENTS core cpp)
 target_link_libraries(my_application PRIVATE mpf::mpf)
 ```
 
@@ -151,7 +151,7 @@ int main() {
 }
 ```
 
-安装包提供 `core`、`javascript` 和 `cpp` component，以及 `mpf::core`、`mpf::backend-javascript`、`mpf::backend-cpp` 和统一入口 `mpf::mpf`。完整集成示例见 [`examples/embedding`](examples/embedding)；配置时传入 `-DMPF_REQUIRED_VERSION=0.5.3`，以保持精确版本匹配。
+安装包提供 `core`、`javascript` 和 `cpp` component，以及 `mpf::core`、`mpf::backend-javascript`、`mpf::backend-cpp` 和统一入口 `mpf::mpf`。完整集成示例见 [`examples/embedding`](examples/embedding)；配置时传入 `-DMPF_REQUIRED_VERSION=0.5.4`，以保持精确版本匹配。
 
 MPF 0.x 有意只安装静态库。共享库需要先明确符号导出、allocator/所有权和版本协商契约；设置 `BUILD_SHARED_LIBS` 不会把当前内部 C++ ABI 意外暴露为受支持的动态库接口。
 
