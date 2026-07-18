@@ -84,6 +84,16 @@ add_test(NAME mpf.architecture.compiler-layers
     -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_compiler_layers.cmake)
 
+add_test(NAME mpf.release-support.contract
+  COMMAND ${CMAKE_COMMAND}
+    -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/release-support-contract
+    -DPROJECT_VERSION=${PROJECT_VERSION}
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_release_support.cmake)
+set_tests_properties(mpf.release-support.contract PROPERTIES
+  LABELS "infrastructure;release;coverage-excluded"
+  TIMEOUT 60)
+
 function(mpf_add_generated_cpp_compile_test name input)
   add_test(NAME mpf.generated.cpp.${name}
     COMMAND ${CMAKE_COMMAND}
@@ -246,6 +256,7 @@ if(MPF_ENABLE_JAVASCRIPT_BACKEND AND MPF_ENABLE_CPP_BACKEND)
       -DSTAGE=${CMAKE_BINARY_DIR}/installed-examples-stage
       -DLICENSE_FILE=${PROJECT_SOURCE_DIR}/LICENSE
       -DINSTALL_DOCDIR=${CMAKE_INSTALL_DOCDIR}
+      -DPROJECT_VERSION=${PROJECT_VERSION}
       -DCONFIG=$<CONFIG>
       -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_installed_examples.cmake)
   set_tests_properties(mpf.installed.frontend-backend-examples PROPERTIES
