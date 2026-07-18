@@ -24,7 +24,7 @@ const BackendDescriptor& javascript_backend() noexcept {
       TargetLanguage::javascript,
       "javascript",
       {"ECMAScript-2020",
-       "mpf.javascript.lir.v12",
+       "mpf.javascript.lir.v13",
        {1, configuration, std::size(configuration)},
        {"mpf.runtime-supply-chain.v1", runtime_components, std::size(runtime_components)},
        true,
