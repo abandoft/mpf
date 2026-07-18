@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+
 if(NOT DEFINED MPFC OR NOT DEFINED INPUT OR NOT DEFINED TEST_SOURCE_DIR OR
    NOT DEFINED TEST_BINARY_DIR)
   message(FATAL_ERROR "verify_generated_cpp_compile.cmake received incomplete arguments")

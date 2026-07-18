@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+
 foreach(required MPFC INPUT CASE_NAME TEST_SOURCE_DIR TEST_BINARY_DIR EXPECTED_ERROR)
   if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
     message(FATAL_ERROR "verify_generated_runtime_failure.cmake requires ${required}")
