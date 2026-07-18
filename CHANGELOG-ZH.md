@@ -1,3 +1,18 @@
+## 0.5.3
+
+- Matlab 矩形左除与右除现对超定和欠定系统统一使用 rank-aware 带列主元 QR。
+- 欠定求解现返回 pivoted basic solution，不再产生此前不正确的最小范数结果。
+- 数值秩亏的矩形系统会给出稳定的工作精度警告，并继续返回基本最小二乘解。
+- 精确奇异方阵的左除与右除现会警告并继续，保留已验证的 Matlab 风格有限分量和 IEEE 无穷分量，不再终止生成程序。
+- 近奇异方阵现复用 LU 因子估计倒条件数，给出独立的 `RCOND` 警告，并继续返回计算结果。
+- 矩阵条件行为以可验证的 `MatrixConditionPolicy` 贯穿语义分析、MIR、JavaScript LIR 与 `cpp` LIR。
+- 生成的 JavaScript 与 C++17 现分别拥有独立的部分主元 LU、转置求解、条件估计和带列主元 QR runtime。
+- 非 vector 线性删除继续被一致拒绝；奇异方阵执行不再被错误归类为不支持的 runtime 操作。
+- source map 现可保留 condition-aware 方阵左除与右除的源码位置。
+- 新增精确奇异和近奇异 Matlab 可执行示例，并验证两个目标的输出与警告次数。
+- 扩充 conditioned solve 的跨层损坏检查、生成代码断言、架构门禁与 Matlab fuzz corpus。
+- 发布门禁现覆盖 214 项内部测试、72 个差分 case、17 个性能场景和 90.22% 生产代码行覆盖率。
+
 ## 0.5.2
 
 - Matlab `[]` 现在使用规范的 `0×0` double-array shape，不再被当作 rank-one 空 list。

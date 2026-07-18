@@ -1,3 +1,18 @@
+## 0.5.3
+
+- Matlab rectangular left and right division now use rank-aware column-pivoted QR for both overdetermined and underdetermined systems.
+- Underdetermined solves now return a pivoted basic solution instead of the previously incorrect minimum-norm result.
+- Rank-deficient rectangular systems continue with a stable working-precision warning and a basic least-squares result.
+- Exact singular square left and right division now warn and continue, preserving the tested Matlab-style finite and IEEE-infinity components instead of terminating generated programs.
+- Nearly singular square systems now estimate reciprocal condition with the existing LU factors, emit a distinct `RCOND` warning, and continue with the computed result.
+- Matrix conditioning behavior is represented by a verified `MatrixConditionPolicy` across semantic analysis, MIR, JavaScript LIR, and `cpp` LIR.
+- Generated JavaScript and C++17 now own independent partial-pivoted LU, transpose-solve, condition-estimation, and column-pivoted QR runtimes.
+- Invalid non-vector linear deletion remains rejected consistently, while singular-square execution is no longer misclassified as an unsupported runtime operation.
+- Source maps now retain both left-division and right-division locations for condition-aware square solves.
+- Added executable exact-singular and nearly-singular Matlab examples with two-target output and warning-count validation.
+- Expanded cross-layer corruption checks, generated-code assertions, architecture checks, and the Matlab fuzz corpus for conditioned solves.
+- The release gate now covers 214 internal tests, 72 differential cases, 17 performance scenarios, and 90.22% production-line coverage.
+
 ## 0.5.2
 
 - Matlab `[]` now has its canonical `0×0` double-array shape instead of being treated as a rank-one empty list.
