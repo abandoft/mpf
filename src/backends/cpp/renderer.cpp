@@ -1076,7 +1076,31 @@ class Renderer final {
       case cpp::lir::StatementForm::indexed_element_assignment:
       case cpp::lir::StatementForm::indexed_section_assignment:
         indentation();
-        if (statement.plan.form == cpp::lir::StatementForm::indexed_section_assignment) {
+        if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow) {
+          output_ << (statement.plan.indexed_mutation.linear
+                          ? "mpf_runtime::assign_growing_linear_column_major("
+                          : "mpf_runtime::assign_growing_section_nd(");
+          emit_expression(statement.target_expression.children[0]);
+          output_ << ", ";
+          if (statement.plan.indexed_mutation.linear)
+            emit_selector(statement.target_expression, 1U);
+          else
+            emit_selector_tuple(statement.target_expression);
+          output_ << ", " << statement.target_expression.plan.index_base << ", "
+                  << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
+                  << ", ";
+          emit_section_replacement(statement.expression, statement.plan.flatten_replacement);
+          output_ << ')';
+        } else if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::erase) {
+          output_ << "mpf_runtime::erase_indexed(";
+          emit_expression(statement.target_expression.children[0]);
+          output_ << ", ";
+          emit_selector_tuple(statement.target_expression);
+          output_ << ", " << statement.target_expression.plan.index_base << ", "
+                  << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
+                  << ", " << (statement.plan.indexed_mutation.linear ? "true" : "false") << ", "
+                  << statement.plan.indexed_mutation.axis << ')';
+        } else if (statement.plan.form == cpp::lir::StatementForm::indexed_section_assignment) {
           emit_section_assignment(statement.target_expression, statement.expression,
                                   statement.plan.flatten_replacement,
                                   statement.plan.resizable_section);
