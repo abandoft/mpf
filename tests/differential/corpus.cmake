@@ -33,6 +33,12 @@ mpf_add_differential_case(matlab-switch-case matlab examples/matlab/switch_case.
 mpf_add_differential_case(matlab-operators matlab examples/matlab/operators.m "101")
 mpf_add_differential_case(matlab-matrix-solve matlab examples/matlab/matrix_solve.m "35.4")
 mpf_add_differential_case(
+  matlab-singular-square-solve matlab examples/matlab/singular_square_solve.m "8" tokens
+  "matrix is singular to working precision" 2)
+mpf_add_differential_case(
+  matlab-nearly-singular-square-solve matlab examples/matlab/nearly_singular_square_solve.m
+  "4" tokens "matrix is close to singular or badly scaled")
+mpf_add_differential_case(
   matlab-rectangular-solve matlab examples/matlab/rectangular_solve.m "4 7 0 3 6 2 3 1 1")
 mpf_add_differential_case(
   matlab-rank-deficient-solve matlab examples/matlab/rank_deficient_solve.m "0 1" tokens
