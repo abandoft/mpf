@@ -373,6 +373,10 @@ TEST_CASE("Matlab sparse CSC square solves preserve storage and target isolation
   REQUIRE(javascript.code.find("function __mpf_sparse_row_lu_factor") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_mldivide_sparse_real_square") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_matlab_mrdivide_sparse_real_square") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_from_dense(result, resultShape, 1)") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_from_dense(result, resultShape)") ==
+          std::string::npos);
   REQUIRE(javascript.code.find("std::vector") == std::string::npos);
   REQUIRE(cpp.code.find("struct sparse_matrix") != std::string::npos);
   REQUIRE(cpp.code.find("template <typename T> void validate_sparse_csc(") != std::string::npos);

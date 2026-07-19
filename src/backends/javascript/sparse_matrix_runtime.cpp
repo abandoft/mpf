@@ -1234,7 +1234,7 @@ function __mpf_matlab_mldivide_sparse_real_square(
   __mpf_matlab_warn_square_condition(
       __mpf_sparse_rcond(matrix, factor, apply, applyTranspose));
   const result = apply(factor, right);
-  return preserveSparse ? __mpf_sparse_from_dense(result, resultShape) : result;
+  return preserveSparse ? __mpf_sparse_from_dense(result, resultShape, 1) : result;
 }
 function __mpf_matlab_mrdivide_sparse_real_square(
     leftValue, coefficients, leftShape, rightShape, resultShape) {
