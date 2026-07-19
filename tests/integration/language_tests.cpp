@@ -72,6 +72,8 @@ TEST_CASE("Python chained comparisons and conditional expressions lower lazily i
   REQUIRE(javascript.code.find("__mpf_truthy(first)") != std::string::npos);
   REQUIRE(cpp.code.find("auto&& mpf_internal_comparison") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::truthy(first)") != std::string::npos);
+  REQUIRE(cpp.code.find("std::int64_t numeric_equality") != std::string::npos);
+  REQUIRE(cpp.code.find("std::int64_t sequence_equality") != std::string::npos);
 }
 
 TEST_CASE("Python equality identity and membership have target-explicit lowering") {
@@ -465,7 +467,7 @@ TEST_CASE("Matlab output variables propagate function call types before C++ decl
       "disp(value)\n",
       mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
   REQUIRE(result.success());
-  REQUIRE(result.code.find("std::int64_t value{};") != std::string::npos);
+  REQUIRE(result.code.find("double value{};") != std::string::npos);
   REQUIRE(result.code.find("decltype(answer())") == std::string::npos);
 }
 

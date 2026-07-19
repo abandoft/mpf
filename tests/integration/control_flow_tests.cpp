@@ -42,8 +42,9 @@ TEST_CASE("Python truthiness and operand-returning short-circuit logic lower ind
   const std::string source =
       "value = 0 and 2\n"
       "other = 3 or 4\n"
+      "items = [1] and [2]\n"
       "if not []:\n"
-      "    print(value, other)\n";
+      "    print(value, other, sum(items))\n";
   const auto javascript =
       transpile_flow(source, mpf::SourceLanguage::python, mpf::TargetLanguage::javascript);
   const auto cpp = transpile_flow(source, mpf::SourceLanguage::python, mpf::TargetLanguage::cpp);
@@ -53,6 +54,8 @@ TEST_CASE("Python truthiness and operand-returning short-circuit logic lower ind
   REQUIRE(javascript.code.find("__mpf_py_not([])") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::py_and([&]() { return (0); }") != std::string::npos);
   REQUIRE(cpp.code.find("std::int64_t value") != std::string::npos);
+  REQUIRE(cpp.code.find("std::vector<std::int64_t> items") != std::string::npos);
+  REQUIRE(cpp.code.find("std::vector<bool> items") == std::string::npos);
 }
 
 TEST_CASE("Matlab colon range is inclusive and preserves its last value") {
