@@ -197,6 +197,152 @@ function __mpf_sparse_transpose(value) {
   }
   return __mpf_make_sparse_csc(matrix.columns, matrix.rows, pointers, rows, values);
 }
+function __mpf_sparse_value_at(matrix, row, column) {
+  let first = matrix.columnPointers[column]; let last = matrix.columnPointers[column + 1];
+  while (first < last) {
+    const middle = first + Math.floor((last - first) / 2);
+    const candidate = matrix.rowIndices[middle];
+    if (candidate < row) first = middle + 1; else last = middle;
+  }
+  return first < matrix.columnPointers[column + 1] && matrix.rowIndices[first] === row
+    ? matrix.values[first] : 0;
+}
+function __mpf_sparse_linear_shape(shape, count) {
+  if (!Array.isArray(shape) || shape.length !== 2) {
+    throw new RangeError('MPF Matlab sparse linear index has an invalid result-shape plan');
+  }
+  const resolved = shape.slice(); const missing = [];
+  resolved.forEach((extent, axis) => {
+    if (extent === null) missing.push(axis);
+    else if (!Number.isSafeInteger(extent) || extent < 0) {
+      throw new RangeError('MPF Matlab sparse index result extent is invalid');
+    }
+  });
+  if (missing.length > 1) {
+    throw new RangeError('MPF Matlab sparse linear index result shape is underdetermined');
+  }
+  if (missing.length === 1) {
+    const known = resolved[1 - missing[0]];
+    if (known === 0 ? count !== 0 : count % known !== 0) {
+      throw new RangeError('MPF Matlab sparse linear index result shape is inconsistent');
+    }
+    resolved[missing[0]] = known === 0 ? 0 : count / known;
+  }
+  const size = resolved[0] * resolved[1];
+  if (!Number.isSafeInteger(size) || size !== count) {
+    throw new RangeError('MPF Matlab sparse linear index result shape is inconsistent');
+  }
+  return resolved;
+}
+function __mpf_sparse_submatrix_shape(shape, rowCount, columnCount) {
+  if (!Array.isArray(shape) || shape.length !== 2) {
+    throw new RangeError('MPF Matlab sparse submatrix has an invalid result-shape plan');
+  }
+  const actual = [rowCount, columnCount];
+  for (let axis = 0; axis < 2; ++axis) {
+    if (shape[axis] !== null && shape[axis] !== actual[axis]) {
+      throw new RangeError('MPF Matlab sparse submatrix result shape is inconsistent');
+    }
+  }
+  return actual;
+}
+function __mpf_sparse_is_full_slice(selector) {
+  return selector !== null && typeof selector === 'object' && selector.kind === 'slice' &&
+    selector.start === null && selector.stop === null && selector.step === null &&
+    selector.inclusive === true;
+}
+function __mpf_sparse_linear_element(value, selector) {
+  const matrix = __mpf_validate_sparse_csc(value, 'linear index operand');
+  const size = matrix.rows * matrix.columns;
+  if (!Number.isSafeInteger(size)) {
+    throw new RangeError('MPF Matlab sparse linear index extent exceeds safe integer limits');
+  }
+  const indices = __mpf_selector_indices(size, __mpf_resolve_extent(selector, size), 1, false);
+  if (indices.length !== 1) {
+    throw new RangeError('MPF Matlab sparse scalar linear index selected multiple elements');
+  }
+  const linear = indices[0];
+  return __mpf_sparse_value_at(matrix, linear % matrix.rows, Math.floor(linear / matrix.rows));
+}
+function __mpf_sparse_subscript_element(value, rowSelector, columnSelector) {
+  const matrix = __mpf_validate_sparse_csc(value, 'subscript operand');
+  const rows = __mpf_selector_indices(
+    matrix.rows, __mpf_resolve_extent(rowSelector, matrix.rows), 1, false);
+  const columns = __mpf_selector_indices(
+    matrix.columns, __mpf_resolve_extent(columnSelector, matrix.columns), 1, false);
+  if (rows.length !== 1 || columns.length !== 1) {
+    throw new RangeError('MPF Matlab sparse scalar subscript selected multiple elements');
+  }
+  return __mpf_sparse_value_at(matrix, rows[0], columns[0]);
+}
+function __mpf_sparse_linear_selection(value, selector, resultShape) {
+  const matrix = __mpf_validate_sparse_csc(value, 'linear selection operand');
+  const size = matrix.rows * matrix.columns;
+  if (!Number.isSafeInteger(size)) {
+    throw new RangeError('MPF Matlab sparse linear selection extent exceeds safe integer limits');
+  }
+  const resolvedSelector = __mpf_resolve_extent(selector, size);
+  if (__mpf_sparse_is_full_slice(resolvedSelector)) {
+    const [rows, columns] = __mpf_sparse_linear_shape(resultShape, size);
+    if (rows !== size || columns !== 1) {
+      throw new RangeError('MPF Matlab sparse full-colon result shape is inconsistent');
+    }
+    const rowIndices = [];
+    for (let column = 0; column < matrix.columns; ++column) {
+      const offset = column * matrix.rows;
+      for (let stored = matrix.columnPointers[column];
+           stored < matrix.columnPointers[column + 1]; ++stored) {
+        rowIndices.push(offset + matrix.rowIndices[stored]);
+      }
+    }
+    return __mpf_make_sparse_csc(
+      rows, columns, [0, matrix.values.length], rowIndices, matrix.values.slice());
+  }
+  const indices = __mpf_selector_indices(size, resolvedSelector, 1, false);
+  const [rows, columns] = __mpf_sparse_linear_shape(resultShape, indices.length);
+  const pointers = [0]; const rowIndices = []; const values = [];
+  for (let column = 0; column < columns; ++column) {
+    for (let row = 0; row < rows; ++row) {
+      const linear = indices[row + column * rows];
+      const stored = __mpf_sparse_value_at(
+        matrix, linear % matrix.rows, Math.floor(linear / matrix.rows));
+      if (stored !== 0) { rowIndices.push(row); values.push(stored); }
+    }
+    pointers.push(values.length);
+  }
+  return __mpf_make_sparse_csc(rows, columns, pointers, rowIndices, values);
+}
+function __mpf_sparse_submatrix_selection(value, rowSelector, columnSelector, resultShape) {
+  const matrix = __mpf_validate_sparse_csc(value, 'submatrix operand');
+  const selectedRows = __mpf_selector_indices(
+    matrix.rows, __mpf_resolve_extent(rowSelector, matrix.rows), 1, false);
+  const selectedColumns = __mpf_selector_indices(
+    matrix.columns, __mpf_resolve_extent(columnSelector, matrix.columns), 1, false);
+  const [rows, columns] = __mpf_sparse_submatrix_shape(
+    resultShape, selectedRows.length, selectedColumns.length);
+  const rowMap = selectedRows.map((sourceRow, outputRow) => ({ sourceRow, outputRow }));
+  rowMap.sort((left, right) => left.sourceRow - right.sourceRow || left.outputRow - right.outputRow);
+  const pointers = [0]; const rowIndices = []; const values = [];
+  for (let column = 0; column < columns; ++column) {
+    const sourceColumn = selectedColumns[column];
+    let selected = 0; let stored = matrix.columnPointers[sourceColumn];
+    const storedEnd = matrix.columnPointers[sourceColumn + 1]; const entries = [];
+    while (selected < rowMap.length && stored < storedEnd) {
+      const selectedRow = rowMap[selected].sourceRow;
+      const storedRow = matrix.rowIndices[stored];
+      if (selectedRow < storedRow) { ++selected; continue; }
+      if (storedRow < selectedRow) { ++stored; continue; }
+      const value = matrix.values[stored++];
+      while (selected < rowMap.length && rowMap[selected].sourceRow === selectedRow) {
+        entries.push({ row: rowMap[selected++].outputRow, value });
+      }
+    }
+    entries.sort((left, right) => left.row - right.row);
+    for (const entry of entries) { rowIndices.push(entry.row); values.push(entry.value); }
+    pointers.push(values.length);
+  }
+  return __mpf_make_sparse_csc(rows, columns, pointers, rowIndices, values);
+}
 function __mpf_sparse_is_tridiagonal(matrix) {
   for (let column = 0; column < matrix.columns; ++column) {
     for (let index = matrix.columnPointers[column]; index < matrix.columnPointers[column + 1];
