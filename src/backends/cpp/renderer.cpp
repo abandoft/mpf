@@ -473,6 +473,26 @@ class Renderer final {
         emit_shape_array(expression.plan.result_shape);
         output_ << ')';
         return;
+      case cpp::lir::CallForm::matlab_sparse:
+        output_ << "mpf_runtime::sparse(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        return;
+      case cpp::lir::CallForm::matlab_full:
+        output_ << "mpf_runtime::full(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        return;
+      case cpp::lir::CallForm::matlab_is_sparse:
+        output_ << "mpf_runtime::issparse(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        return;
+      case cpp::lir::CallForm::matlab_nonzero_count:
+        output_ << "static_cast<std::int64_t>(mpf_runtime::nnz(";
+        emit_expression(expression.children[1]);
+        output_ << "))";
+        return;
       case cpp::lir::CallForm::none:
       case cpp::lir::CallForm::direct: break;
     }
