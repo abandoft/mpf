@@ -162,6 +162,40 @@ function __mpf_full(value) {
   }
   return __mpf_build_column_major(flattened, [matrix.rows, matrix.columns]);
 }
+function __mpf_sparse_scale(matrixValue, scalarValue, matrixName, scalarName) {
+  const matrix = __mpf_validate_sparse_csc(matrixValue, matrixName);
+  if ((typeof scalarValue !== 'number' && typeof scalarValue !== 'boolean') ||
+      !Number.isFinite(Number(scalarValue))) {
+    throw new TypeError(`MPF Matlab ${scalarName} must be a finite real scalar`);
+  }
+  const scalar = Number(scalarValue);
+  if (scalar === 0) {
+    return __mpf_make_sparse_csc(matrix.rows, matrix.columns,
+                                 new Array(matrix.columns + 1).fill(0), [], []);
+  }
+  const columnPointers = [0]; const rowIndices = []; const values = [];
+  for (let column = 0; column < matrix.columns; ++column) {
+    for (let index = matrix.columnPointers[column]; index < matrix.columnPointers[column + 1];
+         ++index) {
+      const value = matrix.values[index] * scalar;
+      if (!Number.isFinite(value)) {
+        throw new RangeError('MPF Matlab sparse scalar product produced a nonfinite value');
+      }
+      if (value !== 0) { rowIndices.push(matrix.rowIndices[index]); values.push(value); }
+    }
+    columnPointers.push(values.length);
+  }
+  return __mpf_make_sparse_csc(matrix.rows, matrix.columns,
+                               columnPointers, rowIndices, values);
+}
+function __mpf_sparse_scale_right(matrixValue, scalarValue) {
+  return __mpf_sparse_scale(matrixValue, scalarValue,
+                            'left sparse scalar-product operand', 'right scalar-product operand');
+}
+function __mpf_sparse_scale_left(scalarValue, matrixValue) {
+  return __mpf_sparse_scale(matrixValue, scalarValue,
+                            'right sparse scalar-product operand', 'left scalar-product operand');
+}
 function __mpf_sparse_product_size(rows, columns) {
   const size = rows * columns;
   if (!Number.isSafeInteger(size)) {
