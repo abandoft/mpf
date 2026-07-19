@@ -13,8 +13,6 @@
 - 双目标 LIR v34 新增显式 runtime shape 调用 ABI，使 renderer 只序列化已验证调用，不再恢复 semantic storage 或 shape policy。
 - source map 会保留全部新增稀疏操作以及零维左除、右除的原始调用位置。
 - 新增零 extent sparse 的双目标差分执行、生成计划拒错、跨层损坏、fuzz 与架构覆盖。
-- 验证基线现包含 268 项 C++ 测试、98 个差分 case、127 项 CTest 和 18 项生成 runtime 拒错测试。
-- 生产源码覆盖率为 91.69%（37,154/40,520 行），既有 sparse-solve 性能预算无需放宽即可通过。
 
 ## 0.6.7
 
@@ -29,10 +27,8 @@
 - source map 会为全部稀疏 operand 组合保留原始 `.*` 表达式位置。
 - complex、零 extent、动态 shape 或不兼容的稀疏逐元素运算继续失败关闭，不会静默改变语义。
 - 新增可执行 Matlab 示例，在两个输出目标间比较数值、shape 与稀疏存储。
-- 验证基线现包含 258 项 C++ 测试、97 个差分 case、124 项 CTest 和 16 项生成 runtime 拒错测试。
 - Matlab fuzz corpus 现覆盖稀疏逐元素语法、操作数方向、广播与 runtime 验证边界。
 - 新增独立 sparse element-wise benchmark，约束编译延迟、吞吐、arena 峰值与生成代码大小。
-- 生产源码覆盖率为 91.59%（36,732/40,103 行），高于 85% 硬门槛。
 
 ## 0.6.6
 
@@ -110,7 +106,7 @@
 - 跨层 verifier 会在发射前拒绝损坏的 sparse-index identity、arity、shape、type、storage 或 inactive-state fact。
 - 当 storage representation 已知时，`full` 现可接受结果 extent 为动态值或零值的 rank-two dense/CSC selection。
 - sparse assignment、超过两个 selector、complex/sparse selector、N 维 linear result，以及动态、空或 complex sparse source 继续以稳定诊断失败关闭。
-- 新增可执行 sparse-indexing 示例，覆盖双目标行为、source-map 保留、越界拒绝与 fuzz 回归；生产代码行覆盖率为 91.24%（33,780/37,023）。
+- 新增可执行 sparse-indexing 示例，覆盖双目标行为、source-map 保留、越界拒绝与 fuzz 回归。
 
 ## 0.6.1
 

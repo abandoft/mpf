@@ -13,8 +13,6 @@
 - Target LIR v34 now carries an explicit runtime shape-call ABI, allowing renderers to serialize validated calls without recovering semantic storage or shape policy.
 - Source maps preserve every new sparse operation and zero-dimensional left- or right-division call site.
 - Added dual-target differential execution, generated-plan rejection, cross-layer corruption, fuzz, and architecture coverage for zero-extent sparse behavior.
-- The validation baseline now contains 268 C++ tests, 98 differential cases, 127 CTest entries, and 18 generated-runtime rejection tests.
-- Production source coverage is 91.69% (37,154 of 40,520 lines), and the existing sparse-solve performance budget passes without being widened.
 
 ## 0.6.7
 
@@ -29,10 +27,8 @@
 - Source maps preserve the original `.*` expression location for every sparse operand arrangement.
 - Complex, zero-extent, dynamically shaped, and incompatible sparse element-wise operations continue to fail closed with diagnostics instead of changing semantics.
 - Added an executable Matlab example that compares values, shape, and sparse storage across both output targets.
-- The validation baseline now contains 258 C++ tests, 97 differential cases, 124 CTest entries, and 16 generated-runtime rejection tests.
 - The Matlab fuzz corpus now exercises sparse element-wise syntax, operand directions, broadcasting, and runtime validation boundaries.
 - A dedicated sparse element-wise benchmark constrains compilation latency, throughput, peak arena memory, and generated-code size.
-- Production source coverage is 91.59% (36,732 of 40,103 lines), above the 85% required threshold.
 
 ## 0.6.6
 
@@ -110,7 +106,7 @@
 - Cross-layer verifiers reject corrupted sparse-index identity, arity, shape, type, storage, or inactive-state facts before emission.
 - `full` now accepts rank-two dense or CSC selections with dynamic or zero result extents when their storage representation is known.
 - Sparse assignment, more than two selectors, complex or sparse selectors, N-dimensional linear results, and dynamic, empty, or complex sparse sources continue to fail closed with stable diagnostics.
-- Added an executable sparse-indexing example with dual-target behavior, source-map preservation, out-of-bounds rejection, and fuzz regression coverage; production line coverage is 91.24% (33,780/37,023).
+- Added an executable sparse-indexing example with dual-target behavior, source-map preservation, out-of-bounds rejection, and fuzz regression coverage.
 
 ## 0.6.1
 
