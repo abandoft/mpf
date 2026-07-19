@@ -1060,6 +1060,242 @@ sparse_matrix<T> sparse_submatrix_selection(
 }
 template <typename T> struct is_sparse_matrix : std::false_type {};
 template <typename T> struct is_sparse_matrix<sparse_matrix<T>> : std::true_type {};
+)MPF";
+  output << R"MPF(template <typename Operand> constexpr std::int64_t sparse_logical_storage_code() {
+  if constexpr (is_sparse_matrix<std::decay_t<Operand>>::value) return 3;
+  else if constexpr (is_vector<std::decay_t<Operand>>::value) return 2;
+  else return 0;
+}
+template <std::size_t Rank>
+void validate_sparse_logical_shape(const std::array<std::size_t, Rank>& shape,
+                                   const std::string& name) {
+  static_assert(Rank == 0U || Rank == 2U,
+                "MPF Matlab sparse logical operand rank contract is invalid");
+  for (const auto extent : shape)
+    if (extent == std::numeric_limits<std::size_t>::max())
+      throw std::invalid_argument("MPF Matlab " + name +
+                                  " has an invalid static shape contract");
+}
+template <std::size_t LeftRank, std::size_t RightRank>
+void validate_sparse_logical_shapes(
+    const std::array<std::size_t, LeftRank>& left_shape,
+    const std::array<std::size_t, RightRank>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  validate_sparse_logical_shape(left_shape, "left sparse logical shape");
+  validate_sparse_logical_shape(right_shape, "right sparse logical shape");
+  validate_sparse_logical_shape(result_shape, "sparse logical result shape");
+  for (std::size_t axis = 0U; axis < 2U; ++axis) {
+    const auto left = [&] {
+      if constexpr (LeftRank == 0U) return std::size_t{1U};
+      else return left_shape[axis];
+    }();
+    const auto right = [&] {
+      if constexpr (RightRank == 0U) return std::size_t{1U};
+      else return right_shape[axis];
+    }();
+    const auto expected = left == right ? left : left == 1U ? right : left;
+    if ((left != right && left != 1U && right != 1U) || result_shape[axis] != expected)
+      throw std::invalid_argument(
+          "MPF Matlab sparse logical operands have incompatible sizes");
+  }
+}
+template <typename Operand, std::size_t Rank>
+std::vector<bool> sparse_logical_dense_input(
+    const Operand& operand, const std::array<std::size_t, Rank>& shape,
+    const std::string& name) {
+  std::vector<bool> result;
+  if constexpr (is_sparse_matrix<std::decay_t<Operand>>::value) {
+    static_assert(Rank == 2U, "MPF Matlab sparse logical CSC shape must be rank two");
+    validate_sparse_csc(operand, name);
+    if (operand.rows != shape[0] || operand.columns != shape[1])
+      throw std::invalid_argument("MPF Matlab " + name +
+                                  " disagrees with its static shape contract");
+  } else if constexpr (is_vector<std::decay_t<Operand>>::value) {
+    static_assert(Rank == 2U, "MPF Matlab sparse logical dense shape must be rank two");
+    std::vector<std::size_t> actual_shape;
+    selector_shape(operand, actual_shape);
+    if (actual_shape.size() == 1U) actual_shape.insert(actual_shape.begin(), 1U);
+    if (actual_shape != std::vector<std::size_t>{shape[0], shape[1]})
+      throw std::invalid_argument("MPF Matlab " + name +
+                                  " disagrees with its static shape contract");
+    const auto flattened = flatten_selector_column_major(operand);
+    result.reserve(flattened.size());
+    for (const auto& item : flattened) {
+      const auto numeric = static_cast<double>(item);
+      if (!std::isfinite(numeric))
+        throw std::invalid_argument("MPF Matlab " + name +
+                                    " must contain finite real or logical values");
+      result.push_back(numeric != 0.0);
+    }
+  } else {
+    static_assert(Rank == 0U && std::is_arithmetic_v<std::decay_t<Operand>>,
+                  "MPF Matlab sparse logical scalar must be arithmetic");
+    const auto numeric = static_cast<double>(operand);
+    if (!std::isfinite(numeric))
+      throw std::invalid_argument("MPF Matlab " + name +
+                                  " must be a finite real or logical scalar");
+    result.push_back(numeric != 0.0);
+  }
+  return result;
+}
+template <typename Operand, std::size_t Rank>
+bool sparse_logical_at(const Operand& operand, const std::vector<bool>& dense,
+                       const std::array<std::size_t, Rank>& shape,
+                       const std::size_t row, const std::size_t column) {
+  if constexpr (is_sparse_matrix<std::decay_t<Operand>>::value) {
+    const auto source_row = operand.rows == 1U ? 0U : row;
+    const auto source_column = operand.columns == 1U ? 0U : column;
+    return static_cast<bool>(sparse_value_at(operand, source_row, source_column));
+  } else if constexpr (is_vector<std::decay_t<Operand>>::value) {
+    const auto source_row = shape[0] == 1U ? 0U : row;
+    const auto source_column = shape[1] == 1U ? 0U : column;
+    return dense[source_row + source_column * shape[0]];
+  } else {
+    return dense.front();
+  }
+}
+template <typename Value>
+void sparse_logical_candidates(const sparse_matrix<Value>& matrix,
+                               const std::size_t column,
+                               const std::array<std::size_t, 2U>& result_shape,
+                               std::vector<std::size_t>& candidates) {
+  const auto source_column = matrix.columns == 1U ? 0U : column;
+  for (auto stored = matrix.column_pointers[source_column];
+       stored < matrix.column_pointers[source_column + 1U]; ++stored) {
+    const auto source_row = matrix.row_indices[stored];
+    if (matrix.rows == 1U && result_shape[0] != 1U) {
+      for (std::size_t row = 0U; row < result_shape[0]; ++row) candidates.push_back(row);
+    } else {
+      candidates.push_back(source_row);
+    }
+  }
+}
+inline void validate_sparse_logical_plan(
+    const std::int64_t operation, const std::int64_t policy,
+    const std::int64_t left_storage, const std::int64_t right_storage,
+    const std::int64_t result_storage, const std::int64_t expected_operation,
+    const std::int64_t expected_left_storage, const std::int64_t expected_right_storage) {
+  const auto expected_result = expected_operation == 2 ||
+                                       (expected_left_storage == 3 && expected_right_storage == 3)
+                                   ? 3
+                                   : 2;
+  const auto expected_policy = expected_result == 3 ? 1 : 2;
+  if (operation != expected_operation || policy != expected_policy ||
+      left_storage != expected_left_storage || right_storage != expected_right_storage ||
+      result_storage != expected_result ||
+      (expected_left_storage != 3 && expected_right_storage != 3))
+    throw std::invalid_argument("MPF Matlab sparse logical runtime plan is inconsistent");
+}
+template <typename Left, typename Right, std::size_t LeftRank, std::size_t RightRank>
+sparse_matrix<bool> sparse_logical_sparse_binary(
+    const Left& left, const Right& right,
+    const std::array<std::size_t, LeftRank>& left_shape,
+    const std::array<std::size_t, RightRank>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape, const bool logical_or) {
+  const auto left_dense = sparse_logical_dense_input(left, left_shape, "left logical operand");
+  const auto right_dense = sparse_logical_dense_input(right, right_shape, "right logical operand");
+  sparse_matrix<bool> result;
+  result.rows = result_shape[0]; result.columns = result_shape[1];
+  result.column_pointers.reserve(result.columns + 1U); result.column_pointers.push_back(0U);
+  for (std::size_t column = 0U; column < result.columns; ++column) {
+    std::vector<std::size_t> candidates;
+    if constexpr (is_sparse_matrix<std::decay_t<Left>>::value)
+      sparse_logical_candidates(left, column, result_shape, candidates);
+    if constexpr (is_sparse_matrix<std::decay_t<Right>>::value) {
+      if (logical_or || !is_sparse_matrix<std::decay_t<Left>>::value)
+        sparse_logical_candidates(right, column, result_shape, candidates);
+    }
+    std::sort(candidates.begin(), candidates.end());
+    candidates.erase(std::unique(candidates.begin(), candidates.end()), candidates.end());
+    for (const auto row : candidates) {
+      const auto left_value = sparse_logical_at(left, left_dense, left_shape, row, column);
+      const auto right_value = sparse_logical_at(right, right_dense, right_shape, row, column);
+      if (logical_or ? left_value || right_value : left_value && right_value) {
+        result.row_indices.push_back(row); result.values.push_back(true);
+      }
+    }
+    result.column_pointers.push_back(result.values.size());
+  }
+  validate_sparse_csc(result, "sparse logical result");
+  return result;
+}
+template <typename Value>
+sparse_matrix<bool> sparse_logical_not(
+    const sparse_matrix<Value>& value, const std::array<std::size_t, 2U>& input_shape,
+    const std::array<std::size_t, 2U>& result_shape, const std::int64_t operation,
+    const std::int64_t policy, const std::int64_t left_storage,
+    const std::int64_t right_storage, const std::int64_t result_storage) {
+  if (operation != 1 || policy != 1 || left_storage != 3 || right_storage != 0 ||
+      result_storage != 3 || input_shape != result_shape)
+    throw std::invalid_argument("MPF Matlab sparse logical NOT plan is inconsistent");
+  validate_sparse_logical_shape(input_shape, "sparse logical NOT input shape");
+  validate_sparse_csc(value, "sparse logical NOT operand");
+  if (value.rows != input_shape[0] || value.columns != input_shape[1])
+    throw std::invalid_argument(
+        "MPF Matlab sparse logical NOT operand disagrees with its shape plan");
+  sparse_matrix<bool> result;
+  result.rows = value.rows; result.columns = value.columns;
+  result.column_pointers.reserve(result.columns + 1U); result.column_pointers.push_back(0U);
+  for (std::size_t column = 0U; column < result.columns; ++column) {
+    auto stored = value.column_pointers[column];
+    const auto end = value.column_pointers[column + 1U];
+    for (std::size_t row = 0U; row < result.rows; ++row) {
+      if (stored < end && value.row_indices[stored] == row) { ++stored; continue; }
+      result.row_indices.push_back(row); result.values.push_back(true);
+    }
+    result.column_pointers.push_back(result.values.size());
+  }
+  validate_sparse_csc(result, "sparse logical NOT result");
+  return result;
+}
+template <typename Left, typename Right, std::size_t LeftRank, std::size_t RightRank>
+sparse_matrix<bool> sparse_logical_and(
+    const Left& left, const Right& right,
+    const std::array<std::size_t, LeftRank>& left_shape,
+    const std::array<std::size_t, RightRank>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape, const std::int64_t operation,
+    const std::int64_t policy, const std::int64_t left_storage,
+    const std::int64_t right_storage, const std::int64_t result_storage) {
+  constexpr auto expected_left = sparse_logical_storage_code<Left>();
+  constexpr auto expected_right = sparse_logical_storage_code<Right>();
+  static_assert(expected_left == 3 || expected_right == 3,
+                "MPF Matlab sparse logical AND requires a CSC operand");
+  validate_sparse_logical_plan(operation, policy, left_storage, right_storage, result_storage, 2,
+                               expected_left, expected_right);
+  validate_sparse_logical_shapes(left_shape, right_shape, result_shape);
+  return sparse_logical_sparse_binary(
+      left, right, left_shape, right_shape, result_shape, false);
+}
+template <typename Left, typename Right, std::size_t LeftRank, std::size_t RightRank>
+auto sparse_logical_or(
+    const Left& left, const Right& right,
+    const std::array<std::size_t, LeftRank>& left_shape,
+    const std::array<std::size_t, RightRank>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape, const std::int64_t operation,
+    const std::int64_t policy, const std::int64_t left_storage,
+    const std::int64_t right_storage, const std::int64_t result_storage) {
+  constexpr auto expected_left = sparse_logical_storage_code<Left>();
+  constexpr auto expected_right = sparse_logical_storage_code<Right>();
+  static_assert(expected_left == 3 || expected_right == 3,
+                "MPF Matlab sparse logical OR requires a CSC operand");
+  validate_sparse_logical_plan(operation, policy, left_storage, right_storage, result_storage, 3,
+                               expected_left, expected_right);
+  validate_sparse_logical_shapes(left_shape, right_shape, result_shape);
+  if constexpr (expected_left == 3 && expected_right == 3) {
+    return sparse_logical_sparse_binary(
+        left, right, left_shape, right_shape, result_shape, true);
+  } else {
+    const auto left_dense = sparse_logical_dense_input(left, left_shape, "left logical operand");
+    const auto right_dense = sparse_logical_dense_input(right, right_shape, "right logical operand");
+    std::vector<std::vector<bool>> result(result_shape[0],
+                                          std::vector<bool>(result_shape[1]));
+    for (std::size_t column = 0U; column < result_shape[1]; ++column)
+      for (std::size_t row = 0U; row < result_shape[0]; ++row)
+        result[row][column] = sparse_logical_at(left, left_dense, left_shape, row, column) ||
+                              sparse_logical_at(right, right_dense, right_shape, row, column);
+    return result;
+  }
+}
 struct sparse_replacement_payload {
   std::vector<std::size_t> shape;
   std::vector<double> values;

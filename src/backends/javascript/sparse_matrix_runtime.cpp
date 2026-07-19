@@ -455,6 +455,171 @@ function __mpf_sparse_times_sparse(leftValue, rightValue,
   return __mpf_make_sparse_csc(resultShape[0], resultShape[1],
                                result.columnPointers, result.rowIndices, result.values);
 }
+)MPF";
+  output << R"MPF(function __mpf_sparse_logical_shape(shape, storage, name) {
+  const expectedRank = storage === 0 ? 0 : 2;
+  if (!Array.isArray(shape) || shape.length !== expectedRank ||
+      shape.some(extent => !Number.isSafeInteger(extent) || extent < 0)) {
+    throw new RangeError(`MPF Matlab ${name} has an invalid static shape contract`);
+  }
+  return shape;
+}
+function __mpf_sparse_logical_validate_plan(operation, policy, leftStorage, rightStorage,
+                                            resultStorage, expectedOperation) {
+  if (operation !== expectedOperation ||
+      (leftStorage !== 0 && leftStorage !== 2 && leftStorage !== 3) ||
+      (rightStorage !== 0 && rightStorage !== 2 && rightStorage !== 3) ||
+      (resultStorage !== 2 && resultStorage !== 3) ||
+      leftStorage !== 3 && rightStorage !== 3) {
+    throw new RangeError('MPF Matlab sparse logical runtime plan is invalid');
+  }
+  const expectedStorage = operation === 2 || leftStorage === 3 && rightStorage === 3 ? 3 : 2;
+  const expectedPolicy = expectedStorage === 3 ? 1 : 2;
+  if (resultStorage !== expectedStorage || policy !== expectedPolicy) {
+    throw new RangeError('MPF Matlab sparse logical storage plan is inconsistent');
+  }
+}
+function __mpf_sparse_logical_validate_shapes(leftShape, rightShape, resultShape,
+                                              leftStorage, rightStorage) {
+  __mpf_sparse_logical_shape(leftShape, leftStorage, 'left sparse logical shape');
+  __mpf_sparse_logical_shape(rightShape, rightStorage, 'right sparse logical shape');
+  __mpf_sparse_logical_shape(resultShape, 2, 'sparse logical result shape');
+  for (let axis = 0; axis < 2; ++axis) {
+    const left = leftStorage === 0 ? 1 : leftShape[axis];
+    const right = rightStorage === 0 ? 1 : rightShape[axis];
+    const expected = left === right ? left : left === 1 ? right : left;
+    if ((left !== right && left !== 1 && right !== 1) || resultShape[axis] !== expected) {
+      throw new RangeError('MPF Matlab sparse logical operands have incompatible sizes');
+    }
+  }
+}
+function __mpf_sparse_logical_operand(value, shape, storage, name) {
+  if (storage === 3) {
+    const matrix = __mpf_validate_sparse_csc(value, name);
+    if (matrix.rows !== shape[0] || matrix.columns !== shape[1]) {
+      throw new RangeError(`MPF Matlab ${name} disagrees with its static shape contract`);
+    }
+    return { matrix, at: (row, column) =>
+      Boolean(__mpf_sparse_value_at(matrix, matrix.rows === 1 ? 0 : row,
+                                    matrix.columns === 1 ? 0 : column)) };
+  }
+  if (storage === 2) {
+    if (__mpf_issparse(value)) {
+      throw new TypeError(`MPF Matlab ${name} unexpectedly uses sparse storage`);
+    }
+    const actual = __mpf_matlab_runtime_shape(value, name);
+    const normalized = actual.length === 1 ? [1, actual[0]] : actual;
+    if (normalized.length !== 2 || normalized[0] !== shape[0] || normalized[1] !== shape[1]) {
+      throw new RangeError(`MPF Matlab ${name} disagrees with its static shape contract`);
+    }
+    const flattened = __mpf_flatten_column_major(value).map(item => {
+      if ((typeof item !== 'number' && typeof item !== 'boolean') ||
+          !Number.isFinite(Number(item))) {
+        throw new TypeError(`MPF Matlab ${name} must contain finite real or logical values`);
+      }
+      return Boolean(item);
+    });
+    return { at: (row, column) => flattened[(shape[0] === 1 ? 0 : row) +
+                                             (shape[1] === 1 ? 0 : column) * shape[0]] };
+  }
+  if ((typeof value !== 'number' && typeof value !== 'boolean') ||
+      !Number.isFinite(Number(value))) {
+    throw new TypeError(`MPF Matlab ${name} must be a finite real or logical scalar`);
+  }
+  return { at: () => Boolean(value) };
+}
+function __mpf_sparse_logical_candidates(matrix, column, resultShape, candidates) {
+  const sourceColumn = matrix.columns === 1 ? 0 : column;
+  for (let stored = matrix.columnPointers[sourceColumn];
+       stored < matrix.columnPointers[sourceColumn + 1]; ++stored) {
+    const sourceRow = matrix.rowIndices[stored];
+    if (matrix.rows === 1 && resultShape[0] !== 1) {
+      for (let row = 0; row < resultShape[0]; ++row) candidates.push(row);
+    } else {
+      candidates.push(sourceRow);
+    }
+  }
+}
+function __mpf_sparse_logical_sparse_result(left, right, resultShape, operation) {
+  const result = { columnPointers: [0], rowIndices: [], values: [] };
+  for (let column = 0; column < resultShape[1]; ++column) {
+    const candidates = [];
+    if (left.matrix !== undefined) {
+      __mpf_sparse_logical_candidates(left.matrix, column, resultShape, candidates);
+    }
+    if ((operation === 3 || left.matrix === undefined) && right.matrix !== undefined) {
+      __mpf_sparse_logical_candidates(right.matrix, column, resultShape, candidates);
+    }
+    candidates.sort((a, b) => a - b);
+    let previous = -1;
+    for (const row of candidates) {
+      if (row === previous) continue;
+      previous = row;
+      const value = operation === 2 ? left.at(row, column) && right.at(row, column)
+                                    : left.at(row, column) || right.at(row, column);
+      if (value) { result.rowIndices.push(row); result.values.push(true); }
+    }
+    result.columnPointers.push(result.values.length);
+  }
+  return __mpf_make_sparse_csc(resultShape[0], resultShape[1], result.columnPointers,
+                               result.rowIndices, result.values,
+                               __mpf_sparse_value_logical);
+}
+function __mpf_sparse_logical_not(value, inputShape, resultShape, operation, policy,
+                                  leftStorage, rightStorage, resultStorage) {
+  if (operation !== 1 || policy !== 1 || leftStorage !== 3 || rightStorage !== 0 ||
+      resultStorage !== 3 || !Array.isArray(inputShape) || inputShape.length !== 2 ||
+      !Array.isArray(resultShape) || resultShape.length !== 2 ||
+      inputShape[0] !== resultShape[0] || inputShape[1] !== resultShape[1]) {
+    throw new RangeError('MPF Matlab sparse logical NOT plan is inconsistent');
+  }
+  const operand = __mpf_sparse_logical_operand(
+    value, inputShape, leftStorage, 'sparse logical NOT operand');
+  const result = { columnPointers: [0], rowIndices: [], values: [] };
+  for (let column = 0; column < resultShape[1]; ++column) {
+    for (let row = 0; row < resultShape[0]; ++row) {
+      if (!operand.at(row, column)) { result.rowIndices.push(row); result.values.push(true); }
+    }
+    result.columnPointers.push(result.values.length);
+  }
+  return __mpf_make_sparse_csc(resultShape[0], resultShape[1], result.columnPointers,
+                               result.rowIndices, result.values,
+                               __mpf_sparse_value_logical);
+}
+function __mpf_sparse_logical_binary(leftValue, rightValue, leftShape, rightShape, resultShape,
+                                     operation, policy, leftStorage, rightStorage, resultStorage,
+                                     expectedOperation) {
+  __mpf_sparse_logical_validate_plan(operation, policy, leftStorage, rightStorage,
+                                     resultStorage, expectedOperation);
+  __mpf_sparse_logical_validate_shapes(
+    leftShape, rightShape, resultShape, leftStorage, rightStorage);
+  const left = __mpf_sparse_logical_operand(
+    leftValue, leftShape, leftStorage, 'left sparse logical operand');
+  const right = __mpf_sparse_logical_operand(
+    rightValue, rightShape, rightStorage, 'right sparse logical operand');
+  if (resultStorage === 3) {
+    return __mpf_sparse_logical_sparse_result(left, right, resultShape, operation);
+  }
+  const flattened = [];
+  for (let column = 0; column < resultShape[1]; ++column) {
+    for (let row = 0; row < resultShape[0]; ++row) {
+      flattened.push(left.at(row, column) || right.at(row, column));
+    }
+  }
+  return __mpf_build_column_major(flattened, resultShape);
+}
+function __mpf_sparse_logical_and(leftValue, rightValue, leftShape, rightShape, resultShape,
+                                  operation, policy, leftStorage, rightStorage, resultStorage) {
+  return __mpf_sparse_logical_binary(
+    leftValue, rightValue, leftShape, rightShape, resultShape, operation, policy,
+    leftStorage, rightStorage, resultStorage, 2);
+}
+function __mpf_sparse_logical_or(leftValue, rightValue, leftShape, rightShape, resultShape,
+                                 operation, policy, leftStorage, rightStorage, resultStorage) {
+  return __mpf_sparse_logical_binary(
+    leftValue, rightValue, leftShape, rightShape, resultShape, operation, policy,
+    leftStorage, rightStorage, resultStorage, 3);
+}
 function __mpf_sparse_product_size(rows, columns) {
   const size = rows * columns;
   if (!Number.isSafeInteger(size)) {
