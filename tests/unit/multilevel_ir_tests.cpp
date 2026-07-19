@@ -1153,6 +1153,182 @@ TEST_CASE("target LIR verifiers independently reject corrupted sparse constructi
   REQUIRE(!diagnostics.empty());
 }
 
+TEST_CASE("Matlab sparse index plans retain scalar and CSC selection contracts across layers") {
+  using Kind = mpf::detail::semantic::SparseIndexKind;
+  REQUIRE(!mpf::detail::semantic::valid_sparse_index_contract(
+      Kind::linear_selection, mpf::detail::ArrayStorageFormat::sparse_csc,
+      mpf::detail::ArrayStorageFormat::sparse_csc,
+      std::vector<std::size_t>{mpf::detail::dynamic_extent, 3U}, std::vector<std::size_t>{9U, 1U},
+      1U));
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "A = sparse([1 0 2; 0 3 0; 4 0 5]);\n"
+                              "linear_scalar = A(5);\n"
+                              "subscript_scalar = A(3, 1);\n"
+                              "linear = A([9 1; 5 7]);\n"
+                              "block = A([3 1], [3 1]);\n",
+                              "sparse_indexing.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  const auto count_kind = [&](const Kind kind) {
+    return std::count_if(analysis.semantics.expressions.begin(),
+                         analysis.semantics.expressions.end(),
+                         [&](const auto& facts) { return facts.sparse_index.kind == kind; });
+  };
+  REQUIRE(count_kind(Kind::linear_element) == 1);
+  REQUIRE(count_kind(Kind::subscript_element) == 1);
+  REQUIRE(count_kind(Kind::linear_selection) == 1);
+  REQUIRE(count_kind(Kind::submatrix_selection) == 1);
+  const auto hir_selection = std::find_if(
+      analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+      [](const auto& facts) { return facts.sparse_index.kind == Kind::linear_selection; });
+  REQUIRE(hir_selection != analysis.semantics.expressions.end());
+  REQUIRE(hir_selection->sparse_index.input_shape == std::vector<std::size_t>({3U, 3U}));
+  REQUIRE(hir_selection->sparse_index.result_shape == std::vector<std::size_t>({2U, 2U}));
+  REQUIRE(hir_selection->sparse_index.source_storage ==
+          mpf::detail::ArrayStorageFormat::sparse_csc);
+  REQUIRE(hir_selection->sparse_index.result_storage ==
+          mpf::detail::ArrayStorageFormat::sparse_csc);
+
+  auto contradictory_hir = analysis.semantics;
+  const auto corrupt_hir = std::find_if(
+      contradictory_hir.expressions.begin(), contradictory_hir.expressions.end(),
+      [](const auto& facts) { return facts.sparse_index.kind == Kind::linear_selection; });
+  REQUIRE(corrupt_hir != contradictory_hir.expressions.end());
+  corrupt_hir->sparse_index.result_storage = mpf::detail::ArrayStorageFormat::dense;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
+                                              "sparse-index-storage-mismatch")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-index-plan").empty());
+  const auto mir_selection =
+      std::find_if(mir.program.attributes.expressions.begin() + 1,
+                   mir.program.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.sparse_index.kind == Kind::linear_selection;
+                   });
+  REQUIRE(mir_selection != mir.program.attributes.expressions.end());
+  const auto mir_index = static_cast<std::size_t>(
+      std::distance(mir.program.attributes.expressions.begin(), mir_selection));
+  const auto& mir_expression = mir.program.expressions[mir_index];
+  REQUIRE(mir_selection->sparse_index.result_shape == mir_expression.shape_id);
+  REQUIRE(!mir_expression.children.empty());
+  const auto* mir_source =
+      mpf::detail::mir::expression(mir.program, mir_expression.children.front());
+  REQUIRE(mir_source != nullptr);
+  REQUIRE(mir_selection->sparse_index.input_shape == mir_source->shape_id);
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("sparse-index=3") != std::string::npos);
+
+  auto contradictory_mir = mir.program;
+  const auto corrupt_mir =
+      std::find_if(contradictory_mir.attributes.expressions.begin() + 1,
+                   contradictory_mir.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.sparse_index.kind == Kind::submatrix_selection;
+                   });
+  REQUIRE(corrupt_mir != contradictory_mir.attributes.expressions.end());
+  corrupt_mir->sparse_index.source_storage = mpf::detail::ArrayStorageFormat::dense;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-index-source-mismatch").empty());
+
+  auto optimized_mir = mir.program;
+  const auto optimization = mpf::detail::mir::run_default_optimization_pipeline(optimized_mir);
+  REQUIRE(optimization.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(optimized_mir, "optimized-sparse-index-plan").empty());
+  REQUIRE(mpf::detail::dump_mir(optimized_mir).find("sparse-index=4") != std::string::npos);
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  REQUIRE(
+      mpf::detail::mir::verify_alias_effects(mir.program, effects, "sparse-index-effects").empty());
+  for (std::size_t index = 1U; index < mir.program.expressions.size(); ++index) {
+    if (!mir.program.attributes.expressions[index].sparse_index.valid()) continue;
+    const auto* effect = effects.instruction(mir.program.expressions[index].instruction);
+    REQUIRE(effect != nullptr);
+    REQUIRE(mpf::detail::mir::has_effect(effect->effects, mpf::detail::mir::Effect::read));
+    REQUIRE(effect->writes.empty());
+  }
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("sparse-index 3 input [3,3] result [2,2]") !=
+          std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("sparse-index 4 input [3,3] result [2,2]") !=
+          std::string::npos);
+}
+
+TEST_CASE("target LIR verifiers independently reject corrupted sparse index plans") {
+  using Kind = mpf::detail::semantic::SparseIndexKind;
+  const auto configure_sparse_index = [](auto& expression) {
+    expression.kind = mpf::detail::ExpressionKind::index;
+    expression.inferred_type = mpf::detail::ValueType::list;
+    expression.element_type = mpf::detail::ValueType::real;
+    expression.element_numeric_type = mpf::detail::real_numeric_type;
+    expression.array_storage = mpf::detail::ArrayStorageFormat::sparse_csc;
+    expression.shape = {2U, 2U};
+    expression.column_major = true;
+    expression.index_base = 1U;
+    expression.index_selectors = {mpf::detail::semantic::IndexSelectorKind::numeric,
+                                  mpf::detail::semantic::IndexSelectorKind::numeric};
+    expression.index_extents = {mpf::detail::semantic::IndexExtentSource::none,
+                                mpf::detail::semantic::IndexExtentSource::none};
+    expression.sparse_index = {Kind::submatrix_selection,
+                               mpf::detail::ArrayStorageFormat::sparse_csc,
+                               mpf::detail::ArrayStorageFormat::sparse_csc,
+                               {3U, 3U},
+                               {2U, 2U}};
+    expression.children.resize(3U);
+    auto& source = expression.children[0];
+    source.kind = mpf::detail::ExpressionKind::identifier;
+    source.value = "matrix";
+    source.inferred_type = mpf::detail::ValueType::list;
+    source.element_type = mpf::detail::ValueType::real;
+    source.element_numeric_type = mpf::detail::real_numeric_type;
+    source.array_storage = mpf::detail::ArrayStorageFormat::sparse_csc;
+    source.shape = {3U, 3U};
+    for (std::size_t index = 1U; index < expression.children.size(); ++index) {
+      auto& selector = expression.children[index];
+      selector.kind = mpf::detail::ExpressionKind::list;
+      selector.inferred_type = mpf::detail::ValueType::list;
+      selector.element_type = mpf::detail::ValueType::integer;
+      selector.element_numeric_type = mpf::detail::integer_numeric_type;
+      selector.array_storage = mpf::detail::ArrayStorageFormat::dense;
+      selector.shape = {1U, 2U};
+    }
+  };
+
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.source_language = mpf::SourceLanguage::matlab;
+  javascript.statements.resize(1U);
+  configure_sparse_index(javascript.statements.front().expression);
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript.statements.front().expression.sparse_index.result_shape[0] = 3U;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.source_language = mpf::SourceLanguage::matlab;
+  cpp.statements.resize(1U);
+  configure_sparse_index(cpp.statements.front().expression);
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  auto complex_cpp = cpp;
+  complex_cpp.statements.front().expression.children.front().element_numeric_type =
+      mpf::detail::complex_numeric_type;
+  mpf::detail::cpp::verify_lir_representation(complex_cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  cpp.statements.front().expression.sparse_index.source_storage =
+      mpf::detail::ArrayStorageFormat::dense;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+}
+
 TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   using Operation = mpf::detail::semantic::MatrixOperation;
   using Solve = mpf::detail::semantic::MatrixSolveKind;
@@ -1781,7 +1957,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v14") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v16") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -1792,7 +1968,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v20") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v22") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -3261,9 +3437,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v26") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v28") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v26") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v28") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
