@@ -1309,16 +1309,6 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                    "sparse matrix multiplication currently requires finite real operands");
           return facts.inferred_type = ValueType::unknown;
         }
-        const bool zero_extent = std::find(left_facts.shape.begin(), left_facts.shape.end(), 0U) !=
-                                     left_facts.shape.end() ||
-                                 std::find(right_facts.shape.begin(), right_facts.shape.end(),
-                                           0U) != right_facts.shape.end();
-        if (zero_extent) {
-          diagnose(expression.location.line, "MPF2054",
-                   "sparse matrix multiplication with zero extents requires the future "
-                   "shape-bearing sparse ABI");
-          return facts.inferred_type = ValueType::unknown;
-        }
       }
       if (storage_policy == semantic::MatrixStoragePolicy::none ||
           result_storage == ArrayStorageFormat::none) {
