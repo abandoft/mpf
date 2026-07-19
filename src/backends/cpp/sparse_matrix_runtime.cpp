@@ -786,7 +786,11 @@ template <typename T> std::size_t nnz(const sparse_matrix<T>& matrix) {
 template <typename T> std::size_t nnz(const T& value) {
   if constexpr (is_vector<std::decay_t<T>>::value) {
     std::size_t count = 0U;
-    for (const auto& item : value) count += nnz(item);
+    if constexpr (std::is_same_v<std::decay_t<T>, std::vector<bool>>) {
+      for (const bool item : value) count += item ? 1U : 0U;
+    } else {
+      for (const auto& item : value) count += nnz(item);
+    }
     return count;
   } else {
     static_assert(std::is_arithmetic_v<std::decay_t<T>>,
