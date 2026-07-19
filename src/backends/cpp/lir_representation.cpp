@@ -48,6 +48,19 @@ semantic::SparseIndexKind expected_sparse_index_kind(const lir::Expression& expr
                           : semantic::SparseIndexKind::submatrix_selection);
 }
 
+semantic::SparseReshapeKind expected_sparse_reshape_kind(
+    const lir::Expression& expression) noexcept {
+  if (expression.kind != ExpressionKind::call || expression.children.size() < 3U) {
+    return semantic::SparseReshapeKind::none;
+  }
+  const auto& callee = expression.children.front();
+  const auto& source = expression.children[1];
+  return callee.binding == BindingKind::builtin && callee.intrinsic == IntrinsicId::reshape &&
+                 source.array_storage == ArrayStorageFormat::sparse_csc
+             ? semantic::SparseReshapeKind::column_major_2d
+             : semantic::SparseReshapeKind::none;
+}
+
 void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation location,
                std::string message) {
   diagnostics.push_back({DiagnosticSeverity::error, "MPF0008", std::move(message), location});
@@ -446,6 +459,52 @@ bool valid_sparse_construction(const lir::Expression& expression) noexcept {
                    sparse.reserve_hint == 0U);
 }
 
+bool valid_sparse_reshape(const lir::Expression& expression) noexcept {
+  const auto& sparse = expression.sparse_reshape;
+  if (sparse.kind != expected_sparse_reshape_kind(expression)) return false;
+  if (!sparse.valid()) {
+    return sparse.dimension_form == semantic::SparseReshapeDimensionForm::none &&
+           sparse.inference == semantic::SparseReshapeInference::none &&
+           sparse.inferred_axis == 0U && sparse.source_storage == ArrayStorageFormat::none &&
+           sparse.result_storage == ArrayStorageFormat::none && sparse.input_shape.empty() &&
+           sparse.requested_shape.empty() && sparse.result_shape.empty();
+  }
+  const auto& source = expression.children[1];
+  const auto expected_form = expression.children.size() == 3U
+                                 ? semantic::SparseReshapeDimensionForm::size_vector
+                                 : semantic::SparseReshapeDimensionForm::dimension_list;
+  std::size_t empty_dimensions = 0U;
+  std::size_t empty_axis = 0U;
+  if (expected_form == semantic::SparseReshapeDimensionForm::dimension_list) {
+    for (std::size_t child = 2U; child < expression.children.size(); ++child) {
+      const auto& dimension = expression.children[child];
+      if (dimension.kind == ExpressionKind::list && dimension.children.empty()) {
+        empty_axis = child - 2U;
+        ++empty_dimensions;
+      }
+    }
+  }
+  const auto expected_inference = empty_dimensions == 1U
+                                      ? semantic::SparseReshapeInference::one_dimension
+                                      : semantic::SparseReshapeInference::none;
+  return source.inferred_type == ValueType::list && source.element_type == ValueType::real &&
+         source.element_numeric_type == real_numeric_type &&
+         expression.inferred_type == ValueType::list &&
+         expression.element_type == ValueType::real &&
+         expression.element_numeric_type == real_numeric_type && expression.column_major &&
+         sparse.dimension_form == expected_form && empty_dimensions <= 1U &&
+         sparse.inference == expected_inference &&
+         (expected_inference == semantic::SparseReshapeInference::none ||
+          sparse.inferred_axis == empty_axis) &&
+         sparse.input_shape == source.shape && sparse.source_storage == source.array_storage &&
+         sparse.result_shape == expression.shape &&
+         sparse.result_storage == expression.array_storage &&
+         semantic::valid_sparse_reshape_contract(
+             sparse.kind, sparse.dimension_form, sparse.inference, sparse.inferred_axis,
+             sparse.source_storage, sparse.result_storage, sparse.input_shape,
+             sparse.requested_shape, sparse.result_shape);
+}
+
 bool valid_broadcast_plan(const lir::Expression& expression) noexcept {
   const auto& plan = expression.broadcast;
   if (!plan.valid) {
@@ -555,7 +614,8 @@ lir::CallForm call_form(const lir::Expression& expression) noexcept {
     return lir::CallForm::present;
   }
   if (callee.intrinsic == IntrinsicId::reshape && expression.children.size() >= 3) {
-    return lir::CallForm::reshape;
+    return expression.sparse_reshape.valid() ? lir::CallForm::matlab_sparse_reshape
+                                             : lir::CallForm::reshape;
   }
   if (callee.intrinsic == IntrinsicId::matlab_sparse && expression.sparse_construction.valid()) {
     return lir::CallForm::matlab_sparse;
@@ -835,6 +895,9 @@ lir::ExpressionPlan expected_expression_plan(
         result.input_shape = expression.children[1].shape;
         result.result_shape = expression.shape;
       }
+      if (result.call == lir::CallForm::matlab_sparse_reshape) {
+        result.sparse_reshape = expression.sparse_reshape;
+      }
       result.call_arguments.reserve(expression.argument_transfers.size());
       for (const auto transfer : expression.argument_transfers) {
         lir::CallArgumentPlan argument;
@@ -977,6 +1040,15 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.sparse_index.result_storage != right.sparse_index.result_storage ||
       left.sparse_index.input_shape != right.sparse_index.input_shape ||
       left.sparse_index.result_shape != right.sparse_index.result_shape ||
+      left.sparse_reshape.kind != right.sparse_reshape.kind ||
+      left.sparse_reshape.dimension_form != right.sparse_reshape.dimension_form ||
+      left.sparse_reshape.inference != right.sparse_reshape.inference ||
+      left.sparse_reshape.inferred_axis != right.sparse_reshape.inferred_axis ||
+      left.sparse_reshape.source_storage != right.sparse_reshape.source_storage ||
+      left.sparse_reshape.result_storage != right.sparse_reshape.result_storage ||
+      left.sparse_reshape.input_shape != right.sparse_reshape.input_shape ||
+      left.sparse_reshape.requested_shape != right.sparse_reshape.requested_shape ||
+      left.sparse_reshape.result_shape != right.sparse_reshape.result_shape ||
       left.call != right.call || left.evaluation != right.evaluation ||
       left.call_value != right.call_value || left.call_outcome != right.call_outcome ||
       left.call_arguments.size() != right.call_arguments.size() || left.index != right.index ||
@@ -1238,6 +1310,9 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
   }
   if (!valid_sparse_construction(expression)) {
     add_error(diagnostics, expression.location, "cpp LIR sparse-construction plan is inconsistent");
+  }
+  if (!valid_sparse_reshape(expression)) {
+    add_error(diagnostics, expression.location, "cpp LIR sparse-reshape plan is inconsistent");
   }
   if (!same_plan(expression.plan,
                  expected_expression_plan(expression, emission, context, source_language,
