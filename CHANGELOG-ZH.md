@@ -1,3 +1,21 @@
+## 0.6.7
+
+- Matlab 稀疏矩阵现在可在非空、静态 shape、finite-real rank-2 合同内执行 compatible-size `.*` 逐元素乘法。
+- 支持 sparse×scalar、scalar×sparse、sparse×dense、dense×sparse 和 sparse×sparse 五种操作数组合。
+- singleton 行、列维度会按照 Matlab compatible-array-size 规则执行隐式扩展。
+- 所有受支持的稀疏逐元素乘法都会保持计算后的 shape，并返回 canonical CSC 存储。
+- JavaScript 与 C++17 使用彼此独立、由非零项驱动的 kernel，不会把 sparse operand 物化为 dense matrix。
+- sparse×sparse 直接归并 CSC 列；mixed product 只访问已存储的稀疏项及对应 dense value。
+- exact-zero 乘积（包括下溢产生的零）会从结果 CSC 中删除。
+- 生成 runtime 会以稳定错误拒绝损坏的 CSC、矛盾的 shape plan、非有限输入与非有限结果。
+- source map 会为全部稀疏 operand 组合保留原始 `.*` 表达式位置。
+- complex、零 extent、动态 shape 或不兼容的稀疏逐元素运算继续失败关闭，不会静默改变语义。
+- 新增可执行 Matlab 示例，在两个输出目标间比较数值、shape 与稀疏存储。
+- 验证基线现包含 258 项 C++ 测试、97 个差分 case、124 项 CTest 和 16 项生成 runtime 拒错测试。
+- Matlab fuzz corpus 现覆盖稀疏逐元素语法、操作数方向、广播与 runtime 验证边界。
+- 新增独立 sparse element-wise benchmark，约束编译延迟、吞吐、arena 峰值与生成代码大小。
+- 生产源码覆盖率为 91.59%（36,732/40,103 行），高于 85% 硬门槛。
+
 ## 0.6.6
 
 - Matlab 稀疏矩阵现在支持 `A * factor` 与 `factor * A` 两个方向的标量乘法。

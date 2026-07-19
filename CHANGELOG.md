@@ -1,3 +1,21 @@
+## 0.6.7
+
+- Matlab sparse matrices now support compatible-size element-wise multiplication with `.*` within the nonempty, statically shaped, finite-real rank-two contract.
+- Supported operand forms cover sparse-by-scalar, scalar-by-sparse, sparse-by-dense, dense-by-sparse, and sparse-by-sparse products.
+- Singleton row and column dimensions are expanded according to Matlab compatible-array-size rules.
+- Sparse element-wise products preserve the computed shape and return canonical CSC storage for every supported operand form.
+- JavaScript and C++17 use independent nonzero-driven kernels that avoid materializing sparse operands as dense matrices.
+- Sparse-by-sparse products merge CSC columns directly, while mixed products inspect only stored sparse entries and the corresponding dense values.
+- Exact-zero products, including cancellations caused by underflow, are removed from the resulting CSC matrix.
+- Generated runtimes reject malformed CSC values, inconsistent shape plans, nonfinite inputs, and nonfinite results with stable errors.
+- Source maps preserve the original `.*` expression location for every sparse operand arrangement.
+- Complex, zero-extent, dynamically shaped, and incompatible sparse element-wise operations continue to fail closed with diagnostics instead of changing semantics.
+- Added an executable Matlab example that compares values, shape, and sparse storage across both output targets.
+- The validation baseline now contains 258 C++ tests, 97 differential cases, 124 CTest entries, and 16 generated-runtime rejection tests.
+- The Matlab fuzz corpus now exercises sparse element-wise syntax, operand directions, broadcasting, and runtime validation boundaries.
+- A dedicated sparse element-wise benchmark constrains compilation latency, throughput, peak arena memory, and generated-code size.
+- Production source coverage is 91.59% (36,732 of 40,103 lines), above the 85% required threshold.
+
 ## 0.6.6
 
 - Matlab sparse matrices can now be multiplied by a scalar on either side with `A * factor` and `factor * A`.
