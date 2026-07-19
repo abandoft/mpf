@@ -1592,6 +1592,45 @@ TEST_CASE("target LIR verifiers independently reject corrupted sparse constructi
   cpp.statements.front().expression.sparse_construction.result_shape[1] = 5U;
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
+
+  const auto configure_logical_sparse_call = [&](auto& expression) {
+    configure_sparse_call(expression);
+    expression.element_type = mpf::detail::ValueType::boolean;
+    expression.element_numeric_type = mpf::detail::logical_numeric_type;
+    expression.sparse_construction.value_domain = mpf::detail::semantic::SparseValueDomain::logical;
+    expression.sparse_construction.duplicate_policy =
+        mpf::detail::semantic::SparseDuplicatePolicy::logical_any;
+    expression.children[3].element_type = mpf::detail::ValueType::boolean;
+    expression.children[3].element_numeric_type = mpf::detail::logical_numeric_type;
+  };
+
+  mpf::detail::javascript::lir::SemanticProgram logical_javascript;
+  logical_javascript.source_language = mpf::SourceLanguage::matlab;
+  logical_javascript.statements.resize(1U);
+  configure_logical_sparse_call(logical_javascript.statements.front().expression);
+  mpf::detail::javascript::plan_lir_representation(logical_javascript);
+  diagnostics.clear();
+  mpf::detail::javascript::verify_lir_representation(logical_javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  REQUIRE(logical_javascript.statements.front().expression.plan.runtime_integer_arguments ==
+          std::vector<std::int64_t>({2, 2}));
+  logical_javascript.statements.front().expression.plan.runtime_integer_arguments[1] = 1;
+  mpf::detail::javascript::verify_lir_representation(logical_javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram logical_cpp;
+  logical_cpp.source_language = mpf::SourceLanguage::matlab;
+  logical_cpp.statements.resize(1U);
+  configure_logical_sparse_call(logical_cpp.statements.front().expression);
+  mpf::detail::cpp::plan_lir_representation(logical_cpp);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(logical_cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  REQUIRE(logical_cpp.statements.front().expression.plan.token ==
+          "mpf_runtime::sparse_logical_any");
+  logical_cpp.statements.front().expression.plan.token = "mpf_runtime::sparse";
+  mpf::detail::cpp::verify_lir_representation(logical_cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
 }
 
 TEST_CASE("Matlab logical sparse construction keeps value and duplicate policies typed") {
