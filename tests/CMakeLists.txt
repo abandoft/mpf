@@ -333,6 +333,9 @@ if(TARGET mpfc)
     matlab-sparse-scalar-nonfinite tests/fixtures/matlab_sparse_scalar_nonfinite.m
     "finite real" matlab)
   mpf_add_generated_runtime_failure_test(
+    matlab-sparse-scalar-overflow tests/fixtures/matlab_sparse_scalar_overflow.m
+    "sparse scalar product produced a nonfinite value" matlab)
+  mpf_add_generated_runtime_failure_test(
     python-true-division-by-zero tests/fixtures/python_true_division_by_zero.py
     "division by zero" python)
   mpf_add_generated_runtime_failure_test(
