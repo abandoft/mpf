@@ -1345,6 +1345,7 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
       result.indexed_mutation = statement.indexed_mutation;
       result.mutation_input_shape = statement.mutation_input_shape;
       result.mutation_result_shape = statement.mutation_result_shape;
+      result.sparse_mutation = statement.sparse_mutation;
       break;
     case StatementKind::print:
       result.form = !statement.has_expression ? lir::StatementForm::print_empty
@@ -1451,6 +1452,17 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
       left.indexed_mutation.axis != right.indexed_mutation.axis ||
       left.mutation_input_shape != right.mutation_input_shape ||
       left.mutation_result_shape != right.mutation_result_shape ||
+      left.sparse_mutation.kind != right.sparse_mutation.kind ||
+      left.sparse_mutation.replacement != right.sparse_mutation.replacement ||
+      left.sparse_mutation.duplicate_policy != right.sparse_mutation.duplicate_policy ||
+      left.sparse_mutation.zero_policy != right.sparse_mutation.zero_policy ||
+      left.sparse_mutation.source_storage != right.sparse_mutation.source_storage ||
+      left.sparse_mutation.replacement_storage != right.sparse_mutation.replacement_storage ||
+      left.sparse_mutation.result_storage != right.sparse_mutation.result_storage ||
+      left.sparse_mutation.input_shape != right.sparse_mutation.input_shape ||
+      left.sparse_mutation.selection_shape != right.sparse_mutation.selection_shape ||
+      left.sparse_mutation.replacement_shape != right.sparse_mutation.replacement_shape ||
+      left.sparse_mutation.result_shape != right.sparse_mutation.result_shape ||
       left.character_selector != right.character_selector || left.targets != right.targets ||
       left.target_accesses != right.target_accesses ||
       left.assignment_leaves.size() != right.assignment_leaves.size() ||
@@ -1536,8 +1548,63 @@ void verify_statements(const std::vector<lir::Statement>& statements,
         add_error(diagnostics, {statement.line, 1},
                   "cpp LIR indexed mutation contract is inconsistent");
       }
+      const auto& sparse = statement.sparse_mutation;
+      const bool expected_sparse = statement.target_expression.sparse_index.valid();
+      if (expected_sparse != sparse.valid()) {
+        add_error(diagnostics, {statement.line, 1},
+                  "cpp LIR sparse-mutation identity is inconsistent");
+      } else if (sparse.valid()) {
+        const bool deletion =
+            statement.indexed_mutation.kind == semantic::IndexedMutationKind::erase;
+        const auto expected_kind = deletion
+                                       ? (statement.indexed_mutation.linear
+                                              ? semantic::SparseMutationKind::linear_deletion
+                                              : semantic::SparseMutationKind::axis_deletion)
+                                       : (statement.indexed_mutation.linear
+                                              ? semantic::SparseMutationKind::linear_assignment
+                                              : semantic::SparseMutationKind::subscript_assignment);
+        const auto replacement_storage =
+            deletion ? ArrayStorageFormat::none : statement.expression.array_storage;
+        if (sparse.kind != expected_kind ||
+            sparse.input_shape != statement.mutation_input_shape ||
+            sparse.result_shape != statement.mutation_result_shape ||
+            sparse.selection_shape != statement.target_expression.sparse_index.result_shape ||
+            sparse.replacement_storage != replacement_storage ||
+            sparse.replacement_shape !=
+                (deletion ? std::vector<std::size_t>{} : statement.expression.shape) ||
+            !semantic::valid_sparse_mutation_contract(
+                sparse.kind, sparse.replacement, sparse.duplicate_policy, sparse.zero_policy,
+                sparse.source_storage, sparse.replacement_storage, sparse.result_storage,
+                sparse.input_shape, sparse.selection_shape, sparse.replacement_shape,
+                sparse.result_shape, statement.target_expression.children.size() - 1U,
+                statement.indexed_mutation)) {
+          add_error(diagnostics, {statement.line, 1},
+                    "cpp LIR sparse mutation contract is inconsistent");
+        }
+      } else if (sparse.replacement != semantic::SparseReplacementKind::none ||
+                 sparse.duplicate_policy != semantic::SparseDuplicateWritePolicy::none ||
+                 sparse.zero_policy != semantic::SparseZeroWritePolicy::none ||
+                 sparse.source_storage != ArrayStorageFormat::none ||
+                 sparse.replacement_storage != ArrayStorageFormat::none ||
+                 sparse.result_storage != ArrayStorageFormat::none ||
+                 !sparse.input_shape.empty() || !sparse.selection_shape.empty() ||
+                 !sparse.replacement_shape.empty() || !sparse.result_shape.empty()) {
+        add_error(diagnostics, {statement.line, 1},
+                  "cpp LIR inactive sparse mutation retains state");
+      }
     } else if (statement.indexed_mutation.valid() || !statement.mutation_input_shape.empty() ||
-               !statement.mutation_result_shape.empty()) {
+               !statement.mutation_result_shape.empty() || statement.sparse_mutation.valid() ||
+               statement.sparse_mutation.replacement != semantic::SparseReplacementKind::none ||
+               statement.sparse_mutation.duplicate_policy !=
+                   semantic::SparseDuplicateWritePolicy::none ||
+               statement.sparse_mutation.zero_policy != semantic::SparseZeroWritePolicy::none ||
+               statement.sparse_mutation.source_storage != ArrayStorageFormat::none ||
+               statement.sparse_mutation.replacement_storage != ArrayStorageFormat::none ||
+               statement.sparse_mutation.result_storage != ArrayStorageFormat::none ||
+               !statement.sparse_mutation.input_shape.empty() ||
+               !statement.sparse_mutation.selection_shape.empty() ||
+               !statement.sparse_mutation.replacement_shape.empty() ||
+               !statement.sparse_mutation.result_shape.empty()) {
       add_error(diagnostics, {statement.line, 1},
                 "cpp LIR non-indexed statement carries a mutation contract");
     }
