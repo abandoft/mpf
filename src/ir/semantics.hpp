@@ -373,8 +373,7 @@ template <typename Shape>
       kind == SparseIndexKind::linear_element || kind == SparseIndexKind::linear_selection;
   if (selector_count != (linear ? 1U : 2U)) return false;
   if (sparse_index_returns_scalar(kind)) {
-    return input_shape[0] != 0U && input_shape[1] != 0U &&
-           result_storage == ArrayStorageFormat::none && result_shape.empty();
+    return result_storage == ArrayStorageFormat::none && result_shape.empty();
   }
   return result_storage == ArrayStorageFormat::sparse_csc && result_shape.size() == 2U;
 }
@@ -542,8 +541,7 @@ template <typename Shape>
   constexpr auto dynamic = std::numeric_limits<std::size_t>::max();
   if (kind == SparseMutationKind::none || source_storage != ArrayStorageFormat::sparse_csc ||
       result_storage != ArrayStorageFormat::sparse_csc || input_shape.size() != 2U ||
-      result_shape.size() != 2U || input_shape[0] == 0U || input_shape[1] == 0U ||
-      input_shape[0] == dynamic || input_shape[1] == dynamic ||
+      result_shape.size() != 2U || input_shape[0] == dynamic || input_shape[1] == dynamic ||
       selector_count != (sparse_mutation_is_linear(kind) ? 1U : 2U) ||
       mutation.linear != sparse_mutation_is_linear(kind) ||
       !valid_indexed_mutation_shapes(mutation, input_shape, result_shape) ||
