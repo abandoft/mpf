@@ -196,6 +196,177 @@ function __mpf_sparse_scale_left(scalarValue, matrixValue) {
   return __mpf_sparse_scale(matrixValue, scalarValue,
                             'right sparse scalar-product operand', 'left scalar-product operand');
 }
+function __mpf_sparse_times_shape(shape, name, scalar = false) {
+  if (!Array.isArray(shape) || (scalar ? shape.length !== 0 : shape.length !== 2) ||
+      shape.some(extent => !Number.isSafeInteger(extent) || extent <= 0)) {
+    throw new RangeError(`MPF Matlab ${name} has an invalid static shape contract`);
+  }
+  return shape;
+}
+function __mpf_sparse_times_value(value, name) {
+  if ((typeof value !== 'number' && typeof value !== 'boolean') ||
+      !Number.isFinite(Number(value))) {
+    throw new TypeError(`MPF Matlab ${name} must be finite real or logical`);
+  }
+  return Number(value);
+}
+function __mpf_sparse_times_dense_input(value, plannedShape, name) {
+  const actual = __mpf_matlab_runtime_shape(value, name);
+  const normalized = actual.length === 1 ? [1, actual[0]] : actual;
+  if (normalized.length !== 2 || normalized[0] !== plannedShape[0] ||
+      normalized[1] !== plannedShape[1]) {
+    throw new RangeError(`MPF Matlab ${name} disagrees with its static shape contract`);
+  }
+  const flattened = __mpf_flatten_column_major(value);
+  for (const item of flattened) __mpf_sparse_times_value(item, name);
+  return flattened;
+}
+function __mpf_sparse_times_validate_plan(leftShape, rightShape, resultShape,
+                                          leftScalar, rightScalar) {
+  __mpf_sparse_times_shape(leftShape, 'left sparse-times shape', leftScalar);
+  __mpf_sparse_times_shape(rightShape, 'right sparse-times shape', rightScalar);
+  __mpf_sparse_times_shape(resultShape, 'sparse-times result shape');
+  for (let axis = 0; axis < 2; ++axis) {
+    const left = leftScalar ? 1 : leftShape[axis];
+    const right = rightScalar ? 1 : rightShape[axis];
+    if ((left !== right && left !== 1 && right !== 1) ||
+        resultShape[axis] !== Math.max(left, right)) {
+      throw new RangeError('MPF Matlab sparse element-wise multiplication shape mismatch');
+    }
+  }
+}
+function __mpf_sparse_times_sparse_operand(value, plannedShape, name) {
+  const matrix = __mpf_validate_sparse_csc(value, name);
+  if (matrix.rows !== plannedShape[0] || matrix.columns !== plannedShape[1]) {
+    throw new RangeError(`MPF Matlab ${name} disagrees with its static shape contract`);
+  }
+  return matrix;
+}
+function __mpf_sparse_times_emit(result, row, numeric) {
+  if (!Number.isFinite(numeric)) {
+    throw new RangeError('MPF Matlab sparse element-wise multiplication produced a nonfinite value');
+  }
+  if (numeric !== 0) { result.rowIndices.push(row); result.values.push(numeric); }
+}
+function __mpf_sparse_times_one_sparse(matrix, otherAt, resultShape) {
+  const result = { columnPointers: [0], rowIndices: [], values: [] };
+  for (let column = 0; column < resultShape[1]; ++column) {
+    const sourceColumn = matrix.columns === 1 ? 0 : column;
+    for (let index = matrix.columnPointers[sourceColumn];
+         index < matrix.columnPointers[sourceColumn + 1]; ++index) {
+      const sourceRow = matrix.rowIndices[index];
+      if (matrix.rows === 1 && resultShape[0] !== 1) {
+        for (let row = 0; row < resultShape[0]; ++row) {
+          __mpf_sparse_times_emit(result, row, matrix.values[index] * otherAt(row, column));
+        }
+      } else {
+        __mpf_sparse_times_emit(
+          result, sourceRow, matrix.values[index] * otherAt(sourceRow, column));
+      }
+    }
+    result.columnPointers.push(result.values.length);
+  }
+  return __mpf_make_sparse_csc(resultShape[0], resultShape[1],
+                               result.columnPointers, result.rowIndices, result.values);
+}
+function __mpf_sparse_times_sparse_columns(left, right, leftColumn, rightColumn,
+                                            resultRows, result) {
+  let leftIndex = left.columnPointers[leftColumn];
+  const leftEnd = left.columnPointers[leftColumn + 1];
+  let rightIndex = right.columnPointers[rightColumn];
+  const rightEnd = right.columnPointers[rightColumn + 1];
+  if (left.rows === 1 || right.rows === 1) {
+    const leftBroadcast = left.rows === 1;
+    const rightBroadcast = right.rows === 1;
+    const leftValue = leftIndex < leftEnd ? left.values[leftIndex] : undefined;
+    const rightValue = rightIndex < rightEnd ? right.values[rightIndex] : undefined;
+    if (leftBroadcast && rightBroadcast) {
+      if (leftValue !== undefined && rightValue !== undefined) {
+        for (let row = 0; row < resultRows; ++row) {
+          __mpf_sparse_times_emit(result, row, leftValue * rightValue);
+        }
+      }
+      return;
+    }
+    if (leftBroadcast) {
+      if (leftValue === undefined) return;
+      for (; rightIndex < rightEnd; ++rightIndex) {
+        __mpf_sparse_times_emit(result, right.rowIndices[rightIndex],
+                                leftValue * right.values[rightIndex]);
+      }
+      return;
+    }
+    if (rightValue === undefined) return;
+    for (; leftIndex < leftEnd; ++leftIndex) {
+      __mpf_sparse_times_emit(result, left.rowIndices[leftIndex],
+                              left.values[leftIndex] * rightValue);
+    }
+    return;
+  }
+  while (leftIndex < leftEnd && rightIndex < rightEnd) {
+    const leftRow = left.rowIndices[leftIndex]; const rightRow = right.rowIndices[rightIndex];
+    if (leftRow < rightRow) { ++leftIndex; continue; }
+    if (rightRow < leftRow) { ++rightIndex; continue; }
+    __mpf_sparse_times_emit(result, leftRow,
+                            left.values[leftIndex] * right.values[rightIndex]);
+    ++leftIndex; ++rightIndex;
+  }
+}
+function __mpf_sparse_times_scalar_right(matrixValue, scalarValue,
+                                         leftShape, rightShape, resultShape) {
+  __mpf_sparse_times_validate_plan(leftShape, rightShape, resultShape, false, true);
+  const matrix = __mpf_sparse_times_sparse_operand(
+    matrixValue, leftShape, 'left sparse element-wise operand');
+  const scalar = __mpf_sparse_times_value(scalarValue, 'right element-wise scalar');
+  return __mpf_sparse_times_one_sparse(matrix, () => scalar, resultShape);
+}
+function __mpf_sparse_times_scalar_left(scalarValue, matrixValue,
+                                        leftShape, rightShape, resultShape) {
+  __mpf_sparse_times_validate_plan(leftShape, rightShape, resultShape, true, false);
+  const scalar = __mpf_sparse_times_value(scalarValue, 'left element-wise scalar');
+  const matrix = __mpf_sparse_times_sparse_operand(
+    matrixValue, rightShape, 'right sparse element-wise operand');
+  return __mpf_sparse_times_one_sparse(matrix, () => scalar, resultShape);
+}
+function __mpf_sparse_times_dense(sparseValue, denseValue,
+                                  leftShape, rightShape, resultShape) {
+  __mpf_sparse_times_validate_plan(leftShape, rightShape, resultShape, false, false);
+  const matrix = __mpf_sparse_times_sparse_operand(
+    sparseValue, leftShape, 'left sparse element-wise operand');
+  const dense = __mpf_sparse_times_dense_input(
+    denseValue, rightShape, 'right dense element-wise operand');
+  const at = (row, column) => dense[(rightShape[0] === 1 ? 0 : row) +
+                                    (rightShape[1] === 1 ? 0 : column) * rightShape[0]];
+  return __mpf_sparse_times_one_sparse(matrix, at, resultShape);
+}
+function __mpf_dense_times_sparse(denseValue, sparseValue,
+                                  leftShape, rightShape, resultShape) {
+  __mpf_sparse_times_validate_plan(leftShape, rightShape, resultShape, false, false);
+  const dense = __mpf_sparse_times_dense_input(
+    denseValue, leftShape, 'left dense element-wise operand');
+  const matrix = __mpf_sparse_times_sparse_operand(
+    sparseValue, rightShape, 'right sparse element-wise operand');
+  const at = (row, column) => dense[(leftShape[0] === 1 ? 0 : row) +
+                                    (leftShape[1] === 1 ? 0 : column) * leftShape[0]];
+  return __mpf_sparse_times_one_sparse(matrix, at, resultShape);
+}
+function __mpf_sparse_times_sparse(leftValue, rightValue,
+                                   leftShape, rightShape, resultShape) {
+  __mpf_sparse_times_validate_plan(leftShape, rightShape, resultShape, false, false);
+  const left = __mpf_sparse_times_sparse_operand(
+    leftValue, leftShape, 'left sparse element-wise operand');
+  const right = __mpf_sparse_times_sparse_operand(
+    rightValue, rightShape, 'right sparse element-wise operand');
+  const result = { columnPointers: [0], rowIndices: [], values: [] };
+  for (let column = 0; column < resultShape[1]; ++column) {
+    __mpf_sparse_times_sparse_columns(
+      left, right, left.columns === 1 ? 0 : column,
+      right.columns === 1 ? 0 : column, resultShape[0], result);
+    result.columnPointers.push(result.values.length);
+  }
+  return __mpf_make_sparse_csc(resultShape[0], resultShape[1],
+                               result.columnPointers, result.rowIndices, result.values);
+}
 function __mpf_sparse_product_size(rows, columns) {
   const size = rows * columns;
   if (!Number.isSafeInteger(size)) {
