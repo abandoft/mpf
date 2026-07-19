@@ -535,16 +535,64 @@ sparse_matrix<double> sparse_times_sparse(
   validate_sparse_csc(result, "sparse element-wise result");
   return result;
 }
+inline std::size_t sparse_product_size(const std::array<std::size_t, 2U>& shape,
+                                       const std::string& name) {
+  if (shape[0] == std::numeric_limits<std::size_t>::max() ||
+      shape[1] == std::numeric_limits<std::size_t>::max() ||
+      (shape[0] != 0U && shape[1] > std::numeric_limits<std::size_t>::max() / shape[0]))
+    throw std::length_error("MPF Matlab sparse matrix product " + name + " shape is invalid");
+  return shape[0] * shape[1];
+}
+inline void validate_sparse_product_plan(
+    const std::array<std::size_t, 2U>& left_shape,
+    const std::array<std::size_t, 2U>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  (void)sparse_product_size(left_shape, "left");
+  (void)sparse_product_size(right_shape, "right");
+  (void)sparse_product_size(result_shape, "result");
+  if (left_shape[1] != right_shape[0] || result_shape[0] != left_shape[0] ||
+      result_shape[1] != right_shape[1])
+    throw std::invalid_argument("MPF Matlab sparse matrix product shape plans are inconsistent");
+}
+template <typename Dense>
+std::vector<double> sparse_product_dense_input(
+    const Dense& value, const std::array<std::size_t, 2U>& shape,
+    const std::string& name) {
+  std::vector<std::size_t> actual_shape;
+  selector_shape(value, actual_shape);
+  const auto flattened = flatten_selector_column_major(value);
+  const auto expected = sparse_product_size(shape, name);
+  if (flattened.size() != expected ||
+      (expected != 0U &&
+       actual_shape != std::vector<std::size_t>(shape.begin(), shape.end())))
+    throw std::invalid_argument("MPF Matlab " + name +
+                                " disagrees with its static shape contract");
+  std::vector<double> result;
+  result.reserve(flattened.size());
+  for (const auto& item : flattened) {
+    const auto numeric = static_cast<double>(item);
+    if (!std::isfinite(numeric))
+      throw std::invalid_argument("MPF Matlab " + name + " requires finite real values");
+    result.push_back(numeric);
+  }
+  return result;
+}
 template <typename Left, typename Right>
-sparse_matrix<double> sparse_sparse_mtimes(const sparse_matrix<Left>& left,
-                                           const sparse_matrix<Right>& right) {
+sparse_matrix<double> sparse_sparse_mtimes(
+    const sparse_matrix<Left>& left, const sparse_matrix<Right>& right,
+    const std::array<std::size_t, 2U>& left_shape,
+    const std::array<std::size_t, 2U>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  validate_sparse_product_plan(left_shape, right_shape, result_shape);
   validate_sparse_csc(left, "left matrix product operand");
   validate_sparse_csc(right, "right matrix product operand");
-  if (left.columns != right.rows)
-    throw std::invalid_argument("MPF Matlab sparse matrix multiplication shape mismatch");
+  if (left.rows != left_shape[0] || left.columns != left_shape[1] ||
+      right.rows != right_shape[0] || right.columns != right_shape[1])
+    throw std::invalid_argument(
+        "MPF Matlab sparse matrix operands disagree with their shape plans");
   sparse_matrix<double> result;
-  result.rows = left.rows;
-  result.columns = right.columns;
+  result.rows = result_shape[0];
+  result.columns = result_shape[1];
   result.column_pointers.reserve(result.columns + 1U);
   result.column_pointers.push_back(0U);
   std::vector<std::size_t> marker(left.rows, std::numeric_limits<std::size_t>::max());
@@ -584,22 +632,28 @@ sparse_matrix<double> sparse_sparse_mtimes(const sparse_matrix<Left>& left,
   validate_sparse_csc(result, "matrix product result");
   return result;
 }
-template <typename Left, typename Right>
+template <typename Left, typename Dense>
 std::vector<std::vector<double>> sparse_dense_mtimes(
-    const sparse_matrix<Left>& left, const std::vector<std::vector<Right>>& right_value) {
+    const sparse_matrix<Left>& left, const Dense& right_value,
+    const std::array<std::size_t, 2U>& left_shape,
+    const std::array<std::size_t, 2U>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  validate_sparse_product_plan(left_shape, right_shape, result_shape);
   validate_sparse_csc(left, "left matrix product operand");
-  const auto right = matlab_dense_matrix(right_value, "right matrix product operand");
-  if (left.columns != right.size())
-    throw std::invalid_argument("MPF Matlab sparse-dense matrix multiplication shape mismatch");
-  const auto columns = right.front().size();
-  std::vector<std::vector<double>> result(left.rows, std::vector<double>(columns));
+  if (left.rows != left_shape[0] || left.columns != left_shape[1])
+    throw std::invalid_argument(
+        "MPF Matlab left sparse matrix disagrees with its shape plan");
+  const auto right = sparse_product_dense_input(
+      right_value, right_shape, "right matrix product operand");
+  std::vector<std::vector<double>> result(
+      result_shape[0], std::vector<double>(result_shape[1]));
   for (std::size_t inner = 0U; inner < left.columns; ++inner) {
     for (auto index = left.column_pointers[inner]; index < left.column_pointers[inner + 1U];
          ++index) {
       const auto row = left.row_indices[index];
       const auto left_value = static_cast<double>(left.values[index]);
-      for (std::size_t column = 0U; column < columns; ++column)
-        result[row][column] += left_value * right[inner][column];
+      for (std::size_t column = 0U; column < result_shape[1]; ++column)
+        result[row][column] += left_value * right[inner + column * right_shape[0]];
     }
   }
   for (const auto& row : result)
@@ -608,22 +662,28 @@ std::vector<std::vector<double>> sparse_dense_mtimes(
         throw std::overflow_error("MPF Matlab sparse matrix product produced a nonfinite value");
   return result;
 }
-template <typename Left, typename Right>
+template <typename Dense, typename Right>
 std::vector<std::vector<double>> dense_sparse_mtimes(
-    const std::vector<std::vector<Left>>& left_value, const sparse_matrix<Right>& right) {
-  const auto left = matlab_dense_matrix(left_value, "left matrix product operand");
+    const Dense& left_value, const sparse_matrix<Right>& right,
+    const std::array<std::size_t, 2U>& left_shape,
+    const std::array<std::size_t, 2U>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  validate_sparse_product_plan(left_shape, right_shape, result_shape);
+  const auto left = sparse_product_dense_input(
+      left_value, left_shape, "left matrix product operand");
   validate_sparse_csc(right, "right matrix product operand");
-  if (left.front().size() != right.rows)
-    throw std::invalid_argument("MPF Matlab dense-sparse matrix multiplication shape mismatch");
-  std::vector<std::vector<double>> result(left.size(),
-                                          std::vector<double>(right.columns));
+  if (right.rows != right_shape[0] || right.columns != right_shape[1])
+    throw std::invalid_argument(
+        "MPF Matlab right sparse matrix disagrees with its shape plan");
+  std::vector<std::vector<double>> result(
+      result_shape[0], std::vector<double>(result_shape[1]));
   for (std::size_t column = 0U; column < right.columns; ++column) {
     for (auto index = right.column_pointers[column]; index < right.column_pointers[column + 1U];
          ++index) {
       const auto inner = right.row_indices[index];
       const auto right_value = static_cast<double>(right.values[index]);
-      for (std::size_t row = 0U; row < left.size(); ++row)
-        result[row][column] += left[row][inner] * right_value;
+      for (std::size_t row = 0U; row < result_shape[0]; ++row)
+        result[row][column] += left[row + inner * left_shape[0]] * right_value;
     }
   }
   for (const auto& row : result)
