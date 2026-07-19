@@ -741,10 +741,13 @@ foreach(sparse_matrix_runtime IN ITEMS
      NOT sparse_matrix_runtime_contract MATCHES "sparse_sparse_mtimes" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_dense_mtimes" OR
      NOT sparse_matrix_runtime_contract MATCHES "dense_sparse_mtimes" OR
-     NOT sparse_matrix_runtime_contract MATCHES "matrix multiplication shape mismatch" OR
+     NOT sparse_matrix_runtime_contract MATCHES
+       "sparse matrix product shape plans are inconsistent" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_tridiagonal_factor" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_row_lu_factor" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_rcond" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_solve_shape" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_mldivide_plan" OR
      NOT sparse_matrix_runtime_contract MATCHES "mldivide_sparse_real_square" OR
      NOT sparse_matrix_runtime_contract MATCHES "mrdivide_sparse_real_square")
     message(FATAL_ERROR
@@ -777,7 +780,8 @@ foreach(sparse_representation IN ITEMS
      NOT sparse_representation_contract MATCHES "sparse_times_sparse" OR
      NOT sparse_representation_contract MATCHES "sparse_sparse_mtimes" OR
      NOT sparse_representation_contract MATCHES "sparse_dense_mtimes" OR
-     NOT sparse_representation_contract MATCHES "dense_sparse_mtimes")
+     NOT sparse_representation_contract MATCHES "dense_sparse_mtimes" OR
+     NOT sparse_representation_contract MATCHES "runtime_shape_arguments")
     message(FATAL_ERROR
       "target representation does not verify sparse construction/index/mutation/scale/element-wise/product plans or select sparse forms: "
       "${sparse_representation}")
@@ -791,6 +795,11 @@ foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/
   mpf_assert_file_excludes("${renderer}"
     "SparseElementwise(Operation|StoragePolicy)|valid_sparse_elementwise_contract"
     "target renderer recovered sparse element-wise semantics from source plans")
+  file(READ "${SOURCE_DIR}/${renderer}" renderer_contract)
+  if(NOT renderer_contract MATCHES "runtime_shape_arguments")
+    message(FATAL_ERROR
+      "target renderer does not serialize the verified target-call shape ABI: ${renderer}")
+  endif()
 endforeach()
 mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
   "function __mpf_matlab_lu_"
