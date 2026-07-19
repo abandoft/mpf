@@ -1208,8 +1208,8 @@ TEST_CASE("Matlab sparse element-wise plans remain typed through every IR layer"
   using Policy = mpf::detail::semantic::SparseElementwiseStoragePolicy;
   const auto has_plan = [&](const Storage left, const Storage right,
                             const std::vector<std::size_t>& result_shape) {
-    return std::any_of(analysis.semantics.expressions.begin(),
-                       analysis.semantics.expressions.end(), [&](const auto& facts) {
+    return std::any_of(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                       [&](const auto& facts) {
                          const auto& plan = facts.sparse_elementwise;
                          return plan.operation == Operation::multiply &&
                                 plan.storage_policy == Policy::preserve_sparse &&
@@ -1227,12 +1227,11 @@ TEST_CASE("Matlab sparse element-wise plans remain typed through every IR layer"
   REQUIRE(has_plan(Storage::sparse_csc, Storage::sparse_csc, {2U, 3U}));
 
   auto contradictory_hir = analysis.semantics;
-  const auto corrupt_hir = std::find_if(
-      contradictory_hir.expressions.begin(), contradictory_hir.expressions.end(),
-      [](const auto& facts) { return facts.sparse_elementwise.valid(); });
+  const auto corrupt_hir =
+      std::find_if(contradictory_hir.expressions.begin(), contradictory_hir.expressions.end(),
+                   [](const auto& facts) { return facts.sparse_elementwise.valid(); });
   REQUIRE(corrupt_hir != contradictory_hir.expressions.end());
-  corrupt_hir->sparse_elementwise.axes[0] =
-      mpf::detail::semantic::BroadcastAxis::runtime;
+  corrupt_hir->sparse_elementwise.axes[0] = mpf::detail::semantic::BroadcastAxis::runtime;
   REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
                                               "sparse-elementwise-axis-mismatch")
                .empty());
@@ -1242,29 +1241,23 @@ TEST_CASE("Matlab sparse element-wise plans remain typed through every IR layer"
   REQUIRE(mir.diagnostics.empty());
   REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-elementwise-plan").empty());
   const auto dump = mpf::detail::dump_mir(mir.program);
-  REQUIRE(dump.find("sparse-elementwise=1 storage-policy=1 storage=3,0->3") !=
-          std::string::npos);
-  REQUIRE(dump.find("sparse-elementwise=1 storage-policy=1 storage=3,2->3") !=
-          std::string::npos);
-  REQUIRE(dump.find("sparse-elementwise=1 storage-policy=1 storage=2,3->3") !=
-          std::string::npos);
-  REQUIRE(dump.find("sparse-elementwise=1 storage-policy=1 storage=3,3->3") !=
-          std::string::npos);
+  REQUIRE(dump.find("sparse-elementwise=1 storage-policy=1 storage=3,0->3") != std::string::npos);
+  REQUIRE(dump.find("sparse-elementwise=1 storage-policy=1 storage=3,2->3") != std::string::npos);
+  REQUIRE(dump.find("sparse-elementwise=1 storage-policy=1 storage=2,3->3") != std::string::npos);
+  REQUIRE(dump.find("sparse-elementwise=1 storage-policy=1 storage=3,3->3") != std::string::npos);
 
   auto contradictory_mir = mir.program;
-  const auto corrupt_mir = std::find_if(
-      contradictory_mir.attributes.expressions.begin() + 1,
-      contradictory_mir.attributes.expressions.end(),
-      [](const auto& attributes) { return attributes.sparse_elementwise.valid(); });
+  const auto corrupt_mir =
+      std::find_if(contradictory_mir.attributes.expressions.begin() + 1,
+                   contradictory_mir.attributes.expressions.end(),
+                   [](const auto& attributes) { return attributes.sparse_elementwise.valid(); });
   REQUIRE(corrupt_mir != contradictory_mir.attributes.expressions.end());
   corrupt_mir->sparse_elementwise.result_shape = {};
-  REQUIRE(!mpf::detail::mir::verify(contradictory_mir,
-                                    "sparse-elementwise-shape-mismatch")
-               .empty());
+  REQUIRE(
+      !mpf::detail::mir::verify(contradictory_mir, "sparse-elementwise-shape-mismatch").empty());
 
   const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
-  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, effects,
-                                                 "sparse-elementwise-effects")
+  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, effects, "sparse-elementwise-effects")
               .empty());
   const auto javascript =
       mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
@@ -2298,22 +2291,21 @@ TEST_CASE("target LIR planners independently verify sparse element-wise directio
       return storage == Storage::none ? std::vector<std::size_t>{}
                                       : std::vector<std::size_t>{2U, 3U};
     };
-    expression.sparse_elementwise = {
-        Operation::multiply,
-        Policy::preserve_sparse,
-        mpf::detail::semantic::BroadcastShapeSource::static_extents,
-        left_storage,
-        right_storage,
-        Storage::sparse_csc,
-        shape_for(left_storage),
-        shape_for(right_storage),
-        {2U, 3U},
-        {left_storage == Storage::none ? Axis::expand_left
-                                       : right_storage == Storage::none ? Axis::expand_right
-                                                                        : Axis::match,
-         left_storage == Storage::none ? Axis::expand_left
-                                       : right_storage == Storage::none ? Axis::expand_right
-                                                                        : Axis::match}};
+    expression.sparse_elementwise = {Operation::multiply,
+                                     Policy::preserve_sparse,
+                                     mpf::detail::semantic::BroadcastShapeSource::static_extents,
+                                     left_storage,
+                                     right_storage,
+                                     Storage::sparse_csc,
+                                     shape_for(left_storage),
+                                     shape_for(right_storage),
+                                     {2U, 3U},
+                                     {left_storage == Storage::none    ? Axis::expand_left
+                                      : right_storage == Storage::none ? Axis::expand_right
+                                                                       : Axis::match,
+                                      left_storage == Storage::none    ? Axis::expand_left
+                                      : right_storage == Storage::none ? Axis::expand_right
+                                                                       : Axis::match}};
     expression.children.resize(2U);
     const auto configure_child = [](auto& child, const Storage storage, const char* name) {
       child.kind = mpf::detail::ExpressionKind::identifier;
@@ -2348,10 +2340,8 @@ TEST_CASE("target LIR planners independently verify sparse element-wise directio
   std::vector<mpf::Diagnostic> diagnostics;
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(diagnostics.empty());
-  REQUIRE(javascript.statements[0].expression.plan.token ==
-          "__mpf_sparse_times_scalar_right");
-  REQUIRE(javascript.statements[1].expression.plan.token ==
-          "__mpf_sparse_times_scalar_left");
+  REQUIRE(javascript.statements[0].expression.plan.token == "__mpf_sparse_times_scalar_right");
+  REQUIRE(javascript.statements[1].expression.plan.token == "__mpf_sparse_times_scalar_left");
   REQUIRE(javascript.statements[2].expression.plan.token == "__mpf_sparse_times_dense");
   REQUIRE(javascript.statements[3].expression.plan.token == "__mpf_dense_times_sparse");
   REQUIRE(javascript.statements[4].expression.plan.token == "__mpf_sparse_times_sparse");
@@ -2371,10 +2361,8 @@ TEST_CASE("target LIR planners independently verify sparse element-wise directio
   diagnostics.clear();
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(diagnostics.empty());
-  REQUIRE(cpp.statements[0].expression.plan.token ==
-          "mpf_runtime::sparse_times_scalar_right");
-  REQUIRE(cpp.statements[1].expression.plan.token ==
-          "mpf_runtime::sparse_times_scalar_left");
+  REQUIRE(cpp.statements[0].expression.plan.token == "mpf_runtime::sparse_times_scalar_right");
+  REQUIRE(cpp.statements[1].expression.plan.token == "mpf_runtime::sparse_times_scalar_left");
   REQUIRE(cpp.statements[2].expression.plan.token == "mpf_runtime::sparse_times_dense");
   REQUIRE(cpp.statements[3].expression.plan.token == "mpf_runtime::dense_times_sparse");
   REQUIRE(cpp.statements[4].expression.plan.token == "mpf_runtime::sparse_times_sparse");

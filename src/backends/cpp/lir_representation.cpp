@@ -200,8 +200,7 @@ std::string matlab_array_helper(const lir::Expression& expression) {
     if (left == ArrayStorageFormat::dense && right == ArrayStorageFormat::sparse_csc) {
       return "mpf_runtime::dense_times_sparse";
     }
-    if (left == ArrayStorageFormat::sparse_csc &&
-        right == ArrayStorageFormat::sparse_csc) {
+    if (left == ArrayStorageFormat::sparse_csc && right == ArrayStorageFormat::sparse_csc) {
       return "mpf_runtime::sparse_times_sparse";
     }
     return {};
@@ -1378,8 +1377,7 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
     add_error(diagnostics, expression.location, "cpp LIR Matlab broadcast plan is inconsistent");
   }
   if (!valid_sparse_elementwise_plan(expression)) {
-    add_error(diagnostics, expression.location,
-              "cpp LIR sparse element-wise plan is inconsistent");
+    add_error(diagnostics, expression.location, "cpp LIR sparse element-wise plan is inconsistent");
   }
   const auto expected_matrix = source_language == SourceLanguage::matlab
                                    ? expected_matrix_operation(expression)

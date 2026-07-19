@@ -644,10 +644,8 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
                 "sparse element-wise plan has an invalid operator, broadcast, storage, or "
                 "result contract");
     }
-  } else if (sparse_elementwise.storage_policy !=
-                 semantic::SparseElementwiseStoragePolicy::none ||
-             sparse_elementwise.shape_source !=
-                 semantic::BroadcastShapeSource::static_extents ||
+  } else if (sparse_elementwise.storage_policy != semantic::SparseElementwiseStoragePolicy::none ||
+             sparse_elementwise.shape_source != semantic::BroadcastShapeSource::static_extents ||
              sparse_elementwise.left_storage != ArrayStorageFormat::none ||
              sparse_elementwise.right_storage != ArrayStorageFormat::none ||
              sparse_elementwise.result_storage != ArrayStorageFormat::none ||

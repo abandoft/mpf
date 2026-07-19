@@ -162,8 +162,7 @@ std::string matlab_array_helper(const lir::Expression& expression) {
     if (left == ArrayStorageFormat::dense && right == ArrayStorageFormat::sparse_csc) {
       return "__mpf_dense_times_sparse";
     }
-    if (left == ArrayStorageFormat::sparse_csc &&
-        right == ArrayStorageFormat::sparse_csc) {
+    if (left == ArrayStorageFormat::sparse_csc && right == ArrayStorageFormat::sparse_csc) {
       return "__mpf_sparse_times_sparse";
     }
     return {};

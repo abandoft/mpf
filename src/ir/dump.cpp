@@ -463,9 +463,8 @@ std::string dump_mir(const mir::Program& program) {
       }
       if (attributes->sparse_elementwise.valid()) {
         output << " sparse-elementwise=" << enum_value(attributes->sparse_elementwise.operation)
-               << " storage-policy="
-               << enum_value(attributes->sparse_elementwise.storage_policy) << " storage="
-               << enum_value(attributes->sparse_elementwise.left_storage) << ','
+               << " storage-policy=" << enum_value(attributes->sparse_elementwise.storage_policy)
+               << " storage=" << enum_value(attributes->sparse_elementwise.left_storage) << ','
                << enum_value(attributes->sparse_elementwise.right_storage) << "->"
                << enum_value(attributes->sparse_elementwise.result_storage) << ' ';
         if (attributes->sparse_elementwise.left_shape.valid()) {

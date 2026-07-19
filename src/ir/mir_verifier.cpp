@@ -450,8 +450,7 @@ bool valid_matrix_shapes(const Program& program, const MatrixOperationPlan& plan
   return false;
 }
 
-bool valid_sparse_elementwise_shapes(const Program& program,
-                                     const SparseElementwisePlan& plan,
+bool valid_sparse_elementwise_shapes(const Program& program, const SparseElementwisePlan& plan,
                                      const ShapeId expression_shape) noexcept {
   const auto* left = shape(program, plan.left_shape);
   const auto* right = shape(program, plan.right_shape);
@@ -465,9 +464,8 @@ bool valid_sparse_elementwise_shapes(const Program& program,
     return false;
   }
   return semantic::valid_sparse_elementwise_contract(
-      plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage,
-      plan.right_storage, plan.result_storage, left_extents, right_extents, result->extents,
-      plan.axes);
+      plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage, plan.right_storage,
+      plan.result_storage, left_extents, right_extents, result->extents, plan.axes);
 }
 
 void verify_value_metadata(const ValueMetadata& metadata, const Program& program,
@@ -946,10 +944,8 @@ void verify_expression(const Expression& expression, const Program& program,
                 "expression sparse element-wise attributes have an invalid operator, "
                 "broadcast, storage, or result contract");
     }
-  } else if (sparse_elementwise.storage_policy !=
-                 semantic::SparseElementwiseStoragePolicy::none ||
-             sparse_elementwise.shape_source !=
-                 semantic::BroadcastShapeSource::static_extents ||
+  } else if (sparse_elementwise.storage_policy != semantic::SparseElementwiseStoragePolicy::none ||
+             sparse_elementwise.shape_source != semantic::BroadcastShapeSource::static_extents ||
              sparse_elementwise.left_storage != ArrayStorageFormat::none ||
              sparse_elementwise.right_storage != ArrayStorageFormat::none ||
              sparse_elementwise.result_storage != ArrayStorageFormat::none ||

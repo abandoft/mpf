@@ -136,10 +136,9 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
       }
       output << ']';
     };
-    output << " sparse-elementwise "
-           << static_cast<int>(expression.sparse_elementwise.operation) << " storage-policy "
-           << static_cast<int>(expression.sparse_elementwise.storage_policy) << " storage "
-           << static_cast<int>(expression.sparse_elementwise.left_storage) << ','
+    output << " sparse-elementwise " << static_cast<int>(expression.sparse_elementwise.operation)
+           << " storage-policy " << static_cast<int>(expression.sparse_elementwise.storage_policy)
+           << " storage " << static_cast<int>(expression.sparse_elementwise.left_storage) << ','
            << static_cast<int>(expression.sparse_elementwise.right_storage) << "->"
            << static_cast<int>(expression.sparse_elementwise.result_storage) << ' ';
     dump_shape(expression.sparse_elementwise.left_shape);

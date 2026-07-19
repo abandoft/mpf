@@ -457,8 +457,7 @@ std::string matlab_sparse_scale_workload(const std::size_t width, const std::siz
   return source;
 }
 
-std::string matlab_sparse_elementwise_workload(const std::size_t width,
-                                               const std::size_t rounds) {
+std::string matlab_sparse_elementwise_workload(const std::size_t width, const std::size_t rounds) {
   std::string source = "matrix = sparse([";
   for (std::size_t row = 0U; row < width; ++row) {
     if (row != 0U) source += "; ";

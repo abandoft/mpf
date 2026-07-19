@@ -437,8 +437,9 @@ class Renderer final {
           emit_shape(expression.plan.sparse_elementwise.right_shape);
           output_ << ", ";
           emit_shape(expression.plan.sparse_elementwise.result_shape);
-        } else if (expression.plan.broadcast.valid && expression.plan.broadcast.shape_source ==
-                                                   semantic::BroadcastShapeSource::static_extents) {
+        } else if (expression.plan.broadcast.valid &&
+                   expression.plan.broadcast.shape_source ==
+                       semantic::BroadcastShapeSource::static_extents) {
           output_ << ", ";
           emit_shape(expression.plan.broadcast.left_shape);
           output_ << ", ";

@@ -491,9 +491,9 @@ TEST_CASE("Matlab sparse element-wise products preserve CSC storage and broadcas
   const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
-  for (const auto helper : {"__mpf_sparse_times_scalar_right",
-                            "__mpf_sparse_times_scalar_left", "__mpf_sparse_times_dense",
-                            "__mpf_dense_times_sparse", "__mpf_sparse_times_sparse"}) {
+  for (const auto helper :
+       {"__mpf_sparse_times_scalar_right", "__mpf_sparse_times_scalar_left",
+        "__mpf_sparse_times_dense", "__mpf_dense_times_sparse", "__mpf_sparse_times_sparse"}) {
     REQUIRE(javascript.code.find(std::string("function ") + helper + '(') != std::string::npos);
     REQUIRE(cpp.code.find(helper) == std::string::npos);
   }
@@ -501,12 +501,10 @@ TEST_CASE("Matlab sparse element-wise products preserve CSC storage and broadcas
           std::string::npos);
   REQUIRE(javascript.code.find("__mpf_sparse_times_dense(row, D, [1, 3], [2, 3], [2, 3])") !=
           std::string::npos);
-  REQUIRE(javascript.code.find(
-              "__mpf_sparse_times_sparse(row, column, [1, 3], [2, 1], [2, 3])") !=
+  REQUIRE(javascript.code.find("__mpf_sparse_times_sparse(row, column, [1, 3], [2, 1], [2, 3])") !=
           std::string::npos);
   for (const auto helper : {"sparse_times_scalar_right", "sparse_times_scalar_left",
-                            "sparse_times_dense", "dense_times_sparse",
-                            "sparse_times_sparse"}) {
+                            "sparse_times_dense", "dense_times_sparse", "sparse_times_sparse"}) {
     REQUIRE(cpp.code.find(std::string("mpf_runtime::") + helper) != std::string::npos);
     REQUIRE(cpp.code.find(std::string("__mpf_") + helper) == std::string::npos);
   }
@@ -520,10 +518,9 @@ TEST_CASE("Matlab sparse element-wise products preserve CSC storage and broadcas
 }
 
 TEST_CASE("Matlab sparse element-wise products fail closed outside the typed slice") {
-  const std::vector<std::string> rejected{
-      "A = sparse([1 0; 0 1]);\nB = A .* [1i 0; 0 1];\n",
-      "A = sparse(0, 2);\nB = A .* [1 2];\n",
-      "A = sparse([1 0; 0 1]);\nB = A .* [1 2 3];\n"};
+  const std::vector<std::string> rejected{"A = sparse([1 0; 0 1]);\nB = A .* [1i 0; 0 1];\n",
+                                          "A = sparse(0, 2);\nB = A .* [1 2];\n",
+                                          "A = sparse([1 0; 0 1]);\nB = A .* [1 2 3];\n"};
   for (const auto& source : rejected) {
     for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
       const auto result = transpile_array(source, mpf::SourceLanguage::matlab, target);

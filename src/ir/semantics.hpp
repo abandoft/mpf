@@ -161,20 +161,17 @@ template <typename Shape, typename Axes>
     }
     return shape.size() == 2U && shape[0] != 0U && shape[1] != 0U;
   };
-  if (!valid_operand(left_storage, left_shape) ||
-      !valid_operand(right_storage, right_shape) || result_shape[0] == 0U ||
-      result_shape[1] == 0U) {
+  if (!valid_operand(left_storage, left_shape) || !valid_operand(right_storage, right_shape) ||
+      result_shape[0] == 0U || result_shape[1] == 0U) {
     return false;
   }
   for (std::size_t axis = 0U; axis < result_shape.size(); ++axis) {
     const auto left_extent = axis < left_shape.size() ? left_shape[axis] : 1U;
     const auto right_extent = axis < right_shape.size() ? right_shape[axis] : 1U;
-    const auto expected_axis =
-        left_extent == right_extent
-            ? BroadcastAxis::match
-            : left_extent == 1U ? BroadcastAxis::expand_left
-                                : right_extent == 1U ? BroadcastAxis::expand_right
-                                                    : BroadcastAxis::runtime;
+    const auto expected_axis = left_extent == right_extent ? BroadcastAxis::match
+                               : left_extent == 1U         ? BroadcastAxis::expand_left
+                               : right_extent == 1U        ? BroadcastAxis::expand_right
+                                                           : BroadcastAxis::runtime;
     const auto expected_extent = left_extent > right_extent ? left_extent : right_extent;
     if (expected_axis == BroadcastAxis::runtime || axes[axis] != expected_axis ||
         result_shape[axis] != expected_extent) {

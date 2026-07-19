@@ -897,9 +897,8 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                            left == ValueType::list && right == ValueType::list;
     const bool supported_sparse_scale = operation == BinaryOperator::multiply &&
                                         (left == ValueType::list) != (right == ValueType::list);
-    const bool supported_sparse_elementwise =
-        operation == BinaryOperator::elementwise_multiply &&
-        (left == ValueType::list || right == ValueType::list);
+    const bool supported_sparse_elementwise = operation == BinaryOperator::elementwise_multiply &&
+                                              (left == ValueType::list || right == ValueType::list);
     if (!supported_sparse_solve && !supported_sparse_multiply && !supported_sparse_scale &&
         !supported_sparse_elementwise) {
       diagnose(expression.location.line, "MPF2054",
@@ -1125,10 +1124,9 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
     const bool sparse_scale =
         scalar_scale && (left_facts.array_storage == ArrayStorageFormat::sparse_csc ||
                          right_facts.array_storage == ArrayStorageFormat::sparse_csc);
-    const bool sparse_elementwise =
-        operation == BinaryOperator::elementwise_multiply &&
-        (left_facts.array_storage == ArrayStorageFormat::sparse_csc ||
-         right_facts.array_storage == ArrayStorageFormat::sparse_csc);
+    const bool sparse_elementwise = operation == BinaryOperator::elementwise_multiply &&
+                                    (left_facts.array_storage == ArrayStorageFormat::sparse_csc ||
+                                     right_facts.array_storage == ArrayStorageFormat::sparse_csc);
     if (sparse_elementwise) {
       auto& facts = semantic(semantics_, expression);
       const auto numeric_domain = matlab_matrix_numeric_domain(left_facts, right_facts);
@@ -1159,17 +1157,16 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                       : std::vector<std::size_t>{};
       const auto result_storage = semantic::sparse_elementwise_result_storage(
           left_facts.array_storage, right_facts.array_storage);
-      hir::SparseElementwisePlan plan{
-          semantic::SparseElementwiseOperation::multiply,
-          semantic::SparseElementwiseStoragePolicy::preserve_sparse,
-          semantic::BroadcastShapeSource::static_extents,
-          left_facts.array_storage,
-          right_facts.array_storage,
-          result_storage,
-          left_shape,
-          right_shape,
-          broadcast->result_shape,
-          broadcast->axes};
+      hir::SparseElementwisePlan plan{semantic::SparseElementwiseOperation::multiply,
+                                      semantic::SparseElementwiseStoragePolicy::preserve_sparse,
+                                      semantic::BroadcastShapeSource::static_extents,
+                                      left_facts.array_storage,
+                                      right_facts.array_storage,
+                                      result_storage,
+                                      left_shape,
+                                      right_shape,
+                                      broadcast->result_shape,
+                                      broadcast->axes};
       if (!semantic::valid_sparse_elementwise_contract(
               plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage,
               plan.right_storage, plan.result_storage, plan.left_shape, plan.right_shape,
