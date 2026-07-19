@@ -4,6 +4,7 @@
 #include <future>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -402,6 +403,36 @@ std::string matlab_sparse_solve_workload(const std::size_t rounds) {
   return source;
 }
 
+std::string matlab_sparse_multiply_workload(const std::size_t width, const std::size_t rounds) {
+  const auto append_matrix = [&](std::string& source, const std::string_view name,
+                                 const std::size_t row_factor, const std::size_t column_factor,
+                                 const std::size_t modulus) {
+    source.append(name).append(" = sparse([");
+    for (std::size_t row = 0U; row < width; ++row) {
+      if (row != 0U) source += "; ";
+      for (std::size_t column = 0U; column < width; ++column) {
+        if (column != 0U) source += ' ';
+        source += row == column || (row_factor * row + column_factor * column) % modulus == 0U
+                      ? std::to_string(row + column + 1U)
+                      : "0";
+      }
+    }
+    source += "]);\n";
+  };
+  std::string source;
+  append_matrix(source, "left", 1U, 3U, 13U);
+  append_matrix(source, "right", 2U, 1U, 17U);
+  for (std::size_t round = 0U; round < rounds; ++round) {
+    source += "sparse_product = left * right;\n";
+    source += "sparse_dense_product = left * full(right);\n";
+    source += "dense_sparse_product = full(left) * right;\n";
+  }
+  source +=
+      "disp(nnz(sparse_product) + sparse_dense_product(1, 1) + "
+      "dense_sparse_product(1, 1))\n";
+  return source;
+}
+
 std::string matlab_sparse_index_workload(const std::size_t width, const std::size_t rounds) {
   std::string source = "matrix = sparse([";
   for (std::size_t row = 0U; row < width; ++row) {
@@ -694,6 +725,8 @@ int main() {
        mpf::SourceLanguage::matlab},
       {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-solve", matlab_sparse_solve_workload(24), mpf::SourceLanguage::matlab},
+      {"matlab-sparse-multiply", matlab_sparse_multiply_workload(24, 24),
+       mpf::SourceLanguage::matlab},
       {"matlab-sparse-index", matlab_sparse_index_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-reshape", matlab_sparse_reshape_workload(24, 24),
        mpf::SourceLanguage::matlab},
