@@ -1117,6 +1117,77 @@ TEST_CASE("Matlab sparse matrix products remain typed through every IR layer") {
   }
 }
 
+TEST_CASE("Matlab sparse scalar products remain typed through every IR layer") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "A = sparse([1 0 2; 0 3 0]);\n"
+                              "R = A * 4;\n"
+                              "L = 4 * A;\n",
+                              "sparse_scalar_products.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+
+  using Storage = mpf::detail::ArrayStorageFormat;
+  using Policy = mpf::detail::semantic::MatrixStoragePolicy;
+  const auto has_scale = [&](const Storage left, const Storage right) {
+    return std::any_of(
+        analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+        [&](const auto& facts) {
+          const auto& plan = facts.matrix_operation;
+          return plan.operation == mpf::detail::semantic::MatrixOperation::multiply &&
+                 plan.storage_policy == Policy::sparse_csc_scale && plan.left_storage == left &&
+                 plan.right_storage == right && plan.result_storage == Storage::sparse_csc &&
+                 plan.result_shape == std::vector<std::size_t>{2U, 3U} &&
+                 facts.array_storage == Storage::sparse_csc && !facts.broadcast.valid;
+        });
+  };
+  REQUIRE(has_scale(Storage::sparse_csc, Storage::none));
+  REQUIRE(has_scale(Storage::none, Storage::sparse_csc));
+
+  auto contradictory_hir = analysis.semantics;
+  const auto corrupt_hir =
+      std::find_if(contradictory_hir.expressions.begin(), contradictory_hir.expressions.end(),
+                   [](const auto& facts) {
+                     return facts.matrix_operation.storage_policy == Policy::sparse_csc_scale;
+                   });
+  REQUIRE(corrupt_hir != contradictory_hir.expressions.end());
+  corrupt_hir->matrix_operation.result_storage = Storage::dense;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
+                                              "sparse-scale-storage-mismatch")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-scale-plan").empty());
+  const auto dump = mpf::detail::dump_mir(mir.program);
+  REQUIRE(dump.find("storage-policy=4 storage=3,0->3") != std::string::npos);
+  REQUIRE(dump.find("storage-policy=4 storage=0,3->3 scalar,!s") != std::string::npos);
+
+  auto contradictory_mir = mir.program;
+  const auto corrupt_mir = std::find_if(
+      contradictory_mir.attributes.expressions.begin() + 1,
+      contradictory_mir.attributes.expressions.end(), [](const auto& attributes) {
+        return attributes.matrix_operation.storage_policy == Policy::sparse_csc_scale &&
+               attributes.matrix_operation.left_storage == Storage::sparse_csc;
+      });
+  REQUIRE(corrupt_mir != contradictory_mir.attributes.expressions.end());
+  corrupt_mir->matrix_operation.right_shape = corrupt_mir->matrix_operation.left_shape;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-scale-shape-mismatch").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  REQUIRE(
+      mpf::detail::mir::verify_alias_effects(mir.program, effects, "sparse-scale-effects").empty());
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  for (const auto& target_dump : {javascript.artifact->debug_dump(), cpp.artifact->debug_dump()}) {
+    REQUIRE(target_dump.find("storage-policy 4 storage 3,0->3") != std::string::npos);
+    REQUIRE(target_dump.find("storage-policy 4 storage 0,3->3") != std::string::npos);
+  }
+}
+
 TEST_CASE("Matlab sparse construction plans remain typed through every IR layer") {
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "Z = sparse(3, 4);\n"
