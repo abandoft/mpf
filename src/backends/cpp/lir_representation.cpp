@@ -1556,17 +1556,16 @@ void verify_statements(const std::vector<lir::Statement>& statements,
       } else if (sparse.valid()) {
         const bool deletion =
             statement.indexed_mutation.kind == semantic::IndexedMutationKind::erase;
-        const auto expected_kind = deletion
-                                       ? (statement.indexed_mutation.linear
-                                              ? semantic::SparseMutationKind::linear_deletion
-                                              : semantic::SparseMutationKind::axis_deletion)
-                                       : (statement.indexed_mutation.linear
-                                              ? semantic::SparseMutationKind::linear_assignment
-                                              : semantic::SparseMutationKind::subscript_assignment);
+        const auto expected_kind =
+            deletion
+                ? (statement.indexed_mutation.linear ? semantic::SparseMutationKind::linear_deletion
+                                                     : semantic::SparseMutationKind::axis_deletion)
+                : (statement.indexed_mutation.linear
+                       ? semantic::SparseMutationKind::linear_assignment
+                       : semantic::SparseMutationKind::subscript_assignment);
         const auto replacement_storage =
             deletion ? ArrayStorageFormat::none : statement.expression.array_storage;
-        if (sparse.kind != expected_kind ||
-            sparse.input_shape != statement.mutation_input_shape ||
+        if (sparse.kind != expected_kind || sparse.input_shape != statement.mutation_input_shape ||
             sparse.result_shape != statement.mutation_result_shape ||
             sparse.selection_shape != statement.target_expression.sparse_index.result_shape ||
             sparse.replacement_storage != replacement_storage ||
@@ -1586,9 +1585,9 @@ void verify_statements(const std::vector<lir::Statement>& statements,
                  sparse.zero_policy != semantic::SparseZeroWritePolicy::none ||
                  sparse.source_storage != ArrayStorageFormat::none ||
                  sparse.replacement_storage != ArrayStorageFormat::none ||
-                 sparse.result_storage != ArrayStorageFormat::none ||
-                 !sparse.input_shape.empty() || !sparse.selection_shape.empty() ||
-                 !sparse.replacement_shape.empty() || !sparse.result_shape.empty()) {
+                 sparse.result_storage != ArrayStorageFormat::none || !sparse.input_shape.empty() ||
+                 !sparse.selection_shape.empty() || !sparse.replacement_shape.empty() ||
+                 !sparse.result_shape.empty()) {
         add_error(diagnostics, {statement.line, 1},
                   "cpp LIR inactive sparse mutation retains state");
       }

@@ -303,8 +303,7 @@ struct SparseIndexPlan {
 struct SparseMutationPlan {
   semantic::SparseMutationKind kind{semantic::SparseMutationKind::none};
   semantic::SparseReplacementKind replacement{semantic::SparseReplacementKind::none};
-  semantic::SparseDuplicateWritePolicy duplicate_policy{
-      semantic::SparseDuplicateWritePolicy::none};
+  semantic::SparseDuplicateWritePolicy duplicate_policy{semantic::SparseDuplicateWritePolicy::none};
   semantic::SparseZeroWritePolicy zero_policy{semantic::SparseZeroWritePolicy::none};
   ArrayStorageFormat source_storage{ArrayStorageFormat::none};
   ArrayStorageFormat replacement_storage{ArrayStorageFormat::none};
@@ -314,9 +313,7 @@ struct SparseMutationPlan {
   std::vector<std::size_t> replacement_shape;
   std::vector<std::size_t> result_shape;
 
-  [[nodiscard]] bool valid() const noexcept {
-    return kind != semantic::SparseMutationKind::none;
-  }
+  [[nodiscard]] bool valid() const noexcept { return kind != semantic::SparseMutationKind::none; }
 };
 
 enum class ArrayLiteralForm : std::uint8_t { none, direct, shaped_empty };

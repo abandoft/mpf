@@ -713,9 +713,10 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
       if (analyzed) {
         const auto* target = table.expression(statement.target_expression.id);
         const auto* replacement = table.expression(statement.expression.id);
-        const auto* source = statement.target_expression.children.empty()
-                                 ? nullptr
-                                 : table.expression(statement.target_expression.children.front().id);
+        const auto* source =
+            statement.target_expression.children.empty()
+                ? nullptr
+                : table.expression(statement.target_expression.children.front().id);
         const bool sparse_target = target != nullptr && target->sparse_index.valid() &&
                                    source != nullptr &&
                                    source->array_storage == ArrayStorageFormat::sparse_csc;
@@ -725,16 +726,15 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
                                 ? replacement->element_type
                                 : replacement->inferred_type;
           const auto numeric = expression_numeric_type(*replacement);
-          supported_replacement =
-              (type == ValueType::boolean || type == ValueType::integer ||
-               type == ValueType::real) &&
-              numeric.present() && numeric.complexity == NumericComplexity::real &&
-              (replacement->inferred_type != ValueType::list ||
-               replacement->array_storage == ArrayStorageFormat::dense ||
-               replacement->array_storage == ArrayStorageFormat::sparse_csc);
+          supported_replacement = (type == ValueType::boolean || type == ValueType::integer ||
+                                   type == ValueType::real) &&
+                                  numeric.present() &&
+                                  numeric.complexity == NumericComplexity::real &&
+                                  (replacement->inferred_type != ValueType::list ||
+                                   replacement->array_storage == ArrayStorageFormat::dense ||
+                                   replacement->array_storage == ArrayStorageFormat::sparse_csc);
         }
-        const bool deletion =
-            facts->indexed_mutation.kind == semantic::IndexedMutationKind::erase;
+        const bool deletion = facts->indexed_mutation.kind == semantic::IndexedMutationKind::erase;
         const bool expected_sparse_plan =
             sparse_target && (deletion || supported_replacement) &&
             (facts->indexed_mutation.kind == semantic::IndexedMutationKind::overwrite ||
@@ -744,25 +744,24 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
           add_error(diagnostics, {statement.line, 1}, stage,
                     "sparse-mutation identity disagrees with the indexed assignment");
         } else if (sparse.valid()) {
-          const auto expected_kind = deletion
-                                         ? (facts->indexed_mutation.linear
-                                                ? semantic::SparseMutationKind::linear_deletion
-                                                : semantic::SparseMutationKind::axis_deletion)
-                                         : (facts->indexed_mutation.linear
-                                                ? semantic::SparseMutationKind::linear_assignment
-                                                : semantic::SparseMutationKind::subscript_assignment);
+          const auto expected_kind =
+              deletion
+                  ? (facts->indexed_mutation.linear ? semantic::SparseMutationKind::linear_deletion
+                                                    : semantic::SparseMutationKind::axis_deletion)
+                  : (facts->indexed_mutation.linear
+                         ? semantic::SparseMutationKind::linear_assignment
+                         : semantic::SparseMutationKind::subscript_assignment);
           if (sparse.kind != expected_kind || sparse.input_shape != facts->mutation_input_shape ||
-              sparse.result_shape != facts->mutation_result_shape ||
-              target == nullptr || sparse.selection_shape != target->sparse_index.result_shape ||
+              sparse.result_shape != facts->mutation_result_shape || target == nullptr ||
+              sparse.selection_shape != target->sparse_index.result_shape ||
               replacement == nullptr ||
               sparse.replacement_storage !=
                   (deletion || replacement->inferred_type != ValueType::list
                        ? ArrayStorageFormat::none
                        : replacement->array_storage) ||
-              sparse.replacement_shape !=
-                  (deletion || replacement->inferred_type != ValueType::list
-                       ? std::vector<std::size_t>{}
-                       : replacement->shape) ||
+              sparse.replacement_shape != (deletion || replacement->inferred_type != ValueType::list
+                                               ? std::vector<std::size_t>{}
+                                               : replacement->shape) ||
               !semantic::valid_sparse_mutation_contract(
                   sparse.kind, sparse.replacement, sparse.duplicate_policy, sparse.zero_policy,
                   sparse.source_storage, sparse.replacement_storage, sparse.result_storage,

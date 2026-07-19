@@ -1344,8 +1344,7 @@ TEST_CASE("Matlab sparse mutation plans retain assignment order and CSC storage 
   auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
   REQUIRE(analysis.empty());
   const auto count_kind = [&](const Kind kind) {
-    return std::count_if(analysis.semantics.statements.begin(),
-                         analysis.semantics.statements.end(),
+    return std::count_if(analysis.semantics.statements.begin(), analysis.semantics.statements.end(),
                          [&](const auto& facts) { return facts.sparse_mutation.kind == kind; });
   };
   REQUIRE(count_kind(Kind::linear_assignment) == 1);
@@ -1379,30 +1378,27 @@ TEST_CASE("Matlab sparse mutation plans retain assignment order and CSC storage 
                                               std::move(analysis.semantics), analysis.names);
   REQUIRE(mir.diagnostics.empty());
   REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-mutation-plan").empty());
-  const auto mir_linear = std::find_if(
-      mir.program.attributes.statements.begin() + 1,
-      mir.program.attributes.statements.end(),
-      [](const auto& attributes) {
-        return attributes.sparse_mutation.kind == Kind::linear_assignment;
-      });
+  const auto mir_linear =
+      std::find_if(mir.program.attributes.statements.begin() + 1,
+                   mir.program.attributes.statements.end(), [](const auto& attributes) {
+                     return attributes.sparse_mutation.kind == Kind::linear_assignment;
+                   });
   REQUIRE(mir_linear != mir.program.attributes.statements.end());
   REQUIRE(mir_linear->sparse_mutation.duplicate_policy == Duplicate::last_write_wins);
   REQUIRE(mpf::detail::dump_mir(mir.program).find("sparse-mutation=1") != std::string::npos);
 
   auto contradictory_mir = mir.program;
-  const auto corrupt_mir = std::find_if(
-      contradictory_mir.attributes.statements.begin() + 1,
-      contradictory_mir.attributes.statements.end(),
-      [](const auto& attributes) {
-        return attributes.sparse_mutation.kind == Kind::subscript_assignment;
-      });
+  const auto corrupt_mir =
+      std::find_if(contradictory_mir.attributes.statements.begin() + 1,
+                   contradictory_mir.attributes.statements.end(), [](const auto& attributes) {
+                     return attributes.sparse_mutation.kind == Kind::subscript_assignment;
+                   });
   REQUIRE(corrupt_mir != contradictory_mir.attributes.statements.end());
   corrupt_mir->sparse_mutation.zero_policy = Zero::none;
   REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-mutation-zero-corruption").empty());
 
   const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
-  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, effects,
-                                                 "sparse-mutation-effects")
+  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, effects, "sparse-mutation-effects")
               .empty());
   for (std::size_t index = 1U; index < mir.program.statements.size(); ++index) {
     const auto& attributes = mir.program.attributes.statements[index];

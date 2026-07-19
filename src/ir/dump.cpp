@@ -503,8 +503,8 @@ std::string dump_mir(const mir::Program& program) {
         output << " sparse-mutation=" << enum_value(attributes->sparse_mutation.kind)
                << " replacement=" << enum_value(attributes->sparse_mutation.replacement)
                << " duplicate=" << enum_value(attributes->sparse_mutation.duplicate_policy)
-               << " zero=" << enum_value(attributes->sparse_mutation.zero_policy)
-               << " shape=!s" << attributes->sparse_mutation.input_shape.value() << "/!s"
+               << " zero=" << enum_value(attributes->sparse_mutation.zero_policy) << " shape=!s"
+               << attributes->sparse_mutation.input_shape.value() << "/!s"
                << attributes->sparse_mutation.selection_shape.value() << "/!s"
                << attributes->sparse_mutation.replacement_shape.value() << "->!s"
                << attributes->sparse_mutation.result_shape.value();

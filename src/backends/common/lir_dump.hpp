@@ -284,12 +284,11 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
                    ? statement.plan.indexed_mutation.axis
                    : 0U)
            << " sparse-mutation " << static_cast<int>(statement.plan.sparse_mutation.kind)
-           << " sparse-replacement "
-           << static_cast<int>(statement.plan.sparse_mutation.replacement)
+           << " sparse-replacement " << static_cast<int>(statement.plan.sparse_mutation.replacement)
            << " sparse-duplicate "
            << static_cast<int>(statement.plan.sparse_mutation.duplicate_policy) << " sparse-zero "
-           << static_cast<int>(statement.plan.sparse_mutation.zero_policy)
-           << " targets " << statement.plan.targets.size() << " assignment-leaves "
+           << static_cast<int>(statement.plan.sparse_mutation.zero_policy) << " targets "
+           << statement.plan.targets.size() << " assignment-leaves "
            << statement.plan.assignment_leaves.size() << " selectors "
            << statement.plan.selectors.size() << " returns " << statement.plan.return_names.size()
            << '\n';

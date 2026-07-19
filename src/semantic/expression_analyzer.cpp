@@ -2895,8 +2895,7 @@ void Analyzer::analyze_sparse_mutation(Statement& statement, const ValueType val
   const auto replacement_numeric = expression_numeric_type(replacement_facts);
   if ((replacement_type != ValueType::boolean && replacement_type != ValueType::integer &&
        replacement_type != ValueType::real) ||
-      !replacement_numeric.present() ||
-      replacement_numeric.complexity != NumericComplexity::real) {
+      !replacement_numeric.present() || replacement_numeric.complexity != NumericComplexity::real) {
     diagnose(statement.line, "MPF2054",
              "sparse indexed assignment requires real numeric or logical replacement values");
     return;
@@ -2918,11 +2917,11 @@ void Analyzer::analyze_sparse_mutation(Statement& statement, const ValueType val
                      : semantic::SparseMutationKind::subscript_assignment;
   plan.replacement_storage =
       value_type == ValueType::list ? replacement_facts.array_storage : ArrayStorageFormat::none;
-  plan.replacement_shape = value_type == ValueType::list ? replacement_facts.shape
-                                                          : std::vector<std::size_t>{};
-  const auto replacement_count =
-      value_type == ValueType::list ? checked_element_count(replacement_facts.shape)
-                                    : std::optional<std::size_t>{1U};
+  plan.replacement_shape =
+      value_type == ValueType::list ? replacement_facts.shape : std::vector<std::size_t>{};
+  const auto replacement_count = value_type == ValueType::list
+                                     ? checked_element_count(replacement_facts.shape)
+                                     : std::optional<std::size_t>{1U};
   plan.replacement = replacement_count.has_value() && *replacement_count == 1U
                          ? semantic::SparseReplacementKind::scalar_expansion
                          : semantic::SparseReplacementKind::elementwise;
@@ -2977,9 +2976,8 @@ void Analyzer::analyze_section_assignment(Statement& statement, const ValueType 
       const auto replacement_count = checked_element_count(normalized_replacement);
       if ((!replacement_count.has_value() || *replacement_count != 1U) &&
           nonsingleton(target_facts.shape) != nonsingleton(normalized_replacement)) {
-        diagnose(
-            statement.line, "MPF2031",
-            "section assignment replacement shape is not conformable with the selected shape");
+        diagnose(statement.line, "MPF2031",
+                 "section assignment replacement shape is not conformable with the selected shape");
       }
     }
   }

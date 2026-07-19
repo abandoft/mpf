@@ -880,8 +880,8 @@ class Renderer final {
       case javascript::lir::StatementForm::indexed_section_assignment:
         indentation();
         if (statement.plan.sparse_mutation.valid()) {
-          const auto deletion = semantic::sparse_mutation_is_deletion(
-              statement.plan.sparse_mutation.kind);
+          const auto deletion =
+              semantic::sparse_mutation_is_deletion(statement.plan.sparse_mutation.kind);
           output_ << (deletion ? "__mpf_sparse_erase(" : "__mpf_sparse_assign(");
           emit_expression(statement.target_expression.children[0]);
           output_ << ", [";
@@ -896,8 +896,7 @@ class Renderer final {
             output_ << ", ";
           }
           output_ << statement.target_expression.plan.index_base << ", "
-                  << (semantic::sparse_mutation_is_linear(
-                          statement.plan.sparse_mutation.kind)
+                  << (semantic::sparse_mutation_is_linear(statement.plan.sparse_mutation.kind)
                           ? "true"
                           : "false")
                   << ", ";
@@ -914,9 +913,8 @@ class Renderer final {
           }
           emit_optional_shape(statement.plan.sparse_mutation.result_shape);
           output_ << ");\n";
-        } else if (statement.plan.indexed_mutation.kind ==
-                       semantic::IndexedMutationKind::grow ||
-            statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::erase) {
+        } else if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow ||
+                   statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::erase) {
           output_ << (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow
                           ? "__mpf_grow("
                           : "__mpf_erase(");

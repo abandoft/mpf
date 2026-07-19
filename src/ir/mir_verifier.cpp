@@ -1171,21 +1171,20 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
         const auto* sparse_selection = shape(program, sparse.selection_shape);
         const auto* sparse_replacement = shape(program, sparse.replacement_shape);
         const auto* sparse_result = shape(program, sparse.result_shape);
-        const bool expected_sparse =
-            target != nullptr && target_attributes != nullptr &&
-            target_attributes->sparse_index.valid() && replacement != nullptr;
+        const bool expected_sparse = target != nullptr && target_attributes != nullptr &&
+                                     target_attributes->sparse_index.valid() &&
+                                     replacement != nullptr;
         if (expected_sparse != sparse.valid()) {
           add_error(diagnostics, {statement.line, 1}, stage,
                     "sparse-mutation identity disagrees with the indexed store");
         } else if (sparse.valid()) {
           const bool deletion = mutation.contract.kind == semantic::IndexedMutationKind::erase;
-          const auto expected_kind = deletion
-                                         ? (mutation.contract.linear
-                                                ? semantic::SparseMutationKind::linear_deletion
-                                                : semantic::SparseMutationKind::axis_deletion)
-                                         : (mutation.contract.linear
-                                                ? semantic::SparseMutationKind::linear_assignment
-                                                : semantic::SparseMutationKind::subscript_assignment);
+          const auto expected_kind =
+              deletion
+                  ? (mutation.contract.linear ? semantic::SparseMutationKind::linear_deletion
+                                              : semantic::SparseMutationKind::axis_deletion)
+                  : (mutation.contract.linear ? semantic::SparseMutationKind::linear_assignment
+                                              : semantic::SparseMutationKind::subscript_assignment);
           const auto* generic_input = shape(program, mutation.input_shape);
           const auto* generic_result = shape(program, mutation.result_shape);
           const auto* target_selection =
@@ -1195,8 +1194,9 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
           const auto* replacement_value_shape = shape(program, replacement->shape_id);
           if (sparse_input == nullptr || sparse_selection == nullptr ||
               sparse_replacement == nullptr || sparse_result == nullptr ||
-              generic_input == nullptr || generic_result == nullptr || target_selection == nullptr ||
-              sparse.kind != expected_kind || sparse_input->extents != generic_input->extents ||
+              generic_input == nullptr || generic_result == nullptr ||
+              target_selection == nullptr || sparse.kind != expected_kind ||
+              sparse_input->extents != generic_input->extents ||
               sparse_result->extents != generic_result->extents ||
               sparse_selection->extents != target_selection->extents ||
               sparse.replacement_storage != replacement_storage ||
@@ -1207,9 +1207,8 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
               !semantic::valid_sparse_mutation_contract(
                   sparse.kind, sparse.replacement, sparse.duplicate_policy, sparse.zero_policy,
                   sparse.source_storage, sparse.replacement_storage, sparse.result_storage,
-                  sparse_input->extents, sparse_selection->extents,
-                  sparse_replacement->extents, sparse_result->extents,
-                  target->children.size() - 1U, mutation.contract)) {
+                  sparse_input->extents, sparse_selection->extents, sparse_replacement->extents,
+                  sparse_result->extents, target->children.size() - 1U, mutation.contract)) {
             add_error(diagnostics, {statement.line, 1}, stage,
                       "sparse indexed store has an invalid storage or shape plan");
           }
@@ -1218,9 +1217,9 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
                    sparse.zero_policy != semantic::SparseZeroWritePolicy::none ||
                    sparse.source_storage != ArrayStorageFormat::none ||
                    sparse.replacement_storage != ArrayStorageFormat::none ||
-                   sparse.result_storage != ArrayStorageFormat::none || sparse.input_shape.valid() ||
-                   sparse.selection_shape.valid() || sparse.replacement_shape.valid() ||
-                   sparse.result_shape.valid()) {
+                   sparse.result_storage != ArrayStorageFormat::none ||
+                   sparse.input_shape.valid() || sparse.selection_shape.valid() ||
+                   sparse.replacement_shape.valid() || sparse.result_shape.valid()) {
           add_error(diagnostics, {statement.line, 1}, stage,
                     "inactive sparse-mutation plan retains MIR state");
         }

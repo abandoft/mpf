@@ -1219,8 +1219,8 @@ class Renderer final {
             output_ << ", ";
             emit_selector_tuple(statement.target_expression);
             output_ << ", " << statement.target_expression.plan.index_base << ", "
-                    << (semantic::sparse_mutation_is_linear(sparse.kind) ? "true" : "false")
-                    << ", " << statement.plan.indexed_mutation.axis << ", ";
+                    << (semantic::sparse_mutation_is_linear(sparse.kind) ? "true" : "false") << ", "
+                    << statement.plan.indexed_mutation.axis << ", ";
             if (known_static_shape(sparse.result_shape))
               emit_shape_vector(sparse.result_shape);
             else
@@ -1258,8 +1258,7 @@ class Renderer final {
               output_ << "std::vector<std::size_t>{}";
             output_ << ')';
           }
-        } else if (statement.plan.indexed_mutation.kind ==
-                   semantic::IndexedMutationKind::grow) {
+        } else if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow) {
           output_ << (statement.plan.indexed_mutation.linear
                           ? "mpf_runtime::assign_growing_linear_column_major("
                           : "mpf_runtime::assign_growing_section_nd(");

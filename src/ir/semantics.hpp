@@ -195,14 +195,12 @@ enum class SparseReplacementKind : std::uint8_t { none, scalar_expansion, elemen
 enum class SparseDuplicateWritePolicy : std::uint8_t { none, last_write_wins, erase_once };
 enum class SparseZeroWritePolicy : std::uint8_t { none, erase_entry };
 
-[[nodiscard]] constexpr bool sparse_mutation_is_assignment(
-    const SparseMutationKind kind) noexcept {
+[[nodiscard]] constexpr bool sparse_mutation_is_assignment(const SparseMutationKind kind) noexcept {
   return kind == SparseMutationKind::linear_assignment ||
          kind == SparseMutationKind::subscript_assignment;
 }
 
-[[nodiscard]] constexpr bool sparse_mutation_is_deletion(
-    const SparseMutationKind kind) noexcept {
+[[nodiscard]] constexpr bool sparse_mutation_is_deletion(const SparseMutationKind kind) noexcept {
   return kind == SparseMutationKind::linear_deletion || kind == SparseMutationKind::axis_deletion;
 }
 
@@ -377,9 +375,9 @@ template <typename Shape>
     const SparseMutationKind kind, const SparseReplacementKind replacement,
     const SparseDuplicateWritePolicy duplicate_policy, const SparseZeroWritePolicy zero_policy,
     const ArrayStorageFormat source_storage, const ArrayStorageFormat replacement_storage,
-    const ArrayStorageFormat result_storage, const Shape& input_shape,
-    const Shape& selection_shape, const Shape& replacement_shape, const Shape& result_shape,
-    const std::size_t selector_count, const IndexedMutationContract& mutation) noexcept {
+    const ArrayStorageFormat result_storage, const Shape& input_shape, const Shape& selection_shape,
+    const Shape& replacement_shape, const Shape& result_shape, const std::size_t selector_count,
+    const IndexedMutationContract& mutation) noexcept {
   constexpr auto dynamic = std::numeric_limits<std::size_t>::max();
   if (kind == SparseMutationKind::none || source_storage != ArrayStorageFormat::sparse_csc ||
       result_storage != ArrayStorageFormat::sparse_csc || input_shape.size() != 2U ||
