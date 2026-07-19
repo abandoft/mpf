@@ -1,3 +1,19 @@
+## 0.6.1
+
+- Matlab now accepts every R2024 `sparse` call form within MPF's nonempty, statically shaped real rank-two contract: `sparse(A)`, `sparse(m,n)`, inferred triplets, explicitly sized triplets, and the `nzmax` form.
+- `sparse(m,n)` and explicitly sized empty triplets now create zero-valued canonical CSC matrices without materializing dense storage.
+- Triplet construction supports scalar expansion for row indices, column indices, or values while requiring all nonscalar inputs to have equal element counts.
+- Inferred triplet construction derives its output dimensions from positive compile-time literal indices; explicitly sized construction validates known and runtime indices against the requested shape.
+- Duplicate triplet coordinates are accumulated deterministically in column-major order, and exact cancellation removes the stored entry.
+- The `nzmax` argument is validated as a nonnegative compile-time integer and becomes a capacity hint in generated C++17 without changing observable matrix contents.
+- Generated JavaScript and C++17 build canonical sorted CSC data directly from triplets instead of allocating an intermediate dense matrix.
+- Ordinary and conjugating transpose now preserve sparse CSC storage for the delivered real sparse contract and use target-owned transpose helpers.
+- A typed `SparseConstructionPlan` now carries constructor identity, result shape, triplet cardinalities, and reserve intent through semantic analysis, MIR, JavaScript LIR, and `cpp` LIR.
+- Independent HIR, MIR, JavaScript LIR, and `cpp` LIR verifiers reject corrupted sparse arity, shape, cardinality, reserve, storage, or inactive-state facts before emission.
+- Sparse constructor and transpose source locations remain mapped through both target-specific runtime calls; neither output backend depends on the other's artifacts.
+- Runtime checks now reject fractional or nonpositive triplet indices, mismatched nonscalar triplets, out-of-range coordinates, invalid dimensions, and nonfinite duplicate accumulation with stable diagnostics.
+- Added executable, differential, generated-runtime rejection, fuzz, architecture, and performance coverage for zero, empty, inferred, sized, reserved, scalar-expanded, duplicate, and transposed sparse matrices.
+
 ## 0.6.0
 
 - Matlab `sparse(A)` now converts nonempty, statically shaped real rank-two arrays into canonical compressed sparse column storage.
@@ -12,7 +28,6 @@
 - Unsupported sparse constructors, indexing, transpose, reshape, logical, element-wise, multiplication, power, rectangular, complex, and zero-extent cases fail before emission with `MPF2054`.
 - Numeric type planning now preserves Matlab binary64 arrays while keeping Python operand-returning short-circuit and conditional-expression result types correct in generated C++17.
 - Added executable sparse solve and condition-warning examples with source-map checks, fuzz coverage, and dual-target differential validation.
-- The release gate now contains 234 internal tests, 90 differential cases, 107 configured CTest entries, 25 versioned performance scenarios, and 91.07% production line coverage.
 
 ## 0.5.9
 
@@ -27,7 +42,6 @@
 - Source maps preserve complex overdetermined, underdetermined, left-division, and right-division operator locations.
 - Added executable complex rectangular and rank-deficient Matlab examples with dual-target differential and warning validation.
 - Added complex rectangular fuzz coverage and a dedicated compilation-performance workload.
-- The release gate now contains 24 performance scenarios, 231 internal tests, 87 differential cases, and 90.92% production line coverage.
 
 ## 0.5.8
 
@@ -46,7 +60,6 @@
 - Source maps retain the original locations of complex multiplication, left/right division, and positive or negative matrix powers.
 - Added executable examples for Hermitian, dense pivoted, singular, and nearly-singular complex matrix behavior with dual-target differential validation.
 - Added a complex matrix fuzz seed and generated-runtime rejection coverage for dynamically supplied invalid power exponents.
-- The release gate now contains 23 performance scenarios, 230 internal tests, 85 differential cases, and 90.83% production line coverage.
 
 ## 0.5.7
 
@@ -83,7 +96,6 @@
 - Scalar division now carries an explicit zero-denominator policy through HIR, MIR, and both target LIRs; generated C++17 uses portable target-runtime calls for Matlab/TypeScript IEEE results, while Python true and floor division report stable errors in both targets.
 - Source maps cover logical and reduction runtime calls; character arrays, dynamic dimensions, duplicate or invalid dimensions, and unsupported unknown-rank reductions produce stable diagnostics.
 - Added executable dual-target examples, differential cases, cross-layer corruption checks, runtime assertions, and dedicated Matlab fuzz seeds.
-- Release validation now covers 223 internal tests, 80 differential cases, 96 configured CTest entries, and 21 performance scenarios, including separate logical and logical-reduction workloads.
 
 ## 0.5.5
 
@@ -100,7 +112,6 @@
 - Added executable left/right tridiagonal, positive-definite, symmetric-indefinite, singular, and nearly singular examples with dual-target output and warning validation.
 - Expanded source-map assertions, verifier corruption checks, architecture checks, and Matlab fuzz seeds for the advanced structure paths.
 - The release performance gate now covers nineteen compile scenarios, including a dedicated advanced structured-square workload.
-- Release validation now covers 216 internal tests, 77 differential cases, 19 performance scenarios, and 90.40% production line coverage.
 
 ## 0.5.4
 
@@ -116,7 +127,6 @@
 - Source maps now retain the original locations of structured left and right division expressions.
 - Added executable structured-solve and condition-warning examples, dual-target differential cases, verifier corruption tests, and a Matlab fuzz regression seed.
 - The release performance gate now includes an eighteenth compile scenario covering diagonal, triangular, dense, left-division, right-division, and mixed numeric matrix literals.
-- Release validation now covers 215 internal tests, 74 differential cases, 18 performance scenarios, and 90.30% production line coverage.
 
 ## 0.5.3
 
@@ -133,7 +143,6 @@
 - Release SHA-256 sidecars now use a carriage-return-free format that standard Unix checksum tools can verify even when the package is built on Windows.
 - Added executable exact-singular and nearly-singular Matlab examples with two-target output and warning-count validation.
 - Expanded cross-layer corruption checks, generated-code assertions, architecture checks, and the Matlab fuzz corpus for conditioned solves.
-- The release gate now covers 214 internal tests, 72 differential cases, 17 performance scenarios, and 90.22% production-line coverage.
 
 ## 0.5.2
 

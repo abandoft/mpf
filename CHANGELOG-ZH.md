@@ -1,3 +1,19 @@
+## 0.6.1
+
+- Matlab 现可在 MPF 的非空、静态 shape、real rank-2 contract 内接受 R2024 全部 `sparse` 调用形式：`sparse(A)`、`sparse(m,n)`、推断 shape 的 triplet、显式 shape triplet 与 `nzmax` 形式。
+- `sparse(m,n)` 与显式 shape 的空 triplet 现可直接创建全零 canonical CSC 矩阵，不会物化稠密存储。
+- triplet 构造支持 row index、column index 或 value 的 scalar expansion，同时要求所有非标量输入具有相同元素数量。
+- 推断式 triplet 构造从正的编译期 literal index 得到输出维度；显式 shape 构造会按请求 shape 验证已知及运行时 index。
+- 重复 triplet 坐标会按列主序确定性累加；精确抵消后的条目不会进入存储。
+- `nzmax` 会作为非负编译期整数验证，并在生成 C++17 中作为 capacity hint 使用，不改变矩阵可观察内容。
+- 生成的 JavaScript 与 C++17 会从 triplet 直接建立有序 canonical CSC 数据，不再分配中间稠密矩阵。
+- 普通转置与共轭转置现可在已交付的 real sparse contract 内保持 CSC 存储，并调用目标专属 transpose helper。
+- 新增类型化 `SparseConstructionPlan`，使 constructor identity、结果 shape、triplet cardinality 与 reserve intent 贯穿语义分析、MIR、JavaScript LIR 和 `cpp` LIR。
+- 独立 HIR、MIR、JavaScript LIR 与 `cpp` LIR verifier 会在发射前拒绝损坏的 sparse arity、shape、cardinality、reserve、storage 或 inactive-state fact。
+- 稀疏构造与转置经过两个目标专属 runtime call 后仍保留 source location；任一输出后端均不依赖另一后端产物。
+- runtime 现以稳定诊断拒绝小数或非正 triplet index、非标量 triplet 数量不一致、越界坐标、非法维度和非有限重复项累加。
+- 新增可执行、差分、生成 runtime 拒错、fuzz、架构与性能覆盖，固定 zero、empty、inferred、sized、reserved、scalar-expanded、duplicate 与 transposed sparse matrix 行为。
+
 ## 0.6.0
 
 - Matlab `sparse(A)` 现可把非空、静态 shape 的 real rank-two 数组转换为 canonical compressed sparse column 存储。
@@ -12,7 +28,6 @@
 - 尚未支持的 sparse constructor、索引、转置、reshape、逻辑、逐元素、乘法、幂、矩形、复数和零 extent 情形会在发射前以 `MPF2054` 失败。
 - 数值类型规划现可保持 Matlab binary64 数组，同时保证 Python operand-returning 短路与条件表达式在生成 C++17 中得到正确结果类型。
 - 新增可执行稀疏求解与条件 warning 示例，并覆盖 source map、fuzz 和双目标差分验证。
-- 发布门禁现包含 234 项内部测试、90 项差分 case、107 项 CTest、25 个版本化性能场景和 91.07% 生产代码行覆盖率。
 
 ## 0.5.9
 
@@ -27,7 +42,6 @@
 - source map 保留复数超定、欠定、左除和右除运算符的原始位置。
 - 新增复数矩形与秩亏 Matlab 可执行示例，并进行双目标差分和 warning 验证。
 - 新增复数矩形 fuzz 覆盖和专用编译性能 workload。
-- 发布门禁现包含 24 个性能场景、231 项内部测试、87 项差分 case 和 90.92% 生产代码行覆盖率。
 
 ## 0.5.8
 
@@ -46,7 +60,6 @@
 - source map 保留复数矩阵乘法、左右除及正/负矩阵幂的原始位置。
 - 新增 Hermitian、稠密换行主元、精确奇异和近奇异复数矩阵可执行示例及双目标差分验证。
 - 新增复数矩阵 fuzz seed，以及动态非法矩阵幂指数的生成 runtime 拒错覆盖。
-- 发布门禁现包含 23 个性能场景、230 项内部测试、85 项差分 case 和 90.83% 生产代码行覆盖率。
 
 ## 0.5.7
 
@@ -83,7 +96,6 @@
 - 标量除法现通过 HIR、MIR 和双目标 LIR 显式携带除零策略；生成的 C++17 通过可移植目标 runtime 保持 Matlab/TypeScript IEEE 结果，Python 真除法与 floor division 则在两个目标中给出稳定错误。
 - source map 现覆盖逻辑与归约 runtime 调用；字符数组、动态维度、重复/非法维度和不支持的未知 rank 归约会给出稳定诊断。
 - 新增双目标可执行示例、差分 case、跨层损坏检查、runtime 断言和 Matlab 专用 fuzz seed。
-- 发布验证现覆盖 223 项内部测试、80 个差分 case、96 项 CTest 和 21 个性能场景，其中 logical 与 logical-reduction 各有独立 workload。
 
 ## 0.5.5
 
@@ -100,7 +112,6 @@
 - 新增可执行的三对角左/右除、正定、对称不定、奇异及近奇异示例，并验证双目标输出和 warning。
 - 扩充高级结构路径的 source map 断言、verifier 损坏检查、架构检查和 Matlab fuzz seed。
 - 发布性能门禁现覆盖十九类编译场景，其中包含独立的高级结构化方阵 workload。
-- 发布验证现覆盖 216 项内部测试、77 个差分 case、19 个性能场景和 90.40% 生产代码行覆盖率。
 
 ## 0.5.4
 
@@ -116,7 +127,6 @@
 - source map 现可保留结构感知左除与右除表达式的原始源码位置。
 - 新增结构化求解和条件警告可执行示例、双目标差分 case、verifier 损坏测试与 Matlab fuzz 回归种子。
 - 发布性能门禁新增第十八个编译场景，覆盖对角、三角、稠密、左除、右除和混合数值矩阵字面量。
-- 发布验证现覆盖 215 项内部测试、74 个差分 case、18 个性能场景和 90.30% 生产代码行覆盖率。
 
 ## 0.5.3
 
@@ -133,7 +143,6 @@
 - 发布 SHA-256 侧车文件现使用无回车格式，即使软件包在 Windows 上构建，也可由标准 Unix 校验工具直接验证。
 - 新增精确奇异和近奇异 Matlab 可执行示例，并验证两个目标的输出与警告次数。
 - 扩充 conditioned solve 的跨层损坏检查、生成代码断言、架构门禁与 Matlab fuzz corpus。
-- 发布门禁现覆盖 214 项内部测试、72 个差分 case、17 个性能场景和 90.22% 生产代码行覆盖率。
 
 ## 0.5.2
 
