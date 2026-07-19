@@ -513,6 +513,17 @@ class Renderer final {
         emit_shape_array(expression.plan.result_shape);
         output_ << ')';
         return;
+      case cpp::lir::CallForm::matlab_sparse_reshape:
+        output_ << "mpf_runtime::sparse_reshape(";
+        emit_expression(expression.children[1]);
+        output_ << ", ";
+        emit_shape_array(expression.plan.sparse_reshape.input_shape);
+        output_ << ", ";
+        emit_shape_array(expression.plan.sparse_reshape.requested_shape);
+        output_ << ", ";
+        emit_shape_array(expression.plan.sparse_reshape.result_shape);
+        output_ << ')';
+        return;
       case cpp::lir::CallForm::matlab_sparse:
         output_ << "mpf_runtime::sparse(";
         for (std::size_t index = 1U; index < expression.children.size(); ++index) {

@@ -246,6 +246,68 @@ template <typename T> sparse_matrix<double> sparse_transpose(const sparse_matrix
     }
   return result;
 }
+template <std::size_t Rank>
+std::size_t sparse_reshape_shape_count(const std::array<std::size_t, Rank>& shape,
+                                       const std::string& name,
+                                       const std::size_t minimum_rank) {
+  if (Rank < minimum_rank)
+    throw std::invalid_argument("MPF Matlab sparse reshape " + name + " has an invalid rank");
+  std::size_t count = 1U;
+  for (const auto extent : shape) {
+    if (extent == 0U || count > std::numeric_limits<std::size_t>::max() / extent)
+      throw std::length_error("MPF Matlab sparse reshape " + name + " has an invalid extent");
+    count *= extent;
+  }
+  return count;
+}
+template <typename T, std::size_t InputRank, std::size_t RequestedRank, std::size_t ResultRank>
+sparse_matrix<double> sparse_reshape(
+    const sparse_matrix<T>& value, const std::array<std::size_t, InputRank>& input_shape,
+    const std::array<std::size_t, RequestedRank>& requested_shape,
+    const std::array<std::size_t, ResultRank>& result_shape) {
+  validate_sparse_csc(value, "reshape operand");
+  const auto input_count = sparse_reshape_shape_count(input_shape, "input-shape plan", 2U);
+  const auto requested_count =
+      sparse_reshape_shape_count(requested_shape, "requested-shape plan", 2U);
+  const auto result_count = sparse_reshape_shape_count(result_shape, "result-shape plan", 2U);
+  if (InputRank != 2U || ResultRank != 2U || input_shape[0] != value.rows ||
+      input_shape[1] != value.columns || input_count != requested_count ||
+      requested_count != result_count)
+    throw std::invalid_argument("MPF Matlab sparse reshape shape plans are inconsistent");
+  std::size_t folded_columns = 1U;
+  for (std::size_t axis = 1U; axis < RequestedRank; ++axis) {
+    if (folded_columns > std::numeric_limits<std::size_t>::max() / requested_shape[axis])
+      throw std::length_error("MPF Matlab sparse reshape folded extent exceeds size limits");
+    folded_columns *= requested_shape[axis];
+  }
+  const auto rows = requested_shape[0];
+  const auto columns = folded_columns;
+  if (result_shape[0] != rows || result_shape[1] != columns)
+    throw std::invalid_argument(
+        "MPF Matlab sparse reshape result plan does not match requested dimensions");
+  sparse_matrix<double> result;
+  result.rows = rows;
+  result.columns = columns;
+  result.column_pointers.assign(columns + 1U, 0U);
+  result.row_indices.resize(value.values.size());
+  result.values.resize(value.values.size());
+  std::size_t output = 0U;
+  for (std::size_t column = 0U; column < value.columns; ++column) {
+    for (auto index = value.column_pointers[column]; index < value.column_pointers[column + 1U];
+         ++index) {
+      const auto linear = value.row_indices[index] + column * value.rows;
+      const auto reshaped_column = linear / rows;
+      result.row_indices[output] = linear % rows;
+      result.values[output] = static_cast<double>(value.values[index]);
+      ++result.column_pointers[reshaped_column + 1U];
+      ++output;
+    }
+  }
+  for (std::size_t column = 0U; column < columns; ++column)
+    result.column_pointers[column + 1U] += result.column_pointers[column];
+  validate_sparse_csc(result, "reshape result");
+  return result;
+}
 template <typename T> double sparse_value_at(const sparse_matrix<T>& matrix,
                                              const std::size_t row,
                                              const std::size_t column) {
