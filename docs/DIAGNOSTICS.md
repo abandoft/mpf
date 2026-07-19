@@ -1,6 +1,6 @@
 # 诊断与 CLI 契约
 
-MPF 当前为库调用、命令行、IDE 和 CI 使用同一个诊断模型；本文描述 0.5.9 源码树的唯一契约。每条诊断在构造时即包含 code、severity、消息、源文件身份以及完整的 1-based UTF-8 code-point range；renderer 不接收缺失结束位置的旧结构，也不合成兼容范围。
+MPF 当前为库调用、命令行、IDE 和 CI 使用同一个诊断模型；本文描述 0.6.0 源码树的唯一契约。每条诊断在构造时即包含 code、severity、消息、源文件身份以及完整的 1-based UTF-8 code-point range；renderer 不接收缺失结束位置的旧结构，也不合成兼容范围。
 
 ## 文本输出
 
