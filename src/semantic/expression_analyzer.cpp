@@ -1194,12 +1194,10 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                  "and real CSC operand");
         return facts.inferred_type = ValueType::unknown;
       }
-      if (!static_rank_two_shape(sparse_facts.shape) ||
-          std::find(sparse_facts.shape.begin(), sparse_facts.shape.end(), 0U) !=
-              sparse_facts.shape.end()) {
+      if (!static_rank_two_shape(sparse_facts.shape)) {
         diagnose(expression.location.line, "MPF2054",
-                 "sparse scalar matrix multiplication currently requires a nonempty static "
-                 "rank-2 CSC operand");
+                 "sparse scalar matrix multiplication currently requires a static rank-2 CSC "
+                 "operand");
         return facts.inferred_type = ValueType::unknown;
       }
       const auto storage_policy = semantic::matrix_storage_policy(
