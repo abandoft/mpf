@@ -897,6 +897,11 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       if (result.call == lir::CallForm::matlab_sparse_reshape) {
         result.sparse_reshape = expression.sparse_reshape;
       }
+      if (result.call == lir::CallForm::matlab_sparse &&
+          expression.sparse_construction.kind ==
+              semantic::SparseConstructionKind::dense_conversion) {
+        result.runtime_shape_arguments = {expression.sparse_construction.result_shape};
+      }
       result.call_value = expression.multi_output_call && expression.requested_outputs == 1
                               ? lir::CallValueForm::first_result
                               : lir::CallValueForm::direct;
@@ -968,6 +973,25 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       break;
     case ExpressionKind::tuple: result.form = lir::ExpressionForm::tuple; break;
   }
+  if (result.form == lir::ExpressionForm::matlab_logical_operation ||
+      result.form == lir::ExpressionForm::matlab_array_operation) {
+    if (result.sparse_elementwise.valid()) {
+      result.runtime_shape_arguments = {result.sparse_elementwise.left_shape,
+                                        result.sparse_elementwise.right_shape,
+                                        result.sparse_elementwise.result_shape};
+    } else if (expression.matrix_operation.storage_policy ==
+                   semantic::MatrixStoragePolicy::sparse_csc_multiply ||
+               expression.matrix_operation.storage_policy ==
+                   semantic::MatrixStoragePolicy::sparse_csc_coefficient) {
+      result.runtime_shape_arguments = {expression.matrix_operation.left_shape,
+                                        expression.matrix_operation.right_shape,
+                                        expression.matrix_operation.result_shape};
+    } else if (result.broadcast.valid &&
+               result.broadcast.shape_source == semantic::BroadcastShapeSource::static_extents) {
+      result.runtime_shape_arguments = {result.broadcast.left_shape, result.broadcast.right_shape,
+                                        result.broadcast.result_shape};
+    }
+  }
   return result;
 }
 
@@ -999,6 +1023,7 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.sparse_elementwise.right_shape != right.sparse_elementwise.right_shape ||
       left.sparse_elementwise.result_shape != right.sparse_elementwise.result_shape ||
       left.sparse_elementwise.axes != right.sparse_elementwise.axes ||
+      left.runtime_shape_arguments != right.runtime_shape_arguments ||
       left.reduction.operation != right.reduction.operation ||
       left.reduction.axis_policy != right.reduction.axis_policy ||
       left.reduction.shape_source != right.reduction.shape_source ||

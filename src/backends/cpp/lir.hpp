@@ -364,6 +364,7 @@ struct ExpressionPlan {
   std::vector<ComparisonPlan> comparisons;
   BroadcastPlan broadcast;
   SparseElementwisePlan sparse_elementwise;
+  std::vector<std::vector<std::size_t>> runtime_shape_arguments;
   ReductionPlan reduction;
   SparseIndexPlan sparse_index;
   SparseReshapePlan sparse_reshape;
