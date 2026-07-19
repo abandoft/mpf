@@ -862,6 +862,15 @@ class Builder final {
         result_attributes.reduction.axes = semantic_facts->reduction.axes;
         result_attributes.reduction.scalar_result = semantic_facts->reduction.scalar_result;
       }
+      if (semantic_facts->sparse_construction.valid()) {
+        result_attributes.sparse_construction.kind = semantic_facts->sparse_construction.kind;
+        result_attributes.sparse_construction.result_shape =
+            intern_shape(semantic_facts->sparse_construction.result_shape, false);
+        result_attributes.sparse_construction.triplet_element_counts =
+            semantic_facts->sparse_construction.triplet_element_counts;
+        result_attributes.sparse_construction.reserve_hint =
+            semantic_facts->sparse_construction.reserve_hint;
+      }
       result_attributes.binding = semantic_facts->binding;
       result_attributes.intrinsic = semantic_facts->intrinsic;
       result_attributes.tuple_shapes.reserve(semantic_facts->tuple_shapes.size());

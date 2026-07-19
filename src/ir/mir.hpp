@@ -340,6 +340,17 @@ struct ReductionPlan {
   }
 };
 
+struct SparseConstructionPlan {
+  semantic::SparseConstructionKind kind{semantic::SparseConstructionKind::none};
+  ShapeId result_shape{};
+  std::vector<std::size_t> triplet_element_counts;
+  std::size_t reserve_hint{0U};
+
+  [[nodiscard]] bool valid() const noexcept {
+    return kind != semantic::SparseConstructionKind::none;
+  }
+};
+
 struct ExpressionAttributes {
   MirExpressionId origin{};
   std::string spelling;
@@ -352,6 +363,7 @@ struct ExpressionAttributes {
   BroadcastPlan broadcast;
   MatrixOperationPlan matrix_operation;
   ReductionPlan reduction;
+  SparseConstructionPlan sparse_construction;
   BindingKind binding{BindingKind::unresolved};
   IntrinsicId intrinsic{IntrinsicId::none};
   std::vector<ShapeId> tuple_shapes;
