@@ -1090,7 +1090,7 @@ template <typename Replacement> sparse_replacement_payload sparse_replacement_va
   for (const auto value : result.values)
     if (!std::isfinite(value))
       throw std::invalid_argument(
-          "MPF Matlab sparse assignment requires finite real values");
+          "MPF Matlab sparse assignment requires finite real or logical values");
   return result;
 }
 inline std::vector<std::size_t> sparse_nonsingleton_shape(

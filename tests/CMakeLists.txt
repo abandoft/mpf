@@ -306,7 +306,7 @@ if(TARGET mpfc)
   mpf_add_generated_runtime_failure_test(
     matlab-sparse-assignment-nonfinite
     tests/fixtures/matlab_sparse_assignment_nonfinite.m
-    "sparse assignment requires finite real values" matlab)
+    "sparse assignment requires finite real or logical values" matlab)
   mpf_add_generated_plan_rejection_test(
     matlab-sparse-reshape-plan tests/fixtures/matlab_sparse_reshape_plan.m
     "result plan does not match requested dimensions" matlab
