@@ -117,6 +117,73 @@ enum class BroadcastAxis : std::uint8_t { match, expand_left, expand_right, runt
 // operand shapes after evaluating the two runtime values. The latter also represents unknown rank.
 enum class BroadcastShapeSource : std::uint8_t { static_extents, runtime_operands };
 enum class ArrayOperation : std::uint8_t { native, matlab };
+
+// Sparse element-wise arithmetic is not a matrix operation. Keep its source operation and
+// storage propagation independent so target lowering never aliases Matlab `.*` to `*` or infers
+// sparse preservation from a helper name. The current finite-real CSC contract deliberately
+// requires analyzer-owned extents; dynamic rank, empty dimensions, and complex sparse values fail
+// closed until their own typed contracts are implemented.
+enum class SparseElementwiseOperation : std::uint8_t { none, multiply };
+enum class SparseElementwiseStoragePolicy : std::uint8_t { none, preserve_sparse };
+
+[[nodiscard]] constexpr ArrayStorageFormat sparse_elementwise_result_storage(
+    const ArrayStorageFormat left, const ArrayStorageFormat right) noexcept {
+  const bool left_sparse = left == ArrayStorageFormat::sparse_csc;
+  const bool right_sparse = right == ArrayStorageFormat::sparse_csc;
+  const bool left_supported =
+      left == ArrayStorageFormat::none || left == ArrayStorageFormat::dense || left_sparse;
+  const bool right_supported =
+      right == ArrayStorageFormat::none || right == ArrayStorageFormat::dense || right_sparse;
+  return left_supported && right_supported && (left_sparse || right_sparse)
+             ? ArrayStorageFormat::sparse_csc
+             : ArrayStorageFormat::none;
+}
+
+template <typename Shape, typename Axes>
+[[nodiscard]] bool valid_sparse_elementwise_contract(
+    const SparseElementwiseOperation operation, const SparseElementwiseStoragePolicy policy,
+    const BroadcastShapeSource shape_source, const ArrayStorageFormat left_storage,
+    const ArrayStorageFormat right_storage, const ArrayStorageFormat result_storage,
+    const Shape& left_shape, const Shape& right_shape, const Shape& result_shape,
+    const Axes& axes) noexcept {
+  if (operation != SparseElementwiseOperation::multiply ||
+      policy != SparseElementwiseStoragePolicy::preserve_sparse ||
+      shape_source != BroadcastShapeSource::static_extents ||
+      result_storage != sparse_elementwise_result_storage(left_storage, right_storage) ||
+      result_storage != ArrayStorageFormat::sparse_csc || result_shape.size() != 2U ||
+      axes.size() != result_shape.size()) {
+    return false;
+  }
+  const auto valid_operand = [](const ArrayStorageFormat storage, const Shape& shape) {
+    if (storage == ArrayStorageFormat::none) return shape.empty();
+    if (storage != ArrayStorageFormat::dense && storage != ArrayStorageFormat::sparse_csc) {
+      return false;
+    }
+    return shape.size() == 2U && shape[0] != 0U && shape[1] != 0U;
+  };
+  if (!valid_operand(left_storage, left_shape) ||
+      !valid_operand(right_storage, right_shape) || result_shape[0] == 0U ||
+      result_shape[1] == 0U) {
+    return false;
+  }
+  for (std::size_t axis = 0U; axis < result_shape.size(); ++axis) {
+    const auto left_extent = axis < left_shape.size() ? left_shape[axis] : 1U;
+    const auto right_extent = axis < right_shape.size() ? right_shape[axis] : 1U;
+    const auto expected_axis =
+        left_extent == right_extent
+            ? BroadcastAxis::match
+            : left_extent == 1U ? BroadcastAxis::expand_left
+                                : right_extent == 1U ? BroadcastAxis::expand_right
+                                                    : BroadcastAxis::runtime;
+    const auto expected_extent = left_extent > right_extent ? left_extent : right_extent;
+    if (expected_axis == BroadcastAxis::runtime || axes[axis] != expected_axis ||
+        result_shape[axis] != expected_extent) {
+      return false;
+    }
+  }
+  return true;
+}
+
 enum class MatrixOperation : std::uint8_t {
   none,
   multiply,
