@@ -374,6 +374,27 @@ std::string matlab_matrix_solve_workload(const std::size_t rounds) {
   return source;
 }
 
+std::string matlab_sparse_solve_workload(const std::size_t rounds) {
+  std::string source =
+      "tridiagonal = sparse([2 1 0 0; 0 3 1 0; 0 0 4 1; 0 0 0 5]);\n"
+      "pivoted = sparse([0 2 0 0; 1 3 1 0; 0 1 4 1; 0 0 1 5]);\n"
+      "dense_rhs = [4; 9; 19; 20];\n"
+      "sparse_rhs = sparse([4; 10; 18; 17]);\n"
+      "left = sparse([7 8 14 3; 16 23 29 9]);\n"
+      "right = sparse([1 2 0 0; 0 3 1 0; 2 0 4 1; 0 1 0 5]);\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    source += "tridiagonal_solution = tridiagonal \\ dense_rhs;\n";
+    source += "pivoted_solution = pivoted \\ sparse_rhs;\n";
+    source += "quotient = left / right;\n";
+    source += "dense_pivoted = full(pivoted_solution);\n";
+    source += "dense_quotient = full(quotient);\n";
+  }
+  source +=
+      "disp(tridiagonal_solution(1) + dense_pivoted(1) + dense_quotient(1, 1) + "
+      "nnz(pivoted))\n";
+  return source;
+}
+
 std::string matlab_rank_aware_solve_workload(const std::size_t rounds) {
   std::string source =
       "rank_deficient_tall = [1 2; 2 4; 3 6; 4 8];\n"
@@ -553,6 +574,7 @@ int main() {
       {"matlab-complex-rectangular-solve", matlab_complex_rectangular_solve_workload(24),
        mpf::SourceLanguage::matlab},
       {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab},
+      {"matlab-sparse-solve", matlab_sparse_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-rank-aware-solve", matlab_rank_aware_solve_workload(24),
        mpf::SourceLanguage::matlab},
       {"matlab-conditioned-square-solve", matlab_conditioned_square_solve_workload(24),
