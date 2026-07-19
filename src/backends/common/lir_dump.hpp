@@ -166,6 +166,19 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     }
     output << "] reserve " << expression.sparse_construction.reserve_hint;
   }
+  if (expression.sparse_index.valid()) {
+    output << " sparse-index " << static_cast<int>(expression.sparse_index.kind) << " input [";
+    for (std::size_t axis = 0; axis < expression.sparse_index.input_shape.size(); ++axis) {
+      if (axis != 0U) output << ',';
+      output << expression.sparse_index.input_shape[axis];
+    }
+    output << "] result [";
+    for (std::size_t axis = 0; axis < expression.sparse_index.result_shape.size(); ++axis) {
+      if (axis != 0U) output << ',';
+      output << expression.sparse_index.result_shape[axis];
+    }
+    output << ']';
+  }
   if (!expression.plan.call_arguments.empty()) {
     output << " call-arguments [";
     for (std::size_t index = 0; index < expression.plan.call_arguments.size(); ++index) {
@@ -293,7 +306,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v26 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v28 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

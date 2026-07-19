@@ -29,6 +29,25 @@ std::optional<semantic::IndexSelectorKind> expected_index_selector(
   return std::nullopt;
 }
 
+semantic::SparseIndexKind expected_sparse_index_kind(const lir::Expression& expression) noexcept {
+  if (expression.kind != ExpressionKind::index || expression.children.size() < 2U ||
+      expression.children.size() > 3U ||
+      expression.children.front().array_storage != ArrayStorageFormat::sparse_csc) {
+    return semantic::SparseIndexKind::none;
+  }
+  bool scalar = true;
+  for (std::size_t index = 1U; index < expression.children.size(); ++index) {
+    const auto selector = expected_index_selector(expression.children[index]);
+    if (!selector.has_value()) return semantic::SparseIndexKind::none;
+    scalar = scalar && *selector == semantic::IndexSelectorKind::scalar;
+  }
+  const bool linear = expression.children.size() == 2U;
+  return linear ? (scalar ? semantic::SparseIndexKind::linear_element
+                          : semantic::SparseIndexKind::linear_selection)
+                : (scalar ? semantic::SparseIndexKind::subscript_element
+                          : semantic::SparseIndexKind::submatrix_selection);
+}
+
 void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation location,
                std::string message) {
   diagnostics.push_back({DiagnosticSeverity::error, "MPF0008", std::move(message), location});
@@ -830,10 +849,18 @@ lir::ExpressionPlan expected_expression_plan(
       }
       break;
     case ExpressionKind::index: {
-      result.form = lir::ExpressionForm::index;
       result.precedence = 9;
       result.index_selectors = expression.index_selectors;
       result.index_extents = expression.index_extents;
+      if (expression.sparse_index.valid()) {
+        result.form = lir::ExpressionForm::matlab_sparse_index;
+        result.sparse_index = expression.sparse_index;
+        result.index_base = expression.index_base;
+        result.allow_negative_index = expression.allow_negative_index;
+        result.column_major = expression.column_major;
+        break;
+      }
+      result.form = lir::ExpressionForm::index;
       const bool runtime_extent =
           std::any_of(result.index_extents.begin(), result.index_extents.end(),
                       semantic::requires_runtime_extent);
@@ -944,9 +971,14 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.reduction.result_shape != right.reduction.result_shape ||
       left.reduction.output_shape != right.reduction.output_shape ||
       left.reduction.axes != right.reduction.axes ||
-      left.reduction.scalar_result != right.reduction.scalar_result || left.call != right.call ||
-      left.evaluation != right.evaluation || left.call_value != right.call_value ||
-      left.call_outcome != right.call_outcome ||
+      left.reduction.scalar_result != right.reduction.scalar_result ||
+      left.sparse_index.kind != right.sparse_index.kind ||
+      left.sparse_index.source_storage != right.sparse_index.source_storage ||
+      left.sparse_index.result_storage != right.sparse_index.result_storage ||
+      left.sparse_index.input_shape != right.sparse_index.input_shape ||
+      left.sparse_index.result_shape != right.sparse_index.result_shape ||
+      left.call != right.call || left.evaluation != right.evaluation ||
+      left.call_value != right.call_value || left.call_outcome != right.call_outcome ||
       left.call_arguments.size() != right.call_arguments.size() || left.index != right.index ||
       left.index_selectors != right.index_selectors || left.index_extents != right.index_extents ||
       left.variable_access != right.variable_access || left.index_base != right.index_base ||
@@ -1093,6 +1125,33 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
              !expression.reduction.output_shape.empty() || !expression.reduction.axes.empty() ||
              expression.reduction.scalar_result) {
     add_error(diagnostics, expression.location, "cpp LIR inactive logical reduction retains state");
+  }
+  const auto expected_sparse_index = expected_sparse_index_kind(expression);
+  if (expression.sparse_index.kind != expected_sparse_index) {
+    add_error(diagnostics, expression.location, "cpp LIR sparse-index identity is inconsistent");
+  } else if (expression.sparse_index.valid()) {
+    const auto& source = expression.children.front();
+    const auto scalar = semantic::sparse_index_returns_scalar(expression.sparse_index.kind);
+    if (source.element_type != ValueType::real ||
+        source.element_numeric_type != real_numeric_type ||
+        expression.sparse_index.input_shape != source.shape ||
+        expression.sparse_index.source_storage != source.array_storage ||
+        expression.sparse_index.result_shape != expression.shape ||
+        expression.sparse_index.result_storage != expression.array_storage ||
+        !semantic::valid_sparse_index_contract(
+            expression.sparse_index.kind, expression.sparse_index.source_storage,
+            expression.sparse_index.result_storage, expression.sparse_index.input_shape,
+            expression.sparse_index.result_shape, expression.children.size() - 1U) ||
+        (scalar ? expression.inferred_type != source.element_type
+                : expression.inferred_type != ValueType::list ||
+                      expression.element_type != source.element_type)) {
+      add_error(diagnostics, expression.location, "cpp LIR sparse-index contract is inconsistent");
+    }
+  } else if (expression.sparse_index.source_storage != ArrayStorageFormat::none ||
+             expression.sparse_index.result_storage != ArrayStorageFormat::none ||
+             !expression.sparse_index.input_shape.empty() ||
+             !expression.sparse_index.result_shape.empty()) {
+    add_error(diagnostics, expression.location, "cpp LIR inactive sparse-index retains state");
   }
   if ((expression.kind == ExpressionKind::end_index) !=
       semantic::requires_runtime_extent(expression.index_extent)) {

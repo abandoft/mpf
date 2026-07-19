@@ -140,6 +140,15 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
         attributes.sparse_construction.triplet_element_counts;
     result.sparse_construction.reserve_hint = attributes.sparse_construction.reserve_hint;
   }
+  if (attributes.sparse_index.valid()) {
+    result.sparse_index.kind = attributes.sparse_index.kind;
+    result.sparse_index.source_storage = attributes.sparse_index.source_storage;
+    result.sparse_index.result_storage = attributes.sparse_index.result_storage;
+    const auto* input_shape = mir::shape(program, attributes.sparse_index.input_shape);
+    const auto* result_shape = mir::shape(program, attributes.sparse_index.result_shape);
+    if (input_shape != nullptr) result.sparse_index.input_shape = input_shape->extents;
+    if (result_shape != nullptr) result.sparse_index.result_shape = result_shape->extents;
+  }
   if (attributes.reduction.valid()) {
     result.reduction.operation = attributes.reduction.operation;
     result.reduction.axis_policy = attributes.reduction.axis_policy;

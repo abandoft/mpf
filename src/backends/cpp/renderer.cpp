@@ -235,6 +235,46 @@ class Renderer final {
     output_ << '}';
   }
 
+  void emit_sparse_result_extent(const std::size_t extent) {
+    if (extent == dynamic_extent)
+      output_ << "std::nullopt";
+    else
+      output_ << "std::optional<std::size_t>{" << extent << '}';
+  }
+
+  void emit_sparse_index(const Expression& expression) {
+    const auto kind = expression.plan.sparse_index.kind;
+    switch (kind) {
+      case semantic::SparseIndexKind::linear_element:
+        output_ << "mpf_runtime::sparse_linear_element(";
+        break;
+      case semantic::SparseIndexKind::subscript_element:
+        output_ << "mpf_runtime::sparse_subscript_element(";
+        break;
+      case semantic::SparseIndexKind::linear_selection:
+        output_ << "mpf_runtime::sparse_linear_selection(";
+        break;
+      case semantic::SparseIndexKind::submatrix_selection:
+        output_ << "mpf_runtime::sparse_submatrix_selection(";
+        break;
+      case semantic::SparseIndexKind::none:
+        throw std::logic_error("verified cpp sparse index plan is missing");
+    }
+    emit_expression(expression.children.front());
+    for (std::size_t index = 1U; index < expression.children.size(); ++index) {
+      output_ << ", ";
+      emit_selector(expression, index);
+    }
+    if (kind == semantic::SparseIndexKind::linear_selection ||
+        kind == semantic::SparseIndexKind::submatrix_selection) {
+      for (const auto extent : expression.plan.sparse_index.result_shape) {
+        output_ << ", ";
+        emit_sparse_result_extent(extent);
+      }
+    }
+    output_ << ", " << expression.plan.index_base << ')';
+  }
+
   static bool known_static_shape(const std::vector<std::size_t>& shape) noexcept {
     if (shape.empty()) return false;
     for (const auto extent : shape) {
@@ -717,6 +757,7 @@ class Renderer final {
         else
           output_ << "static_cast<std::int64_t>(" << expression.plan.token << ')';
         break;
+      case cpp::lir::ExpressionForm::matlab_sparse_index: emit_sparse_index(expression); break;
       case cpp::lir::ExpressionForm::index:
         switch (expression.plan.index) {
           case cpp::lir::IndexForm::slice:

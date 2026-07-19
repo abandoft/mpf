@@ -69,6 +69,49 @@ class Renderer final {
     emit_shape(shape);
   }
 
+  void emit_sparse_result_shape(const std::vector<std::size_t>& shape) {
+    output_ << '[';
+    for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+      if (axis != 0U) output_ << ", ";
+      if (shape[axis] == dynamic_extent)
+        output_ << "null";
+      else
+        output_ << shape[axis];
+    }
+    output_ << ']';
+  }
+
+  void emit_sparse_index(const Expression& expression) {
+    const auto kind = expression.plan.sparse_index.kind;
+    switch (kind) {
+      case semantic::SparseIndexKind::linear_element:
+        output_ << "__mpf_sparse_linear_element(";
+        break;
+      case semantic::SparseIndexKind::subscript_element:
+        output_ << "__mpf_sparse_subscript_element(";
+        break;
+      case semantic::SparseIndexKind::linear_selection:
+        output_ << "__mpf_sparse_linear_selection(";
+        break;
+      case semantic::SparseIndexKind::submatrix_selection:
+        output_ << "__mpf_sparse_submatrix_selection(";
+        break;
+      case semantic::SparseIndexKind::none:
+        throw std::logic_error("verified JavaScript sparse index plan is missing");
+    }
+    emit_expression(expression.children.front());
+    for (std::size_t index = 1U; index < expression.children.size(); ++index) {
+      output_ << ", ";
+      emit_selector_descriptor(expression, index);
+    }
+    if (kind == semantic::SparseIndexKind::linear_selection ||
+        kind == semantic::SparseIndexKind::submatrix_selection) {
+      output_ << ", ";
+      emit_sparse_result_shape(expression.plan.sparse_index.result_shape);
+    }
+    output_ << ')';
+  }
+
   void emit_comparison(const javascript::lir::ComparisonPlan& comparison, const std::string& left,
                        const std::string& right) {
     switch (comparison.form) {
@@ -424,6 +467,9 @@ class Renderer final {
         break;
       case javascript::lir::ExpressionForm::call: break;
       case javascript::lir::ExpressionForm::runtime_extent: output_ << expression.plan.token; break;
+      case javascript::lir::ExpressionForm::matlab_sparse_index:
+        emit_sparse_index(expression);
+        break;
       case javascript::lir::ExpressionForm::index:
         if (expression.plan.index == javascript::lir::IndexForm::section) {
           output_ << "__mpf_section(";
