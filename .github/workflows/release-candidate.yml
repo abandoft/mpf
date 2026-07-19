@@ -34,7 +34,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: ./.github/actions/setup-reference-runtimes
         with:
           install-fortran: ${{ inputs.install-fortran }}
@@ -93,7 +93,7 @@ jobs:
           "-DVERIFY_DIR=build/archive-verification/${{ inputs.artifact }}"
           -P cmake/verify_release_archive.cmake
       - name: Attest candidate build provenance
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: build/package/${{ inputs.artifact }}.zip
       - name: Preserve release test diagnostics
