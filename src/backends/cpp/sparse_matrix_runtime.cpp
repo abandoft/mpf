@@ -203,6 +203,54 @@ template <typename T> std::vector<std::vector<double>> full(const sparse_matrix<
       result[matrix.row_indices[index]][column] = static_cast<double>(matrix.values[index]);
   return result;
 }
+template <typename Value, typename Scalar>
+sparse_matrix<double> sparse_scale(const sparse_matrix<Value>& matrix,
+                                   const Scalar& scalar_value) {
+  static_assert(std::is_arithmetic_v<std::decay_t<Scalar>>,
+                "MPF Matlab sparse scaling requires a real scalar");
+  validate_sparse_csc(matrix, "sparse scalar-product operand");
+  const auto scalar = static_cast<double>(scalar_value);
+  if (!std::isfinite(scalar))
+    throw std::invalid_argument("MPF Matlab scalar-product operand must be finite real");
+  sparse_matrix<double> result;
+  result.rows = matrix.rows;
+  result.columns = matrix.columns;
+  if (scalar == 0.0) {
+    result.column_pointers.assign(result.columns + 1U, 0U);
+    validate_sparse_csc(result, "scalar-product result");
+    return result;
+  }
+  result.column_pointers.reserve(result.columns + 1U);
+  result.column_pointers.push_back(0U);
+  result.row_indices.reserve(matrix.row_indices.size());
+  result.values.reserve(matrix.values.size());
+  for (std::size_t column = 0U; column < matrix.columns; ++column) {
+    for (auto index = matrix.column_pointers[column];
+         index < matrix.column_pointers[column + 1U]; ++index) {
+      const auto value = static_cast<double>(matrix.values[index]) * scalar;
+      if (!std::isfinite(value))
+        throw std::overflow_error(
+            "MPF Matlab sparse scalar product produced a nonfinite value");
+      if (value != 0.0) {
+        result.row_indices.push_back(matrix.row_indices[index]);
+        result.values.push_back(value);
+      }
+    }
+    result.column_pointers.push_back(result.values.size());
+  }
+  validate_sparse_csc(result, "scalar-product result");
+  return result;
+}
+template <typename Value, typename Scalar>
+sparse_matrix<double> sparse_scale_right(const sparse_matrix<Value>& matrix,
+                                         const Scalar& scalar) {
+  return sparse_scale(matrix, scalar);
+}
+template <typename Scalar, typename Value>
+sparse_matrix<double> sparse_scale_left(const Scalar& scalar,
+                                        const sparse_matrix<Value>& matrix) {
+  return sparse_scale(matrix, scalar);
+}
 template <typename Left, typename Right>
 sparse_matrix<double> sparse_sparse_mtimes(const sparse_matrix<Left>& left,
                                            const sparse_matrix<Right>& right) {
