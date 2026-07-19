@@ -511,8 +511,8 @@ function __mpf_sparse_reshape_shape(shape, name, minimumRank) {
   }
   let count = 1;
   for (const extent of shape) {
-    if (!Number.isSafeInteger(extent) || extent <= 0 ||
-        count > Number.MAX_SAFE_INTEGER / extent) {
+    if (!Number.isSafeInteger(extent) || extent < 0 ||
+        (extent !== 0 && count > Number.MAX_SAFE_INTEGER / extent)) {
       throw new RangeError(`MPF Matlab sparse reshape ${name} has an invalid extent`);
     }
     count *= extent;
@@ -531,7 +531,8 @@ function __mpf_sparse_reshape(value, inputShape, requestedShape, resultShape) {
   }
   let foldedColumns = 1;
   for (let axis = 1; axis < requestedShape.length; ++axis) {
-    if (foldedColumns > Number.MAX_SAFE_INTEGER / requestedShape[axis]) {
+    if (requestedShape[axis] !== 0 &&
+        foldedColumns > Number.MAX_SAFE_INTEGER / requestedShape[axis]) {
       throw new RangeError('MPF Matlab sparse reshape folded extent exceeds safe integer limits');
     }
     foldedColumns *= requestedShape[axis];
