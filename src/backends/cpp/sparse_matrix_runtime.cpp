@@ -251,6 +251,246 @@ sparse_matrix<double> sparse_scale_left(const Scalar& scalar,
                                         const sparse_matrix<Value>& matrix) {
   return sparse_scale(matrix, scalar);
 }
+)MPF";
+  output << R"MPF(template <std::size_t Rank>
+void validate_sparse_times_shape(const std::array<std::size_t, Rank>& shape,
+                                 const std::string& name) {
+  for (const auto extent : shape)
+    if (extent == 0U)
+      throw std::invalid_argument("MPF Matlab " + name +
+                                  " has an invalid static shape contract");
+}
+template <std::size_t LeftRank, std::size_t RightRank>
+void validate_sparse_times_plan(const std::array<std::size_t, LeftRank>& left_shape,
+                                const std::array<std::size_t, RightRank>& right_shape,
+                                const std::array<std::size_t, 2U>& result_shape) {
+  static_assert((LeftRank == 0U || LeftRank == 2U) &&
+                    (RightRank == 0U || RightRank == 2U),
+                "MPF sparse-times operand rank contract is invalid");
+  validate_sparse_times_shape(left_shape, "left sparse-times shape");
+  validate_sparse_times_shape(right_shape, "right sparse-times shape");
+  validate_sparse_times_shape(result_shape, "sparse-times result shape");
+  for (std::size_t axis = 0U; axis < 2U; ++axis) {
+    const auto left = [&] {
+      if constexpr (LeftRank == 0U) return std::size_t{1U};
+      else return left_shape[axis];
+    }();
+    const auto right = [&] {
+      if constexpr (RightRank == 0U) return std::size_t{1U};
+      else return right_shape[axis];
+    }();
+    if ((left != right && left != 1U && right != 1U) ||
+        result_shape[axis] != std::max(left, right))
+      throw std::invalid_argument(
+          "MPF Matlab sparse element-wise multiplication shape mismatch");
+  }
+}
+template <typename Scalar> double sparse_times_value(const Scalar& value,
+                                                      const std::string& name) {
+  static_assert(std::is_arithmetic_v<std::decay_t<Scalar>>,
+                "MPF Matlab sparse element-wise values must be arithmetic");
+  const auto numeric = static_cast<double>(value);
+  if (!std::isfinite(numeric))
+    throw std::invalid_argument("MPF Matlab " + name + " must be finite real or logical");
+  return numeric;
+}
+template <typename Value>
+const sparse_matrix<Value>& validate_sparse_times_operand(
+    const sparse_matrix<Value>& matrix, const std::array<std::size_t, 2U>& shape,
+    const std::string& name) {
+  validate_sparse_csc(matrix, name);
+  if (matrix.rows != shape[0] || matrix.columns != shape[1])
+    throw std::invalid_argument("MPF Matlab " + name +
+                                " disagrees with its static shape contract");
+  return matrix;
+}
+template <typename Dense>
+std::vector<double> sparse_times_dense_input(
+    const Dense& value, const std::array<std::size_t, 2U>& shape,
+    const std::string& name) {
+  const auto flattened = flatten_selector_column_major(value);
+  if (shape[0] > std::numeric_limits<std::size_t>::max() / shape[1] ||
+      flattened.size() != shape[0] * shape[1])
+    throw std::invalid_argument("MPF Matlab " + name +
+                                " disagrees with its static shape contract");
+  std::vector<double> result;
+  result.reserve(flattened.size());
+  for (const auto& item : flattened) result.push_back(sparse_times_value(item, name));
+  return result;
+}
+inline void sparse_times_emit(sparse_matrix<double>& result, const std::size_t row,
+                              const double value) {
+  if (!std::isfinite(value))
+    throw std::overflow_error(
+        "MPF Matlab sparse element-wise multiplication produced a nonfinite value");
+  if (value != 0.0) {
+    result.row_indices.push_back(row);
+    result.values.push_back(value);
+  }
+}
+template <typename Value, typename OtherAt>
+sparse_matrix<double> sparse_times_one_sparse(
+    const sparse_matrix<Value>& matrix, OtherAt other_at,
+    const std::array<std::size_t, 2U>& result_shape) {
+  sparse_matrix<double> result;
+  result.rows = result_shape[0]; result.columns = result_shape[1];
+  result.column_pointers.reserve(result.columns + 1U);
+  result.column_pointers.push_back(0U);
+  const auto row_replication = matrix.rows == 1U ? result.rows : 1U;
+  const auto column_replication = matrix.columns == 1U ? result.columns : 1U;
+  if (matrix.values.size() <= std::numeric_limits<std::size_t>::max() /
+                                  row_replication / column_replication) {
+    const auto reserve = matrix.values.size() * row_replication * column_replication;
+    result.row_indices.reserve(reserve); result.values.reserve(reserve);
+  }
+  for (std::size_t column = 0U; column < result.columns; ++column) {
+    const auto source_column = matrix.columns == 1U ? 0U : column;
+    for (auto index = matrix.column_pointers[source_column];
+         index < matrix.column_pointers[source_column + 1U]; ++index) {
+      const auto source_row = matrix.row_indices[index];
+      const auto stored = static_cast<double>(matrix.values[index]);
+      if (matrix.rows == 1U && result.rows != 1U) {
+        for (std::size_t row = 0U; row < result.rows; ++row)
+          sparse_times_emit(result, row, stored * other_at(row, column));
+      } else {
+        sparse_times_emit(result, source_row, stored * other_at(source_row, column));
+      }
+    }
+    result.column_pointers.push_back(result.values.size());
+  }
+  validate_sparse_csc(result, "sparse element-wise result");
+  return result;
+}
+template <typename Left, typename Right>
+void sparse_times_sparse_column(const sparse_matrix<Left>& left,
+                                const sparse_matrix<Right>& right,
+                                const std::size_t left_column,
+                                const std::size_t right_column,
+                                sparse_matrix<double>& result) {
+  auto left_index = left.column_pointers[left_column];
+  const auto left_end = left.column_pointers[left_column + 1U];
+  auto right_index = right.column_pointers[right_column];
+  const auto right_end = right.column_pointers[right_column + 1U];
+  if (left.rows == 1U || right.rows == 1U) {
+    const auto left_value = left_index < left_end
+                                ? std::optional<double>{static_cast<double>(left.values[left_index])}
+                                : std::nullopt;
+    const auto right_value =
+        right_index < right_end
+            ? std::optional<double>{static_cast<double>(right.values[right_index])}
+            : std::nullopt;
+    if (left.rows == 1U && right.rows == 1U) {
+      if (left_value.has_value() && right_value.has_value())
+        for (std::size_t row = 0U; row < result.rows; ++row)
+          sparse_times_emit(result, row, *left_value * *right_value);
+      return;
+    }
+    if (left.rows == 1U) {
+      if (!left_value.has_value()) return;
+      for (; right_index < right_end; ++right_index)
+        sparse_times_emit(result, right.row_indices[right_index],
+                          *left_value * static_cast<double>(right.values[right_index]));
+      return;
+    }
+    if (!right_value.has_value()) return;
+    for (; left_index < left_end; ++left_index)
+      sparse_times_emit(result, left.row_indices[left_index],
+                        static_cast<double>(left.values[left_index]) * *right_value);
+    return;
+  }
+  while (left_index < left_end && right_index < right_end) {
+    const auto left_row = left.row_indices[left_index];
+    const auto right_row = right.row_indices[right_index];
+    if (left_row < right_row) { ++left_index; continue; }
+    if (right_row < left_row) { ++right_index; continue; }
+    sparse_times_emit(result, left_row, static_cast<double>(left.values[left_index]) *
+                                            static_cast<double>(right.values[right_index]));
+    ++left_index; ++right_index;
+  }
+}
+template <typename Value, typename Scalar>
+sparse_matrix<double> sparse_times_scalar_right(
+    const sparse_matrix<Value>& matrix_value, const Scalar& scalar_value,
+    const std::array<std::size_t, 2U>& left_shape,
+    const std::array<std::size_t, 0U>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  validate_sparse_times_plan(left_shape, right_shape, result_shape);
+  const auto& matrix = validate_sparse_times_operand(
+      matrix_value, left_shape, "left sparse element-wise operand");
+  const auto scalar = sparse_times_value(scalar_value, "right element-wise scalar");
+  return sparse_times_one_sparse(matrix, [scalar](auto, auto) { return scalar; }, result_shape);
+}
+template <typename Scalar, typename Value>
+sparse_matrix<double> sparse_times_scalar_left(
+    const Scalar& scalar_value, const sparse_matrix<Value>& matrix_value,
+    const std::array<std::size_t, 0U>& left_shape,
+    const std::array<std::size_t, 2U>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  validate_sparse_times_plan(left_shape, right_shape, result_shape);
+  const auto scalar = sparse_times_value(scalar_value, "left element-wise scalar");
+  const auto& matrix = validate_sparse_times_operand(
+      matrix_value, right_shape, "right sparse element-wise operand");
+  return sparse_times_one_sparse(matrix, [scalar](auto, auto) { return scalar; }, result_shape);
+}
+template <typename Value, typename Dense>
+sparse_matrix<double> sparse_times_dense(
+    const sparse_matrix<Value>& sparse_value, const Dense& dense_value,
+    const std::array<std::size_t, 2U>& left_shape,
+    const std::array<std::size_t, 2U>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  validate_sparse_times_plan(left_shape, right_shape, result_shape);
+  const auto& matrix = validate_sparse_times_operand(
+      sparse_value, left_shape, "left sparse element-wise operand");
+  const auto dense = sparse_times_dense_input(
+      dense_value, right_shape, "right dense element-wise operand");
+  return sparse_times_one_sparse(
+      matrix, [&](const std::size_t row, const std::size_t column) {
+        const auto source_row = right_shape[0] == 1U ? 0U : row;
+        const auto source_column = right_shape[1] == 1U ? 0U : column;
+        return dense[source_row + source_column * right_shape[0]];
+      }, result_shape);
+}
+template <typename Dense, typename Value>
+sparse_matrix<double> dense_times_sparse(
+    const Dense& dense_value, const sparse_matrix<Value>& sparse_value,
+    const std::array<std::size_t, 2U>& left_shape,
+    const std::array<std::size_t, 2U>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  validate_sparse_times_plan(left_shape, right_shape, result_shape);
+  const auto dense = sparse_times_dense_input(
+      dense_value, left_shape, "left dense element-wise operand");
+  const auto& matrix = validate_sparse_times_operand(
+      sparse_value, right_shape, "right sparse element-wise operand");
+  return sparse_times_one_sparse(
+      matrix, [&](const std::size_t row, const std::size_t column) {
+        const auto source_row = left_shape[0] == 1U ? 0U : row;
+        const auto source_column = left_shape[1] == 1U ? 0U : column;
+        return dense[source_row + source_column * left_shape[0]];
+      }, result_shape);
+}
+template <typename Left, typename Right>
+sparse_matrix<double> sparse_times_sparse(
+    const sparse_matrix<Left>& left_value, const sparse_matrix<Right>& right_value,
+    const std::array<std::size_t, 2U>& left_shape,
+    const std::array<std::size_t, 2U>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  validate_sparse_times_plan(left_shape, right_shape, result_shape);
+  const auto& left = validate_sparse_times_operand(
+      left_value, left_shape, "left sparse element-wise operand");
+  const auto& right = validate_sparse_times_operand(
+      right_value, right_shape, "right sparse element-wise operand");
+  sparse_matrix<double> result;
+  result.rows = result_shape[0]; result.columns = result_shape[1];
+  result.column_pointers.reserve(result.columns + 1U);
+  result.column_pointers.push_back(0U);
+  for (std::size_t column = 0U; column < result.columns; ++column) {
+    sparse_times_sparse_column(left, right, left.columns == 1U ? 0U : column,
+                               right.columns == 1U ? 0U : column, result);
+    result.column_pointers.push_back(result.values.size());
+  }
+  validate_sparse_csc(result, "sparse element-wise result");
+  return result;
+}
 template <typename Left, typename Right>
 sparse_matrix<double> sparse_sparse_mtimes(const sparse_matrix<Left>& left,
                                            const sparse_matrix<Right>& right) {
