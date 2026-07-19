@@ -1,0 +1,4 @@
+A = sparse([1 0 2; 0 3 0]);
+B = reshape(A, [3 2]);
+C = reshape(A, [], 3);
+D = reshape(A, 1, 2, 3);
