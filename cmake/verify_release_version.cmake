@@ -40,6 +40,24 @@ function(mpf_verify_changelog changelog_path changelog_name result_variable)
       "release ${project_version} in ${changelog_name} must contain 8-20 entries; "
       "found ${release_entry_count}")
   endif()
+
+  set(forbidden_release_note_phrases
+    "The validation baseline now contains"
+    "Production source coverage"
+    "production line coverage"
+    "The release gate now includes"
+    "验证基线现包含"
+    "生产源码覆盖率"
+    "生产代码行覆盖率"
+    "发布门禁现包含")
+  foreach(forbidden_phrase IN LISTS forbidden_release_note_phrases)
+    string(FIND "${release_section}" "${forbidden_phrase}" forbidden_position)
+    if(NOT forbidden_position EQUAL -1)
+      message(FATAL_ERROR
+        "release ${project_version} in ${changelog_name} contains internal validation "
+        "metadata '${forbidden_phrase}'; user-facing changelogs must describe product changes")
+    endif()
+  endforeach()
   set(${result_variable} "${release_entry_count}" PARENT_SCOPE)
 endfunction()
 
