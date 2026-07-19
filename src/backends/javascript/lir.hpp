@@ -131,6 +131,7 @@ enum class ExpressionForm : std::uint8_t {
   binary_reverse_divide,
   matlab_array_operation,
   matlab_transpose,
+  matlab_sparse_transpose,
   binary_runtime_call,
   unary_runtime_call
 };
@@ -236,6 +237,17 @@ struct ReductionPlan {
 
   [[nodiscard]] bool valid() const noexcept {
     return operation != semantic::ReductionOperation::none;
+  }
+};
+
+struct SparseConstructionPlan {
+  semantic::SparseConstructionKind kind{semantic::SparseConstructionKind::none};
+  std::vector<std::size_t> result_shape;
+  std::vector<std::size_t> triplet_element_counts;
+  std::size_t reserve_hint{0U};
+
+  [[nodiscard]] bool valid() const noexcept {
+    return kind != semantic::SparseConstructionKind::none;
   }
 };
 
@@ -378,6 +390,7 @@ struct Expression {
   BroadcastPlan broadcast;
   MatrixOperationPlan matrix_operation;
   ReductionPlan reduction;
+  SparseConstructionPlan sparse_construction;
   std::vector<ValueType> tuple_types;
   std::vector<NumericType> tuple_numeric_types;
   std::vector<ValueType> tuple_element_types;

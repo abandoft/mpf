@@ -151,6 +151,21 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     output << " output ";
     dump_shape(expression.reduction.output_shape);
   }
+  if (expression.sparse_construction.valid()) {
+    output << " sparse-construction " << static_cast<int>(expression.sparse_construction.kind)
+           << " shape [";
+    for (std::size_t axis = 0; axis < expression.sparse_construction.result_shape.size(); ++axis) {
+      if (axis != 0U) output << ',';
+      output << expression.sparse_construction.result_shape[axis];
+    }
+    output << "] counts [";
+    for (std::size_t index = 0;
+         index < expression.sparse_construction.triplet_element_counts.size(); ++index) {
+      if (index != 0U) output << ',';
+      output << expression.sparse_construction.triplet_element_counts[index];
+    }
+    output << "] reserve " << expression.sparse_construction.reserve_hint;
+  }
   if (!expression.plan.call_arguments.empty()) {
     output << " call-arguments [";
     for (std::size_t index = 0; index < expression.plan.call_arguments.size(); ++index) {

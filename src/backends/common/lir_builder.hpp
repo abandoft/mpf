@@ -132,6 +132,14 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
     if (right_shape != nullptr) result.matrix_operation.right_shape = right_shape->extents;
     if (result_shape != nullptr) result.matrix_operation.result_shape = result_shape->extents;
   }
+  if (attributes.sparse_construction.valid()) {
+    result.sparse_construction.kind = attributes.sparse_construction.kind;
+    const auto* result_shape = mir::shape(program, attributes.sparse_construction.result_shape);
+    if (result_shape != nullptr) result.sparse_construction.result_shape = result_shape->extents;
+    result.sparse_construction.triplet_element_counts =
+        attributes.sparse_construction.triplet_element_counts;
+    result.sparse_construction.reserve_hint = attributes.sparse_construction.reserve_hint;
+  }
   if (attributes.reduction.valid()) {
     result.reduction.operation = attributes.reduction.operation;
     result.reduction.axis_policy = attributes.reduction.axis_policy;
