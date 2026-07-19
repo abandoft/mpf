@@ -43,6 +43,9 @@ mpf_add_differential_case(
   matlab-sparse-square-solve matlab examples/matlab/sparse_square_solve.m
   "3 5 6 5 1 2 3 1 2 3 1 2 3 4 5 6")
 mpf_add_differential_case(
+  matlab-sparse-construction-transpose matlab
+  examples/matlab/sparse_construction_transpose.m "0 0 2 2 2 2 2 1 1 4 5 5 5")
+mpf_add_differential_case(
   matlab-sparse-singular-square-warning matlab
   examples/matlab/sparse_singular_square_warning.m "0 4" tokens
   "matrix is singular to working precision")

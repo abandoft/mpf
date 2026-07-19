@@ -391,16 +391,56 @@ TEST_CASE("Matlab sparse CSC square solves preserve storage and target isolation
   }
 }
 
+TEST_CASE("Matlab sparse constructors and transpose preserve canonical CSC plans") {
+  const std::string source =
+      "zero_matrix = sparse(3, 4);\n"
+      "empty_triplets = sparse([], [], [], 3, 4);\n"
+      "cancelled = sparse([1 3 1 2], [1 1 1 3], [2 4 -2 5], 3, 4, 8);\n"
+      "inferred = sparse([2 1 2], [3 2 3], [4 5 1]);\n"
+      "row_broadcast = sparse(2, [1 2 3], [7 0 -7], 3, 3);\n"
+      "column_broadcast = sparse([1 2 3], 2, [1 0 3], 3, 3);\n"
+      "value_broadcast = sparse([1 2], [2 3], 5, 3, 3);\n"
+      "transposed = cancelled.';\n"
+      "conjugate_transposed = inferred';\n"
+      "dense_transposed = full(transposed);\n"
+      "disp(nnz(zero_matrix), nnz(empty_triplets), nnz(cancelled), nnz(row_broadcast), "
+      "dense_transposed(1, 3))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("function __mpf_sparse_from_triplets") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse(3, 4)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_transpose(cancelled)") != std::string::npos);
+  REQUIRE(javascript.code.find("std::stable_sort") == std::string::npos);
+  REQUIRE(cpp.code.find("sparse_from_triplets") != std::string::npos);
+  REQUIRE(cpp.code.find("std::stable_sort(entries.begin()") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_transpose(cancelled)") != std::string::npos);
+  REQUIRE(cpp.code.find("__mpf_sparse_from_triplets") == std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (const auto line : {1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U, 9U, 10U}) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
 TEST_CASE("Matlab sparse CSC contract fails closed outside the supported vertical slice") {
   const std::vector<std::string> unsupported{"A = sparse([1 0; 0 1]);\nB = A * A;\n",
                                              "A = sparse([1 0; 0 1]);\nvalue = A(1);\n",
-                                             "A = sparse([1 0; 0 1]);\nB = A.';\n",
                                              "A = sparse([1 0; 0 1]);\nB = reshape(A, 1, 4);\n",
                                              "A = sparse([1 0; 0 1]);\nB = ~A;\n",
                                              "A = sparse([1 0; 0 1; 1 1]);\nB = A \\ [1; 2; 3];\n",
                                              "A = sparse([1+2i 0; 0 1]);\n",
                                              "A = sparse([1 2; 3 4], 2);\n",
-                                             "A = sparse([]);\n"};
+                                             "A = sparse([]);\n",
+                                             "A = sparse(0, 3);\n",
+                                             "m = 3;\nA = sparse(m, 3);\n",
+                                             "i = [1 2];\nj = [1 2];\nv = [3 4];\n"
+                                             "A = sparse(i, j, v);\n",
+                                             "A = sparse([1 2], [1 2 3], [4 5 6], 3, 3);\n",
+                                             "A = sparse([1 2], [1 2], [4 5], 3, 3, -1);\n"};
   for (const auto& source : unsupported) {
     for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
       const auto result = transpile_array(source, mpf::SourceLanguage::matlab, target);
