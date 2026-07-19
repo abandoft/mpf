@@ -1,6 +1,7 @@
 #include "semantic_table.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -250,6 +251,43 @@ semantic::ReductionOperation expected_reduction_operation(const Expression& expr
   return semantic::ReductionOperation::none;
 }
 
+std::optional<std::size_t> sparse_argument_count(const ExpressionFacts& facts) noexcept {
+  if (facts.inferred_type != ValueType::list) {
+    return facts.inferred_type == ValueType::integer || facts.inferred_type == ValueType::real
+               ? std::optional<std::size_t>{1U}
+               : std::nullopt;
+  }
+  std::size_t count = 1U;
+  for (const auto extent : facts.shape) {
+    if (extent == dynamic_extent ||
+        (extent != 0U && count > std::numeric_limits<std::size_t>::max() / extent)) {
+      return std::nullopt;
+    }
+    count *= extent;
+  }
+  return count;
+}
+
+semantic::SparseConstructionKind expected_sparse_construction_kind(
+    const Expression& expression, const SemanticTable& table) noexcept {
+  if (expression.kind != ExpressionKind::call || expression.children.empty()) {
+    return semantic::SparseConstructionKind::none;
+  }
+  const auto* callee = table.expression(expression.children.front().id);
+  if (callee == nullptr || callee->binding != BindingKind::builtin ||
+      callee->intrinsic != IntrinsicId::matlab_sparse) {
+    return semantic::SparseConstructionKind::none;
+  }
+  switch (expression.children.size()) {
+    case 2U: return semantic::SparseConstructionKind::dense_conversion;
+    case 3U: return semantic::SparseConstructionKind::zero_matrix;
+    case 4U: return semantic::SparseConstructionKind::triplets_inferred;
+    case 6U: return semantic::SparseConstructionKind::triplets_sized;
+    case 7U: return semantic::SparseConstructionKind::triplets_reserved;
+    default: return semantic::SparseConstructionKind::none;
+  }
+}
+
 void verify_expression(const Expression& expression, const SemanticTable& table,
                        const SourceLanguage source_language, std::vector<bool>& seen,
                        const std::string_view stage, std::vector<Diagnostic>& diagnostics,
@@ -317,6 +355,53 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
                reduction.scalar_result) {
       add_error(diagnostics, expression.location, stage,
                 "inactive logical reduction retains semantic state");
+    }
+  }
+  if (analyzed) {
+    const auto expected_sparse = expected_sparse_construction_kind(expression, table);
+    const auto& sparse = facts->sparse_construction;
+    const bool successful_sparse = expected_sparse != semantic::SparseConstructionKind::none &&
+                                   facts->inferred_type != ValueType::unknown;
+    if (successful_sparse != sparse.valid() || (sparse.valid() && sparse.kind != expected_sparse)) {
+      add_error(diagnostics, expression.location, stage,
+                "sparse-construction identity disagrees with the source intrinsic");
+    } else if (sparse.valid()) {
+      bool valid = facts->inferred_type == ValueType::list &&
+                   facts->array_storage == ArrayStorageFormat::sparse_csc &&
+                   sparse.result_shape == facts->shape && sparse.result_shape.size() == 2U &&
+                   sparse.result_shape[0] != 0U && sparse.result_shape[1] != 0U;
+      const bool triplets = sparse.kind == semantic::SparseConstructionKind::triplets_inferred ||
+                            sparse.kind == semantic::SparseConstructionKind::triplets_sized ||
+                            sparse.kind == semantic::SparseConstructionKind::triplets_reserved;
+      if (triplets) {
+        valid =
+            valid && sparse.triplet_element_counts.size() == 3U && expression.children.size() >= 4U;
+        for (std::size_t index = 0U; valid && index < 3U; ++index) {
+          const auto* argument = table.expression(expression.children[index + 1U].id);
+          const auto count =
+              argument == nullptr ? std::optional<std::size_t>{} : sparse_argument_count(*argument);
+          valid = count.has_value() && *count == sparse.triplet_element_counts[index];
+        }
+      } else {
+        valid = valid && sparse.triplet_element_counts.empty();
+      }
+      if (sparse.kind == semantic::SparseConstructionKind::dense_conversion) {
+        const auto* argument = expression.children.size() == 2U
+                                   ? table.expression(expression.children[1].id)
+                                   : nullptr;
+        valid = valid && argument != nullptr && argument->shape == sparse.result_shape;
+      }
+      if (sparse.kind != semantic::SparseConstructionKind::triplets_reserved) {
+        valid = valid && sparse.reserve_hint == 0U;
+      }
+      if (!valid) {
+        add_error(diagnostics, expression.location, stage,
+                  "sparse-construction plan has an invalid arity, shape, or triplet count");
+      }
+    } else if (!sparse.result_shape.empty() || !sparse.triplet_element_counts.empty() ||
+               sparse.reserve_hint != 0U) {
+      add_error(diagnostics, expression.location, stage,
+                "inactive sparse-construction plan retains semantic state");
     }
   }
   if (analyzed && source_language == SourceLanguage::matlab &&
