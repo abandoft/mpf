@@ -904,7 +904,8 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
         !supported_sparse_elementwise) {
       diagnose(expression.location.line, "MPF2054",
                "this sparse array operation is outside the current CSC contract; convert the "
-               "operand with full or use sparse multiplication or square division");
+               "operand with full or use supported sparse multiplication, element-wise "
+               "multiplication, or square division");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
   }

@@ -527,6 +527,9 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT index_extent_contract MATCHES "sparse_csc_coefficient" OR
    NOT index_extent_contract MATCHES "sparse_csc_multiply" OR
    NOT index_extent_contract MATCHES "valid_matrix_multiply_storage_contract" OR
+   NOT index_extent_contract MATCHES "SparseElementwiseOperation" OR
+   NOT index_extent_contract MATCHES "SparseElementwiseStoragePolicy" OR
+   NOT index_extent_contract MATCHES "valid_sparse_elementwise_contract" OR
    NOT index_extent_contract MATCHES "SparseConstructionKind" OR
    NOT index_extent_contract MATCHES "triplets_reserved" OR
    NOT index_extent_contract MATCHES "SparseIndexKind" OR
@@ -540,6 +543,8 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT hir_extent_contract MATCHES "MatrixFactorizationPolicy factorization_policy" OR
    NOT hir_extent_contract MATCHES "MatrixStructurePolicy structure_policy" OR
    NOT hir_extent_contract MATCHES "MatrixStoragePolicy storage_policy" OR
+   NOT hir_extent_contract MATCHES "SparseElementwisePlan" OR
+   NOT hir_extent_contract MATCHES "sparse_elementwise" OR
    NOT hir_extent_contract MATCHES "SparseConstructionPlan" OR
    NOT hir_extent_contract MATCHES "sparse_construction" OR
    NOT hir_extent_contract MATCHES "SparseIndexPlan" OR
@@ -551,6 +556,8 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT mir_extent_contract MATCHES "MatrixFactorizationPolicy factorization_policy" OR
    NOT mir_extent_contract MATCHES "MatrixStructurePolicy structure_policy" OR
    NOT mir_extent_contract MATCHES "MatrixStoragePolicy storage_policy" OR
+   NOT mir_extent_contract MATCHES "SparseElementwisePlan" OR
+   NOT mir_extent_contract MATCHES "sparse_elementwise" OR
    NOT mir_extent_contract MATCHES "SparseConstructionPlan" OR
    NOT mir_extent_contract MATCHES "sparse_construction" OR
    NOT mir_extent_contract MATCHES "SparseIndexPlan" OR
@@ -575,6 +582,10 @@ if(NOT condition_lir_builder_contract MATCHES
    NOT condition_lir_builder_contract MATCHES
      "matrix_operation\.left_storage = attributes\.matrix_operation\.left_storage" OR
    NOT condition_lir_builder_contract MATCHES
+     "sparse_elementwise\.operation = attributes\.sparse_elementwise\.operation" OR
+   NOT condition_lir_builder_contract MATCHES
+     "sparse_elementwise\.storage_policy = attributes\.sparse_elementwise\.storage_policy" OR
+   NOT condition_lir_builder_contract MATCHES
      "sparse_construction\.kind = attributes\.sparse_construction\.kind" OR
    NOT condition_lir_builder_contract MATCHES
      "sparse_construction\.triplet_element_counts" OR
@@ -598,6 +609,9 @@ foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir
        "MatrixFactorizationPolicy factorization_policy" OR
      NOT condition_target_lir_contract MATCHES "MatrixStructurePolicy structure_policy" OR
      NOT condition_target_lir_contract MATCHES "MatrixStoragePolicy storage_policy" OR
+     NOT condition_target_lir_contract MATCHES "SparseElementwisePlan" OR
+     NOT condition_target_lir_contract MATCHES
+       "SparseElementwiseStoragePolicy storage_policy" OR
      NOT condition_target_lir_contract MATCHES "SparseConstructionPlan" OR
      NOT condition_target_lir_contract MATCHES "SparseConstructionKind kind" OR
      NOT condition_target_lir_contract MATCHES "SparseIndexPlan" OR
@@ -717,6 +731,13 @@ foreach(sparse_matrix_runtime IN ITEMS
      NOT sparse_matrix_runtime_contract MATCHES "sparse_erase" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_scale_right" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_scale_left" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_times_scalar_right" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_times_scalar_left" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_times_dense" OR
+     NOT sparse_matrix_runtime_contract MATCHES "dense_times_sparse" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_times_sparse" OR
+     NOT sparse_matrix_runtime_contract MATCHES
+       "sparse element-wise multiplication produced a nonfinite value" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_sparse_mtimes" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_dense_mtimes" OR
      NOT sparse_matrix_runtime_contract MATCHES "dense_sparse_mtimes" OR
@@ -728,7 +749,7 @@ foreach(sparse_matrix_runtime IN ITEMS
      NOT sparse_matrix_runtime_contract MATCHES "mrdivide_sparse_real_square")
     message(FATAL_ERROR
       "target sparse-matrix runtime does not own canonical CSC construction/index/mutation, "
-      "sparse scale/product/square-solve, transpose, and condition kernels: ${sparse_matrix_runtime}")
+      "sparse scale/element-wise/product/square-solve, transpose, and condition kernels: ${sparse_matrix_runtime}")
   endif()
   mpf_assert_file_excludes("${sparse_matrix_runtime}"
     "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
@@ -748,11 +769,17 @@ foreach(sparse_representation IN ITEMS
      NOT sparse_representation_contract MATCHES "sparse_csc_scale" OR
      NOT sparse_representation_contract MATCHES "sparse_scale_right" OR
      NOT sparse_representation_contract MATCHES "sparse_scale_left" OR
+     NOT sparse_representation_contract MATCHES "valid_sparse_elementwise_plan" OR
+     NOT sparse_representation_contract MATCHES "sparse_times_scalar_right" OR
+     NOT sparse_representation_contract MATCHES "sparse_times_scalar_left" OR
+     NOT sparse_representation_contract MATCHES "sparse_times_dense" OR
+     NOT sparse_representation_contract MATCHES "dense_times_sparse" OR
+     NOT sparse_representation_contract MATCHES "sparse_times_sparse" OR
      NOT sparse_representation_contract MATCHES "sparse_sparse_mtimes" OR
      NOT sparse_representation_contract MATCHES "sparse_dense_mtimes" OR
      NOT sparse_representation_contract MATCHES "dense_sparse_mtimes")
     message(FATAL_ERROR
-      "target representation does not verify sparse construction/index/mutation/scale/product plans or select sparse forms: "
+      "target representation does not verify sparse construction/index/mutation/scale/element-wise/product plans or select sparse forms: "
       "${sparse_representation}")
   endif()
 endforeach()
@@ -761,6 +788,9 @@ foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/
     "target renderer recovered sparse-construction semantics from source plans")
   mpf_assert_file_excludes("${renderer}" "MatrixStoragePolicy|sparse_csc_(multiply|scale)"
     "target renderer recovered sparse-product semantics from source plans")
+  mpf_assert_file_excludes("${renderer}"
+    "SparseElementwise(Operation|StoragePolicy)|valid_sparse_elementwise_contract"
+    "target renderer recovered sparse element-wise semantics from source plans")
 endforeach()
 mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
   "function __mpf_matlab_lu_"
