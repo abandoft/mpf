@@ -1023,6 +1023,100 @@ TEST_CASE("Matlab sparse storage and solver policies remain typed through every 
   REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-storage-mismatch").empty());
 }
 
+TEST_CASE("Matlab sparse matrix products remain typed through every IR layer") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "A = sparse([1 0 2; 0 3 0]);\n"
+                              "B = sparse([0 4; 5 0; 0 6]);\n"
+                              "SS = A * B;\n"
+                              "SD = A * full(B);\n"
+                              "DS = full(A) * B;\n",
+                              "sparse_matrix_products.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+
+  using Storage = mpf::detail::ArrayStorageFormat;
+  using Policy = mpf::detail::semantic::MatrixStoragePolicy;
+  const auto has_product = [&](const Storage left, const Storage right, const Storage result) {
+    return std::any_of(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                       [&](const auto& facts) {
+                         const auto& plan = facts.matrix_operation;
+                         return plan.operation ==
+                                    mpf::detail::semantic::MatrixOperation::multiply &&
+                                plan.storage_policy == Policy::sparse_csc_multiply &&
+                                plan.left_storage == left && plan.right_storage == right &&
+                                plan.result_storage == result && facts.array_storage == result;
+                       });
+  };
+  REQUIRE(has_product(Storage::sparse_csc, Storage::sparse_csc, Storage::sparse_csc));
+  REQUIRE(has_product(Storage::sparse_csc, Storage::dense, Storage::dense));
+  REQUIRE(has_product(Storage::dense, Storage::sparse_csc, Storage::dense));
+  REQUIRE(std::count_if(
+              analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+              [](const auto& facts) {
+                const auto& plan = facts.matrix_operation;
+                return plan.operation == mpf::detail::semantic::MatrixOperation::multiply &&
+                       plan.storage_policy == Policy::sparse_csc_multiply &&
+                       plan.numeric_domain == mpf::detail::semantic::MatrixNumericDomain::real &&
+                       plan.solve == mpf::detail::semantic::MatrixSolveKind::none &&
+                       plan.condition_policy ==
+                           mpf::detail::semantic::MatrixConditionPolicy::none &&
+                       plan.factorization_policy ==
+                           mpf::detail::semantic::MatrixFactorizationPolicy::none &&
+                       plan.structure_policy == mpf::detail::semantic::MatrixStructurePolicy::none;
+              }) == 3);
+
+  auto contradictory_hir = analysis.semantics;
+  const auto corrupt_hir =
+      std::find_if(contradictory_hir.expressions.begin(), contradictory_hir.expressions.end(),
+                   [](const auto& facts) {
+                     const auto& plan = facts.matrix_operation;
+                     return plan.storage_policy == Policy::sparse_csc_multiply &&
+                            plan.left_storage == Storage::sparse_csc &&
+                            plan.right_storage == Storage::sparse_csc;
+                   });
+  REQUIRE(corrupt_hir != contradictory_hir.expressions.end());
+  corrupt_hir->matrix_operation.result_storage = Storage::dense;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
+                                              "sparse-product-storage-mismatch")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-product-plan").empty());
+  const auto dump = mpf::detail::dump_mir(mir.program);
+  REQUIRE(dump.find("storage-policy=3 storage=3,3->3") != std::string::npos);
+  REQUIRE(dump.find("storage-policy=3 storage=3,2->2") != std::string::npos);
+  REQUIRE(dump.find("storage-policy=3 storage=2,3->2") != std::string::npos);
+
+  auto contradictory_mir = mir.program;
+  const auto corrupt_mir =
+      std::find_if(contradictory_mir.attributes.expressions.begin() + 1,
+                   contradictory_mir.attributes.expressions.end(), [](const auto& attributes) {
+                     const auto& plan = attributes.matrix_operation;
+                     return plan.storage_policy == Policy::sparse_csc_multiply &&
+                            plan.left_storage == Storage::sparse_csc &&
+                            plan.right_storage == Storage::sparse_csc;
+                   });
+  REQUIRE(corrupt_mir != contradictory_mir.attributes.expressions.end());
+  corrupt_mir->matrix_operation.storage_policy = Policy::dense;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-product-policy-mismatch").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, effects, "sparse-product-effects")
+              .empty());
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  for (const auto& target_dump : {javascript.artifact->debug_dump(), cpp.artifact->debug_dump()}) {
+    REQUIRE(target_dump.find("storage-policy 3 storage 3,3->3") != std::string::npos);
+    REQUIRE(target_dump.find("storage-policy 3 storage 3,2->2") != std::string::npos);
+    REQUIRE(target_dump.find("storage-policy 3 storage 2,3->2") != std::string::npos);
+  }
+}
+
 TEST_CASE("Matlab sparse construction plans remain typed through every IR layer") {
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "Z = sparse(3, 4);\n"
