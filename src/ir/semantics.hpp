@@ -158,6 +158,18 @@ enum class MatrixStructurePolicy : std::uint8_t {
 // infer this from a runtime object tag or helper spelling.
 enum class MatrixStoragePolicy : std::uint8_t { none, dense, sparse_csc_coefficient };
 
+// Matlab sparse construction has several observably different source forms.  Preserve the
+// selected form through every IR layer so target planning never has to recover it from a callee
+// spelling or argument count.
+enum class SparseConstructionKind : std::uint8_t {
+  none,
+  dense_conversion,
+  zero_matrix,
+  triplets_inferred,
+  triplets_sized,
+  triplets_reserved
+};
+
 [[nodiscard]] constexpr MatrixSolveKind matrix_solve_kind(const std::size_t rows,
                                                           const std::size_t columns) noexcept {
   if (rows == columns) return MatrixSolveKind::square;
