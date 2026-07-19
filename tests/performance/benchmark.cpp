@@ -433,6 +433,30 @@ std::string matlab_sparse_multiply_workload(const std::size_t width, const std::
   return source;
 }
 
+std::string matlab_sparse_scale_workload(const std::size_t width, const std::size_t rounds) {
+  std::string source = "matrix = sparse([";
+  for (std::size_t row = 0U; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0U; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += (row == column || (5U * row + 3U * column) % 19U == 0U)
+                    ? std::to_string(row + column + 1U)
+                    : "0";
+    }
+  }
+  source += "]);\n";
+  for (std::size_t round = 0U; round < rounds; ++round) {
+    source += "right_scaled = matrix * 3;\n";
+    source += "left_scaled = -2 * matrix;\n";
+    source += "zero_scaled = matrix * 0;\n";
+    source += "matrix = right_scaled * 0.5;\n";
+  }
+  source +=
+      "disp(nnz(matrix) + nnz(left_scaled) + nnz(zero_scaled) + "
+      "right_scaled(1, 1))\n";
+  return source;
+}
+
 std::string matlab_sparse_index_workload(const std::size_t width, const std::size_t rounds) {
   std::string source = "matrix = sparse([";
   for (std::size_t row = 0U; row < width; ++row) {
@@ -727,6 +751,7 @@ int main() {
       {"matlab-sparse-solve", matlab_sparse_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-multiply", matlab_sparse_multiply_workload(24, 24),
        mpf::SourceLanguage::matlab},
+      {"matlab-sparse-scale", matlab_sparse_scale_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-index", matlab_sparse_index_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-reshape", matlab_sparse_reshape_workload(24, 24),
        mpf::SourceLanguage::matlab},
