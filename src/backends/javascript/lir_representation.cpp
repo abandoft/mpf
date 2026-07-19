@@ -438,7 +438,8 @@ bool valid_sparse_elementwise_plan(const lir::Expression& expression) noexcept {
 
 std::optional<std::size_t> sparse_argument_count(const lir::Expression& expression) noexcept {
   if (expression.inferred_type != ValueType::list) {
-    return expression.inferred_type == ValueType::integer ||
+    return expression.inferred_type == ValueType::boolean ||
+                   expression.inferred_type == ValueType::integer ||
                    expression.inferred_type == ValueType::real
                ? std::optional<std::size_t>{1U}
                : std::nullopt;
@@ -452,6 +453,22 @@ std::optional<std::size_t> sparse_argument_count(const lir::Expression& expressi
     count *= extent;
   }
   return count;
+}
+
+semantic::SparseValueDomain sparse_value_domain(const lir::Expression& expression) noexcept {
+  const auto type = expression.inferred_type == ValueType::list ? expression.element_type
+                                                                : expression.inferred_type;
+  const auto numeric_type = expression.inferred_type == ValueType::list
+                                ? expression.element_numeric_type
+                                : expression.numeric_type;
+  if (type == ValueType::boolean && numeric_type == logical_numeric_type) {
+    return semantic::SparseValueDomain::logical;
+  }
+  if ((type == ValueType::integer || type == ValueType::real) &&
+      numeric_type.complexity == NumericComplexity::real) {
+    return semantic::SparseValueDomain::finite_real;
+  }
+  return semantic::SparseValueDomain::none;
 }
 
 semantic::SparseConstructionKind expected_sparse_construction_kind(
@@ -478,11 +495,15 @@ bool valid_sparse_construction(const lir::Expression& expression) noexcept {
   if (sparse.kind != expected_sparse_construction_kind(expression)) return false;
   if (!sparse.valid()) {
     return sparse.result_shape.empty() && sparse.triplet_element_counts.empty() &&
-           sparse.reserve_hint == 0U;
+           sparse.reserve_hint == 0U && sparse.value_domain == semantic::SparseValueDomain::none &&
+           sparse.duplicate_policy == semantic::SparseDuplicatePolicy::none;
   }
   bool valid = expression.inferred_type == ValueType::list &&
                expression.array_storage == ArrayStorageFormat::sparse_csc &&
                sparse.result_shape == expression.shape && sparse.result_shape.size() == 2U &&
+               sparse.value_domain == sparse_value_domain(expression) &&
+               semantic::valid_sparse_construction_value_contract(sparse.kind, sparse.value_domain,
+                                                                  sparse.duplicate_policy) &&
                std::none_of(sparse.result_shape.begin(), sparse.result_shape.end(),
                             [](const auto extent) { return extent == dynamic_extent; });
   const bool triplets = sparse.kind == semantic::SparseConstructionKind::triplets_inferred ||
@@ -506,7 +527,11 @@ bool valid_sparse_construction(const lir::Expression& expression) noexcept {
   }
   if (sparse.kind == semantic::SparseConstructionKind::dense_conversion) {
     valid = valid && expression.children.size() == 2U &&
-            expression.children[1].shape == sparse.result_shape;
+            expression.children[1].shape == sparse.result_shape &&
+            sparse.value_domain == sparse_value_domain(expression.children[1]);
+  } else if (triplets) {
+    valid = valid && expression.children.size() >= 4U &&
+            sparse.value_domain == sparse_value_domain(expression.children[3]);
   }
   return valid && (sparse.kind == semantic::SparseConstructionKind::triplets_reserved ||
                    sparse.reserve_hint == 0U);

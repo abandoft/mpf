@@ -154,6 +154,8 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
     result.sparse_construction.triplet_element_counts =
         attributes.sparse_construction.triplet_element_counts;
     result.sparse_construction.reserve_hint = attributes.sparse_construction.reserve_hint;
+    result.sparse_construction.value_domain = attributes.sparse_construction.value_domain;
+    result.sparse_construction.duplicate_policy = attributes.sparse_construction.duplicate_policy;
   }
   if (attributes.sparse_index.valid()) {
     result.sparse_index.kind = attributes.sparse_index.kind;

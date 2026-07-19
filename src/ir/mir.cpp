@@ -916,6 +916,10 @@ class Builder final {
             semantic_facts->sparse_construction.triplet_element_counts;
         result_attributes.sparse_construction.reserve_hint =
             semantic_facts->sparse_construction.reserve_hint;
+        result_attributes.sparse_construction.value_domain =
+            semantic_facts->sparse_construction.value_domain;
+        result_attributes.sparse_construction.duplicate_policy =
+            semantic_facts->sparse_construction.duplicate_policy;
       }
       if (semantic_facts->sparse_index.valid()) {
         result_attributes.sparse_index.kind = semantic_facts->sparse_index.kind;

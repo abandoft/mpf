@@ -57,16 +57,32 @@ std::optional<std::size_t> checked_element_count(const std::vector<std::size_t>&
 std::optional<std::size_t> matlab_sparse_argument_count(const hir::ExpressionFacts& facts) {
   if (facts.inferred_type == ValueType::list) return checked_element_count(facts.shape);
   const auto type = facts.inferred_type;
-  return type == ValueType::integer || type == ValueType::real ? std::optional<std::size_t>{1U}
-                                                               : std::nullopt;
+  return type == ValueType::boolean || type == ValueType::integer || type == ValueType::real
+             ? std::optional<std::size_t>{1U}
+             : std::nullopt;
 }
 
-bool matlab_sparse_real_value(const hir::ExpressionFacts& facts) noexcept {
+std::optional<semantic::SparseValueDomain> matlab_sparse_value_domain(
+    const hir::ExpressionFacts& facts) noexcept {
   const auto type =
       facts.inferred_type == ValueType::list ? facts.element_type : facts.inferred_type;
   const auto numeric_type = expression_numeric_type(facts);
-  return (type == ValueType::integer || type == ValueType::real) && numeric_type.present() &&
-         numeric_type.complexity == NumericComplexity::real;
+  if (!numeric_type.present() || numeric_type.complexity != NumericComplexity::real) {
+    return std::nullopt;
+  }
+  if (type == ValueType::boolean && numeric_type.value_class == NumericClass::logical) {
+    return semantic::SparseValueDomain::logical;
+  }
+  if ((type == ValueType::integer || type == ValueType::real) &&
+      (numeric_type.value_class == NumericClass::signed_integer ||
+       numeric_type.value_class == NumericClass::binary64)) {
+    return semantic::SparseValueDomain::finite_real;
+  }
+  return std::nullopt;
+}
+
+bool matlab_sparse_value(const hir::ExpressionFacts& facts) noexcept {
+  return matlab_sparse_value_domain(facts).has_value();
 }
 
 std::optional<std::size_t> matlab_sparse_literal_index_max(const Expression& expression) {
@@ -2084,15 +2100,18 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       auto& construction = facts.sparse_construction;
       if (arity == 2U) {
         const auto& argument = semantic(semantics_, expression.children[1]);
+        const auto value_domain = matlab_sparse_value_domain(argument);
         if (argument.inferred_type != ValueType::list || argument.shape.size() != 2U ||
-            !known_shape(argument.shape) || !matlab_sparse_real_value(argument) ||
+            !known_shape(argument.shape) || !value_domain.has_value() ||
             !array_storage_known(argument.array_storage)) {
           diagnose(expression.location.line, "MPF2054",
-                   "sparse(A) requires a statically shaped real rank-2 dense or CSC array");
+                   "sparse(A) requires a statically shaped real or logical rank-2 dense or CSC "
+                   "array");
           return facts.inferred_type = ValueType::unknown;
         }
         construction.kind = Kind::dense_conversion;
         construction.result_shape = argument.shape;
+        construction.value_domain = *value_domain;
       } else if (arity == 3U) {
         const auto rows = nonnegative_size_constant(expression.children[1]);
         const auto columns = nonnegative_size_constant(expression.children[2]);
@@ -2103,17 +2122,22 @@ ValueType Analyzer::analyze_call(Expression& expression) {
         }
         construction.kind = Kind::zero_matrix;
         construction.result_shape = {*rows, *columns};
+        construction.value_domain = semantic::SparseValueDomain::finite_real;
       } else {
         std::optional<std::size_t> sequence_count;
+        std::optional<semantic::SparseValueDomain> value_domain;
         construction.triplet_element_counts.reserve(3U);
         for (std::size_t index = 1U; index <= 3U; ++index) {
           const auto& argument = semantic(semantics_, expression.children[index]);
           const auto count = matlab_sparse_argument_count(argument);
-          if (!count.has_value() || !matlab_sparse_real_value(argument)) {
+          const auto argument_domain = matlab_sparse_value_domain(argument);
+          if (!count.has_value() || !argument_domain.has_value()) {
             diagnose(expression.location.line, "MPF2054",
-                     "sparse triplets require statically sized real numeric scalars or arrays");
+                     "sparse triplets require statically sized real numeric or logical scalars "
+                     "or arrays");
             return facts.inferred_type = ValueType::unknown;
           }
+          if (index == 3U) value_domain = argument_domain;
           construction.triplet_element_counts.push_back(*count);
           if (argument.inferred_type == ValueType::list) {
             if (sequence_count.has_value() && *sequence_count != *count) {
@@ -2167,11 +2191,16 @@ ValueType Analyzer::analyze_call(Expression& expression) {
             construction.reserve_hint = *reserve;
           }
         }
+        construction.value_domain = *value_domain;
+        construction.duplicate_policy = *value_domain == semantic::SparseValueDomain::logical
+                                            ? semantic::SparseDuplicatePolicy::logical_any
+                                            : semantic::SparseDuplicatePolicy::sum;
       }
       facts.inferred_type = ValueType::list;
       facts.numeric_type = no_numeric_type;
-      facts.element_type = ValueType::real;
-      facts.element_numeric_type = real_numeric_type;
+      const bool logical = construction.value_domain == semantic::SparseValueDomain::logical;
+      facts.element_type = logical ? ValueType::boolean : ValueType::real;
+      facts.element_numeric_type = logical ? logical_numeric_type : real_numeric_type;
       facts.shape = construction.result_shape;
       facts.array_storage = ArrayStorageFormat::sparse_csc;
       return facts.inferred_type;
@@ -2183,16 +2212,17 @@ ValueType Analyzer::analyze_call(Expression& expression) {
         return facts.inferred_type = ValueType::unknown;
       }
       const auto& argument = semantic(semantics_, expression.children[1]);
+      const auto value_domain = matlab_sparse_value_domain(argument);
       if (argument.inferred_type != ValueType::list || argument.shape.size() != 2U ||
-          !matlab_sparse_real_value(argument) || !array_storage_known(argument.array_storage)) {
+          !value_domain.has_value() || !array_storage_known(argument.array_storage)) {
         diagnose(expression.location.line, "MPF2054",
-                 "full requires a real rank-2 dense or CSC array with known storage");
+                 "full requires a real or logical rank-2 dense or CSC array with known storage");
         return facts.inferred_type = ValueType::unknown;
       }
       facts.inferred_type = ValueType::list;
       facts.numeric_type = no_numeric_type;
-      facts.element_type = ValueType::real;
-      facts.element_numeric_type = real_numeric_type;
+      facts.element_type = argument.element_type;
+      facts.element_numeric_type = argument.element_numeric_type;
       facts.shape = argument.shape;
       facts.array_storage = ArrayStorageFormat::dense;
       return facts.inferred_type;
@@ -2541,11 +2571,11 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
   if (!container_already_analyzed) analyze_expression(container);
   const auto& container_facts = semantic(semantics_, container);
   const bool sparse_source = container_facts.array_storage == ArrayStorageFormat::sparse_csc;
-  if (sparse_source && (program_.language != SourceLanguage::matlab ||
-                        !static_rank_two_shape(container_facts.shape) ||
-                        !matlab_sparse_real_value(container_facts))) {
+  if (sparse_source &&
+      (program_.language != SourceLanguage::matlab ||
+       !static_rank_two_shape(container_facts.shape) || !matlab_sparse_value(container_facts))) {
     diagnose(expression.location.line, "MPF2054",
-             "sparse indexing requires a statically shaped real rank-2 CSC array");
+             "sparse indexing requires a statically shaped real or logical rank-2 CSC array");
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
   if (container_facts.inferred_type != ValueType::list &&

@@ -272,6 +272,36 @@ enum class SparseConstructionKind : std::uint8_t {
   triplets_reserved
 };
 
+// Sparse storage alone does not identify the Matlab value class: an empty CSC matrix can be
+// either double or logical.  Keep the value domain and duplicate-triplet rule explicit so no
+// later stage attempts to infer either property from stored values.
+enum class SparseValueDomain : std::uint8_t { none, finite_real, logical };
+enum class SparseDuplicatePolicy : std::uint8_t { none, sum, logical_any };
+
+[[nodiscard]] constexpr bool valid_sparse_construction_value_contract(
+    const SparseConstructionKind kind, const SparseValueDomain value_domain,
+    const SparseDuplicatePolicy duplicate_policy) noexcept {
+  if (kind == SparseConstructionKind::none) {
+    return value_domain == SparseValueDomain::none &&
+           duplicate_policy == SparseDuplicatePolicy::none;
+  }
+  if (value_domain != SparseValueDomain::finite_real &&
+      value_domain != SparseValueDomain::logical) {
+    return false;
+  }
+  const bool triplets = kind == SparseConstructionKind::triplets_inferred ||
+                        kind == SparseConstructionKind::triplets_sized ||
+                        kind == SparseConstructionKind::triplets_reserved;
+  if (triplets) {
+    return duplicate_policy == (value_domain == SparseValueDomain::logical
+                                    ? SparseDuplicatePolicy::logical_any
+                                    : SparseDuplicatePolicy::sum);
+  }
+  return duplicate_policy == SparseDuplicatePolicy::none &&
+         (kind != SparseConstructionKind::zero_matrix ||
+          value_domain == SparseValueDomain::finite_real);
+}
+
 // Sparse indexing has distinct scalar and storage-preserving result contracts.  The selected
 // source form remains explicit so neither target backend infers linearization or Cartesian
 // submatrix semantics from selector count.

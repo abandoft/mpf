@@ -1538,7 +1538,12 @@ TEST_CASE("target LIR verifiers independently reject corrupted sparse constructi
     expression.element_numeric_type = mpf::detail::real_numeric_type;
     expression.array_storage = mpf::detail::ArrayStorageFormat::sparse_csc;
     expression.shape = {3U, 4U};
-    expression.sparse_construction = {Kind::triplets_reserved, {3U, 4U}, {2U, 2U, 2U}, 8U};
+    expression.sparse_construction = {Kind::triplets_reserved,
+                                      {3U, 4U},
+                                      {2U, 2U, 2U},
+                                      8U,
+                                      mpf::detail::semantic::SparseValueDomain::finite_real,
+                                      mpf::detail::semantic::SparseDuplicatePolicy::sum};
     expression.children.resize(7U);
     auto& callee = expression.children[0];
     callee.kind = mpf::detail::ExpressionKind::identifier;
@@ -1587,6 +1592,60 @@ TEST_CASE("target LIR verifiers independently reject corrupted sparse constructi
   cpp.statements.front().expression.sparse_construction.result_shape[1] = 5U;
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
+}
+
+TEST_CASE("Matlab logical sparse construction keeps value and duplicate policies typed") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "A = sparse([true false; false true]);\n"
+                              "B = sparse([1 1 2], [1 1 2], [false true true], 2, 2);\n",
+                              "sparse_logical_construction.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  using Kind = mpf::detail::semantic::SparseConstructionKind;
+  using Domain = mpf::detail::semantic::SparseValueDomain;
+  using Duplicate = mpf::detail::semantic::SparseDuplicatePolicy;
+  const auto dense = std::find_if(
+      analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+      [](const auto& facts) { return facts.sparse_construction.kind == Kind::dense_conversion; });
+  const auto triplets = std::find_if(
+      analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+      [](const auto& facts) { return facts.sparse_construction.kind == Kind::triplets_sized; });
+  REQUIRE(dense != analysis.semantics.expressions.end());
+  REQUIRE(triplets != analysis.semantics.expressions.end());
+  REQUIRE(dense->element_type == mpf::detail::ValueType::boolean);
+  REQUIRE(dense->element_numeric_type == mpf::detail::logical_numeric_type);
+  REQUIRE(dense->sparse_construction.value_domain == Domain::logical);
+  REQUIRE(dense->sparse_construction.duplicate_policy == Duplicate::none);
+  REQUIRE(triplets->element_type == mpf::detail::ValueType::boolean);
+  REQUIRE(triplets->sparse_construction.value_domain == Domain::logical);
+  REQUIRE(triplets->sparse_construction.duplicate_policy == Duplicate::logical_any);
+
+  auto corrupted_hir = analysis.semantics;
+  const auto corrupt = std::find_if(
+      corrupted_hir.expressions.begin(), corrupted_hir.expressions.end(),
+      [](const auto& facts) { return facts.sparse_construction.kind == Kind::triplets_sized; });
+  REQUIRE(corrupt != corrupted_hir.expressions.end());
+  corrupt->sparse_construction.duplicate_policy = Duplicate::sum;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, corrupted_hir,
+                                              "sparse-logical-policy-corruption")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-logical-construction").empty());
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("value-domain=2 duplicate-policy=2") !=
+          std::string::npos);
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("value-domain 2 duplicate-policy 2") !=
+          std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("value-domain 2 duplicate-policy 2") !=
+          std::string::npos);
 }
 
 TEST_CASE("Matlab sparse reshape plans remain typed through every IR layer") {
@@ -3245,7 +3304,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v20") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v22") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -3256,7 +3315,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v26") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v28") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -4725,9 +4784,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v34") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v35") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v34") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v35") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));

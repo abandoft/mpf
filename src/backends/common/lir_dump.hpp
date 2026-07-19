@@ -184,7 +184,9 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
       if (index != 0U) output << ',';
       output << expression.sparse_construction.triplet_element_counts[index];
     }
-    output << "] reserve " << expression.sparse_construction.reserve_hint;
+    output << "] reserve " << expression.sparse_construction.reserve_hint << " value-domain "
+           << static_cast<int>(expression.sparse_construction.value_domain) << " duplicate-policy "
+           << static_cast<int>(expression.sparse_construction.duplicate_policy);
   }
   if (expression.sparse_index.valid()) {
     output << " sparse-index " << static_cast<int>(expression.sparse_index.kind) << " input [";
@@ -365,7 +367,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v34 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v35 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

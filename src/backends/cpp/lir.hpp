@@ -303,6 +303,8 @@ struct SparseConstructionPlan {
   std::vector<std::size_t> result_shape;
   std::vector<std::size_t> triplet_element_counts;
   std::size_t reserve_hint{0U};
+  semantic::SparseValueDomain value_domain{semantic::SparseValueDomain::none};
+  semantic::SparseDuplicatePolicy duplicate_policy{semantic::SparseDuplicatePolicy::none};
 
   [[nodiscard]] bool valid() const noexcept {
     return kind != semantic::SparseConstructionKind::none;

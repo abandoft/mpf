@@ -169,7 +169,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v20 hir-nodes=" << table.hir_node_count
+  output << "semantic-v22 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -313,7 +313,9 @@ std::string dump_semantics(const hir::SemanticTable& table) {
           if (index != 0U) output << ',';
           output << facts.sparse_construction.triplet_element_counts[index];
         }
-        output << "] reserve=" << facts.sparse_construction.reserve_hint;
+        output << "] reserve=" << facts.sparse_construction.reserve_hint
+               << " value-domain=" << enum_value(facts.sparse_construction.value_domain)
+               << " duplicate-policy=" << enum_value(facts.sparse_construction.duplicate_policy);
       }
       if (facts.sparse_index.valid()) {
         output << " sparse-index=" << enum_value(facts.sparse_index.kind) << " input=[";
@@ -388,7 +390,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v26 language=" << enum_value(program.source_language)
+  output << "mir-v28 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -528,7 +530,10 @@ std::string dump_mir(const mir::Program& program) {
           if (count_index != 0U) output << ',';
           output << attributes->sparse_construction.triplet_element_counts[count_index];
         }
-        output << "] reserve=" << attributes->sparse_construction.reserve_hint;
+        output << "] reserve=" << attributes->sparse_construction.reserve_hint
+               << " value-domain=" << enum_value(attributes->sparse_construction.value_domain)
+               << " duplicate-policy="
+               << enum_value(attributes->sparse_construction.duplicate_policy);
       }
       if (attributes->sparse_index.valid()) {
         output << " sparse-index=" << enum_value(attributes->sparse_index.kind) << " input=!s"

@@ -90,8 +90,9 @@ std::optional<std::size_t> sparse_argument_count(const Program& program,
                                                  const Expression& expression) noexcept {
   if (value_type(program, expression.type_id) != ValueType::list) {
     const auto type = value_type(program, expression.type_id);
-    return type == ValueType::integer || type == ValueType::real ? std::optional<std::size_t>{1U}
-                                                                 : std::nullopt;
+    return type == ValueType::boolean || type == ValueType::integer || type == ValueType::real
+               ? std::optional<std::size_t>{1U}
+               : std::nullopt;
   }
   const auto* argument_shape = shape(program, expression.shape_id);
   if (argument_shape == nullptr) return std::nullopt;
@@ -104,6 +105,24 @@ std::optional<std::size_t> sparse_argument_count(const Program& program,
     count *= extent;
   }
   return count;
+}
+
+semantic::SparseValueDomain sparse_value_domain(const Program& program,
+                                                const Expression& expression) noexcept {
+  const auto type = value_type(program, expression.type_id) == ValueType::list
+                        ? element_type(program, expression.type_id)
+                        : value_type(program, expression.type_id);
+  const auto numeric_type = value_type(program, expression.type_id) == ValueType::list
+                                ? element_numeric_type(program, expression.type_id)
+                                : mir::numeric_type(program, expression.type_id);
+  if (type == ValueType::boolean && numeric_type == logical_numeric_type) {
+    return semantic::SparseValueDomain::logical;
+  }
+  if ((type == ValueType::integer || type == ValueType::real) &&
+      numeric_type.complexity == NumericComplexity::real) {
+    return semantic::SparseValueDomain::finite_real;
+  }
+  return semantic::SparseValueDomain::none;
 }
 
 semantic::SparseConstructionKind expected_sparse_construction_kind(
@@ -653,6 +672,9 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->sparse_construction.result_shape.valid() ||
         !retired_attributes->sparse_construction.triplet_element_counts.empty() ||
         retired_attributes->sparse_construction.reserve_hint != 0U ||
+        retired_attributes->sparse_construction.value_domain != semantic::SparseValueDomain::none ||
+        retired_attributes->sparse_construction.duplicate_policy !=
+            semantic::SparseDuplicatePolicy::none ||
         retired_attributes->sparse_index.valid() ||
         retired_attributes->sparse_index.source_storage != ArrayStorageFormat::none ||
         retired_attributes->sparse_index.result_storage != ArrayStorageFormat::none ||
@@ -1145,6 +1167,9 @@ void verify_expression(const Expression& expression, const Program& program,
                  array_storage(program, expression.type_id) == ArrayStorageFormat::sparse_csc &&
                  sparse.result_shape == expression.shape_id && result_shape != nullptr &&
                  result_shape->extents.size() == 2U &&
+                 sparse.value_domain == sparse_value_domain(program, expression) &&
+                 semantic::valid_sparse_construction_value_contract(
+                     sparse.kind, sparse.value_domain, sparse.duplicate_policy) &&
                  std::none_of(result_shape->extents.begin(), result_shape->extents.end(),
                               [](const auto extent) {
                                 return extent == std::numeric_limits<std::size_t>::max();
@@ -1179,7 +1204,14 @@ void verify_expression(const Expression& expression, const Program& program,
       const auto* argument_shape =
           argument == nullptr ? nullptr : shape(program, argument->shape_id);
       valid = valid && argument_shape != nullptr && result_shape != nullptr &&
-              argument_shape->extents == result_shape->extents;
+              argument_shape->extents == result_shape->extents &&
+              sparse.value_domain == sparse_value_domain(program, *argument);
+    } else if (triplets) {
+      const auto* values = expression.children.size() >= 4U
+                               ? mir::expression(program, expression.children[3U])
+                               : nullptr;
+      valid = valid && values != nullptr &&
+              sparse.value_domain == sparse_value_domain(program, *values);
     }
     if (sparse.kind != semantic::SparseConstructionKind::triplets_reserved) {
       valid = valid && sparse.reserve_hint == 0U;
@@ -1189,7 +1221,9 @@ void verify_expression(const Expression& expression, const Program& program,
                 "sparse-construction attributes have an invalid shape or triplet count");
     }
   } else if (sparse.result_shape.valid() || !sparse.triplet_element_counts.empty() ||
-             sparse.reserve_hint != 0U) {
+             sparse.reserve_hint != 0U ||
+             sparse.value_domain != semantic::SparseValueDomain::none ||
+             sparse.duplicate_policy != semantic::SparseDuplicatePolicy::none) {
     add_error(diagnostics, expression.location, stage,
               "inactive sparse-construction attributes retain MIR state");
   }
