@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <string>
+#include <vector>
 
 #include "mpf/transpiler.hpp"
 #include "test_framework.hpp"
@@ -348,6 +349,63 @@ TEST_CASE("Matlab empty arrays preserve zero extents across shape-changing opera
   REQUIRE(cpp.code.find("linear % shape[axis]") == std::string::npos);
   REQUIRE(javascript.source_map.segments.size() >= 9U);
   REQUIRE(cpp.source_map.segments.size() >= 9U);
+}
+
+TEST_CASE("Matlab sparse CSC square solves preserve storage and target isolation") {
+  const std::string source =
+      "tridiagonal = sparse([2 1 0; 0 3 1; 0 0 4]);\n"
+      "dense_solution = tridiagonal \\ [4; 9; 12];\n"
+      "pivoted = sparse([0 2 0; 1 3 1; 0 1 4]);\n"
+      "sparse_solution = pivoted \\ sparse([4; 10; 14]);\n"
+      "coefficient = sparse([1 2 0; 0 3 1; 2 0 4]);\n"
+      "quotient = sparse([7 8 14; 16 23 29]) / coefficient;\n"
+      "dense_sparse_solution = full(sparse_solution);\n"
+      "dense_quotient = full(quotient);\n"
+      "disp(issparse(dense_solution), issparse(sparse_solution), nnz(pivoted), "
+      "dense_sparse_solution(3), dense_quotient(2, 3))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("const __mpf_sparse_csc_tag") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_sparse_tridiagonal_factor") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_sparse_row_lu_factor") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mldivide_sparse_real_square") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mrdivide_sparse_real_square") != std::string::npos);
+  REQUIRE(javascript.code.find("std::vector") == std::string::npos);
+  REQUIRE(cpp.code.find("struct sparse_matrix") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_matrix<double>") != std::string::npos);
+  REQUIRE(cpp.code.find("sparse_tridiagonal_factor") != std::string::npos);
+  REQUIRE(cpp.code.find("sparse_row_lu_factor") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mldivide_sparse_real_square") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_sparse_real_square") != std::string::npos);
+  REQUIRE(cpp.code.find("__mpf_sparse_csc_tag") == std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (const auto line : {1U, 2U, 4U, 6U, 7U, 9U}) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
+TEST_CASE("Matlab sparse CSC contract fails closed outside the supported vertical slice") {
+  const std::vector<std::string> unsupported{"A = sparse([1 0; 0 1]);\nB = A * A;\n",
+                                             "A = sparse([1 0; 0 1]);\nvalue = A(1);\n",
+                                             "A = sparse([1 0; 0 1]);\nB = A.';\n",
+                                             "A = sparse([1 0; 0 1]);\nB = reshape(A, 1, 4);\n",
+                                             "A = sparse([1 0; 0 1]);\nB = ~A;\n",
+                                             "A = sparse([1 0; 0 1; 1 1]);\nB = A \\ [1; 2; 3];\n",
+                                             "A = sparse([1+2i 0; 0 1]);\n",
+                                             "A = sparse([1 2; 3 4], 2);\n",
+                                             "A = sparse([]);\n"};
+  for (const auto& source : unsupported) {
+    for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+      const auto result = transpile_array(source, mpf::SourceLanguage::matlab, target);
+      REQUIRE(!result.success());
+      REQUIRE(result.diagnostics.front().code == "MPF2054");
+    }
+  }
 }
 
 TEST_CASE("Matlab static dense matrix solve and integer power use target-owned plans") {
