@@ -2951,6 +2951,8 @@ void Analyzer::analyze_indexed_mutation(Statement& statement, const ValueType va
       } else if (const auto vector_axis = matlab_vector_axis(input_shape);
                  vector_axis.has_value()) {
         result_shape[*vector_axis] = std::max(result_shape[*vector_axis], required_size);
+      } else if (input_shape.size() == 2U && input_shape[0] == 0U) {
+        result_shape = {1U, std::max(input_shape[1], required_size)};
       } else {
         std::size_t leading = 1U;
         for (std::size_t axis = 0; axis + 1U < input_shape.size(); ++axis) {
