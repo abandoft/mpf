@@ -525,7 +525,8 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
       bool valid = facts->inferred_type == ValueType::list &&
                    facts->array_storage == ArrayStorageFormat::sparse_csc &&
                    sparse.result_shape == facts->shape && sparse.result_shape.size() == 2U &&
-                   sparse.result_shape[0] != 0U && sparse.result_shape[1] != 0U;
+                   std::none_of(sparse.result_shape.begin(), sparse.result_shape.end(),
+                                [](const auto extent) { return extent == dynamic_extent; });
       const bool triplets = sparse.kind == semantic::SparseConstructionKind::triplets_inferred ||
                             sparse.kind == semantic::SparseConstructionKind::triplets_sized ||
                             sparse.kind == semantic::SparseConstructionKind::triplets_reserved;
@@ -537,6 +538,13 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
           const auto count =
               argument == nullptr ? std::optional<std::size_t>{} : sparse_argument_count(*argument);
           valid = count.has_value() && *count == sparse.triplet_element_counts[index];
+        }
+        const bool zero_extent = std::find(sparse.result_shape.begin(), sparse.result_shape.end(),
+                                           0U) != sparse.result_shape.end();
+        if (zero_extent) {
+          valid = valid && std::all_of(sparse.triplet_element_counts.begin(),
+                                       sparse.triplet_element_counts.end(),
+                                       [](const auto count) { return count == 0U; });
         }
       } else {
         valid = valid && sparse.triplet_element_counts.empty();

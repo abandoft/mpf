@@ -2105,20 +2105,14 @@ ValueType Analyzer::analyze_call(Expression& expression) {
                    "sparse(A) requires a statically shaped real rank-2 dense or CSC array");
           return facts.inferred_type = ValueType::unknown;
         }
-        if (std::any_of(argument.shape.begin(), argument.shape.end(),
-                        [](const auto extent) { return extent == 0U; })) {
-          diagnose(expression.location.line, "MPF2054",
-                   "sparse(A) currently requires non-empty rank-2 extents");
-          return facts.inferred_type = ValueType::unknown;
-        }
         construction.kind = Kind::dense_conversion;
         construction.result_shape = argument.shape;
       } else if (arity == 3U) {
-        const auto rows = positive_size_constant(expression.children[1]);
-        const auto columns = positive_size_constant(expression.children[2]);
+        const auto rows = nonnegative_size_constant(expression.children[1]);
+        const auto columns = nonnegative_size_constant(expression.children[2]);
         if (!rows.has_value() || !columns.has_value()) {
           diagnose(expression.location.line, "MPF2054",
-                   "sparse(m,n) currently requires positive compile-time integer dimensions");
+                   "sparse(m,n) requires nonnegative compile-time integer dimensions");
           return facts.inferred_type = ValueType::unknown;
         }
         construction.kind = Kind::zero_matrix;
@@ -2145,22 +2139,28 @@ ValueType Analyzer::analyze_call(Expression& expression) {
           }
         }
         if (arity == 4U) {
-          const auto rows = matlab_sparse_literal_index_max(expression.children[1]);
-          const auto columns = matlab_sparse_literal_index_max(expression.children[2]);
-          if (!rows.has_value() || !columns.has_value() || *rows == 0U || *columns == 0U) {
+          const auto triplet_count = sequence_count.value_or(1U);
+          const auto rows = triplet_count == 0U
+                                ? std::optional<std::size_t>{0U}
+                                : matlab_sparse_literal_index_max(expression.children[1]);
+          const auto columns = triplet_count == 0U
+                                   ? std::optional<std::size_t>{0U}
+                                   : matlab_sparse_literal_index_max(expression.children[2]);
+          if (!rows.has_value() || !columns.has_value() ||
+              (triplet_count != 0U && (*rows == 0U || *columns == 0U))) {
             diagnose(expression.location.line, "MPF2054",
-                     "sparse(i,j,v) requires positive compile-time literal indices so its "
-                     "shape is known");
+                     "sparse(i,j,v) requires empty triplets or positive compile-time literal "
+                     "indices so its shape is known");
             return facts.inferred_type = ValueType::unknown;
           }
           construction.kind = Kind::triplets_inferred;
           construction.result_shape = {*rows, *columns};
         } else {
-          const auto rows = positive_size_constant(expression.children[4]);
-          const auto columns = positive_size_constant(expression.children[5]);
+          const auto rows = nonnegative_size_constant(expression.children[4]);
+          const auto columns = nonnegative_size_constant(expression.children[5]);
           if (!rows.has_value() || !columns.has_value()) {
             diagnose(expression.location.line, "MPF2054",
-                     "sparse triplet output dimensions must be positive compile-time integers");
+                     "sparse triplet output dimensions must be nonnegative compile-time integers");
             return facts.inferred_type = ValueType::unknown;
           }
           if (!matlab_sparse_known_indices_within(expression.children[1], *rows) ||
