@@ -169,7 +169,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v16 hir-nodes=" << table.hir_node_count
+  output << "semantic-v17 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -332,6 +332,15 @@ std::string dump_semantics(const hir::SemanticTable& table) {
                << " linear=" << facts.indexed_mutation.linear
                << " axis=" << facts.indexed_mutation.axis;
       }
+      if (facts.sparse_mutation.valid()) {
+        output << " sparse-mutation=" << enum_value(facts.sparse_mutation.kind)
+               << " replacement=" << enum_value(facts.sparse_mutation.replacement)
+               << " duplicate=" << enum_value(facts.sparse_mutation.duplicate_policy)
+               << " zero=" << enum_value(facts.sparse_mutation.zero_policy)
+               << " storage=" << enum_value(facts.sparse_mutation.source_storage) << '/'
+               << enum_value(facts.sparse_mutation.replacement_storage) << '/'
+               << enum_value(facts.sparse_mutation.result_storage);
+      }
     }
     output << '\n';
   }
@@ -340,7 +349,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v22 language=" << enum_value(program.source_language)
+  output << "mir-v23 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -489,6 +498,16 @@ std::string dump_mir(const mir::Program& program) {
                << " axis=" << attributes->indexed_mutation.contract.axis << " shape=!s"
                << attributes->indexed_mutation.input_shape.value() << "->!s"
                << attributes->indexed_mutation.result_shape.value();
+      }
+      if (attributes->sparse_mutation.valid()) {
+        output << " sparse-mutation=" << enum_value(attributes->sparse_mutation.kind)
+               << " replacement=" << enum_value(attributes->sparse_mutation.replacement)
+               << " duplicate=" << enum_value(attributes->sparse_mutation.duplicate_policy)
+               << " zero=" << enum_value(attributes->sparse_mutation.zero_policy)
+               << " shape=!s" << attributes->sparse_mutation.input_shape.value() << "/!s"
+               << attributes->sparse_mutation.selection_shape.value() << "/!s"
+               << attributes->sparse_mutation.replacement_shape.value() << "->!s"
+               << attributes->sparse_mutation.result_shape.value();
       }
     }
     output << '\n';

@@ -283,6 +283,12 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
            << (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::erase
                    ? statement.plan.indexed_mutation.axis
                    : 0U)
+           << " sparse-mutation " << static_cast<int>(statement.plan.sparse_mutation.kind)
+           << " sparse-replacement "
+           << static_cast<int>(statement.plan.sparse_mutation.replacement)
+           << " sparse-duplicate "
+           << static_cast<int>(statement.plan.sparse_mutation.duplicate_policy) << " sparse-zero "
+           << static_cast<int>(statement.plan.sparse_mutation.zero_policy)
            << " targets " << statement.plan.targets.size() << " assignment-leaves "
            << statement.plan.assignment_leaves.size() << " selectors "
            << statement.plan.selectors.size() << " returns " << statement.plan.return_names.size()
@@ -306,7 +312,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v28 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v29 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

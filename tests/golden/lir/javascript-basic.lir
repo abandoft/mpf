@@ -1,4 +1,4 @@
-javascript-semantic-lir-v28 revision 1 nodes 5 runtime 0x0
+javascript-semantic-lir-v29 revision 1 nodes 5 runtime 0x0
 dependencies
 temporaries
 source-segments
@@ -7,7 +7,7 @@ source-segments
   %l3 origin %h3 at 1:1
   %l4 origin %h4 at 1:5
   %l5 origin %h5 at 1:6
-stmt %l1 origin %h1 kind 4 line 1 name "" symbol @s0 declared 0 numeric 1/1 element 0 element-numeric 1/1 array-storage 0 plan 9 condition 0 target-access 0 alternative 0 range-step 0 retain-loop 0 inclusive-stop 0 resizable-section 0 character-selector 0 mutation 0 mutation-shape-source 0 mutation-linear 0 mutation-axis 0 targets 0 assignment-leaves 0 selectors 0 returns 0
+stmt %l1 origin %h1 kind 4 line 1 name "" symbol @s0 declared 0 numeric 1/1 element 0 element-numeric 1/1 array-storage 0 plan 9 condition 0 target-access 0 alternative 0 range-step 0 retain-loop 0 inclusive-stop 0 resizable-section 0 character-selector 0 mutation 0 mutation-shape-source 0 mutation-linear 0 mutation-axis 0 sparse-mutation 0 sparse-replacement 0 sparse-duplicate 0 sparse-zero 0 targets 0 assignment-leaves 0 selectors 0 returns 0
   expr %l2 origin %h2 kind 11 type 1 numeric 3/2 element 0 element-numeric 0/0 array-storage 0 binding 0 intrinsic 0 symbol @s0 shape [] value "" logical-evaluation 0 plan 17 precedence 9 token "" call 1 evaluation 0 call-value 0 index 0 string-value 0 variable-access 0 index-base 0 negative-index 0 column-major 0 inclusive-slice 0
     expr %l3 origin %h3 kind 1 type 8 numeric 0/0 element 0 element-numeric 0/0 array-storage 0 binding 3 intrinsic 1 symbol @s0 shape [] value "abs" logical-evaluation 0 plan 3 precedence 10 token "Math.abs" call 0 evaluation 0 call-value 0 index 0 string-value 0 variable-access 0 index-base 0 negative-index 0 column-major 0 inclusive-slice 0
     expr %l4 origin %h4 kind 7 type 1 numeric 3/2 element 0 element-numeric 0/0 array-storage 0 binding 0 intrinsic 0 symbol @s0 shape [] value "-" logical-evaluation 0 plan 5 precedence 6 token "-" call 0 evaluation 0 call-value 0 index 0 string-value 0 variable-access 0 index-base 0 negative-index 0 column-major 0 inclusive-slice 0
