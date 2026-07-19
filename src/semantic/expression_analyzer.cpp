@@ -3099,8 +3099,8 @@ void Analyzer::validate_static_index(const std::size_t line, const Expression& i
 }
 
 ValueType Analyzer::analyze_reshape(Expression& expression) {
-  const bool matlab_dimensions =
-      program_.language == SourceLanguage::matlab && expression.children.size() > 3;
+  const bool matlab = program_.language == SourceLanguage::matlab;
+  const bool matlab_dimensions = matlab && expression.children.size() > 3U;
   if ((!matlab_dimensions && expression.children.size() != 3) || expression.children.size() < 3) {
     diagnose(expression.location.line, "MPF2026",
              "RESHAPE requires a source and a non-empty shape vector/dimension list");
@@ -3108,12 +3108,6 @@ ValueType Analyzer::analyze_reshape(Expression& expression) {
   }
   auto& source = expression.children[1];
   const auto& source_facts = semantic(semantics_, source);
-  if (source_facts.array_storage == ArrayStorageFormat::sparse_csc) {
-    diagnose(expression.location.line, "MPF2054",
-             "reshape over sparse arrays is outside the current CSC runtime contract; convert "
-             "with full first");
-    return semantic(semantics_, expression).inferred_type = ValueType::unknown;
-  }
   if (source_facts.inferred_type != ValueType::list ||
       (!matlab_dimensions &&
        semantic(semantics_, expression.children[2]).inferred_type != ValueType::list)) {
@@ -3132,51 +3126,113 @@ ValueType Analyzer::analyze_reshape(Expression& expression) {
       dimension_expressions.push_back(&dimension);
     }
   }
+  std::optional<std::size_t> inferred_axis;
   for (const auto* dimension : dimension_expressions) {
-    const auto value = numeric_constant(*dimension);
-    if (!value.has_value() || *value < 0.0 ||
-        *value > static_cast<double>(std::numeric_limits<std::size_t>::max()) ||
-        *value != static_cast<double>(static_cast<std::size_t>(*value))) {
+    if (matlab_dimensions && empty_list_literal(*dimension)) {
+      if (inferred_axis.has_value()) {
+        diagnose(dimension->location.line, "MPF2027",
+                 "Matlab RESHAPE accepts at most one inferred [] dimension");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      inferred_axis = dimensions.size();
+      dimensions.push_back(0U);
+      continue;
+    }
+    const auto value = nonnegative_size_constant(*dimension);
+    if (!value.has_value()) {
       diagnose(dimension->location.line, "MPF2027",
                "RESHAPE dimensions must be non-negative integer constants");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
-    dimensions.push_back(static_cast<std::size_t>(*value));
+    dimensions.push_back(*value);
   }
-  if (dimensions.empty()) {
-    diagnose(expression.location.line, "MPF2027", "RESHAPE requires at least one result dimension");
+  const auto minimum_dimensions = matlab ? 2U : 1U;
+  if (dimensions.size() < minimum_dimensions) {
+    diagnose(expression.location.line, "MPF2027",
+             matlab ? "Matlab RESHAPE requires at least two result dimensions"
+                    : "RESHAPE requires at least one result dimension");
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
-  std::size_t source_size = 1;
-  bool source_size_known = !source_facts.shape.empty() && known_shape(source_facts.shape);
-  for (const auto dimension : source_facts.shape) {
-    if (!source_size_known) break;
-    if (dimension != 0 && source_size > std::numeric_limits<std::size_t>::max() / dimension) {
-      diagnose(expression.location.line, "MPF2027", "RESHAPE source exceeds target size limits");
-      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
-    }
-    source_size *= dimension;
+  const auto source_size = source_facts.shape.empty() ? std::optional<std::size_t>{}
+                                                      : checked_element_count(source_facts.shape);
+  if (!source_size.has_value() && known_shape(source_facts.shape)) {
+    diagnose(expression.location.line, "MPF2027", "RESHAPE source exceeds target size limits");
+    return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
   std::size_t result_size = 1;
-  for (const auto dimension : dimensions) {
+  for (std::size_t axis = 0U; axis < dimensions.size(); ++axis) {
+    if (inferred_axis.has_value() && *inferred_axis == axis) continue;
+    const auto dimension = dimensions[axis];
     if (dimension != 0 && result_size > std::numeric_limits<std::size_t>::max() / dimension) {
       diagnose(expression.location.line, "MPF2027", "RESHAPE result exceeds target size limits");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
     result_size *= dimension;
   }
-  if (source_size_known && source_size != result_size) {
+  if (inferred_axis.has_value()) {
+    if (!source_size.has_value()) {
+      diagnose(expression.location.line, "MPF2027",
+               "inferred RESHAPE dimensions require a statically known source element count");
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+    }
+    if (result_size == 0U || *source_size % result_size != 0U) {
+      diagnose(expression.location.line, "MPF2024",
+               "RESHAPE explicit dimensions do not divide the source element count");
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+    }
+    dimensions[*inferred_axis] = *source_size / result_size;
+    result_size = *source_size;
+  }
+  if (source_size.has_value() && *source_size != result_size) {
     diagnose(expression.location.line, "MPF2024",
              "RESHAPE source size does not match result shape");
+    return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
-  semantic(semantics_, expression).inferred_type = ValueType::list;
-  semantic(semantics_, expression).element_type = source_facts.element_type;
-  semantic(semantics_, expression).numeric_type = no_numeric_type;
-  semantic(semantics_, expression).element_numeric_type = source_facts.element_numeric_type;
-  semantic(semantics_, expression).array_storage = ArrayStorageFormat::dense;
-  semantic(semantics_, expression).shape = std::move(dimensions);
-  semantic(semantics_, expression).column_major = true;
-  return semantic(semantics_, expression).inferred_type;
+  auto& facts = semantic(semantics_, expression);
+  facts.inferred_type = ValueType::list;
+  facts.element_type = source_facts.element_type;
+  facts.numeric_type = no_numeric_type;
+  facts.element_numeric_type = source_facts.element_numeric_type;
+  facts.column_major = true;
+  if (source_facts.array_storage != ArrayStorageFormat::sparse_csc) {
+    facts.array_storage = ArrayStorageFormat::dense;
+    facts.shape = std::move(dimensions);
+    return facts.inferred_type;
+  }
+  if (!matlab || source_facts.element_type != ValueType::real ||
+      source_facts.element_numeric_type != real_numeric_type || source_facts.shape.size() != 2U ||
+      !source_size.has_value() || source_facts.shape[0] == 0U || source_facts.shape[1] == 0U) {
+    diagnose(expression.location.line, "MPF2054",
+             "sparse RESHAPE requires a nonempty statically shaped real Matlab CSC matrix");
+    return facts.inferred_type = ValueType::unknown;
+  }
+  std::size_t folded_columns = 1U;
+  for (std::size_t axis = 1U; axis < dimensions.size(); ++axis) {
+    if (dimensions[axis] == 0U ||
+        folded_columns > std::numeric_limits<std::size_t>::max() / dimensions[axis]) {
+      diagnose(expression.location.line, "MPF2027",
+               "sparse RESHAPE result exceeds target size limits");
+      return facts.inferred_type = ValueType::unknown;
+    }
+    folded_columns *= dimensions[axis];
+  }
+  const std::vector<std::size_t> result_shape{dimensions.front(), folded_columns};
+  facts.array_storage = ArrayStorageFormat::sparse_csc;
+  facts.shape = result_shape;
+  facts.sparse_reshape.kind = semantic::SparseReshapeKind::column_major_2d;
+  facts.sparse_reshape.dimension_form = matlab_dimensions
+                                            ? semantic::SparseReshapeDimensionForm::dimension_list
+                                            : semantic::SparseReshapeDimensionForm::size_vector;
+  facts.sparse_reshape.inference = inferred_axis.has_value()
+                                       ? semantic::SparseReshapeInference::one_dimension
+                                       : semantic::SparseReshapeInference::none;
+  facts.sparse_reshape.inferred_axis = inferred_axis.value_or(0U);
+  facts.sparse_reshape.source_storage = ArrayStorageFormat::sparse_csc;
+  facts.sparse_reshape.result_storage = ArrayStorageFormat::sparse_csc;
+  facts.sparse_reshape.input_shape = source_facts.shape;
+  facts.sparse_reshape.requested_shape = std::move(dimensions);
+  facts.sparse_reshape.result_shape = result_shape;
+  return facts.inferred_type;
 }
 
 }  // namespace mpf::detail::semantic_internal
