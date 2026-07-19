@@ -67,7 +67,9 @@ bool array_intrinsic(const IntrinsicId intrinsic) noexcept {
   return intrinsic == IntrinsicId::sum || intrinsic == IntrinsicId::logical_all ||
          intrinsic == IntrinsicId::logical_any || intrinsic == IntrinsicId::python_length ||
          intrinsic == IntrinsicId::matlab_length || intrinsic == IntrinsicId::element_count ||
-         intrinsic == IntrinsicId::reshape;
+         intrinsic == IntrinsicId::reshape || intrinsic == IntrinsicId::matlab_sparse ||
+         intrinsic == IntrinsicId::matlab_full || intrinsic == IntrinsicId::matlab_is_sparse ||
+         intrinsic == IntrinsicId::matlab_nonzero_count;
 }
 
 using CallLookup = std::vector<const mir::CallSite*>;
@@ -89,6 +91,15 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
       ::mpf::detail::semantic::MatrixNumericDomain::complex) {
     result.runtime.require(lir::RuntimeFeature::complex_numbers);
     result.runtime.require(lir::RuntimeFeature::complex_matrices);
+  }
+  if (mir::array_storage(program, expression.type_id) == ArrayStorageFormat::sparse_csc ||
+      attributes.matrix_operation.storage_policy ==
+          ::mpf::detail::semantic::MatrixStoragePolicy::sparse_csc_coefficient ||
+      attributes.intrinsic == IntrinsicId::matlab_sparse ||
+      attributes.intrinsic == IntrinsicId::matlab_full ||
+      attributes.intrinsic == IntrinsicId::matlab_is_sparse ||
+      attributes.intrinsic == IntrinsicId::matlab_nonzero_count) {
+    result.runtime.require(lir::RuntimeFeature::sparse_matrices);
   }
   const auto active_numeric_type = mir::value_type(program, expression.type_id) == ValueType::list
                                        ? mir::element_numeric_type(program, expression.type_id)
@@ -272,6 +283,16 @@ bool contains_slice(const lir::Expression& expression) {
                      [](const lir::Expression& child) { return contains_slice(child); });
 }
 
+bool valid_array_storage(const ValueType type, const ArrayStorageFormat storage) noexcept {
+  if (type == ValueType::list) {
+    return storage == ArrayStorageFormat::unknown || array_storage_known(storage);
+  }
+  if (type == ValueType::unknown) {
+    return storage == ArrayStorageFormat::none || storage == ArrayStorageFormat::unknown;
+  }
+  return storage == ArrayStorageFormat::none;
+}
+
 void verify_expression(const lir::Expression& expression, const std::size_t node_count,
                        std::vector<bool>& seen, std::vector<Diagnostic>& diagnostics) {
   if (!expression.valid()) return;
@@ -285,6 +306,11 @@ void verify_expression(const lir::Expression& expression, const std::size_t node
   if (!expression_numeric_contract_matches(expression)) {
     add_error(diagnostics, expression.location,
               "JavaScript LIR expression has inconsistent numeric metadata");
+  }
+  if (!valid_array_storage(expression.inferred_type, expression.array_storage) ||
+      expression.tuple_types.size() != expression.tuple_array_storage.size()) {
+    add_error(diagnostics, expression.location,
+              "JavaScript LIR expression has inconsistent array-storage metadata");
   }
   if (expression.binding == BindingKind::builtin && expression.intrinsic != IntrinsicId::none &&
       expression.target_binding.kind == CodeBindingKind::unavailable) {
@@ -341,6 +367,15 @@ void verify_statements(const std::vector<lir::Statement>& statements, const std:
     if (!statement_numeric_contract_matches(statement)) {
       add_error(diagnostics, {statement.line, 1},
                 "JavaScript LIR statement has inconsistent numeric metadata");
+    }
+    if (!valid_array_storage(statement.declared_type, statement.array_storage) ||
+        !valid_array_storage(statement.previous_type, statement.previous_array_storage) ||
+        statement.parameter_types.size() != statement.parameter_array_storage.size() ||
+        statement.return_types.size() != statement.return_array_storage.size() ||
+        statement.target_types.size() != statement.target_array_storage.size() ||
+        statement.target_previous_types.size() != statement.target_previous_array_storage.size()) {
+      add_error(diagnostics, {statement.line, 1},
+                "JavaScript LIR statement has inconsistent array-storage metadata");
     }
     verify_expression(statement.expression, node_count, seen, diagnostics);
     verify_expression(statement.secondary_expression, node_count, seen, diagnostics);

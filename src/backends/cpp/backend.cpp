@@ -18,7 +18,7 @@ const BackendDescriptor& cpp_backend() noexcept {
       TargetLanguage::cpp,
       "cpp",
       {"C++17",
-       "mpf.cpp.lir.v13",
+       "mpf.cpp.lir.v14",
        {1, configuration, std::size(configuration)},
        {"mpf.runtime-supply-chain.v1", runtime_components, std::size(runtime_components)},
        true,

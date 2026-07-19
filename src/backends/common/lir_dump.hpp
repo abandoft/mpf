@@ -65,7 +65,8 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
          << static_cast<int>(expression.numeric_type.complexity) << " element "
          << static_cast<int>(expression.element_type) << " element-numeric "
          << static_cast<int>(expression.element_numeric_type.value_class) << '/'
-         << static_cast<int>(expression.element_numeric_type.complexity) << " binding "
+         << static_cast<int>(expression.element_numeric_type.complexity) << " array-storage "
+         << static_cast<int>(expression.array_storage) << " binding "
          << static_cast<int>(expression.binding) << " intrinsic "
          << static_cast<int>(expression.intrinsic) << " symbol @s" << expression.symbol_id.value()
          << " shape [";
@@ -114,7 +115,10 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
            << " factorization-policy "
            << static_cast<int>(expression.matrix_operation.factorization_policy)
            << " structure-policy " << static_cast<int>(expression.matrix_operation.structure_policy)
-           << ' ';
+           << " storage-policy " << static_cast<int>(expression.matrix_operation.storage_policy)
+           << " storage " << static_cast<int>(expression.matrix_operation.left_storage) << ','
+           << static_cast<int>(expression.matrix_operation.right_storage) << "->"
+           << static_cast<int>(expression.matrix_operation.result_storage) << ' ';
     dump_shape(expression.matrix_operation.left_shape);
     if (!expression.matrix_operation.right_shape.empty()) {
       output << ',';
@@ -235,7 +239,8 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
            << static_cast<int>(statement.declared_numeric_type.complexity) << " element "
            << static_cast<int>(statement.element_type) << " element-numeric "
            << static_cast<int>(statement.element_numeric_type.value_class) << '/'
-           << static_cast<int>(statement.element_numeric_type.complexity) << " plan "
+           << static_cast<int>(statement.element_numeric_type.complexity) << " array-storage "
+           << static_cast<int>(statement.array_storage) << " plan "
            << static_cast<int>(statement.plan.form) << " condition "
            << static_cast<int>(statement.plan.condition) << " target-access "
            << static_cast<int>(statement.plan.target_access) << " alternative "
@@ -273,7 +278,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v25 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v26 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";
