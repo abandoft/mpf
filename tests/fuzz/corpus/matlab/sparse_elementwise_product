@@ -1,0 +1,12 @@
+A = sparse([1 0 2; 0 3 0]);
+D = [10 20 30; 40 50 60];
+row = sparse([1 1], [1 3], [2 4], 1, 3);
+column = sparse([1 2], [1 1], [5 6], 2, 1);
+right_scalar = A .* 2;
+left_scalar = 3 .* A;
+sparse_dense = row .* D;
+dense_sparse = D .* column;
+sparse_sparse = row .* column;
+zero_sparse = A .* 0;
+disp(nnz(right_scalar), nnz(left_scalar), nnz(sparse_dense), ...
+     nnz(dense_sparse), nnz(sparse_sparse), nnz(zero_sparse))
