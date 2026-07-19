@@ -426,9 +426,61 @@ TEST_CASE("Matlab sparse constructors and transpose preserve canonical CSC plans
   }
 }
 
+TEST_CASE("Matlab sparse CSC indexing preserves storage shape and target isolation") {
+  const std::string source =
+      "A = sparse([1 0 2; 0 3 0; 4 0 5]);\n"
+      "linear_scalar = A(5);\n"
+      "subscript_scalar = A(3, 1);\n"
+      "linear = A([9 1; 5 7]);\n"
+      "sliced = A(1:2:9);\n"
+      "logical_linear = A([true false true false true false true false true]);\n"
+      "mask = [true false true false true false true false true];\n"
+      "dynamic_logical = A(mask);\n"
+      "rows = A([true false true], :);\n"
+      "repeated = A([3 1 3], [3 1 3]);\n"
+      "reversed = A(3:-1:1, 3:-1:1);\n"
+      "empty_linear = A([]);\n"
+      "empty_block = A([], [1 3]);\n"
+      "column = A(:);\n"
+      "disp(linear_scalar, subscript_scalar, nnz(linear), nnz(sliced), "
+      "nnz(logical_linear), nnz(dynamic_logical), nnz(rows), nnz(repeated), nnz(reversed), "
+      "nnz(empty_linear), nnz(empty_block), nnz(column), issparse(repeated))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("function __mpf_sparse_linear_element") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_sparse_subscript_element") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_sparse_linear_selection") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_sparse_submatrix_selection") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_linear_element(A,") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_submatrix_selection(A,") != std::string::npos);
+  REQUIRE(javascript.code.find(", [null, 1])") != std::string::npos);
+  REQUIRE(javascript.code.find("mpf_runtime::sparse_") == std::string::npos);
+  REQUIRE(cpp.code.find("double sparse_linear_element(") != std::string::npos);
+  REQUIRE(cpp.code.find("double sparse_subscript_element(") != std::string::npos);
+  REQUIRE(cpp.code.find("sparse_matrix<double> sparse_linear_selection(") != std::string::npos);
+  REQUIRE(cpp.code.find("sparse_matrix<double> sparse_submatrix_selection(") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_linear_element(A,") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_submatrix_selection(A,") != std::string::npos);
+  REQUIRE(cpp.code.find("std::nullopt, std::optional<std::size_t>{1}") != std::string::npos);
+  REQUIRE(cpp.code.find("__mpf_sparse_linear_element") == std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 15U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
 TEST_CASE("Matlab sparse CSC contract fails closed outside the supported vertical slice") {
   const std::vector<std::string> unsupported{"A = sparse([1 0; 0 1]);\nB = A * A;\n",
-                                             "A = sparse([1 0; 0 1]);\nvalue = A(1);\n",
+                                             "A = sparse([1 0; 0 1]);\nA(1) = 2;\n",
+                                             "A = sparse([1 0; 0 1]);\nvalue = A(1, 1, 1);\n",
+                                             "A = sparse([1 0; 0 1]);\n"
+                                             "value = A(reshape([1 2], 1, 1, 2));\n",
+                                             "A = sparse([1 0; 0 1]);\nvalue = A([1+0i]);\n",
                                              "A = sparse([1 0; 0 1]);\nB = reshape(A, 1, 4);\n",
                                              "A = sparse([1 0; 0 1]);\nB = ~A;\n",
                                              "A = sparse([1 0; 0 1; 1 1]);\nB = A \\ [1; 2; 3];\n",
