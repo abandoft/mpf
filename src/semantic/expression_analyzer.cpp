@@ -2555,12 +2555,11 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
   if (!container_already_analyzed) analyze_expression(container);
   const auto& container_facts = semantic(semantics_, container);
   const bool sparse_source = container_facts.array_storage == ArrayStorageFormat::sparse_csc;
-  if (sparse_source &&
-      (program_.language != SourceLanguage::matlab ||
-       !static_rank_two_shape(container_facts.shape) || container_facts.shape[0] == 0U ||
-       container_facts.shape[1] == 0U || !matlab_sparse_real_value(container_facts))) {
+  if (sparse_source && (program_.language != SourceLanguage::matlab ||
+                        !static_rank_two_shape(container_facts.shape) ||
+                        !matlab_sparse_real_value(container_facts))) {
     diagnose(expression.location.line, "MPF2054",
-             "sparse indexing requires a non-empty statically shaped real rank-2 CSC array");
+             "sparse indexing requires a statically shaped real rank-2 CSC array");
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
   if (container_facts.inferred_type != ValueType::list &&
@@ -3174,7 +3173,10 @@ std::size_t Analyzer::analyze_slice(Expression& slice, const std::size_t extent,
     diagnose(slice.location.line, "MPF2027", "slice step exceeds target integer range");
     return dynamic_extent;
   }
-  if (extent == 0) return 0;
+  if (extent == 0U) {
+    slice_facts.shape = {0U};
+    return 0U;
+  }
 
   if (!slice_facts.slice_stop_inclusive) {
     const auto size = static_cast<long long>(extent);
