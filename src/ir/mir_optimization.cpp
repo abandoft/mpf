@@ -106,6 +106,10 @@ std::vector<Diagnostic> canonicalize_shapes(Program& program, OptimizationStatis
     if (attributes.sparse_construction.valid()) {
       remap_shape(attributes.sparse_construction.result_shape, remap);
     }
+    if (attributes.sparse_index.valid()) {
+      remap_shape(attributes.sparse_index.input_shape, remap);
+      remap_shape(attributes.sparse_index.result_shape, remap);
+    }
     for (auto& shape : attributes.tuple_shapes) remap_shape(shape, remap);
     for (auto& metadata : attributes.sequence_elements) remap_value_metadata(metadata, remap);
   }
@@ -380,6 +384,7 @@ bool fold_expression(Program& program, const MirExpressionId id, OptimizationSta
   facts->matrix_operation = {};
   facts->reduction = {};
   facts->sparse_construction = {};
+  facts->sparse_index = {};
   facts->binding = BindingKind::unresolved;
   facts->intrinsic = IntrinsicId::none;
   facts->tuple_shapes.clear();

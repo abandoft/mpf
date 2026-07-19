@@ -127,6 +127,32 @@ semantic::SparseConstructionKind expected_sparse_construction_kind(
   }
 }
 
+semantic::SparseIndexKind expected_sparse_index_kind(const Program& program,
+                                                     const Expression& expression) noexcept {
+  if (expression.kind != ExpressionKind::index || expression.children.size() < 2U ||
+      expression.children.size() > 3U) {
+    return semantic::SparseIndexKind::none;
+  }
+  const auto* source = mir::expression(program, expression.children.front());
+  if (source == nullptr ||
+      array_storage(program, source->type_id) != ArrayStorageFormat::sparse_csc) {
+    return semantic::SparseIndexKind::none;
+  }
+  bool scalar = true;
+  for (std::size_t index = 1U; index < expression.children.size(); ++index) {
+    const auto* selector = mir::expression(program, expression.children[index]);
+    const auto expected = selector == nullptr ? std::optional<semantic::IndexSelectorKind>{}
+                                              : expected_index_selector(program, *selector);
+    if (!expected.has_value()) return semantic::SparseIndexKind::none;
+    scalar = scalar && *expected == semantic::IndexSelectorKind::scalar;
+  }
+  const bool linear = expression.children.size() == 2U;
+  return linear ? (scalar ? semantic::SparseIndexKind::linear_element
+                          : semantic::SparseIndexKind::linear_selection)
+                : (scalar ? semantic::SparseIndexKind::subscript_element
+                          : semantic::SparseIndexKind::submatrix_selection);
+}
+
 StorageId storage_root(const Program& program, StorageId storage) noexcept {
   for (std::size_t depth = 0; depth < program.storages.size(); ++depth) {
     if (!valid_index(storage, program.storages)) return {};
@@ -555,6 +581,11 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->sparse_construction.result_shape.valid() ||
         !retired_attributes->sparse_construction.triplet_element_counts.empty() ||
         retired_attributes->sparse_construction.reserve_hint != 0U ||
+        retired_attributes->sparse_index.valid() ||
+        retired_attributes->sparse_index.source_storage != ArrayStorageFormat::none ||
+        retired_attributes->sparse_index.result_storage != ArrayStorageFormat::none ||
+        retired_attributes->sparse_index.input_shape.valid() ||
+        retired_attributes->sparse_index.result_shape.valid() ||
         retired_attributes->binding != BindingKind::unresolved ||
         retired_attributes->intrinsic != IntrinsicId::none ||
         !retired_attributes->tuple_shapes.empty() ||
@@ -902,6 +933,41 @@ void verify_expression(const Expression& expression, const Program& program,
              reduction.output_shape.valid() || !reduction.axes.empty() || reduction.scalar_result) {
     add_error(diagnostics, expression.location, stage,
               "inactive logical reduction retains MIR attributes");
+  }
+  const auto& sparse_index = expression_attributes->sparse_index;
+  const auto expected_sparse_index = expected_sparse_index_kind(program, expression);
+  if (sparse_index.kind != expected_sparse_index) {
+    add_error(diagnostics, expression.location, stage,
+              "sparse-index identity disagrees with its MIR source expression");
+  } else if (sparse_index.valid()) {
+    const auto* source = mir::expression(program, expression.children.front());
+    const auto* input_shape = shape(program, sparse_index.input_shape);
+    const auto* result_shape = shape(program, sparse_index.result_shape);
+    const auto scalar = semantic::sparse_index_returns_scalar(sparse_index.kind);
+    const bool valid =
+        source != nullptr && input_shape != nullptr && result_shape != nullptr &&
+        element_type(program, source->type_id) == ValueType::real &&
+        element_numeric_type(program, source->type_id) == real_numeric_type &&
+        sparse_index.input_shape == source->shape_id &&
+        sparse_index.result_shape == expression.shape_id &&
+        sparse_index.source_storage == array_storage(program, source->type_id) &&
+        sparse_index.result_storage == array_storage(program, expression.type_id) &&
+        semantic::valid_sparse_index_contract(
+            sparse_index.kind, sparse_index.source_storage, sparse_index.result_storage,
+            input_shape->extents, result_shape->extents, expression.children.size() - 1U) &&
+        (scalar ? value_type(program, expression.type_id) == element_type(program, source->type_id)
+                : value_type(program, expression.type_id) == ValueType::list &&
+                      element_type(program, expression.type_id) ==
+                          element_type(program, source->type_id));
+    if (!valid) {
+      add_error(diagnostics, expression.location, stage,
+                "sparse-index attributes have an invalid type, storage, arity, or shape");
+    }
+  } else if (sparse_index.source_storage != ArrayStorageFormat::none ||
+             sparse_index.result_storage != ArrayStorageFormat::none ||
+             sparse_index.input_shape.valid() || sparse_index.result_shape.valid()) {
+    add_error(diagnostics, expression.location, stage,
+              "inactive sparse-index attributes retain MIR state");
   }
   const auto& sparse = expression_attributes->sparse_construction;
   const auto expected_sparse = expected_sparse_construction_kind(program, expression);

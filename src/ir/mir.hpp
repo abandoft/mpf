@@ -351,6 +351,16 @@ struct SparseConstructionPlan {
   }
 };
 
+struct SparseIndexPlan {
+  semantic::SparseIndexKind kind{semantic::SparseIndexKind::none};
+  ArrayStorageFormat source_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat result_storage{ArrayStorageFormat::none};
+  ShapeId input_shape{};
+  ShapeId result_shape{};
+
+  [[nodiscard]] bool valid() const noexcept { return kind != semantic::SparseIndexKind::none; }
+};
+
 struct ExpressionAttributes {
   MirExpressionId origin{};
   std::string spelling;
@@ -364,6 +374,7 @@ struct ExpressionAttributes {
   MatrixOperationPlan matrix_operation;
   ReductionPlan reduction;
   SparseConstructionPlan sparse_construction;
+  SparseIndexPlan sparse_index;
   BindingKind binding{BindingKind::unresolved};
   IntrinsicId intrinsic{IntrinsicId::none};
   std::vector<ShapeId> tuple_shapes;

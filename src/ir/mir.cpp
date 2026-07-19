@@ -871,6 +871,11 @@ class Builder final {
         result_attributes.sparse_construction.reserve_hint =
             semantic_facts->sparse_construction.reserve_hint;
       }
+      if (semantic_facts->sparse_index.valid()) {
+        result_attributes.sparse_index.kind = semantic_facts->sparse_index.kind;
+        result_attributes.sparse_index.source_storage = semantic_facts->sparse_index.source_storage;
+        result_attributes.sparse_index.result_storage = semantic_facts->sparse_index.result_storage;
+      }
       result_attributes.binding = semantic_facts->binding;
       result_attributes.intrinsic = semantic_facts->intrinsic;
       result_attributes.tuple_shapes.reserve(semantic_facts->tuple_shapes.size());
@@ -1021,6 +1026,13 @@ class Builder final {
     result.shape_id =
         intern_shape(semantic_facts == nullptr ? std::vector<std::size_t>{} : semantic_facts->shape,
                      semantic_facts != nullptr && semantic_facts->column_major);
+    if (result_attributes.sparse_index.valid()) {
+      const auto* source_expression =
+          result.children.empty() ? nullptr : mir::expression(program_, result.children.front());
+      result_attributes.sparse_index.input_shape =
+          source_expression == nullptr ? ShapeId{} : source_expression->shape_id;
+      result_attributes.sparse_index.result_shape = result.shape_id;
+    }
     if (result_attributes.lazy_cfg) {
       std::vector<ControlEdge> control_edges;
       control_edges.reserve(lazy_edges.size());
