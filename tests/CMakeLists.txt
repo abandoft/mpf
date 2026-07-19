@@ -330,6 +330,9 @@ if(TARGET mpfc)
     CPP_REPLACEMENT
       "mpf_runtime::sparse_sparse_mtimes(A, A)")
   mpf_add_generated_runtime_failure_test(
+    matlab-sparse-scalar-nonfinite tests/fixtures/matlab_sparse_scalar_nonfinite.m
+    "finite real" matlab)
+  mpf_add_generated_runtime_failure_test(
     python-true-division-by-zero tests/fixtures/python_true_division_by_zero.py
     "division by zero" python)
   mpf_add_generated_runtime_failure_test(
