@@ -893,10 +893,12 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
         (operation == BinaryOperator::divide && left == ValueType::list &&
          right == ValueType::list &&
          analyzed_right_facts.array_storage == ArrayStorageFormat::sparse_csc);
-    if (!supported_sparse_solve) {
+    const bool supported_sparse_multiply = operation == BinaryOperator::multiply &&
+                                           left == ValueType::list && right == ValueType::list;
+    if (!supported_sparse_solve && !supported_sparse_multiply) {
       diagnose(expression.location.line, "MPF2054",
                "this sparse array operation is outside the current CSC contract; convert the "
-               "operand with full or use sparse square matrix division");
+               "operand with full or use sparse matrix multiplication or square division");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
   }
@@ -1184,20 +1186,47 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                  "Matlab matrix multiplication currently requires static rank-2 extents");
         return facts.inferred_type = ValueType::unknown;
       }
+      const auto storage_policy = semantic::matrix_storage_policy(
+          semantic::MatrixOperation::multiply, left_facts.array_storage, right_facts.array_storage);
+      const auto result_storage = semantic::matrix_multiply_result_storage(
+          left_facts.array_storage, right_facts.array_storage);
+      if (storage_policy == semantic::MatrixStoragePolicy::sparse_csc_multiply) {
+        if (*numeric_domain != semantic::MatrixNumericDomain::real) {
+          diagnose(expression.location.line, "MPF2054",
+                   "sparse matrix multiplication currently requires finite real operands");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        const bool zero_extent = std::find(left_facts.shape.begin(), left_facts.shape.end(), 0U) !=
+                                     left_facts.shape.end() ||
+                                 std::find(right_facts.shape.begin(), right_facts.shape.end(),
+                                           0U) != right_facts.shape.end();
+        if (zero_extent) {
+          diagnose(expression.location.line, "MPF2054",
+                   "sparse matrix multiplication with zero extents requires the future "
+                   "shape-bearing sparse ABI");
+          return facts.inferred_type = ValueType::unknown;
+        }
+      }
+      if (storage_policy == semantic::MatrixStoragePolicy::none ||
+          result_storage == ArrayStorageFormat::none) {
+        diagnose(expression.location.line, "MPF2046",
+                 "Matlab matrix multiplication requires resolved dense or CSC storage");
+        return facts.inferred_type = ValueType::unknown;
+      }
       facts.matrix_operation = {semantic::MatrixOperation::multiply,
                                 semantic::MatrixSolveKind::none,
                                 *numeric_domain,
                                 semantic::MatrixConditionPolicy::none,
                                 semantic::MatrixFactorizationPolicy::none,
                                 semantic::MatrixStructurePolicy::none,
-                                semantic::MatrixStoragePolicy::dense,
+                                storage_policy,
                                 left_facts.array_storage,
                                 right_facts.array_storage,
-                                ArrayStorageFormat::dense,
+                                result_storage,
                                 left_facts.shape,
                                 right_facts.shape,
                                 facts.shape};
-      facts.array_storage = ArrayStorageFormat::dense;
+      facts.array_storage = result_storage;
       return facts.inferred_type;
     }
     if (left_array && right_array &&
