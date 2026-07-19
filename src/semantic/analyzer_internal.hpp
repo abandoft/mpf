@@ -141,6 +141,7 @@ class Analyzer final {
                                         bool allow_matlab_growth = false);
   void analyze_section_assignment(Statement& statement, ValueType value_type);
   void analyze_indexed_mutation(Statement& statement, ValueType value_type, ValueType target_type);
+  void analyze_sparse_mutation(Statement& statement, ValueType value_type);
   [[nodiscard]] std::size_t analyze_slice(Expression& slice, std::size_t extent,
                                           bool allow_matlab_growth = false);
   void validate_static_index(std::size_t line, const Expression& index, std::size_t extent,

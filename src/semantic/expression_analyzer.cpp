@@ -2,6 +2,7 @@
 #include <climits>
 #include <cmath>
 #include <cstdlib>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <string>
@@ -2409,14 +2410,11 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
   const auto& container_facts = semantic(semantics_, container);
   const bool sparse_source = container_facts.array_storage == ArrayStorageFormat::sparse_csc;
   if (sparse_source &&
-      (allow_matlab_growth || program_.language != SourceLanguage::matlab ||
+      (program_.language != SourceLanguage::matlab ||
        !static_rank_two_shape(container_facts.shape) || container_facts.shape[0] == 0U ||
        container_facts.shape[1] == 0U || !matlab_sparse_real_value(container_facts))) {
     diagnose(expression.location.line, "MPF2054",
-             allow_matlab_growth
-                 ? "sparse indexed assignment is outside the current read-only CSC contract"
-                 : "sparse indexing requires a non-empty statically shaped real rank-2 CSC "
-                   "array");
+             "sparse indexing requires a non-empty statically shaped real rank-2 CSC array");
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
   if (container_facts.inferred_type != ValueType::list &&
@@ -2863,6 +2861,75 @@ void Analyzer::analyze_indexed_mutation(Statement& statement, const ValueType va
   }
 }
 
+void Analyzer::analyze_sparse_mutation(Statement& statement, const ValueType value_type) {
+  auto& statement_facts = semantic(semantics_, statement);
+  auto& target = statement.target_expression;
+  if (target.kind != ExpressionKind::index || target.children.size() < 2U) return;
+  auto& target_facts = semantic(semantics_, target);
+  const auto& container_facts = semantic(semantics_, target.children.front());
+  if (container_facts.array_storage != ArrayStorageFormat::sparse_csc) return;
+  if (!target_facts.sparse_index.valid() ||
+      target_facts.index_selectors.size() + 1U != target.children.size() ||
+      !statement_facts.indexed_mutation.valid()) {
+    return;
+  }
+
+  auto& plan = statement_facts.sparse_mutation;
+  const auto linear = statement_facts.indexed_mutation.linear;
+  plan.source_storage = ArrayStorageFormat::sparse_csc;
+  plan.result_storage = ArrayStorageFormat::sparse_csc;
+  plan.input_shape = statement_facts.mutation_input_shape;
+  plan.selection_shape = target_facts.sparse_index.result_shape;
+  plan.result_shape = statement_facts.mutation_result_shape;
+
+  if (statement_facts.indexed_mutation.kind == semantic::IndexedMutationKind::erase) {
+    plan.kind = linear ? semantic::SparseMutationKind::linear_deletion
+                       : semantic::SparseMutationKind::axis_deletion;
+    plan.duplicate_policy = semantic::SparseDuplicateWritePolicy::erase_once;
+    return;
+  }
+
+  const auto& replacement_facts = semantic(semantics_, statement.expression);
+  const auto replacement_type =
+      value_type == ValueType::list ? replacement_facts.element_type : value_type;
+  const auto replacement_numeric = expression_numeric_type(replacement_facts);
+  if ((replacement_type != ValueType::boolean && replacement_type != ValueType::integer &&
+       replacement_type != ValueType::real) ||
+      !replacement_numeric.present() ||
+      replacement_numeric.complexity != NumericComplexity::real) {
+    diagnose(statement.line, "MPF2054",
+             "sparse indexed assignment requires real numeric or logical replacement values");
+    return;
+  }
+  if (value_type == ValueType::list &&
+      replacement_facts.array_storage != ArrayStorageFormat::dense &&
+      replacement_facts.array_storage != ArrayStorageFormat::sparse_csc) {
+    diagnose(statement.line, "MPF2054",
+             "sparse indexed assignment requires a known dense or CSC replacement storage");
+    return;
+  }
+  if (statement_facts.indexed_mutation.kind != semantic::IndexedMutationKind::overwrite &&
+      statement_facts.indexed_mutation.kind != semantic::IndexedMutationKind::grow) {
+    diagnose(statement.line, "MPF2054", "sparse indexed assignment has an unsupported mutation");
+    return;
+  }
+
+  plan.kind = linear ? semantic::SparseMutationKind::linear_assignment
+                     : semantic::SparseMutationKind::subscript_assignment;
+  plan.replacement_storage =
+      value_type == ValueType::list ? replacement_facts.array_storage : ArrayStorageFormat::none;
+  plan.replacement_shape = value_type == ValueType::list ? replacement_facts.shape
+                                                          : std::vector<std::size_t>{};
+  const auto replacement_count =
+      value_type == ValueType::list ? checked_element_count(replacement_facts.shape)
+                                    : std::optional<std::size_t>{1U};
+  plan.replacement = replacement_count.has_value() && *replacement_count == 1U
+                         ? semantic::SparseReplacementKind::scalar_expansion
+                         : semantic::SparseReplacementKind::elementwise;
+  plan.duplicate_policy = semantic::SparseDuplicateWritePolicy::last_write_wins;
+  plan.zero_policy = semantic::SparseZeroWritePolicy::erase_entry;
+}
+
 void Analyzer::analyze_section_assignment(Statement& statement, const ValueType value_type) {
   auto& target = statement.target_expression;
   auto& target_facts = semantic(semantics_, target);
@@ -2900,10 +2967,20 @@ void Analyzer::analyze_section_assignment(Statement& statement, const ValueType 
             statement.line, "MPF2031",
             "Python extended slice assignment requires the same number of replacement elements");
       }
-    } else if (known_shape(target_facts.shape) && known_shape(normalized_replacement) &&
-               target_facts.shape != normalized_replacement) {
-      diagnose(statement.line, "MPF2031",
-               "section assignment replacement shape is not conformable with the selected shape");
+    } else if (known_shape(target_facts.shape) && known_shape(normalized_replacement)) {
+      const auto nonsingleton = [](const std::vector<std::size_t>& shape) {
+        std::vector<std::size_t> result;
+        std::copy_if(shape.begin(), shape.end(), std::back_inserter(result),
+                     [](const std::size_t extent) { return extent != 1U; });
+        return result;
+      };
+      const auto replacement_count = checked_element_count(normalized_replacement);
+      if ((!replacement_count.has_value() || *replacement_count != 1U) &&
+          nonsingleton(target_facts.shape) != nonsingleton(normalized_replacement)) {
+        diagnose(
+            statement.line, "MPF2031",
+            "section assignment replacement shape is not conformable with the selected shape");
+      }
     }
   }
 

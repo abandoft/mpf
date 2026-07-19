@@ -1099,6 +1099,7 @@ bool Analyzer::analyze_statement(Statement& statement) {
                  join_types(target_type, value_type) == ValueType::unknown) {
         diagnose(statement.line, "MPF2020", "indexed assignment changes the array element type");
       }
+      analyze_sparse_mutation(statement, value_type);
       semantic(semantics_, statement).element_type =
           erase ? semantic(semantics_, statement.target_expression).element_type
           : std::any_of(semantic(semantics_, statement.target_expression).index_selectors.begin(),
