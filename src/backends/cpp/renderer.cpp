@@ -475,7 +475,10 @@ class Renderer final {
         return;
       case cpp::lir::CallForm::matlab_sparse:
         output_ << "mpf_runtime::sparse(";
-        emit_expression(expression.children[1]);
+        for (std::size_t index = 1U; index < expression.children.size(); ++index) {
+          if (index != 1U) output_ << ", ";
+          emit_expression(expression.children[index]);
+        }
         output_ << ')';
         return;
       case cpp::lir::CallForm::matlab_full:
@@ -619,6 +622,11 @@ class Renderer final {
           output_ << ", ";
           emit_shape_array(expression.plan.result_shape);
         }
+        output_ << ')';
+        break;
+      case cpp::lir::ExpressionForm::matlab_sparse_transpose:
+        output_ << expression.plan.token << '(';
+        emit_expression(expression.children.front());
         output_ << ')';
         break;
       case cpp::lir::ExpressionForm::binary_lazy_and:
