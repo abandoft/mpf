@@ -468,6 +468,34 @@ TEST_CASE("Matlab sparse scalar matrix products preserve canonical CSC storage")
   }
 }
 
+TEST_CASE("Matlab sparse scalar products preserve zero extents") {
+  const std::string source =
+      "zero_rows = sparse(0, 4);\n"
+      "zero_columns = sparse(4, 0);\n"
+      "right_scaled = zero_rows * 3;\n"
+      "left_scaled = 3 * zero_columns;\n"
+      "zero_scaled = zero_rows * 0;\n"
+      "disp(issparse(right_scaled), issparse(left_scaled), issparse(zero_scaled), "
+      "nnz(right_scaled), nnz(left_scaled), nnz(zero_scaled), "
+      "length(full(right_scaled)), length(full(left_scaled)), length(full(zero_scaled)))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_sparse_scale_right(zero_rows, 3)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_scale_left(3, zero_columns)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_scale_right(zero_rows,") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_scale_left(") != std::string::npos);
+  REQUIRE(cpp.code.find(", zero_columns)") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 6U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
 TEST_CASE("Matlab sparse element-wise products preserve CSC storage and broadcast") {
   const std::string source =
       "A = sparse([1 0 2; 0 3 0]);\n"

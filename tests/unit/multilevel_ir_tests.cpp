@@ -1121,7 +1121,10 @@ TEST_CASE("Matlab sparse scalar products remain typed through every IR layer") {
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "A = sparse([1 0 2; 0 3 0]);\n"
                               "R = A * 4;\n"
-                              "L = 4 * A;\n",
+                              "L = 4 * A;\n"
+                              "Z = sparse(0, 3);\n"
+                              "ZR = Z * 4;\n"
+                              "ZL = 4 * Z;\n",
                               "sparse_scalar_products.m");
   auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
   REQUIRE(analysis.empty());
@@ -1142,6 +1145,13 @@ TEST_CASE("Matlab sparse scalar products remain typed through every IR layer") {
   };
   REQUIRE(has_scale(Storage::sparse_csc, Storage::none));
   REQUIRE(has_scale(Storage::none, Storage::sparse_csc));
+  const auto zero_scale_count = std::count_if(
+      analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+      [](const auto& facts) {
+        return facts.matrix_operation.storage_policy == Policy::sparse_csc_scale &&
+               facts.matrix_operation.result_shape == std::vector<std::size_t>({0U, 3U});
+      });
+  REQUIRE(zero_scale_count == 2);
 
   auto contradictory_hir = analysis.semantics;
   const auto corrupt_hir =
@@ -1185,6 +1195,9 @@ TEST_CASE("Matlab sparse scalar products remain typed through every IR layer") {
   for (const auto& target_dump : {javascript.artifact->debug_dump(), cpp.artifact->debug_dump()}) {
     REQUIRE(target_dump.find("storage-policy 4 storage 3,0->3") != std::string::npos);
     REQUIRE(target_dump.find("storage-policy 4 storage 0,3->3") != std::string::npos);
+    REQUIRE(target_dump.find("storage-policy 4 storage 3,0->3 [0,3]->[0,3]") != std::string::npos);
+    REQUIRE(target_dump.find("storage-policy 4 storage 0,3->3 [],[0,3]->[0,3]") !=
+            std::string::npos);
   }
 }
 
