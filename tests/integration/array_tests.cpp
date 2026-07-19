@@ -669,6 +669,51 @@ TEST_CASE("Matlab sparse CSC indexing preserves storage shape and target isolati
   }
 }
 
+TEST_CASE("Matlab sparse CSC selections preserve zero extents") {
+  const std::string source =
+      "zero_rows = sparse(0, 3);\n"
+      "zero_columns = sparse(3, 0);\n"
+      "linear = zero_rows(:);\n"
+      "empty_linear = zero_rows([]);\n"
+      "row_slice = zero_rows(:, [1 3]);\n"
+      "column_slice = zero_columns([1 3], :);\n"
+      "whole_rows = zero_rows(:, :);\n"
+      "whole_columns = zero_columns(:, :);\n"
+      "disp(issparse(linear), issparse(empty_linear), issparse(row_slice), "
+      "issparse(column_slice), issparse(whole_rows), issparse(whole_columns), nnz(linear), "
+      "nnz(row_slice), length(full(linear)), length(full(empty_linear)), "
+      "length(full(row_slice)), length(full(column_slice)), length(full(whole_rows)), "
+      "length(full(whole_columns)))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_sparse_linear_selection(zero_rows,") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_submatrix_selection(zero_rows,") != std::string::npos);
+  REQUIRE(javascript.code.find(", [0, 2])") != std::string::npos);
+  REQUIRE(javascript.code.find(", [3, 0])") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_linear_selection(zero_rows,") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_submatrix_selection(zero_rows,") != std::string::npos);
+  REQUIRE(cpp.code.find("std::optional<std::size_t>{0}, "
+                        "std::optional<std::size_t>{2}") != std::string::npos);
+  REQUIRE(cpp.code.find("std::optional<std::size_t>{3}, "
+                        "std::optional<std::size_t>{0}") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 9U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+
+  for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+    const auto scalar =
+        transpile_array("A = sparse(0, 3);\nbad = A(1);\n", mpf::SourceLanguage::matlab, target);
+    REQUIRE(!scalar.success());
+    REQUIRE(scalar.diagnostics.front().code == "MPF2021");
+  }
+}
+
 TEST_CASE("Matlab sparse CSC indexed mutation preserves canonical storage and order") {
   const std::string source =
       "A = sparse([1 0 2; 0 3 0; 4 0 5]);\n"

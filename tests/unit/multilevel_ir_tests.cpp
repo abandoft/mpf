@@ -1635,6 +1635,18 @@ TEST_CASE("target LIR verifiers independently reject corrupted sparse reshape pl
 
 TEST_CASE("Matlab sparse index plans retain scalar and CSC selection contracts across layers") {
   using Kind = mpf::detail::semantic::SparseIndexKind;
+  REQUIRE(mpf::detail::semantic::valid_sparse_index_contract(
+      Kind::linear_selection, mpf::detail::ArrayStorageFormat::sparse_csc,
+      mpf::detail::ArrayStorageFormat::sparse_csc, std::vector<std::size_t>{0U, 3U},
+      std::vector<std::size_t>{0U, 1U}, 1U));
+  REQUIRE(mpf::detail::semantic::valid_sparse_index_contract(
+      Kind::submatrix_selection, mpf::detail::ArrayStorageFormat::sparse_csc,
+      mpf::detail::ArrayStorageFormat::sparse_csc, std::vector<std::size_t>{3U, 0U},
+      std::vector<std::size_t>{2U, 0U}, 2U));
+  REQUIRE(!mpf::detail::semantic::valid_sparse_index_contract(
+      Kind::linear_element, mpf::detail::ArrayStorageFormat::sparse_csc,
+      mpf::detail::ArrayStorageFormat::none, std::vector<std::size_t>{0U, 3U},
+      std::vector<std::size_t>{}, 1U));
   REQUIRE(!mpf::detail::semantic::valid_sparse_index_contract(
       Kind::linear_selection, mpf::detail::ArrayStorageFormat::sparse_csc,
       mpf::detail::ArrayStorageFormat::sparse_csc,
@@ -1645,7 +1657,10 @@ TEST_CASE("Matlab sparse index plans retain scalar and CSC selection contracts a
                               "linear_scalar = A(5);\n"
                               "subscript_scalar = A(3, 1);\n"
                               "linear = A([9 1; 5 7]);\n"
-                              "block = A([3 1], [3 1]);\n",
+                              "block = A([3 1], [3 1]);\n"
+                              "Z = sparse(0, 3);\n"
+                              "empty_linear = Z(:);\n"
+                              "empty_block = Z(:, [1 3]);\n",
                               "sparse_indexing.m");
   auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
   REQUIRE(analysis.empty());
@@ -1656,8 +1671,8 @@ TEST_CASE("Matlab sparse index plans retain scalar and CSC selection contracts a
   };
   REQUIRE(count_kind(Kind::linear_element) == 1);
   REQUIRE(count_kind(Kind::subscript_element) == 1);
-  REQUIRE(count_kind(Kind::linear_selection) == 1);
-  REQUIRE(count_kind(Kind::submatrix_selection) == 1);
+  REQUIRE(count_kind(Kind::linear_selection) == 2);
+  REQUIRE(count_kind(Kind::submatrix_selection) == 2);
   const auto hir_selection = std::find_if(
       analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
       [](const auto& facts) { return facts.sparse_index.kind == Kind::linear_selection; });
@@ -1668,6 +1683,14 @@ TEST_CASE("Matlab sparse index plans retain scalar and CSC selection contracts a
           mpf::detail::ArrayStorageFormat::sparse_csc);
   REQUIRE(hir_selection->sparse_index.result_storage ==
           mpf::detail::ArrayStorageFormat::sparse_csc);
+  const auto empty_hir =
+      std::find_if(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                   [](const auto& facts) {
+                     return facts.sparse_index.input_shape == std::vector<std::size_t>({0U, 3U}) &&
+                            facts.sparse_index.kind == Kind::submatrix_selection;
+                   });
+  REQUIRE(empty_hir != analysis.semantics.expressions.end());
+  REQUIRE(empty_hir->sparse_index.result_shape == std::vector<std::size_t>({0U, 2U}));
 
   auto contradictory_hir = analysis.semantics;
   const auto corrupt_hir = std::find_if(
@@ -1699,6 +1722,16 @@ TEST_CASE("Matlab sparse index plans retain scalar and CSC selection contracts a
   REQUIRE(mir_source != nullptr);
   REQUIRE(mir_selection->sparse_index.input_shape == mir_source->shape_id);
   REQUIRE(mpf::detail::dump_mir(mir.program).find("sparse-index=3") != std::string::npos);
+  const auto empty_mir = std::find_if(
+      mir.program.attributes.expressions.begin() + 1, mir.program.attributes.expressions.end(),
+      [&](const auto& attributes) {
+        if (attributes.sparse_index.kind != Kind::submatrix_selection) return false;
+        const auto& input = mir.program.shapes[attributes.sparse_index.input_shape.value()].extents;
+        return input == std::vector<std::size_t>({0U, 3U});
+      });
+  REQUIRE(empty_mir != mir.program.attributes.expressions.end());
+  REQUIRE(mir.program.shapes[empty_mir->sparse_index.result_shape.value()].extents ==
+          std::vector<std::size_t>({0U, 2U}));
 
   auto contradictory_mir = mir.program;
   const auto corrupt_mir =
@@ -1734,6 +1767,10 @@ TEST_CASE("Matlab sparse index plans retain scalar and CSC selection contracts a
   REQUIRE(javascript.artifact->debug_dump().find("sparse-index 3 input [3,3] result [2,2]") !=
           std::string::npos);
   REQUIRE(cpp.artifact->debug_dump().find("sparse-index 4 input [3,3] result [2,2]") !=
+          std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("sparse-index 4 input [0,3] result [0,2]") !=
+          std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("sparse-index 4 input [0,3] result [0,2]") !=
           std::string::npos);
 }
 
