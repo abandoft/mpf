@@ -420,6 +420,29 @@ bool valid_matrix_shapes(const lir::MatrixOperationPlan& plan,
   return false;
 }
 
+bool valid_sparse_elementwise_plan(const lir::Expression& expression) noexcept {
+  const auto& plan = expression.sparse_elementwise;
+  if (!plan.valid()) {
+    return plan.storage_policy == semantic::SparseElementwiseStoragePolicy::none &&
+           plan.shape_source == semantic::BroadcastShapeSource::static_extents &&
+           plan.left_storage == ArrayStorageFormat::none &&
+           plan.right_storage == ArrayStorageFormat::none &&
+           plan.result_storage == ArrayStorageFormat::none && plan.left_shape.empty() &&
+           plan.right_shape.empty() && plan.result_shape.empty() && plan.axes.empty();
+  }
+  return expression.kind == ExpressionKind::binary &&
+         expression.operation == BinaryOperator::elementwise_multiply &&
+         expression.array_operation == semantic::ArrayOperation::matlab &&
+         !expression.broadcast.valid && expression.children.size() == 2U &&
+         plan.left_storage == expression.children[0].array_storage &&
+         plan.right_storage == expression.children[1].array_storage &&
+         plan.result_storage == expression.array_storage && plan.result_shape == expression.shape &&
+         semantic::valid_sparse_elementwise_contract(
+             plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage,
+             plan.right_storage, plan.result_storage, plan.left_shape, plan.right_shape,
+             plan.result_shape, plan.axes);
+}
+
 std::optional<std::size_t> sparse_argument_count(const lir::Expression& expression) noexcept {
   if (expression.inferred_type != ValueType::list) {
     return expression.inferred_type == ValueType::integer ||
@@ -965,6 +988,16 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.broadcast.right_shape != right.broadcast.right_shape ||
       left.broadcast.result_shape != right.broadcast.result_shape ||
       left.broadcast.axes != right.broadcast.axes ||
+      left.sparse_elementwise.operation != right.sparse_elementwise.operation ||
+      left.sparse_elementwise.storage_policy != right.sparse_elementwise.storage_policy ||
+      left.sparse_elementwise.shape_source != right.sparse_elementwise.shape_source ||
+      left.sparse_elementwise.left_storage != right.sparse_elementwise.left_storage ||
+      left.sparse_elementwise.right_storage != right.sparse_elementwise.right_storage ||
+      left.sparse_elementwise.result_storage != right.sparse_elementwise.result_storage ||
+      left.sparse_elementwise.left_shape != right.sparse_elementwise.left_shape ||
+      left.sparse_elementwise.right_shape != right.sparse_elementwise.right_shape ||
+      left.sparse_elementwise.result_shape != right.sparse_elementwise.result_shape ||
+      left.sparse_elementwise.axes != right.sparse_elementwise.axes ||
       left.reduction.operation != right.reduction.operation ||
       left.reduction.axis_policy != right.reduction.axis_policy ||
       left.reduction.shape_source != right.reduction.shape_source ||
@@ -1192,6 +1225,10 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
     add_error(diagnostics, expression.location,
               "JavaScript LIR Matlab broadcast plan is inconsistent");
   }
+  if (!valid_sparse_elementwise_plan(expression)) {
+    add_error(diagnostics, expression.location,
+              "JavaScript LIR sparse element-wise plan is inconsistent");
+  }
   const auto expected_matrix = source_language == SourceLanguage::matlab
                                    ? expected_matrix_operation(expression)
                                    : semantic::MatrixOperation::none;
@@ -1228,6 +1265,10 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
       expression.plan.token.empty()) {
     add_error(diagnostics, expression.location,
               "JavaScript LIR numeric runtime plan has no target helper");
+  }
+  if (expression.sparse_elementwise.valid() && expression.plan.token.empty()) {
+    add_error(diagnostics, expression.location,
+              "JavaScript LIR sparse element-wise plan has no target helper");
   }
   if (!valid_sparse_construction(expression)) {
     add_error(diagnostics, expression.location,
