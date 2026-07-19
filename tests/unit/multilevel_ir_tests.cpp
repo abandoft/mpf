@@ -941,6 +941,88 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
       !mpf::detail::mir::verify(contradictory_domain, "matrix-numeric-domain-mismatch").empty());
 }
 
+TEST_CASE("Matlab sparse storage and solver policies remain typed through every IR layer") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "A = sparse([0 2; 1 3]);\n"
+                              "B = sparse([4; 7]);\n"
+                              "X = A \\ B;\n"
+                              "D = full(X);\n",
+                              "sparse_storage.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  const auto sparse_plan =
+      std::find_if(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                   [](const auto& facts) {
+                     return facts.matrix_operation.storage_policy ==
+                            mpf::detail::semantic::MatrixStoragePolicy::sparse_csc_coefficient;
+                   });
+  REQUIRE(sparse_plan != analysis.semantics.expressions.end());
+  REQUIRE(sparse_plan->array_storage == mpf::detail::ArrayStorageFormat::sparse_csc);
+  REQUIRE(sparse_plan->matrix_operation.left_storage ==
+          mpf::detail::ArrayStorageFormat::sparse_csc);
+  REQUIRE(sparse_plan->matrix_operation.right_storage ==
+          mpf::detail::ArrayStorageFormat::sparse_csc);
+  REQUIRE(sparse_plan->matrix_operation.result_storage ==
+          mpf::detail::ArrayStorageFormat::sparse_csc);
+  REQUIRE(sparse_plan->matrix_operation.factorization_policy ==
+          mpf::detail::semantic::MatrixFactorizationPolicy::sparse_row_pivoted_lu);
+  REQUIRE(sparse_plan->matrix_operation.structure_policy ==
+          mpf::detail::semantic::MatrixStructurePolicy::classify_sparse_real_square);
+
+  auto contradictory_hir = analysis.semantics;
+  const auto contradictory_hir_plan =
+      std::find_if(contradictory_hir.expressions.begin(), contradictory_hir.expressions.end(),
+                   [](const auto& facts) {
+                     return facts.matrix_operation.storage_policy ==
+                            mpf::detail::semantic::MatrixStoragePolicy::sparse_csc_coefficient;
+                   });
+  REQUIRE(contradictory_hir_plan != contradictory_hir.expressions.end());
+  contradictory_hir_plan->matrix_operation.result_storage = mpf::detail::ArrayStorageFormat::dense;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
+                                              "sparse-storage-mismatch")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-storage-plan").empty());
+  REQUIRE(std::any_of(mir.program.types.begin(), mir.program.types.end(), [](const auto& type) {
+    return type.array_storage == mpf::detail::ArrayStorageFormat::sparse_csc;
+  }));
+  const auto sparse_mir_plan =
+      std::find_if(mir.program.attributes.expressions.begin() + 1,
+                   mir.program.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.matrix_operation.storage_policy ==
+                            mpf::detail::semantic::MatrixStoragePolicy::sparse_csc_coefficient;
+                   });
+  REQUIRE(sparse_mir_plan != mir.program.attributes.expressions.end());
+  REQUIRE(sparse_mir_plan->matrix_operation.result_storage ==
+          mpf::detail::ArrayStorageFormat::sparse_csc);
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("storage-policy=2 storage=3,3->3") !=
+          std::string::npos);
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("storage-policy 2 storage 3,3->3") !=
+          std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("storage-policy 2 storage 3,3->3") != std::string::npos);
+
+  auto contradictory_mir = mir.program;
+  const auto contradictory_mir_plan =
+      std::find_if(contradictory_mir.attributes.expressions.begin() + 1,
+                   contradictory_mir.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.matrix_operation.storage_policy ==
+                            mpf::detail::semantic::MatrixStoragePolicy::sparse_csc_coefficient;
+                   });
+  REQUIRE(contradictory_mir_plan != contradictory_mir.attributes.expressions.end());
+  contradictory_mir_plan->matrix_operation.left_storage = mpf::detail::ArrayStorageFormat::dense;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-storage-mismatch").empty());
+}
+
 TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   using Operation = mpf::detail::semantic::MatrixOperation;
   using Solve = mpf::detail::semantic::MatrixSolveKind;
@@ -955,6 +1037,7 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
     expression.inferred_type = mpf::detail::ValueType::list;
     expression.element_type = mpf::detail::ValueType::real;
     expression.element_numeric_type = mpf::detail::real_numeric_type;
+    expression.array_storage = mpf::detail::ArrayStorageFormat::dense;
     expression.shape = {2U, 1U};
     expression.array_operation = mpf::detail::semantic::ArrayOperation::matlab;
     expression.matrix_operation = {Operation::left_divide,
@@ -963,6 +1046,10 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
                                    ConditionPolicy::basic_solution_with_warning,
                                    FactorizationPolicy::rank_revealing_column_pivoted_qr,
                                    StructurePolicy::none,
+                                   mpf::detail::semantic::MatrixStoragePolicy::dense,
+                                   mpf::detail::ArrayStorageFormat::dense,
+                                   mpf::detail::ArrayStorageFormat::dense,
+                                   mpf::detail::ArrayStorageFormat::dense,
                                    {3U, 2U},
                                    {3U, 1U},
                                    {2U, 1U}};
@@ -972,12 +1059,14 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
     expression.children[0].inferred_type = mpf::detail::ValueType::list;
     expression.children[0].element_type = mpf::detail::ValueType::real;
     expression.children[0].element_numeric_type = mpf::detail::real_numeric_type;
+    expression.children[0].array_storage = mpf::detail::ArrayStorageFormat::dense;
     expression.children[0].shape = {3U, 2U};
     expression.children[1].kind = mpf::detail::ExpressionKind::identifier;
     expression.children[1].value = "right_hand_side";
     expression.children[1].inferred_type = mpf::detail::ValueType::list;
     expression.children[1].element_type = mpf::detail::ValueType::real;
     expression.children[1].element_numeric_type = mpf::detail::real_numeric_type;
+    expression.children[1].array_storage = mpf::detail::ArrayStorageFormat::dense;
     expression.children[1].shape = {3U, 1U};
   };
   const auto configure_complex_square = [&](auto& expression) {
@@ -989,6 +1078,10 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
                                    ConditionPolicy::square_continue_with_warning,
                                    FactorizationPolicy::none,
                                    StructurePolicy::classify_complex_square,
+                                   mpf::detail::semantic::MatrixStoragePolicy::dense,
+                                   mpf::detail::ArrayStorageFormat::dense,
+                                   mpf::detail::ArrayStorageFormat::dense,
+                                   mpf::detail::ArrayStorageFormat::dense,
                                    {2U, 2U},
                                    {2U, 1U},
                                    {2U, 1U}};
@@ -1558,7 +1651,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v13") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v14") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -1569,7 +1662,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v19") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v20") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -3038,9 +3131,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v25") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v26") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v25") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v26") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
