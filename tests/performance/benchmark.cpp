@@ -517,6 +517,45 @@ std::string matlab_sparse_elementwise_workload(const std::size_t width, const st
   return source;
 }
 
+std::string matlab_logical_sparse_workload(const std::size_t width, const std::size_t rounds) {
+  std::string source = "dense = [";
+  for (std::size_t row = 0U; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0U; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += row == column || (5U * row + 3U * column) % 19U == 0U ? "true" : "false";
+    }
+  }
+  source += "];\nmatrix = sparse(dense);\ntriplets = sparse([";
+  for (std::size_t index = 0U; index < width; ++index) {
+    if (index != 0U) source += ' ';
+    source += std::to_string(index + 1U) + " " + std::to_string(index + 1U);
+  }
+  source += "], [";
+  for (std::size_t index = 0U; index < width; ++index) {
+    if (index != 0U) source += ' ';
+    source += std::to_string(index + 1U) + " " + std::to_string(index + 1U);
+  }
+  source += "], [";
+  for (std::size_t index = 0U; index < width; ++index) {
+    if (index != 0U) source += ' ';
+    source += index % 2U == 0U ? "false true" : "true false";
+  }
+  source += "], " + std::to_string(width) + ", " + std::to_string(width) + ");\n";
+  const auto width_text = std::to_string(width);
+  const auto element_count = std::to_string(width * width);
+  for (std::size_t round = 0U; round < rounds; ++round) {
+    source += "transposed = matrix.';\n";
+    source += "selected = triplets([" + width_text + " 1], [" + width_text + " 1]);\n";
+    source += "reshaped = reshape(selected, [1 4]);\n";
+    source += "triplets(1, " + std::to_string(round % width + 1U) + ") = true;\n";
+    source += "dense_result = full(reshaped);\n";
+  }
+  source += "disp(nnz(matrix) + nnz(triplets) + nnz(transposed) + nnz(dense_result) + " +
+            element_count + ")\n";
+  return source;
+}
+
 std::string matlab_sparse_index_workload(const std::size_t width, const std::size_t rounds) {
   std::string source = "matrix = sparse([";
   for (std::size_t row = 0U; row < width; ++row) {
@@ -813,6 +852,8 @@ int main() {
        mpf::SourceLanguage::matlab},
       {"matlab-sparse-scale", matlab_sparse_scale_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-elementwise", matlab_sparse_elementwise_workload(24, 24),
+       mpf::SourceLanguage::matlab},
+      {"matlab-logical-sparse", matlab_logical_sparse_workload(24, 24),
        mpf::SourceLanguage::matlab},
       {"matlab-sparse-index", matlab_sparse_index_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-reshape", matlab_sparse_reshape_workload(24, 24),
