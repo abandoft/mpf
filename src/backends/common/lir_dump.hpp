@@ -127,6 +127,27 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     output << "->";
     dump_shape(expression.matrix_operation.result_shape);
   }
+  if (expression.sparse_elementwise.valid()) {
+    const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
+      output << '[';
+      for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+        if (axis != 0U) output << ',';
+        output << shape[axis];
+      }
+      output << ']';
+    };
+    output << " sparse-elementwise "
+           << static_cast<int>(expression.sparse_elementwise.operation) << " storage-policy "
+           << static_cast<int>(expression.sparse_elementwise.storage_policy) << " storage "
+           << static_cast<int>(expression.sparse_elementwise.left_storage) << ','
+           << static_cast<int>(expression.sparse_elementwise.right_storage) << "->"
+           << static_cast<int>(expression.sparse_elementwise.result_storage) << ' ';
+    dump_shape(expression.sparse_elementwise.left_shape);
+    output << ',';
+    dump_shape(expression.sparse_elementwise.right_shape);
+    output << "->";
+    dump_shape(expression.sparse_elementwise.result_shape);
+  }
   if (expression.reduction.valid()) {
     const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
       output << '[';

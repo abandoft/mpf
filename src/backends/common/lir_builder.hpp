@@ -114,6 +114,21 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
     if (result_shape != nullptr) result.broadcast.result_shape = result_shape->extents;
     result.broadcast.axes = attributes.broadcast.axes;
   }
+  if (attributes.sparse_elementwise.valid()) {
+    result.sparse_elementwise.operation = attributes.sparse_elementwise.operation;
+    result.sparse_elementwise.storage_policy = attributes.sparse_elementwise.storage_policy;
+    result.sparse_elementwise.shape_source = attributes.sparse_elementwise.shape_source;
+    result.sparse_elementwise.left_storage = attributes.sparse_elementwise.left_storage;
+    result.sparse_elementwise.right_storage = attributes.sparse_elementwise.right_storage;
+    result.sparse_elementwise.result_storage = attributes.sparse_elementwise.result_storage;
+    const auto* left_shape = mir::shape(program, attributes.sparse_elementwise.left_shape);
+    const auto* right_shape = mir::shape(program, attributes.sparse_elementwise.right_shape);
+    const auto* result_shape = mir::shape(program, attributes.sparse_elementwise.result_shape);
+    if (left_shape != nullptr) result.sparse_elementwise.left_shape = left_shape->extents;
+    if (right_shape != nullptr) result.sparse_elementwise.right_shape = right_shape->extents;
+    if (result_shape != nullptr) result.sparse_elementwise.result_shape = result_shape->extents;
+    result.sparse_elementwise.axes = attributes.sparse_elementwise.axes;
+  }
   if (attributes.matrix_operation.valid()) {
     result.matrix_operation.operation = attributes.matrix_operation.operation;
     result.matrix_operation.solve = attributes.matrix_operation.solve;
