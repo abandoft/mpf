@@ -365,8 +365,7 @@ template <typename Shape>
                                                const Shape& input_shape, const Shape& result_shape,
                                                const std::size_t selector_count) noexcept {
   if (kind == SparseIndexKind::none || source_storage != ArrayStorageFormat::sparse_csc ||
-      input_shape.size() != 2U || input_shape[0] == 0U || input_shape[1] == 0U ||
-      input_shape[0] == std::numeric_limits<std::size_t>::max() ||
+      input_shape.size() != 2U || input_shape[0] == std::numeric_limits<std::size_t>::max() ||
       input_shape[1] == std::numeric_limits<std::size_t>::max()) {
     return false;
   }
@@ -374,7 +373,8 @@ template <typename Shape>
       kind == SparseIndexKind::linear_element || kind == SparseIndexKind::linear_selection;
   if (selector_count != (linear ? 1U : 2U)) return false;
   if (sparse_index_returns_scalar(kind)) {
-    return result_storage == ArrayStorageFormat::none && result_shape.empty();
+    return input_shape[0] != 0U && input_shape[1] != 0U &&
+           result_storage == ArrayStorageFormat::none && result_shape.empty();
   }
   return result_storage == ArrayStorageFormat::sparse_csc && result_shape.size() == 2U;
 }
