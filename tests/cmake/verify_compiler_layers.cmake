@@ -529,6 +529,8 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT index_extent_contract MATCHES "triplets_reserved" OR
    NOT index_extent_contract MATCHES "SparseIndexKind" OR
    NOT index_extent_contract MATCHES "valid_sparse_index_contract" OR
+   NOT index_extent_contract MATCHES "SparseMutationKind" OR
+   NOT index_extent_contract MATCHES "valid_sparse_mutation_contract" OR
    NOT array_storage_contract MATCHES "ArrayStorageFormat" OR
    NOT array_storage_contract MATCHES "sparse_csc" OR
    NOT array_storage_contract MATCHES "join_array_storage_formats" OR
@@ -540,6 +542,8 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT hir_extent_contract MATCHES "sparse_construction" OR
    NOT hir_extent_contract MATCHES "SparseIndexPlan" OR
    NOT hir_extent_contract MATCHES "sparse_index" OR
+   NOT hir_extent_contract MATCHES "SparseMutationPlan" OR
+   NOT hir_extent_contract MATCHES "sparse_mutation" OR
    NOT hir_extent_contract MATCHES "ArrayStorageFormat array_storage" OR
    NOT mir_extent_contract MATCHES "MatrixConditionPolicy condition_policy" OR
    NOT mir_extent_contract MATCHES "MatrixFactorizationPolicy factorization_policy" OR
@@ -549,9 +553,11 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT mir_extent_contract MATCHES "sparse_construction" OR
    NOT mir_extent_contract MATCHES "SparseIndexPlan" OR
    NOT mir_extent_contract MATCHES "sparse_index" OR
+   NOT mir_extent_contract MATCHES "SparseMutationPlan" OR
+   NOT mir_extent_contract MATCHES "sparse_mutation" OR
    NOT mir_extent_contract MATCHES "ArrayStorageFormat array_storage")
   message(FATAL_ERROR
-    "matrix, sparse-construction, and sparse-index policy is not a typed Semantic/HIR/MIR contract")
+    "matrix and sparse construction/index/mutation policy is not a typed Semantic/HIR/MIR contract")
 endif()
 mpf_assert_file_excludes("src/ir/semantics.hpp" "detect_diagonal_triangular"
   "matrix structure policy restored the pre-advanced real classifier")
@@ -575,9 +581,13 @@ if(NOT condition_lir_builder_contract MATCHES
    NOT condition_lir_builder_contract MATCHES
      "sparse_index\.result_shape" OR
    NOT condition_lir_builder_contract MATCHES
+     "sparse_mutation\.kind = sparse\.kind" OR
+   NOT condition_lir_builder_contract MATCHES
+     "sparse_mutation\.result_shape" OR
+   NOT condition_lir_builder_contract MATCHES
      "result\.array_storage = mir::array_storage")
   message(FATAL_ERROR
-    "target LIR builder does not propagate analyzed matrix, sparse-construction, and sparse-index policies")
+    "target LIR builder does not propagate analyzed matrix and sparse construction/index/mutation policies")
 endif()
 foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir.hpp)
   file(READ "${SOURCE_DIR}/${target_lir}" condition_target_lir_contract)
@@ -590,6 +600,8 @@ foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir
      NOT condition_target_lir_contract MATCHES "SparseConstructionKind kind" OR
      NOT condition_target_lir_contract MATCHES "SparseIndexPlan" OR
      NOT condition_target_lir_contract MATCHES "SparseIndexKind kind" OR
+     NOT condition_target_lir_contract MATCHES "SparseMutationPlan" OR
+     NOT condition_target_lir_contract MATCHES "SparseMutationKind kind" OR
      NOT condition_target_lir_contract MATCHES "ArrayStorageFormat left_storage" OR
      NOT condition_target_lir_contract MATCHES "ArrayStorageFormat array_storage")
     message(FATAL_ERROR "target LIR does not own matrix policies: ${target_lir}")
@@ -699,14 +711,16 @@ foreach(sparse_matrix_runtime IN ITEMS
      NOT sparse_matrix_runtime_contract MATCHES "sparse_linear_selection" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_submatrix_selection" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_is_full_slice" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_assign" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_erase" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_tridiagonal_factor" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_row_lu_factor" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_rcond" OR
      NOT sparse_matrix_runtime_contract MATCHES "mldivide_sparse_real_square" OR
      NOT sparse_matrix_runtime_contract MATCHES "mrdivide_sparse_real_square")
     message(FATAL_ERROR
-      "target sparse-matrix runtime does not own canonical CSC construction/indexing, sparse "
-      "square solve, transpose, and condition kernels: ${sparse_matrix_runtime}")
+      "target sparse-matrix runtime does not own canonical CSC construction/index/mutation, "
+      "sparse square solve, transpose, and condition kernels: ${sparse_matrix_runtime}")
   endif()
   mpf_assert_file_excludes("${sparse_matrix_runtime}"
     "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
@@ -719,9 +733,11 @@ foreach(sparse_representation IN ITEMS
   if(NOT sparse_representation_contract MATCHES "valid_sparse_construction" OR
      NOT sparse_representation_contract MATCHES "matlab_sparse_transpose" OR
      NOT sparse_representation_contract MATCHES "valid_sparse_index_contract" OR
-     NOT sparse_representation_contract MATCHES "matlab_sparse_index")
+     NOT sparse_representation_contract MATCHES "matlab_sparse_index" OR
+     NOT sparse_representation_contract MATCHES "valid_sparse_mutation_contract" OR
+     NOT sparse_representation_contract MATCHES "sparse_mutation")
     message(FATAL_ERROR
-      "target representation does not verify sparse constructors/indexing or select sparse forms: "
+      "target representation does not verify sparse construction/index/mutation plans or select sparse forms: "
       "${sparse_representation}")
   endif()
 endforeach()
@@ -768,6 +784,7 @@ foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/
      NOT renderer_contract MATCHES "plan\\.index" OR
      NOT renderer_contract MATCHES "plan\\.index_extents" OR
      NOT renderer_contract MATCHES "plan\\.sparse_index\\.kind" OR
+     NOT renderer_contract MATCHES "plan\\.sparse_mutation" OR
      NOT renderer_contract MATCHES "statement\\.plan\\.form" OR
      NOT renderer_contract MATCHES "statement\\.plan\\.condition" OR
      NOT renderer_contract MATCHES "statement\\.plan\\.target_access" OR
