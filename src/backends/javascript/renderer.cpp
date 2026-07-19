@@ -279,12 +279,13 @@ class Renderer final {
         output_ << ')';
         return;
       case javascript::lir::CallForm::matlab_sparse:
-        if (expression.sparse_construction.kind ==
-            semantic::SparseConstructionKind::dense_conversion) {
+        if (!plan.runtime_shape_arguments.empty()) {
           output_ << "__mpf_sparse_from_dense(";
           emit_expression(expression.children[1]);
-          output_ << ", ";
-          emit_shape(expression.sparse_construction.result_shape);
+          for (const auto& shape : plan.runtime_shape_arguments) {
+            output_ << ", ";
+            emit_shape(shape);
+          }
           output_ << ')';
           return;
         }
@@ -439,30 +440,9 @@ class Renderer final {
         emit_expression(expression.children[0]);
         output_ << ", ";
         emit_expression(expression.children[1]);
-        if (expression.plan.sparse_elementwise.valid()) {
+        for (const auto& shape : expression.plan.runtime_shape_arguments) {
           output_ << ", ";
-          emit_shape(expression.plan.sparse_elementwise.left_shape);
-          output_ << ", ";
-          emit_shape(expression.plan.sparse_elementwise.right_shape);
-          output_ << ", ";
-          emit_shape(expression.plan.sparse_elementwise.result_shape);
-        } else if (expression.matrix_operation.storage_policy ==
-                   semantic::MatrixStoragePolicy::sparse_csc_multiply) {
-          output_ << ", ";
-          emit_shape(expression.matrix_operation.left_shape);
-          output_ << ", ";
-          emit_shape(expression.matrix_operation.right_shape);
-          output_ << ", ";
-          emit_shape(expression.matrix_operation.result_shape);
-        } else if (expression.plan.broadcast.valid &&
-                   expression.plan.broadcast.shape_source ==
-                       semantic::BroadcastShapeSource::static_extents) {
-          output_ << ", ";
-          emit_shape(expression.plan.broadcast.left_shape);
-          output_ << ", ";
-          emit_shape(expression.plan.broadcast.right_shape);
-          output_ << ", ";
-          emit_shape(expression.plan.broadcast.result_shape);
+          emit_shape(shape);
         }
         output_ << ')';
         break;

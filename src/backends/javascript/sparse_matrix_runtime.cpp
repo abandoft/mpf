@@ -1101,12 +1101,43 @@ function __mpf_sparse_rcond(matrix, factor, apply, applyTranspose) {
   const product = norm * inverseNorm;
   return product > 0 && Number.isFinite(product) ? Math.min(1, 1 / product) : 0;
 }
-function __mpf_matlab_mldivide_sparse_real_square(coefficients, rightHandSide) {
+function __mpf_sparse_solve_shape(shape, name) {
+  if (!Array.isArray(shape) || shape.length !== 2 ||
+      shape.some(extent => !Number.isSafeInteger(extent) || extent < 0)) {
+    throw new RangeError(`MPF Matlab sparse solve ${name} shape is invalid`);
+  }
+}
+function __mpf_sparse_mldivide_plan(leftShape, rightShape, resultShape) {
+  __mpf_sparse_solve_shape(leftShape, 'left');
+  __mpf_sparse_solve_shape(rightShape, 'right');
+  __mpf_sparse_solve_shape(resultShape, 'result');
+  if (leftShape[0] !== leftShape[1] || leftShape[0] !== rightShape[0] ||
+      resultShape[0] !== leftShape[1] || resultShape[1] !== rightShape[1]) {
+    throw new RangeError('MPF Matlab sparse left-division shape plans are inconsistent');
+  }
+}
+function __mpf_matlab_mldivide_sparse_real_square(
+    coefficients, rightHandSide, leftShape, rightShape, resultShape) {
+  __mpf_sparse_mldivide_plan(leftShape, rightShape, resultShape);
   const matrix = __mpf_validate_sparse_csc(coefficients, 'sparse coefficient matrix');
-  if (matrix.rows === 0 || matrix.rows !== matrix.columns) {
-    throw new RangeError('MPF Matlab sparse solve requires a non-empty square coefficient matrix');
+  if (matrix.rows !== leftShape[0] || matrix.columns !== leftShape[1]) {
+    throw new RangeError('MPF Matlab sparse coefficient disagrees with its shape plan');
   }
   const preserveSparse = __mpf_issparse(rightHandSide);
+  if (preserveSparse) {
+    const sparseRight = __mpf_validate_sparse_csc(rightHandSide, 'right-hand side');
+    if (sparseRight.rows !== rightShape[0] || sparseRight.columns !== rightShape[1]) {
+      throw new RangeError('MPF Matlab sparse right-hand side disagrees with its shape plan');
+    }
+  } else {
+    __mpf_sparse_dense_rank2(rightHandSide, 'right-hand side', rightShape);
+  }
+  if (matrix.rows === 0) {
+    return preserveSparse
+      ? __mpf_make_sparse_csc(resultShape[0], resultShape[1],
+                              new Array(resultShape[1] + 1).fill(0), [], [])
+      : __mpf_build_column_major([], resultShape);
+  }
   const denseRight = preserveSparse ? __mpf_full(rightHandSide) : rightHandSide;
   const right = __mpf_matlab_dense_matrix(denseRight, 'right-hand side');
   if (right.length !== matrix.rows) throw new RangeError('MPF Matlab sparse solve shape mismatch');
@@ -1125,14 +1156,42 @@ function __mpf_matlab_mldivide_sparse_real_square(coefficients, rightHandSide) {
   __mpf_matlab_warn_square_condition(
       __mpf_sparse_rcond(matrix, factor, apply, applyTranspose));
   const result = apply(factor, right);
-  return preserveSparse ? __mpf_sparse(result) : result;
+  return preserveSparse ? __mpf_sparse_from_dense(result, resultShape) : result;
 }
-function __mpf_matlab_mrdivide_sparse_real_square(leftValue, coefficients) {
+function __mpf_matlab_mrdivide_sparse_real_square(
+    leftValue, coefficients, leftShape, rightShape, resultShape) {
+  __mpf_sparse_solve_shape(leftShape, 'left');
+  __mpf_sparse_solve_shape(rightShape, 'right');
+  __mpf_sparse_solve_shape(resultShape, 'result');
+  if (rightShape[0] !== rightShape[1] || leftShape[1] !== rightShape[1] ||
+      resultShape[0] !== leftShape[0] || resultShape[1] !== rightShape[0]) {
+    throw new RangeError('MPF Matlab sparse right-division shape plans are inconsistent');
+  }
+  const matrix = __mpf_validate_sparse_csc(coefficients, 'sparse coefficient matrix');
+  if (matrix.rows !== rightShape[0] || matrix.columns !== rightShape[1]) {
+    throw new RangeError('MPF Matlab sparse coefficient disagrees with its shape plan');
+  }
   const preserveSparse = __mpf_issparse(leftValue);
+  if (preserveSparse) {
+    const sparseLeft = __mpf_validate_sparse_csc(leftValue, 'left operand');
+    if (sparseLeft.rows !== leftShape[0] || sparseLeft.columns !== leftShape[1]) {
+      throw new RangeError('MPF Matlab sparse left operand disagrees with its shape plan');
+    }
+  } else {
+    __mpf_sparse_dense_rank2(leftValue, 'left operand', leftShape);
+  }
+  if (matrix.rows === 0) {
+    return preserveSparse
+      ? __mpf_make_sparse_csc(resultShape[0], resultShape[1],
+                              new Array(resultShape[1] + 1).fill(0), [], [])
+      : __mpf_build_column_major([], resultShape);
+  }
   const left = preserveSparse ? __mpf_sparse_transpose(leftValue) :
     __mpf_matlab_matrix_transpose(__mpf_matlab_dense_matrix(leftValue, 'left operand'));
   const solved = __mpf_matlab_mldivide_sparse_real_square(
-      __mpf_sparse_transpose(coefficients), left);
+      __mpf_sparse_transpose(coefficients), left,
+      [rightShape[1], rightShape[0]], [leftShape[1], leftShape[0]],
+      [resultShape[1], resultShape[0]]);
   return preserveSparse ? __mpf_sparse_transpose(solved) : __mpf_matlab_matrix_transpose(solved);
 }
 )MPF";
