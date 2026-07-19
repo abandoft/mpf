@@ -50,7 +50,7 @@ function __mpf_sparse_dense_rank2(value, name) {
   }
   return { shape, flattened };
 }
-function __mpf_sparse(value) {
+function __mpf_sparse_from_dense(value) {
   if (__mpf_issparse(value)) return __mpf_validate_sparse_csc(value);
   const { shape, flattened } = __mpf_sparse_dense_rank2(value, 'sparse input');
   const [rows, columns] = shape;
@@ -63,6 +63,89 @@ function __mpf_sparse(value) {
     columnPointers.push(values.length);
   }
   return __mpf_make_sparse_csc(rows, columns, columnPointers, rowIndices, values);
+}
+function __mpf_sparse_dimension(value, name, allowZero = false) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) ||
+      (allowZero ? value < 0 : value <= 0)) {
+    throw new RangeError(`MPF Matlab ${name} must be a ${allowZero ? 'nonnegative' : 'positive'} safe integer`);
+  }
+  return value;
+}
+function __mpf_sparse_triplet_input(value, name) {
+  const sequence = Array.isArray(value);
+  const flattened = sequence ? __mpf_flatten_column_major(value) : [value];
+  for (const item of flattened) if (typeof item !== 'number' || !Number.isFinite(item)) {
+    throw new TypeError(`MPF Matlab sparse ${name} requires finite real values`);
+  }
+  return { sequence, flattened };
+}
+function __mpf_sparse_from_triplets(rowValue, columnValue, storedValue,
+                                    explicitRows, explicitColumns, reserveHint) {
+  const rowInput = __mpf_sparse_triplet_input(rowValue, 'row indices');
+  const columnInput = __mpf_sparse_triplet_input(columnValue, 'column indices');
+  const valueInput = __mpf_sparse_triplet_input(storedValue, 'stored values');
+  const inputs = [rowInput, columnInput, valueInput];
+  let sequenceCount;
+  for (const input of inputs) if (input.sequence) {
+    if (sequenceCount !== undefined && sequenceCount !== input.flattened.length) {
+      throw new RangeError('MPF Matlab nonscalar sparse triplets must have equal element counts');
+    }
+    sequenceCount = input.flattened.length;
+  }
+  const count = sequenceCount ?? 1;
+  const valueAt = (input, index) => input.sequence ? input.flattened[index] : input.flattened[0];
+  const entries = new Array(count); let inferredRows = 0; let inferredColumns = 0;
+  for (let index = 0; index < count; ++index) {
+    const row = valueAt(rowInput, index); const column = valueAt(columnInput, index);
+    const value = valueAt(valueInput, index);
+    if (!Number.isSafeInteger(row) || row <= 0 || !Number.isSafeInteger(column) || column <= 0) {
+      throw new RangeError('MPF Matlab sparse triplet indices must be positive safe integers');
+    }
+    inferredRows = Math.max(inferredRows, row); inferredColumns = Math.max(inferredColumns, column);
+    entries[index] = { row: row - 1, column: column - 1, value };
+  }
+  const rows = explicitRows === undefined
+    ? __mpf_sparse_dimension(inferredRows, 'inferred row extent')
+    : __mpf_sparse_dimension(explicitRows, 'row extent');
+  const columns = explicitColumns === undefined
+    ? __mpf_sparse_dimension(inferredColumns, 'inferred column extent')
+    : __mpf_sparse_dimension(explicitColumns, 'column extent');
+  if (reserveHint !== undefined) __mpf_sparse_dimension(reserveHint, 'nzmax', true);
+  for (const entry of entries) if (entry.row >= rows || entry.column >= columns) {
+    throw new RangeError('MPF Matlab sparse triplet index exceeds the requested dimensions');
+  }
+  entries.sort((left, right) => left.column - right.column || left.row - right.row);
+  const columnPointers = [0]; const rowIndices = []; const values = [];
+  let entry = 0;
+  for (let column = 0; column < columns; ++column) {
+    while (entry < entries.length && entries[entry].column === column) {
+      const row = entries[entry].row; let sum = 0;
+      while (entry < entries.length && entries[entry].column === column &&
+             entries[entry].row === row) sum += entries[entry++].value;
+      if (!Number.isFinite(sum)) {
+        throw new RangeError('MPF Matlab sparse duplicate accumulation is not finite');
+      }
+      if (sum !== 0) { rowIndices.push(row); values.push(sum); }
+    }
+    columnPointers.push(values.length);
+  }
+  return __mpf_make_sparse_csc(rows, columns, columnPointers, rowIndices, values);
+}
+function __mpf_sparse(...args) {
+  if (args.length === 1) return __mpf_sparse_from_dense(args[0]);
+  if (args.length === 2) {
+    const rows = __mpf_sparse_dimension(args[0], 'row extent');
+    const columns = __mpf_sparse_dimension(args[1], 'column extent');
+    return __mpf_make_sparse_csc(rows, columns, new Array(columns + 1).fill(0), [], []);
+  }
+  if (args.length === 3) return __mpf_sparse_from_triplets(args[0], args[1], args[2]);
+  if (args.length === 5) {
+    return __mpf_sparse_from_triplets(args[0], args[1], args[2], args[3], args[4]);
+  }
+  if (args.length === 6) {
+    return __mpf_sparse_from_triplets(args[0], args[1], args[2], args[3], args[4], args[5]);
+  }
+  throw new TypeError('MPF Matlab sparse received an unsupported argument contract');
 }
 function __mpf_full(value) {
   if (!__mpf_issparse(value)) {
