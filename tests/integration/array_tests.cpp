@@ -834,6 +834,49 @@ TEST_CASE("Matlab logical sparse CSC values preserve class and lifecycle plans")
   }
 }
 
+TEST_CASE("Matlab sparse logical operators preserve Matlab storage rules per target") {
+  const std::string source =
+      "A = sparse([true false; false true]);\n"
+      "B = sparse([false true; true false]);\n"
+      "F = [true false; true true];\n"
+      "N = ~A;\n"
+      "SS_and = A & B;\n"
+      "SF_and = A & F;\n"
+      "FS_and = F & A;\n"
+      "SS_or = A | B;\n"
+      "SF_or = A | F;\n"
+      "row = sparse([1 1], [1 3], [true true], 1, 3);\n"
+      "column = sparse([1 2], [1 1], [false true], 2, 1);\n"
+      "broadcast_and = row & column;\n"
+      "broadcast_or = row | column;\n"
+      "scalar_and = row & true;\n"
+      "scalar_or = row | false;\n"
+      "empty_not = ~sparse(0, 3);\n"
+      "full_sparse_not = ~sparse(2, 2);\n"
+      "disp(nnz(N), nnz(SS_and), nnz(SF_and), nnz(FS_and), nnz(SS_or), nnz(SF_or), "
+      "nnz(broadcast_and), nnz(broadcast_or), nnz(scalar_and), nnz(scalar_or), "
+      "nnz(empty_not), nnz(full_sparse_not), issparse(N), issparse(SF_and), "
+      "issparse(SS_or), issparse(SF_or), issparse(scalar_and), issparse(scalar_or))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_sparse_logical_not(A, [2, 2], [2, 2], 1, 1, 3, 0, 3)") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_logical_and(") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_logical_or(") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_logical_not(A, ") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_logical_and(") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_logical_or(") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 18U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
 TEST_CASE("Matlab sparse CSC indexing preserves storage shape and target isolation") {
   const std::string source =
       "A = sparse([1 0 2; 0 3 0; 4 0 5]);\n"
@@ -1014,7 +1057,6 @@ TEST_CASE("Matlab sparse CSC contract fails closed outside the supported vertica
                                              "A = sparse([1 0; 0 1]);\n"
                                              "value = A(reshape([1 2], 1, 1, 2));\n",
                                              "A = sparse([1 0; 0 1]);\nvalue = A([1+0i]);\n",
-                                             "A = sparse([1 0; 0 1]);\nB = ~A;\n",
                                              "A = sparse([1 0; 0 1; 1 1]);\nB = A \\ [1; 2; 3];\n",
                                              "A = sparse([1+2i 0; 0 1]);\n",
                                              "A = sparse([1 2; 3 4], 2);\n",

@@ -1370,6 +1370,62 @@ TEST_CASE("Matlab sparse logical storage policy is explicit and shape checked") 
       std::vector<Axis>{Axis::match, Axis::runtime}));
 }
 
+TEST_CASE("Matlab Analyzer assigns sparse logical storage without dense broadcast facts") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "A = sparse([true false; false true]);\n"
+                              "B = sparse([false true; true false]);\n"
+                              "F = [1 0; 1 1];\n"
+                              "N = ~A;\n"
+                              "SS_and = A & B;\n"
+                              "SF_and = A & F;\n"
+                              "FS_and = F & A;\n"
+                              "SS_or = A | B;\n"
+                              "SF_or = A | F;\n",
+                              "sparse_logical_semantics.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+
+  using Operation = mpf::detail::semantic::SparseLogicalOperation;
+  using Policy = mpf::detail::semantic::SparseLogicalStoragePolicy;
+  using Storage = mpf::detail::ArrayStorageFormat;
+  const auto count_plan = [&](const Operation operation, const Policy policy, const Storage left,
+                              const Storage right, const Storage result) {
+    return std::count_if(analysis.semantics.expressions.begin(),
+                         analysis.semantics.expressions.end(), [&](const auto& facts) {
+                           const auto& plan = facts.sparse_logical;
+                           return plan.operation == operation && plan.storage_policy == policy &&
+                                  plan.left_storage == left && plan.right_storage == right &&
+                                  plan.result_storage == result &&
+                                  plan.result_shape == std::vector<std::size_t>{2U, 2U} &&
+                                  !facts.broadcast.valid;
+                         });
+  };
+  REQUIRE(count_plan(Operation::logical_not, Policy::preserve_sparse, Storage::sparse_csc,
+                     Storage::none, Storage::sparse_csc) == 1);
+  REQUIRE(count_plan(Operation::logical_and, Policy::preserve_sparse, Storage::sparse_csc,
+                     Storage::sparse_csc, Storage::sparse_csc) == 1);
+  REQUIRE(count_plan(Operation::logical_and, Policy::preserve_sparse, Storage::sparse_csc,
+                     Storage::dense, Storage::sparse_csc) == 1);
+  REQUIRE(count_plan(Operation::logical_and, Policy::preserve_sparse, Storage::dense,
+                     Storage::sparse_csc, Storage::sparse_csc) == 1);
+  REQUIRE(count_plan(Operation::logical_or, Policy::preserve_sparse, Storage::sparse_csc,
+                     Storage::sparse_csc, Storage::sparse_csc) == 1);
+  REQUIRE(count_plan(Operation::logical_or, Policy::materialize_dense, Storage::sparse_csc,
+                     Storage::dense, Storage::dense) == 1);
+
+  auto corrupted = analysis.semantics;
+  const auto logical = std::find_if(
+      corrupted.expressions.begin(), corrupted.expressions.end(), [](const auto& facts) {
+        return facts.sparse_logical.operation == Operation::logical_or &&
+               facts.sparse_logical.right_storage == Storage::dense;
+      });
+  REQUIRE(logical != corrupted.expressions.end());
+  logical->sparse_logical.result_storage = Storage::sparse_csc;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, corrupted,
+                                              "sparse-logical-storage-corruption")
+               .empty());
+}
+
 TEST_CASE("Matlab sparse element-wise plans remain typed through every IR layer") {
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "A = sparse([1 0 2; 0 3 0]);\n"

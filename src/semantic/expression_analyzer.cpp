@@ -643,10 +643,32 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
         facts.logical_evaluation = semantic::LogicalEvaluation::eager_elementwise;
         const auto& operand_facts = semantic(semantics_, expression.children.front());
         if (operand_facts.array_storage == ArrayStorageFormat::sparse_csc) {
-          diagnose(expression.location.line, "MPF2054",
-                   "logical negation over sparse arrays is outside the current CSC runtime "
-                   "contract; convert with full first");
-          return facts.inferred_type = ValueType::unknown;
+          if (!static_rank_two_shape(operand_facts.shape) || !matlab_sparse_value(operand_facts)) {
+            diagnose(expression.location.line, "MPF2054",
+                     "logical negation over sparse arrays requires a resolved real or logical "
+                     "static rank-2 CSC operand");
+            return facts.inferred_type = ValueType::unknown;
+          }
+          hir::SparseLogicalPlan plan{semantic::SparseLogicalOperation::logical_not,
+                                      semantic::SparseLogicalStoragePolicy::preserve_sparse,
+                                      semantic::BroadcastShapeSource::static_extents,
+                                      ArrayStorageFormat::sparse_csc,
+                                      ArrayStorageFormat::none,
+                                      ArrayStorageFormat::sparse_csc,
+                                      operand_facts.shape,
+                                      {},
+                                      operand_facts.shape,
+                                      {}};
+          if (!semantic::valid_sparse_logical_contract(
+                  plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage,
+                  plan.right_storage, plan.result_storage, plan.left_shape, plan.right_shape,
+                  plan.result_shape, plan.axes)) {
+            diagnose(expression.location.line, "MPF2054",
+                     "logical negation over sparse arrays violates the canonical CSC storage "
+                     "contract");
+            return facts.inferred_type = ValueType::unknown;
+          }
+          facts.sparse_logical = std::move(plan);
         }
         const auto scalar_type = operand == ValueType::list ? operand_facts.element_type : operand;
         if (scalar_type != ValueType::unknown && !numeric(scalar_type) &&
@@ -915,12 +937,14 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                         (left == ValueType::list) != (right == ValueType::list);
     const bool supported_sparse_elementwise = operation == BinaryOperator::elementwise_multiply &&
                                               (left == ValueType::list || right == ValueType::list);
+    const bool supported_sparse_logical = operation == BinaryOperator::elementwise_logical_and ||
+                                          operation == BinaryOperator::elementwise_logical_or;
     if (!supported_sparse_solve && !supported_sparse_multiply && !supported_sparse_scale &&
-        !supported_sparse_elementwise) {
+        !supported_sparse_elementwise && !supported_sparse_logical) {
       diagnose(expression.location.line, "MPF2054",
                "this sparse array operation is outside the current CSC contract; convert the "
                "operand with full or use supported sparse multiplication, element-wise "
-               "multiplication, or square division");
+               "multiplication, logical operation, or square division");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
   }
@@ -1074,6 +1098,64 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
     const bool runtime_operand = left == ValueType::unknown || right == ValueType::unknown;
     if (left_array || right_array || runtime_operand) {
       facts.array_operation = semantic::ArrayOperation::matlab;
+      const bool sparse_operand = left_facts.array_storage == ArrayStorageFormat::sparse_csc ||
+                                  right_facts.array_storage == ArrayStorageFormat::sparse_csc;
+      if (sparse_operand) {
+        if (runtime_operand || !matlab_sparse_value(left_facts) ||
+            !matlab_sparse_value(right_facts)) {
+          diagnose(expression.location.line, "MPF2054",
+                   "sparse logical operations require resolved real or logical operands");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        const auto broadcast =
+            matlab_broadcast_plan(left_array ? left_facts.shape : std::vector<std::size_t>{},
+                                  right_array ? right_facts.shape : std::vector<std::size_t>{});
+        if (!broadcast.has_value() ||
+            broadcast->shape_source != semantic::BroadcastShapeSource::static_extents ||
+            broadcast->result_shape.size() != 2U) {
+          diagnose(expression.location.line, "MPF2054",
+                   "sparse logical operations require compatible static rank-2 operands");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        const auto left_shape =
+            left_array ? matlab_broadcast_shape(left_facts.shape, right_facts.shape.size())
+                       : std::vector<std::size_t>{};
+        const auto right_shape =
+            right_array ? matlab_broadcast_shape(right_facts.shape, left_facts.shape.size())
+                        : std::vector<std::size_t>{};
+        const auto sparse_operation = operation == BinaryOperator::elementwise_logical_and
+                                          ? semantic::SparseLogicalOperation::logical_and
+                                          : semantic::SparseLogicalOperation::logical_or;
+        const auto result_storage = semantic::sparse_logical_result_storage(
+            sparse_operation, left_facts.array_storage, right_facts.array_storage);
+        hir::SparseLogicalPlan plan{
+            sparse_operation,
+            semantic::sparse_logical_storage_policy(sparse_operation, left_facts.array_storage,
+                                                    right_facts.array_storage),
+            semantic::BroadcastShapeSource::static_extents,
+            left_facts.array_storage,
+            right_facts.array_storage,
+            result_storage,
+            left_shape,
+            right_shape,
+            broadcast->result_shape,
+            broadcast->axes};
+        if (!semantic::valid_sparse_logical_contract(
+                plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage,
+                plan.right_storage, plan.result_storage, plan.left_shape, plan.right_shape,
+                plan.result_shape, plan.axes)) {
+          diagnose(expression.location.line, "MPF2054",
+                   "sparse logical operands violate the planned CSC/full storage contract");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        facts.inferred_type = ValueType::list;
+        facts.element_type = ValueType::boolean;
+        facts.element_numeric_type = logical_numeric_type;
+        facts.shape = broadcast->result_shape;
+        facts.array_storage = result_storage;
+        facts.sparse_logical = std::move(plan);
+        return facts.inferred_type;
+      }
       if (runtime_operand) {
         facts.broadcast = matlab_runtime_broadcast_plan();
       } else {

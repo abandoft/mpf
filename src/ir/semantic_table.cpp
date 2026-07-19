@@ -706,12 +706,19 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
         !expression.children.empty() ? table.expression(expression.children[0].id) : nullptr;
     const auto* right =
         expression.children.size() == 2U ? table.expression(expression.children[1].id) : nullptr;
-    const auto expected_left_shape = left != nullptr && left->inferred_type == ValueType::list
-                                         ? left->shape
-                                         : std::vector<std::size_t>{};
-    const auto expected_right_shape = right != nullptr && right->inferred_type == ValueType::list
-                                          ? right->shape
-                                          : std::vector<std::size_t>{};
+    const auto normalized_shape = [](const hir::ExpressionFacts* operand,
+                                     const std::size_t peer_rank) {
+      if (operand == nullptr || operand->inferred_type != ValueType::list) {
+        return std::vector<std::size_t>{};
+      }
+      auto shape = operand->shape;
+      if (shape.size() == 1U && peer_rank >= 2U) shape.insert(shape.begin(), 1U);
+      return shape;
+    };
+    const auto left_rank = left == nullptr ? 0U : left->shape.size();
+    const auto right_rank = right == nullptr ? 0U : right->shape.size();
+    const auto expected_left_shape = normalized_shape(left, right_rank);
+    const auto expected_right_shape = normalized_shape(right, left_rank);
     if (sparse_logical.operation != expected_operation ||
         expression.children.size() != (unary ? 1U : 2U) || left == nullptr ||
         (!unary && right == nullptr) || facts->broadcast.valid ||
