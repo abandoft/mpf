@@ -1424,6 +1424,49 @@ TEST_CASE("Matlab Analyzer assigns sparse logical storage without dense broadcas
   REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, corrupted,
                                               "sparse-logical-storage-corruption")
                .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-logical-plan").empty());
+  const auto dump = mpf::detail::dump_mir(mir.program);
+  REQUIRE(dump.find("sparse-logical=1 storage-policy=1 storage=3,0->3") != std::string::npos);
+  REQUIRE(dump.find("sparse-logical=2 storage-policy=1 storage=3,2->3") != std::string::npos);
+  REQUIRE(dump.find("sparse-logical=2 storage-policy=1 storage=2,3->3") != std::string::npos);
+  REQUIRE(dump.find("sparse-logical=3 storage-policy=1 storage=3,3->3") != std::string::npos);
+  REQUIRE(dump.find("sparse-logical=3 storage-policy=2 storage=3,2->2") != std::string::npos);
+
+  auto corrupted_mir = mir.program;
+  const auto mir_logical =
+      std::find_if(corrupted_mir.attributes.expressions.begin(),
+                   corrupted_mir.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.sparse_logical.operation == Operation::logical_or &&
+                            attributes.sparse_logical.result_storage == Storage::dense;
+                   });
+  REQUIRE(mir_logical != corrupted_mir.attributes.expressions.end());
+  mir_logical->sparse_logical.storage_policy = Policy::preserve_sparse;
+  REQUIRE(!mpf::detail::mir::verify(corrupted_mir, "sparse-logical-policy-corruption").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, effects, "sparse-logical-effects")
+              .empty());
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  for (const auto& target_dump : {javascript.artifact->debug_dump(), cpp.artifact->debug_dump()}) {
+    REQUIRE(target_dump.find("sparse-logical 1 storage-policy 1 storage 3,0->3") !=
+            std::string::npos);
+    REQUIRE(target_dump.find("sparse-logical 2 storage-policy 1 storage 3,2->3") !=
+            std::string::npos);
+    REQUIRE(target_dump.find("sparse-logical 2 storage-policy 1 storage 2,3->3") !=
+            std::string::npos);
+    REQUIRE(target_dump.find("sparse-logical 3 storage-policy 1 storage 3,3->3") !=
+            std::string::npos);
+    REQUIRE(target_dump.find("sparse-logical 3 storage-policy 2 storage 3,2->2") !=
+            std::string::npos);
+  }
 }
 
 TEST_CASE("Matlab sparse element-wise plans remain typed through every IR layer") {
