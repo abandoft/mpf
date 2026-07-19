@@ -391,6 +391,48 @@ TEST_CASE("Matlab sparse CSC square solves preserve storage and target isolation
   }
 }
 
+TEST_CASE("Matlab sparse matrix products preserve storage and target isolation") {
+  const std::string source =
+      "A = sparse([1 0 2; 0 3 0]);\n"
+      "B = sparse([0 4; 5 0; 0 6]);\n"
+      "sparse_product = A * B;\n"
+      "right_full_product = A * full(B);\n"
+      "left_full_product = full(A) * B;\n"
+      "dense_sparse_product = full(sparse_product);\n"
+      "disp(dense_sparse_product(1,2), dense_sparse_product(2,1), "
+      "right_full_product(1,2), left_full_product(2,1), issparse(sparse_product), "
+      "issparse(right_full_product), issparse(left_full_product), nnz(sparse_product))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("function __mpf_sparse_sparse_mtimes(") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_sparse_dense_mtimes(") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_dense_sparse_mtimes(") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_sparse_mtimes(A, B)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_dense_mtimes(A, __mpf_full(B))") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_dense_sparse_mtimes(__mpf_full(A), B)") != std::string::npos);
+  REQUIRE(javascript.code.find("mpf_runtime::sparse_sparse_mtimes") == std::string::npos);
+  REQUIRE(cpp.code.find("sparse_matrix<double> sparse_sparse_mtimes(") != std::string::npos);
+  REQUIRE(cpp.code.find("std::vector<std::vector<double>> sparse_dense_mtimes(") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("std::vector<std::vector<double>> dense_sparse_mtimes(") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_sparse_mtimes(A, B)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_dense_mtimes(A, mpf_runtime::full(B))") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::dense_sparse_mtimes(mpf_runtime::full(A), B)") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("__mpf_sparse_sparse_mtimes") == std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 7U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
 TEST_CASE("Matlab sparse constructors and transpose preserve canonical CSC plans") {
   const std::string source =
       "zero_matrix = sparse(3, 4);\n"
@@ -513,8 +555,7 @@ TEST_CASE("Matlab sparse CSC indexed mutation preserves canonical storage and or
 }
 
 TEST_CASE("Matlab sparse CSC contract fails closed outside the supported vertical slice") {
-  const std::vector<std::string> unsupported{"A = sparse([1 0; 0 1]);\nB = A * A;\n",
-                                             "A = sparse([1 0; 0 1]);\nvalue = A(1, 1, 1);\n",
+  const std::vector<std::string> unsupported{"A = sparse([1 0; 0 1]);\nvalue = A(1, 1, 1);\n",
                                              "A = sparse([1 0; 0 1]);\n"
                                              "value = A(reshape([1 2], 1, 1, 2));\n",
                                              "A = sparse([1 0; 0 1]);\nvalue = A([1+0i]);\n",
