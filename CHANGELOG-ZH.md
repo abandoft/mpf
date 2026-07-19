@@ -8,6 +8,7 @@
 - 精确奇异与近奇异稀疏系统现会产生和既有稠密方阵求解器一致的稳定条件 warning。
 - 生成的 JavaScript 使用私有 tag 的 CSC 值，生成的 C++17 使用类型化 `mpf_runtime::sparse_matrix`；两套 runtime 继续彼此独立。
 - runtime 会拒绝畸形 CSC pointer、无序 row index、零值或非有限存储项，以及不匹配的求解 shape。
+- 生成的 C++17 sparse validation 可通过严格 GCC dangling-reference 分析，且不需要压制编译器诊断。
 - 尚未支持的 sparse constructor、索引、转置、reshape、逻辑、逐元素、乘法、幂、矩形、复数和零 extent 情形会在发射前以 `MPF2054` 失败。
 - 数值类型规划现可保持 Matlab binary64 数组，同时保证 Python operand-returning 短路与条件表达式在生成 C++17 中得到正确结果类型。
 - 新增可执行稀疏求解与条件 warning 示例，并覆盖 source map、fuzz 和双目标差分验证。

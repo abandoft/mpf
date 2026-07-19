@@ -8,6 +8,7 @@
 - Exact singular and nearly singular sparse systems now emit the same stable condition warnings as the existing dense square solvers.
 - Generated JavaScript uses a private tagged CSC value, while generated C++17 uses a typed `mpf_runtime::sparse_matrix`; the two runtimes remain independent.
 - Runtime validation rejects malformed CSC pointers, unordered row indices, zero or nonfinite stored entries, and incompatible solve shapes.
+- Generated C++17 sparse validation remains warning-clean under strict GCC dangling-reference analysis without suppressing compiler diagnostics.
 - Unsupported sparse constructors, indexing, transpose, reshape, logical, element-wise, multiplication, power, rectangular, complex, and zero-extent cases fail before emission with `MPF2054`.
 - Numeric type planning now preserves Matlab binary64 arrays while keeping Python operand-returning short-circuit and conditional-expression result types correct in generated C++17.
 - Added executable sparse solve and condition-warning examples with source-map checks, fuzz coverage, and dual-target differential validation.
