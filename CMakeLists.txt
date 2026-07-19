@@ -191,6 +191,7 @@ if(MPF_ENABLE_JAVASCRIPT_BACKEND)
     src/backends/javascript/matrix_runtime.cpp
     src/backends/javascript/renderer.cpp
     src/backends/javascript/runtime.cpp
+    src/backends/javascript/sparse_matrix_runtime.cpp
     src/backends/javascript/validator.cpp)
   add_library(mpf::backend-javascript ALIAS mpf_backend_javascript)
   set_target_properties(mpf_backend_javascript PROPERTIES
@@ -213,6 +214,7 @@ if(MPF_ENABLE_CPP_BACKEND)
     src/backends/cpp/matrix_runtime.cpp
     src/backends/cpp/renderer.cpp
     src/backends/cpp/runtime.cpp
+    src/backends/cpp/sparse_matrix_runtime.cpp
     src/backends/cpp/validator.cpp)
   add_library(mpf::backend-cpp ALIAS mpf_backend_cpp)
   set_target_properties(mpf_backend_cpp PROPERTIES

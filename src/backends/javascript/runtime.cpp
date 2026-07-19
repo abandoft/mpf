@@ -4,6 +4,7 @@
 
 #include "complex_matrix_runtime.hpp"
 #include "matrix_runtime.hpp"
+#include "sparse_matrix_runtime.hpp"
 
 namespace mpf::detail {
 namespace {
@@ -22,6 +23,9 @@ class RuntimeEmitter final {
       case javascript::lir::RuntimeFragment::arrays: emit_array_runtime(); break;
       case javascript::lir::RuntimeFragment::complex_matrices:
         emit_javascript_complex_matrix_runtime(output_);
+        break;
+      case javascript::lir::RuntimeFragment::sparse_matrices:
+        emit_javascript_sparse_matrix_runtime(output_);
         break;
       case javascript::lir::RuntimeFragment::scalar_division: emit_scalar_division_runtime(); break;
     }
