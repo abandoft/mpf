@@ -320,15 +320,37 @@ if(TARGET mpfc)
       "mpf_runtime::sparse_reshape(A, std::array<std::size_t, 2>{2, 3}, std::array<std::size_t, 2>{3, 2}, std::array<std::size_t, 2>{2, 3})")
   mpf_add_generated_plan_rejection_test(
     matlab-sparse-product-plan tests/fixtures/matlab_sparse_product_plan.m
-    "sparse matrix multiplication shape mismatch" matlab
+    "sparse matrix product shape plans are inconsistent" matlab
     JAVASCRIPT_SEARCH
-      "__mpf_sparse_sparse_mtimes(A, B)"
+      "__mpf_sparse_sparse_mtimes(A, B, [2, 3], [3, 2], [2, 2])"
     JAVASCRIPT_REPLACEMENT
-      "__mpf_sparse_sparse_mtimes(A, A)"
+      "__mpf_sparse_sparse_mtimes(A, B, [2, 3], [3, 2], [2, 3])"
     CPP_SEARCH
-      "mpf_runtime::sparse_sparse_mtimes(A, B)"
+      "mpf_runtime::sparse_sparse_mtimes(A, B, std::array<std::size_t, 2>{2, 3}, std::array<std::size_t, 2>{3, 2}, std::array<std::size_t, 2>{2, 2})"
     CPP_REPLACEMENT
-      "mpf_runtime::sparse_sparse_mtimes(A, A)")
+      "mpf_runtime::sparse_sparse_mtimes(A, B, std::array<std::size_t, 2>{2, 3}, std::array<std::size_t, 2>{3, 2}, std::array<std::size_t, 2>{2, 3})")
+  mpf_add_generated_plan_rejection_test(
+    matlab-sparse-zero-left-solve-plan tests/fixtures/matlab_sparse_zero_solve_plan.m
+    "sparse left-division shape plans are inconsistent" matlab
+    JAVASCRIPT_SEARCH
+      "__mpf_matlab_mldivide_sparse_real_square(coefficient, right, [0, 0], [0, 3], [0, 3])"
+    JAVASCRIPT_REPLACEMENT
+      "__mpf_matlab_mldivide_sparse_real_square(coefficient, right, [0, 0], [0, 3], [0, 2])"
+    CPP_SEARCH
+      "mpf_runtime::matlab_mldivide_sparse_real_square(coefficient, right, std::array<std::size_t, 2>{0, 0}, std::array<std::size_t, 2>{0, 3}, std::array<std::size_t, 2>{0, 3})"
+    CPP_REPLACEMENT
+      "mpf_runtime::matlab_mldivide_sparse_real_square(coefficient, right, std::array<std::size_t, 2>{0, 0}, std::array<std::size_t, 2>{0, 3}, std::array<std::size_t, 2>{0, 2})")
+  mpf_add_generated_plan_rejection_test(
+    matlab-sparse-zero-right-solve-plan tests/fixtures/matlab_sparse_zero_solve_plan.m
+    "sparse right-division shape plans are inconsistent" matlab
+    JAVASCRIPT_SEARCH
+      "__mpf_matlab_mrdivide_sparse_real_square(left, coefficient, [2, 0], [0, 0], [2, 0])"
+    JAVASCRIPT_REPLACEMENT
+      "__mpf_matlab_mrdivide_sparse_real_square(left, coefficient, [2, 0], [0, 0], [1, 0])"
+    CPP_SEARCH
+      "mpf_runtime::matlab_mrdivide_sparse_real_square(left, coefficient, std::array<std::size_t, 2>{2, 0}, std::array<std::size_t, 2>{0, 0}, std::array<std::size_t, 2>{2, 0})"
+    CPP_REPLACEMENT
+      "mpf_runtime::matlab_mrdivide_sparse_real_square(left, coefficient, std::array<std::size_t, 2>{2, 0}, std::array<std::size_t, 2>{0, 0}, std::array<std::size_t, 2>{1, 0})")
   mpf_add_generated_runtime_failure_test(
     matlab-sparse-scalar-nonfinite tests/fixtures/matlab_sparse_scalar_nonfinite.m
     "finite real" matlab)
