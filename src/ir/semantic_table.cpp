@@ -119,6 +119,29 @@ std::optional<semantic::IndexSelectorKind> expected_index_selector(
   return std::nullopt;
 }
 
+semantic::SparseIndexKind expected_sparse_index_kind(const Expression& expression,
+                                                     const SemanticTable& table) noexcept {
+  if (expression.kind != ExpressionKind::index || expression.children.size() < 2U ||
+      expression.children.size() > 3U) {
+    return semantic::SparseIndexKind::none;
+  }
+  const auto* source = table.expression(expression.children.front().id);
+  if (source == nullptr || source->array_storage != ArrayStorageFormat::sparse_csc) {
+    return semantic::SparseIndexKind::none;
+  }
+  bool scalar = true;
+  for (std::size_t index = 1U; index < expression.children.size(); ++index) {
+    const auto selector = expected_index_selector(expression.children[index], table);
+    if (!selector.has_value()) return semantic::SparseIndexKind::none;
+    scalar = scalar && *selector == semantic::IndexSelectorKind::scalar;
+  }
+  const bool linear = expression.children.size() == 2U;
+  return linear ? (scalar ? semantic::SparseIndexKind::linear_element
+                          : semantic::SparseIndexKind::linear_selection)
+                : (scalar ? semantic::SparseIndexKind::subscript_element
+                          : semantic::SparseIndexKind::submatrix_selection);
+}
+
 void collect_index_extent(const Expression& expression, const SemanticTable& table,
                           std::optional<semantic::IndexExtentSource>& source, bool& valid) {
   const auto* facts = table.expression(expression.id);
@@ -355,6 +378,42 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
                reduction.scalar_result) {
       add_error(diagnostics, expression.location, stage,
                 "inactive logical reduction retains semantic state");
+    }
+  }
+  if (analyzed) {
+    const auto expected_sparse_index = expected_sparse_index_kind(expression, table);
+    const auto& sparse_index = facts->sparse_index;
+    const bool successful_sparse_index = expected_sparse_index != semantic::SparseIndexKind::none &&
+                                         facts->inferred_type != ValueType::unknown;
+    if (successful_sparse_index != sparse_index.valid() ||
+        (sparse_index.valid() && sparse_index.kind != expected_sparse_index)) {
+      add_error(diagnostics, expression.location, stage,
+                "sparse-index identity disagrees with the source expression");
+    } else if (sparse_index.valid()) {
+      const auto* source = table.expression(expression.children.front().id);
+      const bool scalar = semantic::sparse_index_returns_scalar(sparse_index.kind);
+      const bool valid = source != nullptr && source->element_type == ValueType::real &&
+                         source->element_numeric_type == real_numeric_type &&
+                         sparse_index.input_shape == source->shape &&
+                         sparse_index.source_storage == source->array_storage &&
+                         sparse_index.result_storage == facts->array_storage &&
+                         sparse_index.result_shape == facts->shape &&
+                         semantic::valid_sparse_index_contract(
+                             sparse_index.kind, sparse_index.source_storage,
+                             sparse_index.result_storage, sparse_index.input_shape,
+                             sparse_index.result_shape, expression.children.size() - 1U) &&
+                         (scalar ? facts->inferred_type == source->element_type
+                                 : facts->inferred_type == ValueType::list &&
+                                       facts->element_type == source->element_type);
+      if (!valid) {
+        add_error(diagnostics, expression.location, stage,
+                  "sparse-index plan has an invalid type, storage, arity, or shape contract");
+      }
+    } else if (sparse_index.source_storage != ArrayStorageFormat::none ||
+               sparse_index.result_storage != ArrayStorageFormat::none ||
+               !sparse_index.input_shape.empty() || !sparse_index.result_shape.empty()) {
+      add_error(diagnostics, expression.location, stage,
+                "inactive sparse-index plan retains semantic state");
     }
   }
   if (analyzed) {

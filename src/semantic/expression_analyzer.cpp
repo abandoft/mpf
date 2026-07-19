@@ -369,6 +369,43 @@ bool full_slice(const Expression& expression) noexcept {
                       [](const Expression& child) { return child.valid(); });
 }
 
+std::size_t sparse_selector_count(const Expression& selector, const hir::ExpressionFacts& facts,
+                                  const semantic::IndexSelectorKind kind) {
+  switch (kind) {
+    case semantic::IndexSelectorKind::scalar: return 1U;
+    case semantic::IndexSelectorKind::empty: return 0U;
+    case semantic::IndexSelectorKind::logical:
+      return boolean_literal_count(selector).value_or(dynamic_extent);
+    case semantic::IndexSelectorKind::slice:
+    case semantic::IndexSelectorKind::numeric:
+      return static_element_count(facts.shape).value_or(dynamic_extent);
+  }
+  return dynamic_extent;
+}
+
+std::vector<std::size_t> sparse_linear_result_shape(const Expression& selector,
+                                                    const hir::ExpressionFacts& selector_facts,
+                                                    const semantic::IndexSelectorKind selector_kind,
+                                                    const std::vector<std::size_t>& input_shape) {
+  const auto count = sparse_selector_count(selector, selector_facts, selector_kind);
+  if (full_slice(selector)) {
+    return {static_element_count(input_shape).value_or(dynamic_extent), 1U};
+  }
+
+  const bool selector_vector = selector_facts.shape.size() == 1U ||
+                               (selector_facts.shape.size() == 2U &&
+                                (selector_facts.shape[0] == 1U || selector_facts.shape[1] == 1U));
+  const bool source_vector = input_shape[0] == 1U || input_shape[1] == 1U;
+  if (source_vector && selector_vector) {
+    return input_shape[0] == 1U ? std::vector<std::size_t>{1U, count}
+                                : std::vector<std::size_t>{count, 1U};
+  }
+  if (selector_kind == semantic::IndexSelectorKind::logical) return {count, 1U};
+  if (selector_facts.shape.size() == 2U) return selector_facts.shape;
+  if (selector_facts.shape.size() == 1U) return {1U, selector_facts.shape.front()};
+  return {count, 1U};
+}
+
 bool collect_integral_selector_values(const Expression& expression,
                                       std::vector<long long>& values) {
   if (expression.kind == ExpressionKind::list) {
@@ -2014,16 +2051,9 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       }
       const auto& argument = semantic(semantics_, expression.children[1]);
       if (argument.inferred_type != ValueType::list || argument.shape.size() != 2U ||
-          !known_shape(argument.shape) || !matlab_sparse_real_value(argument) ||
-          !array_storage_known(argument.array_storage)) {
+          !matlab_sparse_real_value(argument) || !array_storage_known(argument.array_storage)) {
         diagnose(expression.location.line, "MPF2054",
-                 "full requires a statically shaped real rank-2 dense or CSC array");
-        return facts.inferred_type = ValueType::unknown;
-      }
-      if (std::any_of(argument.shape.begin(), argument.shape.end(),
-                      [](const auto extent) { return extent == 0U; })) {
-        diagnose(expression.location.line, "MPF2054",
-                 "full currently requires non-empty rank-2 extents");
+                 "full requires a real rank-2 dense or CSC array with known storage");
         return facts.inferred_type = ValueType::unknown;
       }
       facts.inferred_type = ValueType::list;
@@ -2377,9 +2407,16 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
   auto& container = expression.children[0];
   if (!container_already_analyzed) analyze_expression(container);
   const auto& container_facts = semantic(semantics_, container);
-  if (container_facts.array_storage == ArrayStorageFormat::sparse_csc) {
+  const bool sparse_source = container_facts.array_storage == ArrayStorageFormat::sparse_csc;
+  if (sparse_source &&
+      (allow_matlab_growth || program_.language != SourceLanguage::matlab ||
+       !static_rank_two_shape(container_facts.shape) || container_facts.shape[0] == 0U ||
+       container_facts.shape[1] == 0U || !matlab_sparse_real_value(container_facts))) {
     diagnose(expression.location.line, "MPF2054",
-             "sparse indexing is outside the current CSC runtime contract; convert with full");
+             allow_matlab_growth
+                 ? "sparse indexed assignment is outside the current read-only CSC contract"
+                 : "sparse indexing requires a non-empty statically shaped real rank-2 CSC "
+                   "array");
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
   if (container_facts.inferred_type != ValueType::list &&
@@ -2388,6 +2425,11 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
   const auto index_count = expression.children.size() - 1;
+  if (sparse_source && index_count > 2U) {
+    diagnose(expression.location.line, "MPF2054",
+             "sparse indexing currently supports one linear selector or two subscripts");
+    return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+  }
   if (!container_facts.shape.empty() && index_count > container_facts.shape.size()) {
     diagnose(expression.location.line, "MPF2025", "too many indexes for array/list shape");
   }
@@ -2397,6 +2439,7 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
              "Fortran array reference rank does not match its declared rank");
   }
   bool has_expanding_selector = false;
+  bool invalid_sparse_selector = false;
   std::vector<std::size_t> result_shape;
   auto& index_selectors = semantic(semantics_, expression).index_selectors;
   index_selectors.clear();
@@ -2482,6 +2525,16 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
       has_expanding_selector = true;
       exact_region = false;
       const auto selector_size = static_element_count(index_facts.shape);
+      if (sparse_source &&
+          (index_facts.array_storage == ArrayStorageFormat::sparse_csc ||
+           index_facts.element_numeric_type.complexity == NumericComplexity::complex ||
+           (index_count == 1U && index_facts.element_type != ValueType::boolean &&
+            index_facts.shape.size() > 2U))) {
+        diagnose(index.location.line, "MPF2054",
+                 "sparse indexing requires dense real/logical selectors and a rank-2-or-lower "
+                 "linear selector result");
+        invalid_sparse_selector = true;
+      }
       if (selector_size.has_value() && *selector_size == 0U) {
         index_selectors.push_back(semantic::IndexSelectorKind::empty);
         result_shape.push_back(0U);
@@ -2561,6 +2614,52 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
   } else {
     semantic(semantics_, expression).storage_region = {};
   }
+  if (invalid_sparse_selector) {
+    return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+  }
+  if (sparse_source) {
+    auto& facts = semantic(semantics_, expression);
+    const bool scalar_result = std::all_of(
+        index_selectors.begin(), index_selectors.end(),
+        [](const auto selector) { return selector == semantic::IndexSelectorKind::scalar; });
+    auto& plan = facts.sparse_index;
+    plan.kind = index_count == 1U
+                    ? (scalar_result ? semantic::SparseIndexKind::linear_element
+                                     : semantic::SparseIndexKind::linear_selection)
+                    : (scalar_result ? semantic::SparseIndexKind::subscript_element
+                                     : semantic::SparseIndexKind::submatrix_selection);
+    plan.source_storage = ArrayStorageFormat::sparse_csc;
+    plan.result_storage = scalar_result ? ArrayStorageFormat::none : ArrayStorageFormat::sparse_csc;
+    plan.input_shape = container_facts.shape;
+    if (!scalar_result) {
+      if (index_count == 1U) {
+        const auto& selector = expression.children[1];
+        plan.result_shape = sparse_linear_result_shape(selector, semantic(semantics_, selector),
+                                                       index_selectors[0], container_facts.shape);
+      } else {
+        plan.result_shape.reserve(2U);
+        for (std::size_t selector = 0; selector < 2U; ++selector) {
+          const auto& child = expression.children[selector + 1U];
+          plan.result_shape.push_back(
+              sparse_selector_count(child, semantic(semantics_, child), index_selectors[selector]));
+        }
+      }
+      facts.inferred_type = ValueType::list;
+      facts.numeric_type = no_numeric_type;
+      facts.element_type = container_facts.element_type;
+      facts.element_numeric_type = container_facts.element_numeric_type;
+      facts.array_storage = ArrayStorageFormat::sparse_csc;
+      facts.shape = plan.result_shape;
+      return facts.inferred_type;
+    }
+    facts.inferred_type = container_facts.element_type;
+    facts.numeric_type = container_facts.element_numeric_type;
+    facts.element_type = ValueType::unknown;
+    facts.element_numeric_type = no_numeric_type;
+    facts.array_storage = ArrayStorageFormat::none;
+    facts.shape.clear();
+    return facts.inferred_type;
+  }
   semantic(semantics_, expression).element_type = container_facts.element_type;
   semantic(semantics_, expression).element_numeric_type = container_facts.element_numeric_type;
   if (container_facts.shape.empty()) {
@@ -2601,6 +2700,7 @@ void Analyzer::analyze_indexed_mutation(Statement& statement, const ValueType va
   contract.linear = target_facts.column_major && target.children.size() == 2U;
 
   if (target.kind != ExpressionKind::index || target.children.size() < 2U) return;
+  if (target_facts.index_selectors.size() + 1U != target.children.size()) return;
   const auto& container_facts = semantic(semantics_, target.children.front());
   const auto selector_count = target.children.size() - 1U;
   statement_facts.mutation_input_shape =

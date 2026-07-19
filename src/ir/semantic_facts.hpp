@@ -68,6 +68,16 @@ struct SparseConstructionPlan {
   }
 };
 
+struct SparseIndexPlan {
+  semantic::SparseIndexKind kind{semantic::SparseIndexKind::none};
+  ArrayStorageFormat source_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat result_storage{ArrayStorageFormat::none};
+  std::vector<std::size_t> input_shape;
+  std::vector<std::size_t> result_shape;
+
+  [[nodiscard]] bool valid() const noexcept { return kind != semantic::SparseIndexKind::none; }
+};
+
 struct ExpressionFacts {
   HirNodeId origin{};
   ValueType inferred_type{ValueType::unknown};
@@ -84,6 +94,7 @@ struct ExpressionFacts {
   MatrixOperationPlan matrix_operation;
   ReductionPlan reduction;
   SparseConstructionPlan sparse_construction;
+  SparseIndexPlan sparse_index;
   std::vector<ValueType> tuple_types;
   std::vector<NumericType> tuple_numeric_types;
   std::vector<ValueType> tuple_element_types;
