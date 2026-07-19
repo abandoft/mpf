@@ -5,6 +5,7 @@
 #include <limits>
 
 #include "compiler/array_storage.hpp"
+#include "compiler/numeric_type.hpp"
 #include "mpf/transpiler.hpp"
 
 namespace mpf::detail::semantic {
@@ -277,6 +278,12 @@ enum class SparseConstructionKind : std::uint8_t {
 // later stage attempts to infer either property from stored values.
 enum class SparseValueDomain : std::uint8_t { none, finite_real, logical };
 enum class SparseDuplicatePolicy : std::uint8_t { none, sum, logical_any };
+
+[[nodiscard]] constexpr bool valid_sparse_stored_value_type(
+    const ValueType type, const NumericType numeric_type) noexcept {
+  return (type == ValueType::real && numeric_type == real_numeric_type) ||
+         (type == ValueType::boolean && numeric_type == logical_numeric_type);
+}
 
 [[nodiscard]] constexpr bool valid_sparse_construction_value_contract(
     const SparseConstructionKind kind, const SparseValueDomain value_domain,

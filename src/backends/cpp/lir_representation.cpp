@@ -608,13 +608,14 @@ bool valid_sparse_reshape(const lir::Expression& expression) noexcept {
   const auto expected_inference = empty_dimensions == 1U
                                       ? semantic::SparseReshapeInference::one_dimension
                                       : semantic::SparseReshapeInference::none;
-  return source.inferred_type == ValueType::list && source.element_type == ValueType::real &&
-         source.element_numeric_type == real_numeric_type &&
+  return source.inferred_type == ValueType::list &&
+         semantic::valid_sparse_stored_value_type(source.element_type,
+                                                  source.element_numeric_type) &&
          expression.inferred_type == ValueType::list &&
-         expression.element_type == ValueType::real &&
-         expression.element_numeric_type == real_numeric_type && expression.column_major &&
-         sparse.dimension_form == expected_form && empty_dimensions <= 1U &&
-         sparse.inference == expected_inference &&
+         expression.element_type == source.element_type &&
+         expression.element_numeric_type == source.element_numeric_type &&
+         expression.column_major && sparse.dimension_form == expected_form &&
+         empty_dimensions <= 1U && sparse.inference == expected_inference &&
          (expected_inference == semantic::SparseReshapeInference::none ||
           sparse.inferred_axis == empty_axis) &&
          sparse.input_shape == source.shape && sparse.source_storage == source.array_storage &&
@@ -1361,8 +1362,8 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
   } else if (expression.sparse_index.valid()) {
     const auto& source = expression.children.front();
     const auto scalar = semantic::sparse_index_returns_scalar(expression.sparse_index.kind);
-    if (source.element_type != ValueType::real ||
-        source.element_numeric_type != real_numeric_type ||
+    if (!semantic::valid_sparse_stored_value_type(source.element_type,
+                                                  source.element_numeric_type) ||
         expression.sparse_index.input_shape != source.shape ||
         expression.sparse_index.source_storage != source.array_storage ||
         expression.sparse_index.result_shape != expression.shape ||

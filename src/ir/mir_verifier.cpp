@@ -1070,8 +1070,8 @@ void verify_expression(const Expression& expression, const Program& program,
     const auto scalar = semantic::sparse_index_returns_scalar(sparse_index.kind);
     const bool valid =
         source != nullptr && input_shape != nullptr && result_shape != nullptr &&
-        element_type(program, source->type_id) == ValueType::real &&
-        element_numeric_type(program, source->type_id) == real_numeric_type &&
+        semantic::valid_sparse_stored_value_type(element_type(program, source->type_id),
+                                                 element_numeric_type(program, source->type_id)) &&
         sparse_index.input_shape == source->shape_id &&
         sparse_index.result_shape == expression.shape_id &&
         sparse_index.source_storage == array_storage(program, source->type_id) &&
@@ -1124,11 +1124,12 @@ void verify_expression(const Expression& expression, const Program& program,
     const bool valid =
         source != nullptr && input_shape != nullptr && requested_shape != nullptr &&
         result_shape != nullptr && value_type(program, source->type_id) == ValueType::list &&
-        element_type(program, source->type_id) == ValueType::real &&
-        element_numeric_type(program, source->type_id) == real_numeric_type &&
+        semantic::valid_sparse_stored_value_type(element_type(program, source->type_id),
+                                                 element_numeric_type(program, source->type_id)) &&
         value_type(program, expression.type_id) == ValueType::list &&
-        element_type(program, expression.type_id) == ValueType::real &&
-        element_numeric_type(program, expression.type_id) == real_numeric_type &&
+        element_type(program, expression.type_id) == element_type(program, source->type_id) &&
+        element_numeric_type(program, expression.type_id) ==
+            element_numeric_type(program, source->type_id) &&
         sparse_reshape.dimension_form == expected_form && empty_dimensions <= 1U &&
         sparse_reshape.inference == expected_inference &&
         (expected_inference == semantic::SparseReshapeInference::none ||

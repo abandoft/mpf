@@ -442,8 +442,9 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
     } else if (sparse_index.valid()) {
       const auto* source = table.expression(expression.children.front().id);
       const bool scalar = semantic::sparse_index_returns_scalar(sparse_index.kind);
-      const bool valid = source != nullptr && source->element_type == ValueType::real &&
-                         source->element_numeric_type == real_numeric_type &&
+      const bool valid = source != nullptr &&
+                         semantic::valid_sparse_stored_value_type(source->element_type,
+                                                                  source->element_numeric_type) &&
                          sparse_index.input_shape == source->shape &&
                          sparse_index.source_storage == source->array_storage &&
                          sparse_index.result_storage == facts->array_storage &&
@@ -495,10 +496,10 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
                                           : semantic::SparseReshapeInference::none;
       const bool valid =
           source != nullptr && source->inferred_type == ValueType::list &&
-          source->element_type == ValueType::real &&
-          source->element_numeric_type == real_numeric_type &&
-          facts->inferred_type == ValueType::list && facts->element_type == ValueType::real &&
-          facts->element_numeric_type == real_numeric_type && facts->column_major &&
+          semantic::valid_sparse_stored_value_type(source->element_type,
+                                                   source->element_numeric_type) &&
+          facts->inferred_type == ValueType::list && facts->element_type == source->element_type &&
+          facts->element_numeric_type == source->element_numeric_type && facts->column_major &&
           sparse.dimension_form == expected_form && empty_dimensions <= 1U &&
           sparse.inference == expected_inference &&
           (expected_inference == semantic::SparseReshapeInference::none ||
