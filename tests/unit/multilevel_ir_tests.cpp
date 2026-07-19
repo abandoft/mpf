@@ -1279,6 +1279,10 @@ TEST_CASE("Matlab sparse element-wise plans remain typed through every IR layer"
 TEST_CASE("Matlab sparse construction plans remain typed through every IR layer") {
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "Z = sparse(3, 4);\n"
+                              "ZR = sparse(0, 4);\n"
+                              "E = sparse([]);\n"
+                              "I = sparse([], [], []);\n"
+                              "S = sparse([], [], [], 0, 4);\n"
                               "A = sparse([1 3 1 2], [1 1 1 3], [2 4 -2 5], 3, 4, 8);\n"
                               "B = sparse([2 1 2], [3 2 3], [4 5 1]);\n"
                               "T = A.';\n",
@@ -1291,9 +1295,20 @@ TEST_CASE("Matlab sparse construction plans remain typed through every IR layer"
                          analysis.semantics.expressions.end(),
                          [&](const auto& facts) { return facts.sparse_construction.kind == kind; });
   };
-  REQUIRE(count_kind(Kind::zero_matrix) == 1);
+  REQUIRE(count_kind(Kind::dense_conversion) == 1);
+  REQUIRE(count_kind(Kind::zero_matrix) == 2);
+  REQUIRE(count_kind(Kind::triplets_sized) == 1);
   REQUIRE(count_kind(Kind::triplets_reserved) == 1);
-  REQUIRE(count_kind(Kind::triplets_inferred) == 1);
+  REQUIRE(count_kind(Kind::triplets_inferred) == 2);
+  const auto empty_inferred = std::find_if(
+      analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+      [](const auto& facts) {
+        return facts.sparse_construction.kind == Kind::triplets_inferred &&
+               facts.sparse_construction.result_shape == std::vector<std::size_t>{0U, 0U};
+      });
+  REQUIRE(empty_inferred != analysis.semantics.expressions.end());
+  REQUIRE(empty_inferred->sparse_construction.triplet_element_counts ==
+          std::vector<std::size_t>({0U, 0U, 0U}));
   const auto reserved = std::find_if(
       analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
       [](const auto& facts) { return facts.sparse_construction.kind == Kind::triplets_reserved; });
@@ -1323,7 +1338,11 @@ TEST_CASE("Matlab sparse construction plans remain typed through every IR layer"
                    contradictory_mir.attributes.expressions.end(), [](const auto& attributes) {
                      return attributes.sparse_construction.kind == Kind::triplets_sized;
                    });
-  REQUIRE(corrupt_mir == contradictory_mir.attributes.expressions.end());
+  REQUIRE(corrupt_mir != contradictory_mir.attributes.expressions.end());
+  corrupt_mir->sparse_construction.triplet_element_counts[0] = 1U;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-construction-zero-triplet-mismatch")
+               .empty());
+  contradictory_mir = mir.program;
   const auto inferred_mir =
       std::find_if(contradictory_mir.attributes.expressions.begin() + 1,
                    contradictory_mir.attributes.expressions.end(), [](const auto& attributes) {

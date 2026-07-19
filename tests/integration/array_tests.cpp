@@ -586,6 +586,41 @@ TEST_CASE("Matlab sparse constructors and transpose preserve canonical CSC plans
   }
 }
 
+TEST_CASE("Matlab zero-extent sparse constructors preserve their planned shape") {
+  const std::string source =
+      "empty = sparse([]);\n"
+      "zero_rows = sparse(0, 3);\n"
+      "zero_columns = sparse(2, 0);\n"
+      "empty_inferred = sparse([], [], []);\n"
+      "empty_sized = sparse([], [], [], 0, 4);\n"
+      "empty_reserved = sparse([], [], [], 3, 0, 5);\n"
+      "transposed = zero_rows.';\n"
+      "disp(issparse(empty), issparse(zero_rows), issparse(zero_columns), "
+      "issparse(empty_inferred), issparse(empty_sized), issparse(empty_reserved), "
+      "nnz(empty), nnz(empty_sized), length(full(zero_rows)), "
+      "length(full(zero_columns)), length(full(transposed)))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_sparse_from_dense(__mpf_empty_array([0, 0]), [0, 0])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse(0, 3)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse(__mpf_empty_array([0, 0]), "
+                               "__mpf_empty_array([0, 0]), __mpf_empty_array([0, 0]))") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_from_dense(") != std::string::npos);
+  REQUIRE(cpp.code.find("std::array<std::size_t, 2>{0, 0}") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse(0, 3)") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 8U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
 TEST_CASE("Matlab sparse CSC indexing preserves storage shape and target isolation") {
   const std::string source =
       "A = sparse([1 0 2; 0 3 0; 4 0 5]);\n"
@@ -681,8 +716,6 @@ TEST_CASE("Matlab sparse CSC contract fails closed outside the supported vertica
                                              "A = sparse([1 0; 0 1; 1 1]);\nB = A \\ [1; 2; 3];\n",
                                              "A = sparse([1+2i 0; 0 1]);\n",
                                              "A = sparse([1 2; 3 4], 2);\n",
-                                             "A = sparse([]);\n",
-                                             "A = sparse(0, 3);\n",
                                              "m = 3;\nA = sparse(m, 3);\n",
                                              "i = [1 2];\nj = [1 2];\nv = [3 4];\n"
                                              "A = sparse(i, j, v);\n",
