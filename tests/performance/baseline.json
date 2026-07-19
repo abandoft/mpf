@@ -1,11 +1,19 @@
 {
-  "schemaVersion": 2,
-  "projectVersion": "0.6.1",
+  "schemaVersion": 3,
+  "projectVersion": "0.6.2",
   "maxLatencyNanoseconds": 1000000000,
   "minThroughputBytesPerSecond": 10000,
   "maxPeakArenaBytes": 67108864,
   "maxGeneratedBytes": 8388608,
   "matlabMaxLatencyNanoseconds": 250000000,
   "matlabMinThroughputBytesPerSecond": 45000,
-  "matlabMaxGeneratedBytes": 1048576
+  "matlabMaxGeneratedBytes": 1048576,
+  "scenarioLimits": {
+    "matlab-sparse-index": {
+      "maxLatencyNanoseconds": 250000000,
+      "minThroughputBytesPerSecond": 25000,
+      "maxPeakArenaBytes": 8388608,
+      "maxGeneratedBytes": 262144
+    }
+  }
 }
