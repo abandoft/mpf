@@ -378,6 +378,13 @@ class Renderer final {
       case javascript::lir::ExpressionForm::matlab_logical_not:
         output_ << expression.plan.token << '(';
         if (!expression.children.empty()) emit_expression(expression.children.front());
+        for (const auto& shape : expression.plan.runtime_shape_arguments) {
+          output_ << ", ";
+          emit_shape(shape);
+        }
+        for (const auto value : expression.plan.runtime_integer_arguments) {
+          output_ << ", " << value;
+        }
         output_ << ')';
         break;
       case javascript::lir::ExpressionForm::unary_operator:
@@ -450,6 +457,9 @@ class Renderer final {
         for (const auto& shape : expression.plan.runtime_shape_arguments) {
           output_ << ", ";
           emit_shape(shape);
+        }
+        for (const auto value : expression.plan.runtime_integer_arguments) {
+          output_ << ", " << value;
         }
         output_ << ')';
         break;

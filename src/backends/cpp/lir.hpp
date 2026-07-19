@@ -264,6 +264,23 @@ struct SparseElementwisePlan {
   }
 };
 
+struct SparseLogicalPlan {
+  semantic::SparseLogicalOperation operation{semantic::SparseLogicalOperation::none};
+  semantic::SparseLogicalStoragePolicy storage_policy{semantic::SparseLogicalStoragePolicy::none};
+  semantic::BroadcastShapeSource shape_source{semantic::BroadcastShapeSource::static_extents};
+  ArrayStorageFormat left_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat right_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat result_storage{ArrayStorageFormat::none};
+  std::vector<std::size_t> left_shape;
+  std::vector<std::size_t> right_shape;
+  std::vector<std::size_t> result_shape;
+  std::vector<semantic::BroadcastAxis> axes;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return operation != semantic::SparseLogicalOperation::none;
+  }
+};
+
 struct MatrixOperationPlan {
   semantic::MatrixOperation operation{semantic::MatrixOperation::none};
   semantic::MatrixSolveKind solve{semantic::MatrixSolveKind::none};
@@ -366,7 +383,9 @@ struct ExpressionPlan {
   std::vector<ComparisonPlan> comparisons;
   BroadcastPlan broadcast;
   SparseElementwisePlan sparse_elementwise;
+  SparseLogicalPlan sparse_logical;
   std::vector<std::vector<std::size_t>> runtime_shape_arguments;
+  std::vector<std::int64_t> runtime_integer_arguments;
   ReductionPlan reduction;
   SparseIndexPlan sparse_index;
   SparseReshapePlan sparse_reshape;
@@ -508,6 +527,7 @@ struct Expression {
   semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
   BroadcastPlan broadcast;
   SparseElementwisePlan sparse_elementwise;
+  SparseLogicalPlan sparse_logical;
   MatrixOperationPlan matrix_operation;
   ReductionPlan reduction;
   SparseConstructionPlan sparse_construction;

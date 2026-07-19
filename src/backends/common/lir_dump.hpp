@@ -147,6 +147,28 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     output << "->";
     dump_shape(expression.sparse_elementwise.result_shape);
   }
+  if (expression.sparse_logical.valid()) {
+    const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
+      output << '[';
+      for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+        if (axis != 0U) output << ',';
+        output << shape[axis];
+      }
+      output << ']';
+    };
+    output << " sparse-logical " << static_cast<int>(expression.sparse_logical.operation)
+           << " storage-policy " << static_cast<int>(expression.sparse_logical.storage_policy)
+           << " storage " << static_cast<int>(expression.sparse_logical.left_storage) << ','
+           << static_cast<int>(expression.sparse_logical.right_storage) << "->"
+           << static_cast<int>(expression.sparse_logical.result_storage) << ' ';
+    dump_shape(expression.sparse_logical.left_shape);
+    if (!expression.sparse_logical.right_shape.empty()) {
+      output << ',';
+      dump_shape(expression.sparse_logical.right_shape);
+    }
+    output << "->";
+    dump_shape(expression.sparse_logical.result_shape);
+  }
   if (expression.reduction.valid()) {
     const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
       output << '[';

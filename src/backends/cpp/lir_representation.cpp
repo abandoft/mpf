@@ -185,6 +185,14 @@ std::string matlab_solve_helper(const std::string_view operation,
 }
 
 std::string matlab_array_helper(const lir::Expression& expression) {
+  if (expression.sparse_logical.valid()) {
+    switch (expression.sparse_logical.operation) {
+      case semantic::SparseLogicalOperation::logical_not: return "mpf_runtime::sparse_logical_not";
+      case semantic::SparseLogicalOperation::logical_and: return "mpf_runtime::sparse_logical_and";
+      case semantic::SparseLogicalOperation::logical_or: return "mpf_runtime::sparse_logical_or";
+      case semantic::SparseLogicalOperation::none: return {};
+    }
+  }
   if (expression.sparse_elementwise.valid()) {
     const auto left = expression.sparse_elementwise.left_storage;
     const auto right = expression.sparse_elementwise.right_storage;
@@ -477,6 +485,39 @@ bool valid_sparse_elementwise_plan(const lir::Expression& expression) noexcept {
              plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage,
              plan.right_storage, plan.result_storage, plan.left_shape, plan.right_shape,
              plan.result_shape, plan.axes);
+}
+
+bool valid_sparse_logical_plan(const lir::Expression& expression) noexcept {
+  const auto& plan = expression.sparse_logical;
+  if (!plan.valid()) {
+    return plan.storage_policy == semantic::SparseLogicalStoragePolicy::none &&
+           plan.shape_source == semantic::BroadcastShapeSource::static_extents &&
+           plan.left_storage == ArrayStorageFormat::none &&
+           plan.right_storage == ArrayStorageFormat::none &&
+           plan.result_storage == ArrayStorageFormat::none && plan.left_shape.empty() &&
+           plan.right_shape.empty() && plan.result_shape.empty() && plan.axes.empty();
+  }
+  const bool unary = plan.operation == semantic::SparseLogicalOperation::logical_not;
+  const bool valid_operator = (unary && expression.kind == ExpressionKind::unary &&
+                               expression.unary_operation == UnaryOperator::logical_not) ||
+                              (!unary && expression.kind == ExpressionKind::binary &&
+                               ((plan.operation == semantic::SparseLogicalOperation::logical_and &&
+                                 expression.operation == BinaryOperator::elementwise_logical_and) ||
+                                (plan.operation == semantic::SparseLogicalOperation::logical_or &&
+                                 expression.operation == BinaryOperator::elementwise_logical_or)));
+  if (!valid_operator || expression.children.size() != (unary ? 1U : 2U) ||
+      expression.logical_evaluation != semantic::LogicalEvaluation::eager_elementwise ||
+      expression.broadcast.valid || expression.inferred_type != ValueType::list ||
+      expression.element_type != ValueType::boolean ||
+      expression.element_numeric_type != logical_numeric_type ||
+      plan.left_storage != expression.children[0].array_storage ||
+      (!unary && plan.right_storage != expression.children[1].array_storage) ||
+      plan.result_storage != expression.array_storage || plan.result_shape != expression.shape) {
+    return false;
+  }
+  return semantic::valid_sparse_logical_contract(
+      plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage, plan.right_storage,
+      plan.result_storage, plan.left_shape, plan.right_shape, plan.result_shape, plan.axes);
 }
 
 std::optional<std::size_t> sparse_argument_count(const lir::Expression& expression) noexcept {
@@ -831,8 +872,20 @@ lir::ExpressionPlan expected_expression_plan(
                  expression.logical_evaluation == semantic::LogicalEvaluation::eager_elementwise &&
                  expression.unary_operation == UnaryOperator::logical_not) {
         result.precedence = 9;
-        result.token = "mpf_runtime::matlab_not";
+        result.sparse_logical = expression.sparse_logical;
+        result.token = result.sparse_logical.valid() ? matlab_array_helper(expression)
+                                                     : "mpf_runtime::matlab_not";
         result.form = lir::ExpressionForm::matlab_logical_not;
+        if (result.sparse_logical.valid()) {
+          result.runtime_shape_arguments = {result.sparse_logical.left_shape,
+                                            result.sparse_logical.result_shape};
+          result.runtime_integer_arguments = {
+              static_cast<std::int64_t>(result.sparse_logical.operation),
+              static_cast<std::int64_t>(result.sparse_logical.storage_policy),
+              static_cast<std::int64_t>(result.sparse_logical.left_storage),
+              static_cast<std::int64_t>(result.sparse_logical.right_storage),
+              static_cast<std::int64_t>(result.sparse_logical.result_storage)};
+        }
       } else {
         result.precedence = 6;
         result.token = expression.value;
@@ -847,8 +900,9 @@ lir::ExpressionPlan expected_expression_plan(
         result.precedence = 9;
         result.token = matlab_array_helper(expression);
         result.form = lir::ExpressionForm::matlab_logical_operation;
-        result.broadcast = expression.broadcast;
-        if (result.broadcast.valid) {
+        result.sparse_logical = expression.sparse_logical;
+        if (!result.sparse_logical.valid()) result.broadcast = expression.broadcast;
+        if (!result.sparse_logical.valid() && result.broadcast.valid) {
           result.token +=
               result.broadcast.shape_source == semantic::BroadcastShapeSource::runtime_operands
                   ? "_runtime"
@@ -1149,7 +1203,17 @@ lir::ExpressionPlan expected_expression_plan(
   }
   if (result.form == lir::ExpressionForm::matlab_logical_operation ||
       result.form == lir::ExpressionForm::matlab_array_operation) {
-    if (result.sparse_elementwise.valid()) {
+    if (result.sparse_logical.valid()) {
+      result.runtime_shape_arguments = {result.sparse_logical.left_shape,
+                                        result.sparse_logical.right_shape,
+                                        result.sparse_logical.result_shape};
+      result.runtime_integer_arguments = {
+          static_cast<std::int64_t>(result.sparse_logical.operation),
+          static_cast<std::int64_t>(result.sparse_logical.storage_policy),
+          static_cast<std::int64_t>(result.sparse_logical.left_storage),
+          static_cast<std::int64_t>(result.sparse_logical.right_storage),
+          static_cast<std::int64_t>(result.sparse_logical.result_storage)};
+    } else if (result.sparse_elementwise.valid()) {
       result.runtime_shape_arguments = {result.sparse_elementwise.left_shape,
                                         result.sparse_elementwise.right_shape,
                                         result.sparse_elementwise.result_shape};
@@ -1197,7 +1261,18 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.sparse_elementwise.right_shape != right.sparse_elementwise.right_shape ||
       left.sparse_elementwise.result_shape != right.sparse_elementwise.result_shape ||
       left.sparse_elementwise.axes != right.sparse_elementwise.axes ||
+      left.sparse_logical.operation != right.sparse_logical.operation ||
+      left.sparse_logical.storage_policy != right.sparse_logical.storage_policy ||
+      left.sparse_logical.shape_source != right.sparse_logical.shape_source ||
+      left.sparse_logical.left_storage != right.sparse_logical.left_storage ||
+      left.sparse_logical.right_storage != right.sparse_logical.right_storage ||
+      left.sparse_logical.result_storage != right.sparse_logical.result_storage ||
+      left.sparse_logical.left_shape != right.sparse_logical.left_shape ||
+      left.sparse_logical.right_shape != right.sparse_logical.right_shape ||
+      left.sparse_logical.result_shape != right.sparse_logical.result_shape ||
+      left.sparse_logical.axes != right.sparse_logical.axes ||
       left.runtime_shape_arguments != right.runtime_shape_arguments ||
+      left.runtime_integer_arguments != right.runtime_integer_arguments ||
       left.reduction.operation != right.reduction.operation ||
       left.reduction.axis_policy != right.reduction.axis_policy ||
       left.reduction.shape_source != right.reduction.shape_source ||
@@ -1445,6 +1520,9 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
   if (!valid_sparse_elementwise_plan(expression)) {
     add_error(diagnostics, expression.location, "cpp LIR sparse element-wise plan is inconsistent");
   }
+  if (!valid_sparse_logical_plan(expression)) {
+    add_error(diagnostics, expression.location, "cpp LIR sparse logical plan is inconsistent");
+  }
   const auto expected_matrix = source_language == SourceLanguage::matlab
                                    ? expected_matrix_operation(expression)
                                    : semantic::MatrixOperation::none;
@@ -1485,6 +1563,9 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
   if (expression.sparse_elementwise.valid() && expression.plan.token.empty()) {
     add_error(diagnostics, expression.location,
               "cpp LIR sparse element-wise plan has no target helper");
+  }
+  if (expression.sparse_logical.valid() && expression.plan.token.empty()) {
+    add_error(diagnostics, expression.location, "cpp LIR sparse logical plan has no target helper");
   }
   if (!valid_sparse_construction(expression)) {
     add_error(diagnostics, expression.location, "cpp LIR sparse-construction plan is inconsistent");
