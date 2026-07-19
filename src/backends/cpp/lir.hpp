@@ -363,6 +363,7 @@ struct ExpressionPlan {
   std::string token;
   std::vector<ComparisonPlan> comparisons;
   BroadcastPlan broadcast;
+  SparseElementwisePlan sparse_elementwise;
   ReductionPlan reduction;
   SparseIndexPlan sparse_index;
   SparseReshapePlan sparse_reshape;

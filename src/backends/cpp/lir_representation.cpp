@@ -185,6 +185,27 @@ std::string matlab_solve_helper(const std::string_view operation,
 }
 
 std::string matlab_array_helper(const lir::Expression& expression) {
+  if (expression.sparse_elementwise.valid()) {
+    const auto left = expression.sparse_elementwise.left_storage;
+    const auto right = expression.sparse_elementwise.right_storage;
+    if (left == ArrayStorageFormat::sparse_csc && right == ArrayStorageFormat::none) {
+      return "mpf_runtime::sparse_times_scalar_right";
+    }
+    if (left == ArrayStorageFormat::none && right == ArrayStorageFormat::sparse_csc) {
+      return "mpf_runtime::sparse_times_scalar_left";
+    }
+    if (left == ArrayStorageFormat::sparse_csc && right == ArrayStorageFormat::dense) {
+      return "mpf_runtime::sparse_times_dense";
+    }
+    if (left == ArrayStorageFormat::dense && right == ArrayStorageFormat::sparse_csc) {
+      return "mpf_runtime::dense_times_sparse";
+    }
+    if (left == ArrayStorageFormat::sparse_csc &&
+        right == ArrayStorageFormat::sparse_csc) {
+      return "mpf_runtime::sparse_times_sparse";
+    }
+    return {};
+  }
   const bool complex = expression.numeric_type.complexity == NumericComplexity::complex ||
                        expression.element_numeric_type.complexity == NumericComplexity::complex;
   const bool dynamic_numeric = expression.numeric_type == unknown_numeric_type ||
@@ -799,7 +820,8 @@ lir::ExpressionPlan expected_expression_plan(
         result.precedence = 9;
         result.token = matlab_array_helper(expression);
         result.form = lir::ExpressionForm::matlab_array_operation;
-        result.broadcast = expression.broadcast;
+        result.sparse_elementwise = expression.sparse_elementwise;
+        if (!result.sparse_elementwise.valid()) result.broadcast = expression.broadcast;
         if (result.broadcast.valid) {
           result.token +=
               result.broadcast.shape_source == semantic::BroadcastShapeSource::runtime_operands

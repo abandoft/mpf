@@ -430,7 +430,14 @@ class Renderer final {
         emit_expression(expression.children[0]);
         output_ << ", ";
         emit_expression(expression.children[1]);
-        if (expression.plan.broadcast.valid && expression.plan.broadcast.shape_source ==
+        if (expression.plan.sparse_elementwise.valid()) {
+          output_ << ", ";
+          emit_shape(expression.plan.sparse_elementwise.left_shape);
+          output_ << ", ";
+          emit_shape(expression.plan.sparse_elementwise.right_shape);
+          output_ << ", ";
+          emit_shape(expression.plan.sparse_elementwise.result_shape);
+        } else if (expression.plan.broadcast.valid && expression.plan.broadcast.shape_source ==
                                                    semantic::BroadcastShapeSource::static_extents) {
           output_ << ", ";
           emit_shape(expression.plan.broadcast.left_shape);
