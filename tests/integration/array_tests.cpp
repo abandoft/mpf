@@ -433,6 +433,25 @@ TEST_CASE("Matlab sparse matrix products preserve storage and target isolation")
   }
 }
 
+TEST_CASE("Matlab sparse matrix products fail closed beyond the finite real rank-two slice") {
+  struct RejectedProduct {
+    std::string source;
+    std::string diagnostic;
+  };
+  const std::vector<RejectedProduct> rejected{
+      {"A = sparse([1 0; 0 1]);\nB = A * 2;\n", "MPF2054"},
+      {"A = sparse([1 0; 0 1]);\nB = 2 * A;\n", "MPF2054"},
+      {"A = sparse([1 0; 0 1]);\nB = [1 2 3];\nC = A * B;\n", "MPF2046"},
+      {"A = sparse([1 0; 0 1]);\nB = [1i 0; 0 1];\nC = A * B;\n", "MPF2054"}};
+  for (const auto& test : rejected) {
+    for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+      const auto result = transpile_array(test.source, mpf::SourceLanguage::matlab, target);
+      REQUIRE(!result.success());
+      REQUIRE(result.diagnostics.front().code == test.diagnostic);
+    }
+  }
+}
+
 TEST_CASE("Matlab sparse constructors and transpose preserve canonical CSC plans") {
   const std::string source =
       "zero_matrix = sparse(3, 4);\n"
