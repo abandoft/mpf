@@ -149,6 +149,22 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
     if (input_shape != nullptr) result.sparse_index.input_shape = input_shape->extents;
     if (result_shape != nullptr) result.sparse_index.result_shape = result_shape->extents;
   }
+  if (attributes.sparse_reshape.valid()) {
+    result.sparse_reshape.kind = attributes.sparse_reshape.kind;
+    result.sparse_reshape.dimension_form = attributes.sparse_reshape.dimension_form;
+    result.sparse_reshape.inference = attributes.sparse_reshape.inference;
+    result.sparse_reshape.inferred_axis = attributes.sparse_reshape.inferred_axis;
+    result.sparse_reshape.source_storage = attributes.sparse_reshape.source_storage;
+    result.sparse_reshape.result_storage = attributes.sparse_reshape.result_storage;
+    const auto* input_shape = mir::shape(program, attributes.sparse_reshape.input_shape);
+    const auto* requested_shape = mir::shape(program, attributes.sparse_reshape.requested_shape);
+    const auto* result_shape = mir::shape(program, attributes.sparse_reshape.result_shape);
+    if (input_shape != nullptr) result.sparse_reshape.input_shape = input_shape->extents;
+    if (requested_shape != nullptr) {
+      result.sparse_reshape.requested_shape = requested_shape->extents;
+    }
+    if (result_shape != nullptr) result.sparse_reshape.result_shape = result_shape->extents;
+  }
   if (attributes.reduction.valid()) {
     result.reduction.operation = attributes.reduction.operation;
     result.reduction.axis_policy = attributes.reduction.axis_policy;

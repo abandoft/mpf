@@ -179,6 +179,25 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     }
     output << ']';
   }
+  if (expression.sparse_reshape.valid()) {
+    const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
+      output << '[';
+      for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+        if (axis != 0U) output << ',';
+        output << shape[axis];
+      }
+      output << ']';
+    };
+    output << " sparse-reshape " << static_cast<int>(expression.sparse_reshape.kind) << " form "
+           << static_cast<int>(expression.sparse_reshape.dimension_form) << " inference "
+           << static_cast<int>(expression.sparse_reshape.inference) << " axis "
+           << expression.sparse_reshape.inferred_axis << " input ";
+    dump_shape(expression.sparse_reshape.input_shape);
+    output << " requested ";
+    dump_shape(expression.sparse_reshape.requested_shape);
+    output << " result ";
+    dump_shape(expression.sparse_reshape.result_shape);
+  }
   if (!expression.plan.call_arguments.empty()) {
     output << " call-arguments [";
     for (std::size_t index = 0; index < expression.plan.call_arguments.size(); ++index) {
