@@ -235,7 +235,10 @@ class Renderer final {
         return;
       case javascript::lir::CallForm::matlab_sparse:
         output_ << "__mpf_sparse(";
-        emit_expression(expression.children[1]);
+        for (std::size_t index = 1U; index < expression.children.size(); ++index) {
+          if (index != 1U) output_ << ", ";
+          emit_expression(expression.children[index]);
+        }
         output_ << ')';
         return;
       case javascript::lir::CallForm::matlab_full:
@@ -326,6 +329,7 @@ class Renderer final {
         }
         break;
       case javascript::lir::ExpressionForm::matlab_transpose:
+      case javascript::lir::ExpressionForm::matlab_sparse_transpose:
       case javascript::lir::ExpressionForm::unary_runtime_call:
         output_ << expression.plan.token << '(';
         emit_expression(expression.children.front());

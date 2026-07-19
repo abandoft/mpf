@@ -1,6 +1,7 @@
 #include "lir_representation.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -315,6 +316,74 @@ bool valid_matrix_shapes(const lir::MatrixOperationPlan& plan,
   return false;
 }
 
+std::optional<std::size_t> sparse_argument_count(const lir::Expression& expression) noexcept {
+  if (expression.inferred_type != ValueType::list) {
+    return expression.inferred_type == ValueType::integer ||
+                   expression.inferred_type == ValueType::real
+               ? std::optional<std::size_t>{1U}
+               : std::nullopt;
+  }
+  std::size_t count = 1U;
+  for (const auto extent : expression.shape) {
+    if (extent == dynamic_extent ||
+        (extent != 0U && count > std::numeric_limits<std::size_t>::max() / extent)) {
+      return std::nullopt;
+    }
+    count *= extent;
+  }
+  return count;
+}
+
+semantic::SparseConstructionKind expected_sparse_construction_kind(
+    const lir::Expression& expression) noexcept {
+  if (expression.kind != ExpressionKind::call || expression.children.empty()) {
+    return semantic::SparseConstructionKind::none;
+  }
+  const auto& callee = expression.children.front();
+  if (callee.binding != BindingKind::builtin || callee.intrinsic != IntrinsicId::matlab_sparse) {
+    return semantic::SparseConstructionKind::none;
+  }
+  switch (expression.children.size()) {
+    case 2U: return semantic::SparseConstructionKind::dense_conversion;
+    case 3U: return semantic::SparseConstructionKind::zero_matrix;
+    case 4U: return semantic::SparseConstructionKind::triplets_inferred;
+    case 6U: return semantic::SparseConstructionKind::triplets_sized;
+    case 7U: return semantic::SparseConstructionKind::triplets_reserved;
+    default: return semantic::SparseConstructionKind::none;
+  }
+}
+
+bool valid_sparse_construction(const lir::Expression& expression) noexcept {
+  const auto& sparse = expression.sparse_construction;
+  if (sparse.kind != expected_sparse_construction_kind(expression)) return false;
+  if (!sparse.valid()) {
+    return sparse.result_shape.empty() && sparse.triplet_element_counts.empty() &&
+           sparse.reserve_hint == 0U;
+  }
+  bool valid = expression.inferred_type == ValueType::list &&
+               expression.array_storage == ArrayStorageFormat::sparse_csc &&
+               sparse.result_shape == expression.shape && sparse.result_shape.size() == 2U &&
+               sparse.result_shape[0] != 0U && sparse.result_shape[1] != 0U;
+  const bool triplets = sparse.kind == semantic::SparseConstructionKind::triplets_inferred ||
+                        sparse.kind == semantic::SparseConstructionKind::triplets_sized ||
+                        sparse.kind == semantic::SparseConstructionKind::triplets_reserved;
+  if (triplets) {
+    valid = valid && sparse.triplet_element_counts.size() == 3U && expression.children.size() >= 4U;
+    for (std::size_t index = 0U; valid && index < 3U; ++index) {
+      const auto count = sparse_argument_count(expression.children[index + 1U]);
+      valid = count.has_value() && *count == sparse.triplet_element_counts[index];
+    }
+  } else {
+    valid = valid && sparse.triplet_element_counts.empty();
+  }
+  if (sparse.kind == semantic::SparseConstructionKind::dense_conversion) {
+    valid = valid && expression.children.size() == 2U &&
+            expression.children[1].shape == sparse.result_shape;
+  }
+  return valid && (sparse.kind == semantic::SparseConstructionKind::triplets_reserved ||
+                   sparse.reserve_hint == 0U);
+}
+
 bool valid_broadcast_plan(const lir::Expression& expression) noexcept {
   const auto& plan = expression.broadcast;
   if (!plan.valid) {
@@ -414,7 +483,7 @@ lir::CallForm call_form(const lir::Expression& expression) noexcept {
   if (callee.intrinsic == IntrinsicId::reshape && expression.children.size() >= 3) {
     return lir::CallForm::reshape;
   }
-  if (callee.intrinsic == IntrinsicId::matlab_sparse && expression.children.size() == 2U) {
+  if (callee.intrinsic == IntrinsicId::matlab_sparse && expression.sparse_construction.valid()) {
     return lir::CallForm::matlab_sparse;
   }
   if (callee.intrinsic == IntrinsicId::matlab_full && expression.children.size() == 2U) {
@@ -476,16 +545,21 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
       if (expression.unary_operation == UnaryOperator::transpose ||
           expression.unary_operation == UnaryOperator::conjugate_transpose) {
         result.precedence = 9;
+        const bool sparse_operand =
+            !expression.children.empty() &&
+            expression.children.front().array_storage == ArrayStorageFormat::sparse_csc;
         const bool complex_operand =
             !expression.children.empty() &&
             (expression.children.front().numeric_type.complexity == NumericComplexity::complex ||
              expression.children.front().element_numeric_type.complexity ==
                  NumericComplexity::complex);
         result.token =
-            expression.unary_operation == UnaryOperator::conjugate_transpose && complex_operand
+            sparse_operand ? "__mpf_sparse_transpose"
+            : expression.unary_operation == UnaryOperator::conjugate_transpose && complex_operand
                 ? "__mpf_matlab_ctranspose"
                 : "__mpf_matlab_transpose";
-        result.form = lir::ExpressionForm::matlab_transpose;
+        result.form = sparse_operand ? lir::ExpressionForm::matlab_sparse_transpose
+                                     : lir::ExpressionForm::matlab_transpose;
       } else if (source_language == SourceLanguage::matlab &&
                  expression.logical_evaluation == semantic::LogicalEvaluation::eager_elementwise &&
                  expression.unary_operation == UnaryOperator::logical_not) {
@@ -943,6 +1017,10 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
       expression.plan.token.empty()) {
     add_error(diagnostics, expression.location,
               "JavaScript LIR numeric runtime plan has no target helper");
+  }
+  if (!valid_sparse_construction(expression)) {
+    add_error(diagnostics, expression.location,
+              "JavaScript LIR sparse-construction plan is inconsistent");
   }
   if (!same_plan(expression.plan,
                  expected_expression_plan(expression, emission, context, source_language))) {
