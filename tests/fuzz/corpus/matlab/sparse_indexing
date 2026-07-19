@@ -1,0 +1,6 @@
+A = sparse([1 0 2; 0 3 0; 4 0 5]);
+linear = A([9 1; 5 7]);
+logical = A([true false true false true false true false true]);
+block = A([3 1 3], [3 1]);
+empty = A([], :);
+disp(nnz(linear) + nnz(logical) + nnz(block) + nnz(empty))
