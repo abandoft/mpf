@@ -1,3 +1,21 @@
+## 0.6.8
+
+- Matlab sparse matrices now preserve zero extents throughout the supported static, finite-real rank-two feature set.
+- All R2024 `sparse` constructor forms retain canonical CSC storage and explicit shapes when either dimension is zero.
+- Sparse transpose, indexing, assignment, growth, deletion, and reshape now preserve shaped-empty matrices without dense materialization.
+- Sparse-by-sparse and mixed-storage matrix products support empty output dimensions and empty inner dimensions with Matlab-compatible result storage.
+- Bidirectional sparse/scalar scaling and compatible-size sparse `.*` operations now preserve zero-extent shapes and canonical CSC results.
+- Sparse left division supports a `0×0` coefficient matrix with dense or sparse `0×n` right-hand sides.
+- Sparse right division supports dense or sparse `m×0` left-hand sides with a `0×0` coefficient matrix.
+- Zero-dimensional square solves preserve the source-language storage rule: dense operands produce shaped dense results and CSC operands produce canonical CSC results.
+- Generated JavaScript and C++17 validate coefficient, operand, and result shape plans before executing a sparse solve and report stable errors for corrupted plans.
+- JavaScript and C++17 use independent sparse runtimes and return zero-dimensional results without factorization or conversion through the other target.
+- Target LIR v34 now carries an explicit runtime shape-call ABI, allowing renderers to serialize validated calls without recovering semantic storage or shape policy.
+- Source maps preserve every new sparse operation and zero-dimensional left- or right-division call site.
+- Added dual-target differential execution, generated-plan rejection, cross-layer corruption, fuzz, and architecture coverage for zero-extent sparse behavior.
+- The validation baseline now contains 268 C++ tests, 98 differential cases, 127 CTest entries, and 18 generated-runtime rejection tests.
+- Production source coverage is 91.69% (37,154 of 40,520 lines), and the existing sparse-solve performance budget passes without being widened.
+
 ## 0.6.7
 
 - Matlab sparse matrices now support compatible-size element-wise multiplication with `.*` within the nonempty, statically shaped, finite-real rank-two contract.

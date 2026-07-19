@@ -1,3 +1,21 @@
+## 0.6.8
+
+- Matlab 稀疏矩阵现可在已支持的静态 finite-real rank-2 能力中完整保持零 extent。
+- R2024 全部 `sparse` 构造形式在任一维为零时仍保持 canonical CSC 存储与显式 shape。
+- 稀疏转置、索引、赋值、扩容、删除与 reshape 现可保持 shaped-empty 矩阵，无需物化稠密源。
+- sparse×sparse 与 mixed-storage 矩阵乘法现支持零输出维和零内维，并保持符合 Matlab 的结果 storage。
+- 双向 sparse/scalar 缩放与 compatible-size sparse `.*` 现可保持零 extent shape 和 canonical CSC 结果。
+- 稀疏左除现支持 `0×0` 系数矩阵与 dense 或 sparse `0×n` RHS。
+- 稀疏右除现支持 dense 或 sparse `m×0` LHS 与 `0×0` 系数矩阵。
+- 零维方阵求解保持源语言 storage 规则：dense operand 产生 shaped dense 结果，CSC operand 产生 canonical CSC 结果。
+- 生成的 JavaScript 与 C++17 会在执行稀疏求解前验证系数、operand 与结果 shape plan，并对损坏计划报告稳定错误。
+- JavaScript 与 C++17 使用彼此独立的稀疏 runtime，无需分解零维系数，也不经过另一目标进行转换。
+- 双目标 LIR v34 新增显式 runtime shape 调用 ABI，使 renderer 只序列化已验证调用，不再恢复 semantic storage 或 shape policy。
+- source map 会保留全部新增稀疏操作以及零维左除、右除的原始调用位置。
+- 新增零 extent sparse 的双目标差分执行、生成计划拒错、跨层损坏、fuzz 与架构覆盖。
+- 验证基线现包含 268 项 C++ 测试、98 个差分 case、127 项 CTest 和 18 项生成 runtime 拒错测试。
+- 生产源码覆盖率为 91.69%（37,154/40,520 行），既有 sparse-solve 性能预算无需放宽即可通过。
+
 ## 0.6.7
 
 - Matlab 稀疏矩阵现在可在非空、静态 shape、finite-real rank-2 合同内执行 compatible-size `.*` 逐元素乘法。
