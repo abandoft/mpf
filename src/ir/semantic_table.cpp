@@ -620,6 +620,42 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
     add_error(diagnostics, expression.location, stage,
               "inactive expression broadcast plan retains a runtime shape source");
   }
+  const auto& sparse_elementwise = facts->sparse_elementwise;
+  if (sparse_elementwise.valid()) {
+    const auto* left =
+        expression.children.size() == 2U ? table.expression(expression.children[0].id) : nullptr;
+    const auto* right =
+        expression.children.size() == 2U ? table.expression(expression.children[1].id) : nullptr;
+    if (facts->array_operation != semantic::ArrayOperation::matlab ||
+        expression.kind != ExpressionKind::binary ||
+        expression.operation != BinaryOperator::elementwise_multiply || facts->broadcast.valid ||
+        left == nullptr || right == nullptr ||
+        sparse_elementwise.left_storage != left->array_storage ||
+        sparse_elementwise.right_storage != right->array_storage ||
+        sparse_elementwise.result_storage != facts->array_storage ||
+        sparse_elementwise.result_shape != facts->shape ||
+        !semantic::valid_sparse_elementwise_contract(
+            sparse_elementwise.operation, sparse_elementwise.storage_policy,
+            sparse_elementwise.shape_source, sparse_elementwise.left_storage,
+            sparse_elementwise.right_storage, sparse_elementwise.result_storage,
+            sparse_elementwise.left_shape, sparse_elementwise.right_shape,
+            sparse_elementwise.result_shape, sparse_elementwise.axes)) {
+      add_error(diagnostics, expression.location, stage,
+                "sparse element-wise plan has an invalid operator, broadcast, storage, or "
+                "result contract");
+    }
+  } else if (sparse_elementwise.storage_policy !=
+                 semantic::SparseElementwiseStoragePolicy::none ||
+             sparse_elementwise.shape_source !=
+                 semantic::BroadcastShapeSource::static_extents ||
+             sparse_elementwise.left_storage != ArrayStorageFormat::none ||
+             sparse_elementwise.right_storage != ArrayStorageFormat::none ||
+             sparse_elementwise.result_storage != ArrayStorageFormat::none ||
+             !sparse_elementwise.left_shape.empty() || !sparse_elementwise.right_shape.empty() ||
+             !sparse_elementwise.result_shape.empty() || !sparse_elementwise.axes.empty()) {
+    add_error(diagnostics, expression.location, stage,
+              "inactive sparse element-wise plan retains semantic state");
+  }
   const auto& matrix = facts->matrix_operation;
   const auto expected_matrix = expected_matrix_operation(expression, *facts, table);
   if (matrix.operation != expected_matrix) {

@@ -897,7 +897,11 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                            left == ValueType::list && right == ValueType::list;
     const bool supported_sparse_scale = operation == BinaryOperator::multiply &&
                                         (left == ValueType::list) != (right == ValueType::list);
-    if (!supported_sparse_solve && !supported_sparse_multiply && !supported_sparse_scale) {
+    const bool supported_sparse_elementwise =
+        operation == BinaryOperator::elementwise_multiply &&
+        (left == ValueType::list || right == ValueType::list);
+    if (!supported_sparse_solve && !supported_sparse_multiply && !supported_sparse_scale &&
+        !supported_sparse_elementwise) {
       diagnose(expression.location.line, "MPF2054",
                "this sparse array operation is outside the current CSC contract; convert the "
                "operand with full or use sparse multiplication or square division");
@@ -1120,6 +1124,68 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
     const bool sparse_scale =
         scalar_scale && (left_facts.array_storage == ArrayStorageFormat::sparse_csc ||
                          right_facts.array_storage == ArrayStorageFormat::sparse_csc);
+    const bool sparse_elementwise =
+        operation == BinaryOperator::elementwise_multiply &&
+        (left_facts.array_storage == ArrayStorageFormat::sparse_csc ||
+         right_facts.array_storage == ArrayStorageFormat::sparse_csc);
+    if (sparse_elementwise) {
+      auto& facts = semantic(semantics_, expression);
+      const auto numeric_domain = matlab_matrix_numeric_domain(left_facts, right_facts);
+      if (!numeric_domain.has_value() || *numeric_domain != semantic::MatrixNumericDomain::real) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse element-wise multiplication currently requires resolved real or "
+                 "logical operands");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      const auto broadcast =
+          matlab_broadcast_plan(left_array ? left_facts.shape : std::vector<std::size_t>{},
+                                right_array ? right_facts.shape : std::vector<std::size_t>{});
+      if (!broadcast.has_value() ||
+          broadcast->shape_source != semantic::BroadcastShapeSource::static_extents ||
+          broadcast->result_shape.size() != 2U ||
+          std::find(broadcast->result_shape.begin(), broadcast->result_shape.end(), 0U) !=
+              broadcast->result_shape.end()) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse element-wise multiplication requires compatible nonempty static "
+                 "rank-2 operands");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      const auto left_shape =
+          left_array ? matlab_broadcast_shape(left_facts.shape, right_facts.shape.size())
+                     : std::vector<std::size_t>{};
+      const auto right_shape =
+          right_array ? matlab_broadcast_shape(right_facts.shape, left_facts.shape.size())
+                      : std::vector<std::size_t>{};
+      const auto result_storage = semantic::sparse_elementwise_result_storage(
+          left_facts.array_storage, right_facts.array_storage);
+      hir::SparseElementwisePlan plan{
+          semantic::SparseElementwiseOperation::multiply,
+          semantic::SparseElementwiseStoragePolicy::preserve_sparse,
+          semantic::BroadcastShapeSource::static_extents,
+          left_facts.array_storage,
+          right_facts.array_storage,
+          result_storage,
+          left_shape,
+          right_shape,
+          broadcast->result_shape,
+          broadcast->axes};
+      if (!semantic::valid_sparse_elementwise_contract(
+              plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage,
+              plan.right_storage, plan.result_storage, plan.left_shape, plan.right_shape,
+              plan.result_shape, plan.axes)) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse element-wise multiplication operands violate the canonical CSC "
+                 "storage contract");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      facts.array_operation = semantic::ArrayOperation::matlab;
+      facts.inferred_type = ValueType::list;
+      facts.element_type = matlab_arithmetic_join(left_element, right_element);
+      facts.shape = broadcast->result_shape;
+      facts.array_storage = result_storage;
+      facts.sparse_elementwise = std::move(plan);
+      return facts.inferred_type;
+    }
     if (sparse_scale) {
       auto& facts = semantic(semantics_, expression);
       const auto& sparse_facts = left_array ? left_facts : right_facts;
