@@ -525,6 +525,8 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT index_extent_contract MATCHES "MatrixStoragePolicy" OR
    NOT index_extent_contract MATCHES "matrix_storage_policy" OR
    NOT index_extent_contract MATCHES "sparse_csc_coefficient" OR
+   NOT index_extent_contract MATCHES "sparse_csc_multiply" OR
+   NOT index_extent_contract MATCHES "valid_matrix_multiply_storage_contract" OR
    NOT index_extent_contract MATCHES "SparseConstructionKind" OR
    NOT index_extent_contract MATCHES "triplets_reserved" OR
    NOT index_extent_contract MATCHES "SparseIndexKind" OR
@@ -713,6 +715,10 @@ foreach(sparse_matrix_runtime IN ITEMS
      NOT sparse_matrix_runtime_contract MATCHES "sparse_is_full_slice" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_assign" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_erase" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_sparse_mtimes" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_dense_mtimes" OR
+     NOT sparse_matrix_runtime_contract MATCHES "dense_sparse_mtimes" OR
+     NOT sparse_matrix_runtime_contract MATCHES "matrix multiplication shape mismatch" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_tridiagonal_factor" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_row_lu_factor" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_rcond" OR
@@ -720,7 +726,7 @@ foreach(sparse_matrix_runtime IN ITEMS
      NOT sparse_matrix_runtime_contract MATCHES "mrdivide_sparse_real_square")
     message(FATAL_ERROR
       "target sparse-matrix runtime does not own canonical CSC construction/index/mutation, "
-      "sparse square solve, transpose, and condition kernels: ${sparse_matrix_runtime}")
+      "sparse product/square-solve, transpose, and condition kernels: ${sparse_matrix_runtime}")
   endif()
   mpf_assert_file_excludes("${sparse_matrix_runtime}"
     "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
@@ -735,15 +741,21 @@ foreach(sparse_representation IN ITEMS
      NOT sparse_representation_contract MATCHES "valid_sparse_index_contract" OR
      NOT sparse_representation_contract MATCHES "matlab_sparse_index" OR
      NOT sparse_representation_contract MATCHES "valid_sparse_mutation_contract" OR
-     NOT sparse_representation_contract MATCHES "sparse_mutation")
+     NOT sparse_representation_contract MATCHES "sparse_mutation" OR
+     NOT sparse_representation_contract MATCHES "sparse_csc_multiply" OR
+     NOT sparse_representation_contract MATCHES "sparse_sparse_mtimes" OR
+     NOT sparse_representation_contract MATCHES "sparse_dense_mtimes" OR
+     NOT sparse_representation_contract MATCHES "dense_sparse_mtimes")
     message(FATAL_ERROR
-      "target representation does not verify sparse construction/index/mutation plans or select sparse forms: "
+      "target representation does not verify sparse construction/index/mutation/product plans or select sparse forms: "
       "${sparse_representation}")
   endif()
 endforeach()
 foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
   mpf_assert_file_excludes("${renderer}" "SparseConstructionKind|sparse_construction"
     "target renderer recovered sparse-construction semantics from source plans")
+  mpf_assert_file_excludes("${renderer}" "MatrixStoragePolicy|sparse_csc_multiply"
+    "target renderer recovered sparse-product semantics from source plans")
 endforeach()
 mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
   "function __mpf_matlab_lu_"
@@ -758,10 +770,10 @@ mpf_assert_file_excludes("src/backends/cpp/runtime.cpp"
   "inline[^\n]*matlab_complex_(lu|cholesky|mtimes|mpower)"
   "generic cpp runtime regained complex-matrix kernel ownership")
 mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
-  "function __mpf_(validate_sparse_csc|sparse_row_lu|sparse_tridiagonal)"
+  "function __mpf_(validate_sparse_csc|sparse_row_lu|sparse_tridiagonal|sparse_sparse_mtimes|sparse_dense_mtimes|dense_sparse_mtimes)"
   "generic JavaScript runtime regained sparse-matrix kernel ownership")
 mpf_assert_file_excludes("src/backends/cpp/runtime.cpp"
-  "(struct|inline|template)[^\n]*(validate_sparse_csc|sparse_row_lu|sparse_tridiagonal)"
+  "(struct|inline|template)[^\n]*(validate_sparse_csc|sparse_row_lu|sparse_tridiagonal|sparse_sparse_mtimes|sparse_dense_mtimes|dense_sparse_mtimes)"
   "generic cpp runtime regained sparse-matrix kernel ownership")
 file(READ "${SOURCE_DIR}/src/backends/javascript/runtime.cpp" javascript_runtime_contract)
 file(READ "${SOURCE_DIR}/src/backends/cpp/runtime.cpp" cpp_runtime_contract)
