@@ -12,7 +12,7 @@ void emit_cpp_sparse_matrix_runtime(std::ostream& output) {
   std::vector<std::size_t> row_indices;
   std::vector<T> values;
 };
-template <typename T> const sparse_matrix<T>& validate_sparse_csc(
+template <typename T> void validate_sparse_csc(
     const sparse_matrix<T>& matrix, const std::string& name = "sparse matrix") {
   if (matrix.column_pointers.size() != matrix.columns + 1U ||
       matrix.row_indices.size() != matrix.values.size() || matrix.column_pointers.empty() ||
@@ -35,7 +35,6 @@ template <typename T> const sparse_matrix<T>& validate_sparse_csc(
       previous = row; has_previous = true;
     }
   }
-  return matrix;
 }
 template <typename T> sparse_matrix<double> sparse(
     const std::vector<std::vector<T>>& values) {
@@ -59,7 +58,8 @@ template <typename T> sparse_matrix<T> sparse(const sparse_matrix<T>& matrix) {
   validate_sparse_csc(matrix); return matrix;
 }
 template <typename T> std::vector<std::vector<double>> full(const sparse_matrix<T>& value) {
-  const auto& matrix = validate_sparse_csc(value, "full input");
+  validate_sparse_csc(value, "full input");
+  const auto& matrix = value;
   std::vector<std::vector<double>> result(matrix.rows, std::vector<double>(matrix.columns));
   for (std::size_t column = 0; column < matrix.columns; ++column)
     for (auto index = matrix.column_pointers[column];
@@ -73,7 +73,8 @@ template <typename T> std::vector<T> full(const std::vector<T>& values) { return
 template <typename T> constexpr bool issparse(const T&) noexcept { return false; }
 template <typename T> constexpr bool issparse(const sparse_matrix<T>&) noexcept { return true; }
 template <typename T> std::size_t nnz(const sparse_matrix<T>& matrix) {
-  return validate_sparse_csc(matrix).values.size();
+  validate_sparse_csc(matrix);
+  return matrix.values.size();
 }
 template <typename T> std::size_t nnz(const T& value) {
   if constexpr (is_vector<std::decay_t<T>>::value) {
@@ -90,7 +91,8 @@ template <typename T> std::size_t nnz(const T& value) {
   }
 }
 template <typename T> sparse_matrix<double> sparse_transpose(const sparse_matrix<T>& value) {
-  const auto& matrix = validate_sparse_csc(value, "transpose operand");
+  validate_sparse_csc(value, "transpose operand");
+  const auto& matrix = value;
   sparse_matrix<double> result;
   result.rows = matrix.columns; result.columns = matrix.rows;
   result.column_pointers.assign(result.columns + 1U, 0U);
@@ -330,7 +332,8 @@ double sparse_rcond(const Matrix& matrix, const Factor& factor, Apply apply,
 template <typename T> std::vector<std::vector<double>> sparse_square_solve_dense(
     const sparse_matrix<T>& coefficients,
     const std::vector<std::vector<double>>& right_hand_side) {
-  const auto& matrix = validate_sparse_csc(coefficients, "sparse coefficient matrix");
+  validate_sparse_csc(coefficients, "sparse coefficient matrix");
+  const auto& matrix = coefficients;
   if (matrix.rows == 0U || matrix.rows != matrix.columns || right_hand_side.size() != matrix.rows ||
       right_hand_side.empty() || right_hand_side.front().empty())
     throw std::invalid_argument("MPF Matlab sparse solve shape mismatch");
