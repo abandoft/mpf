@@ -50,9 +50,25 @@ function __mpf_sparse_dense_rank2(value, name) {
   }
   return { shape, flattened };
 }
-function __mpf_sparse_from_dense(value) {
-  if (__mpf_issparse(value)) return __mpf_validate_sparse_csc(value);
+function __mpf_sparse_from_dense(value, plannedShape) {
+  if (plannedShape !== undefined &&
+      (!Array.isArray(plannedShape) || plannedShape.length !== 2 ||
+       plannedShape.some(extent => !Number.isSafeInteger(extent) || extent < 0))) {
+    throw new RangeError('MPF Matlab sparse conversion plan has an invalid shape');
+  }
+  if (__mpf_issparse(value)) {
+    const matrix = __mpf_validate_sparse_csc(value);
+    if (plannedShape !== undefined &&
+        (matrix.rows !== plannedShape[0] || matrix.columns !== plannedShape[1])) {
+      throw new RangeError('MPF Matlab sparse input disagrees with its static shape contract');
+    }
+    return matrix;
+  }
   const { shape, flattened } = __mpf_sparse_dense_rank2(value, 'sparse input');
+  if (plannedShape !== undefined &&
+      (shape[0] !== plannedShape[0] || shape[1] !== plannedShape[1])) {
+    throw new RangeError('MPF Matlab sparse input disagrees with its static shape contract');
+  }
   const [rows, columns] = shape;
   const columnPointers = [0]; const rowIndices = []; const values = [];
   for (let column = 0; column < columns; ++column) {
@@ -105,11 +121,11 @@ function __mpf_sparse_from_triplets(rowValue, columnValue, storedValue,
     entries[index] = { row: row - 1, column: column - 1, value };
   }
   const rows = explicitRows === undefined
-    ? __mpf_sparse_dimension(inferredRows, 'inferred row extent')
-    : __mpf_sparse_dimension(explicitRows, 'row extent');
+    ? __mpf_sparse_dimension(inferredRows, 'inferred row extent', true)
+    : __mpf_sparse_dimension(explicitRows, 'row extent', true);
   const columns = explicitColumns === undefined
-    ? __mpf_sparse_dimension(inferredColumns, 'inferred column extent')
-    : __mpf_sparse_dimension(explicitColumns, 'column extent');
+    ? __mpf_sparse_dimension(inferredColumns, 'inferred column extent', true)
+    : __mpf_sparse_dimension(explicitColumns, 'column extent', true);
   if (reserveHint !== undefined) __mpf_sparse_dimension(reserveHint, 'nzmax', true);
   for (const entry of entries) if (entry.row >= rows || entry.column >= columns) {
     throw new RangeError('MPF Matlab sparse triplet index exceeds the requested dimensions');
@@ -134,8 +150,8 @@ function __mpf_sparse_from_triplets(rowValue, columnValue, storedValue,
 function __mpf_sparse(...args) {
   if (args.length === 1) return __mpf_sparse_from_dense(args[0]);
   if (args.length === 2) {
-    const rows = __mpf_sparse_dimension(args[0], 'row extent');
-    const columns = __mpf_sparse_dimension(args[1], 'column extent');
+    const rows = __mpf_sparse_dimension(args[0], 'row extent', true);
+    const columns = __mpf_sparse_dimension(args[1], 'column extent', true);
     return __mpf_make_sparse_csc(rows, columns, new Array(columns + 1).fill(0), [], []);
   }
   if (args.length === 3) return __mpf_sparse_from_triplets(args[0], args[1], args[2]);
