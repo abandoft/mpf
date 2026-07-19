@@ -203,6 +203,25 @@ class Builder final {
         result_attributes.indexed_mutation.result_shape =
             intern_shape(semantic_facts->mutation_result_shape, column_major);
       }
+      const auto& sparse = semantic_facts->sparse_mutation;
+      result_attributes.sparse_mutation.kind = sparse.kind;
+      result_attributes.sparse_mutation.replacement = sparse.replacement;
+      result_attributes.sparse_mutation.duplicate_policy = sparse.duplicate_policy;
+      result_attributes.sparse_mutation.zero_policy = sparse.zero_policy;
+      result_attributes.sparse_mutation.source_storage = sparse.source_storage;
+      result_attributes.sparse_mutation.replacement_storage = sparse.replacement_storage;
+      result_attributes.sparse_mutation.result_storage = sparse.result_storage;
+      if (sparse.valid()) {
+        const bool column_major = program_.source_language == SourceLanguage::matlab;
+        result_attributes.sparse_mutation.input_shape =
+            intern_shape(sparse.input_shape, column_major);
+        result_attributes.sparse_mutation.selection_shape =
+            intern_shape(sparse.selection_shape, column_major);
+        result_attributes.sparse_mutation.replacement_shape =
+            intern_shape(sparse.replacement_shape, column_major);
+        result_attributes.sparse_mutation.result_shape =
+            intern_shape(sparse.result_shape, column_major);
+      }
     }
     result.target_expression = lower_expression(std::move(source.target_expression));
     result.has_target_expression = source.has_target_expression;
