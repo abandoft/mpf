@@ -1,3 +1,18 @@
+## 0.6.0
+
+- Matlab `sparse(A)` now converts nonempty, statically shaped real rank-two arrays into canonical compressed sparse column storage.
+- Matlab `full`, `issparse`, and `nnz` now support the delivered dense/CSC conversion, storage-query, and nonzero-count workflows.
+- Sparse real square left division now supports vectors and multiple right-hand-side columns in generated JavaScript and C++17.
+- Tridiagonal sparse coefficients use a compact O(nnz) factorization, while other square patterns use partial-row-pivoted sparse LU without creating a dense coefficient copy.
+- Sparse square right division reuses the transposed sparse solve and preserves sparse results according to Matlab left/right operand rules.
+- Exact singular and nearly singular sparse systems now emit the same stable condition warnings as the existing dense square solvers.
+- Generated JavaScript uses a private tagged CSC value, while generated C++17 uses a typed `mpf_runtime::sparse_matrix`; the two runtimes remain independent.
+- Runtime validation rejects malformed CSC pointers, unordered row indices, zero or nonfinite stored entries, and incompatible solve shapes.
+- Unsupported sparse constructors, indexing, transpose, reshape, logical, element-wise, multiplication, power, rectangular, complex, and zero-extent cases fail before emission with `MPF2054`.
+- Numeric type planning now preserves Matlab binary64 arrays while keeping Python operand-returning short-circuit and conditional-expression result types correct in generated C++17.
+- Added executable sparse solve and condition-warning examples with source-map checks, fuzz coverage, and dual-target differential validation.
+- The release gate now contains 234 internal tests, 90 differential cases, 107 configured CTest entries, 25 versioned performance scenarios, and 91.07% production line coverage.
+
 ## 0.5.9
 
 - Matlab complex rectangular left division now supports overdetermined and underdetermined systems in generated JavaScript and C++17.

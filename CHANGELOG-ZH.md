@@ -1,3 +1,18 @@
+## 0.6.0
+
+- Matlab `sparse(A)` 现可把非空、静态 shape 的 real rank-two 数组转换为 canonical compressed sparse column 存储。
+- Matlab `full`、`issparse` 与 `nnz` 现支持本版本交付的 dense/CSC 转换、存储查询和非零计数流程。
+- 稀疏实数方阵左除现可在生成的 JavaScript 与 C++17 中处理向量和多列右端项。
+- 三对角稀疏系数使用紧凑 O(nnz) 分解；其他方阵结构使用带部分行主元的稀疏 LU，且不会创建稠密系数副本。
+- 稀疏方阵右除通过转置稀疏求解复用同一算法，并按 Matlab 左/右操作数规则保持稀疏结果。
+- 精确奇异与近奇异稀疏系统现会产生和既有稠密方阵求解器一致的稳定条件 warning。
+- 生成的 JavaScript 使用私有 tag 的 CSC 值，生成的 C++17 使用类型化 `mpf_runtime::sparse_matrix`；两套 runtime 继续彼此独立。
+- runtime 会拒绝畸形 CSC pointer、无序 row index、零值或非有限存储项，以及不匹配的求解 shape。
+- 尚未支持的 sparse constructor、索引、转置、reshape、逻辑、逐元素、乘法、幂、矩形、复数和零 extent 情形会在发射前以 `MPF2054` 失败。
+- 数值类型规划现可保持 Matlab binary64 数组，同时保证 Python operand-returning 短路与条件表达式在生成 C++17 中得到正确结果类型。
+- 新增可执行稀疏求解与条件 warning 示例，并覆盖 source map、fuzz 和双目标差分验证。
+- 发布门禁现包含 234 项内部测试、90 项差分 case、107 项 CTest、25 个版本化性能场景和 91.07% 生产代码行覆盖率。
+
 ## 0.5.9
 
 - Matlab 复数矩形左除现可在生成的 JavaScript 与 C++17 中处理超定和欠定系统。
