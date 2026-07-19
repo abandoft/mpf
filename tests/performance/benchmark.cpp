@@ -385,7 +385,12 @@ std::string matlab_sparse_solve_workload(const std::size_t rounds) {
       "right = sparse([1 2 0 0; 0 3 1 0; 2 0 4 1; 0 1 0 5]);\n"
       "constructed = sparse([1 4 1 2], [1 1 1 3], [2 5 -2 7], 4, 4, 8);\n"
       "inferred = sparse([2 1 2], [4 2 4], [3 6 4]);\n"
-      "zero_matrix = sparse(4, 4);\n";
+      "zero_matrix = sparse(4, 4);\n"
+      "empty_coefficient = sparse([], [], []);\n"
+      "empty_dense_rhs = reshape([], 0, 3);\n"
+      "empty_sparse_rhs = sparse(0, 3);\n"
+      "empty_dense_left = reshape([], 2, 0);\n"
+      "empty_sparse_left = sparse(2, 0);\n";
   for (std::size_t round = 0; round < rounds; ++round) {
     source += "tridiagonal_solution = tridiagonal \\ dense_rhs;\n";
     source += "pivoted_solution = pivoted \\ sparse_rhs;\n";
@@ -395,11 +400,17 @@ std::string matlab_sparse_solve_workload(const std::size_t rounds) {
     source += "transposed = constructed.';\n";
     source += "conjugate_transposed = inferred';\n";
     source += "dense_transposed = full(transposed);\n";
+    source += "empty_dense_solution = empty_coefficient \\ empty_dense_rhs;\n";
+    source += "empty_sparse_solution = empty_coefficient \\ empty_sparse_rhs;\n";
+    source += "empty_dense_quotient = empty_dense_left / empty_coefficient;\n";
+    source += "empty_sparse_quotient = empty_sparse_left / empty_coefficient;\n";
   }
   source +=
       "disp(tridiagonal_solution(1) + dense_pivoted(1) + dense_quotient(1, 1) + "
       "nnz(pivoted) + nnz(zero_matrix) + nnz(conjugate_transposed) + "
-      "dense_transposed(1, 4))\n";
+      "dense_transposed(1, 4) + length(empty_dense_solution) + "
+      "length(full(empty_sparse_solution)) + length(empty_dense_quotient) + "
+      "length(full(empty_sparse_quotient)))\n";
   return source;
 }
 
