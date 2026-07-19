@@ -308,6 +308,25 @@ std::string dump_semantics(const hir::SemanticTable& table) {
         }
         output << ']';
       }
+      if (facts.sparse_reshape.valid()) {
+        const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
+          output << '[';
+          for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+            if (axis != 0U) output << ',';
+            output << shape[axis];
+          }
+          output << ']';
+        };
+        output << " sparse-reshape=" << enum_value(facts.sparse_reshape.kind)
+               << " form=" << enum_value(facts.sparse_reshape.dimension_form)
+               << " inference=" << enum_value(facts.sparse_reshape.inference)
+               << " axis=" << facts.sparse_reshape.inferred_axis << " input=";
+        dump_shape(facts.sparse_reshape.input_shape);
+        output << " requested=";
+        dump_shape(facts.sparse_reshape.requested_shape);
+        output << " result=";
+        dump_shape(facts.sparse_reshape.result_shape);
+      }
       output << " region=";
       dump_storage_region(output, facts.storage_region);
     } else if (slot.kind == hir::SemanticNodeKind::statement &&

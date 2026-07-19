@@ -203,8 +203,8 @@ template <typename Shape>
     return false;
   }
   constexpr auto maximum = std::numeric_limits<std::size_t>::max();
-  const auto checked_product = [maximum](const Shape& shape, const std::size_t begin,
-                                         std::size_t& product) {
+  const auto checked_product = [](const Shape& shape, const std::size_t begin,
+                                  std::size_t& product) {
     product = 1U;
     for (std::size_t axis = begin; axis < shape.size(); ++axis) {
       const auto extent = shape[axis];

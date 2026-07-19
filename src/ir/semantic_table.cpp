@@ -311,6 +311,20 @@ semantic::SparseConstructionKind expected_sparse_construction_kind(
   }
 }
 
+semantic::SparseReshapeKind expected_sparse_reshape_kind(const Expression& expression,
+                                                         const SemanticTable& table) noexcept {
+  if (expression.kind != ExpressionKind::call || expression.children.size() < 3U) {
+    return semantic::SparseReshapeKind::none;
+  }
+  const auto* callee = table.expression(expression.children.front().id);
+  const auto* source = table.expression(expression.children[1].id);
+  return callee != nullptr && source != nullptr && callee->binding == BindingKind::builtin &&
+                 callee->intrinsic == IntrinsicId::reshape &&
+                 source->array_storage == ArrayStorageFormat::sparse_csc
+             ? semantic::SparseReshapeKind::column_major_2d
+             : semantic::SparseReshapeKind::none;
+}
+
 void verify_expression(const Expression& expression, const SemanticTable& table,
                        const SourceLanguage source_language, std::vector<bool>& seen,
                        const std::string_view stage, std::vector<Diagnostic>& diagnostics,
@@ -414,6 +428,62 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
                !sparse_index.input_shape.empty() || !sparse_index.result_shape.empty()) {
       add_error(diagnostics, expression.location, stage,
                 "inactive sparse-index plan retains semantic state");
+    }
+  }
+  if (analyzed) {
+    const auto expected_kind = expected_sparse_reshape_kind(expression, table);
+    const auto& sparse = facts->sparse_reshape;
+    const bool successful = expected_kind != semantic::SparseReshapeKind::none &&
+                            facts->inferred_type != ValueType::unknown;
+    if (successful != sparse.valid() || (sparse.valid() && sparse.kind != expected_kind)) {
+      add_error(diagnostics, expression.location, stage,
+                "sparse-reshape identity disagrees with the source intrinsic");
+    } else if (sparse.valid()) {
+      const auto* source = table.expression(expression.children[1].id);
+      const auto expected_form = expression.children.size() == 3U
+                                     ? semantic::SparseReshapeDimensionForm::size_vector
+                                     : semantic::SparseReshapeDimensionForm::dimension_list;
+      std::size_t empty_dimensions = 0U;
+      std::size_t empty_axis = 0U;
+      if (expected_form == semantic::SparseReshapeDimensionForm::dimension_list) {
+        for (std::size_t child = 2U; child < expression.children.size(); ++child) {
+          const auto& dimension = expression.children[child];
+          if (dimension.kind == ExpressionKind::list && dimension.children.empty()) {
+            empty_axis = child - 2U;
+            ++empty_dimensions;
+          }
+        }
+      }
+      const auto expected_inference = empty_dimensions == 1U
+                                          ? semantic::SparseReshapeInference::one_dimension
+                                          : semantic::SparseReshapeInference::none;
+      const bool valid =
+          source != nullptr && source->inferred_type == ValueType::list &&
+          source->element_type == ValueType::real &&
+          source->element_numeric_type == real_numeric_type &&
+          facts->inferred_type == ValueType::list && facts->element_type == ValueType::real &&
+          facts->element_numeric_type == real_numeric_type && facts->column_major &&
+          sparse.dimension_form == expected_form && empty_dimensions <= 1U &&
+          sparse.inference == expected_inference &&
+          (expected_inference == semantic::SparseReshapeInference::none ||
+           sparse.inferred_axis == empty_axis) &&
+          sparse.input_shape == source->shape && sparse.source_storage == source->array_storage &&
+          sparse.result_shape == facts->shape && sparse.result_storage == facts->array_storage &&
+          semantic::valid_sparse_reshape_contract(
+              sparse.kind, sparse.dimension_form, sparse.inference, sparse.inferred_axis,
+              sparse.source_storage, sparse.result_storage, sparse.input_shape,
+              sparse.requested_shape, sparse.result_shape);
+      if (!valid) {
+        add_error(diagnostics, expression.location, stage,
+                  "sparse-reshape plan has an invalid type, syntax, storage, or shape contract");
+      }
+    } else if (sparse.dimension_form != semantic::SparseReshapeDimensionForm::none ||
+               sparse.inference != semantic::SparseReshapeInference::none ||
+               sparse.inferred_axis != 0U || sparse.source_storage != ArrayStorageFormat::none ||
+               sparse.result_storage != ArrayStorageFormat::none || !sparse.input_shape.empty() ||
+               !sparse.requested_shape.empty() || !sparse.result_shape.empty()) {
+      add_error(diagnostics, expression.location, stage,
+                "inactive sparse-reshape plan retains semantic state");
     }
   }
   if (analyzed) {
