@@ -160,11 +160,16 @@ enum class MatrixStoragePolicy : std::uint8_t {
   none,
   dense,
   sparse_csc_coefficient,
-  sparse_csc_multiply
+  sparse_csc_multiply,
+  sparse_csc_scale
 };
 
 [[nodiscard]] constexpr ArrayStorageFormat matrix_multiply_result_storage(
     const ArrayStorageFormat left, const ArrayStorageFormat right) noexcept {
+  if ((left == ArrayStorageFormat::sparse_csc && right == ArrayStorageFormat::none) ||
+      (left == ArrayStorageFormat::none && right == ArrayStorageFormat::sparse_csc)) {
+    return ArrayStorageFormat::sparse_csc;
+  }
   if (!array_storage_known(left) || !array_storage_known(right)) {
     return ArrayStorageFormat::none;
   }
@@ -178,6 +183,10 @@ enum class MatrixStoragePolicy : std::uint8_t {
     const ArrayStorageFormat result) noexcept {
   const auto expected_result = matrix_multiply_result_storage(left, right);
   if (expected_result == ArrayStorageFormat::none || result != expected_result) return false;
+  const bool sparse_scale =
+      (left == ArrayStorageFormat::sparse_csc && right == ArrayStorageFormat::none) ||
+      (left == ArrayStorageFormat::none && right == ArrayStorageFormat::sparse_csc);
+  if (sparse_scale) return policy == MatrixStoragePolicy::sparse_csc_scale;
   const bool has_sparse =
       left == ArrayStorageFormat::sparse_csc || right == ArrayStorageFormat::sparse_csc;
   return policy ==
@@ -335,6 +344,9 @@ template <typename Shape>
   if (storage == MatrixStoragePolicy::sparse_csc_multiply) {
     return MatrixFactorizationPolicy::none;
   }
+  if (storage == MatrixStoragePolicy::sparse_csc_scale) {
+    return MatrixFactorizationPolicy::none;
+  }
   switch (solve) {
     case MatrixSolveKind::overdetermined:
     case MatrixSolveKind::underdetermined:
@@ -368,6 +380,11 @@ template <typename Shape>
   }
   if (operation == MatrixOperation::right_divide && right == ArrayStorageFormat::sparse_csc) {
     return MatrixStoragePolicy::sparse_csc_coefficient;
+  }
+  if (operation == MatrixOperation::multiply &&
+      ((left == ArrayStorageFormat::sparse_csc && right == ArrayStorageFormat::none) ||
+       (left == ArrayStorageFormat::none && right == ArrayStorageFormat::sparse_csc))) {
+    return MatrixStoragePolicy::sparse_csc_scale;
   }
   if (operation == MatrixOperation::multiply && array_storage_known(left) &&
       array_storage_known(right) &&
