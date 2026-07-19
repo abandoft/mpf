@@ -756,6 +756,14 @@ class Renderer final {
           emit_shape_array(expression.plan.sparse_elementwise.right_shape);
           output_ << ", ";
           emit_shape_array(expression.plan.sparse_elementwise.result_shape);
+        } else if (expression.matrix_operation.storage_policy ==
+                   semantic::MatrixStoragePolicy::sparse_csc_multiply) {
+          output_ << ", ";
+          emit_shape_array(expression.matrix_operation.left_shape);
+          output_ << ", ";
+          emit_shape_array(expression.matrix_operation.right_shape);
+          output_ << ", ";
+          emit_shape_array(expression.matrix_operation.result_shape);
         } else if (expression.plan.broadcast.valid &&
                    expression.plan.broadcast.shape_source ==
                        semantic::BroadcastShapeSource::static_extents) {
