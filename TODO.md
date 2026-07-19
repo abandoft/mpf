@@ -1,6 +1,6 @@
 # MPF 持续建设路线图
 
-本路线图记录 **0.6.8 当前开发基线** 与后续交付目标的真实状态。历史交付细节见
+本路线图记录 **0.6.9 当前开发基线** 与后续交付目标的真实状态。历史交付细节见
 [CHANGELOG-ZH.md](CHANGELOG-ZH.md)，当前可依赖的语言子集见
 [docs/LANGUAGE_SUPPORT.md](docs/LANGUAGE_SUPPORT.md)。目标版本号表示语法/语义覆盖上限，不表示已经完整兼容 Matlab 2024、Python 3.14、Fortran 2023 或 TypeScript 6；TypeScript 已有独立、可执行且包含 lexical block/canonical `for` 的子集，但完整 grammar 仍未完成。
 
