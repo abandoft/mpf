@@ -424,6 +424,26 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
       shape != nullptr) {
     result.mutation_result_shape = shape->extents;
   }
+  const auto& sparse = attributes.sparse_mutation;
+  result.sparse_mutation.kind = sparse.kind;
+  result.sparse_mutation.replacement = sparse.replacement;
+  result.sparse_mutation.duplicate_policy = sparse.duplicate_policy;
+  result.sparse_mutation.zero_policy = sparse.zero_policy;
+  result.sparse_mutation.source_storage = sparse.source_storage;
+  result.sparse_mutation.replacement_storage = sparse.replacement_storage;
+  result.sparse_mutation.result_storage = sparse.result_storage;
+  if (const auto* shape = mir::shape(program, sparse.input_shape); shape != nullptr) {
+    result.sparse_mutation.input_shape = shape->extents;
+  }
+  if (const auto* shape = mir::shape(program, sparse.selection_shape); shape != nullptr) {
+    result.sparse_mutation.selection_shape = shape->extents;
+  }
+  if (const auto* shape = mir::shape(program, sparse.replacement_shape); shape != nullptr) {
+    result.sparse_mutation.replacement_shape = shape->extents;
+  }
+  if (const auto* shape = mir::shape(program, sparse.result_shape); shape != nullptr) {
+    result.sparse_mutation.result_shape = shape->extents;
+  }
   result.case_selectors.reserve(source.case_selectors.size());
   for (const auto& selector : source.case_selectors) {
     result.case_selectors.push_back(lower_lir_selector<LirSelector, LirExpression>(

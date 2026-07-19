@@ -300,6 +300,25 @@ struct SparseIndexPlan {
   [[nodiscard]] bool valid() const noexcept { return kind != semantic::SparseIndexKind::none; }
 };
 
+struct SparseMutationPlan {
+  semantic::SparseMutationKind kind{semantic::SparseMutationKind::none};
+  semantic::SparseReplacementKind replacement{semantic::SparseReplacementKind::none};
+  semantic::SparseDuplicateWritePolicy duplicate_policy{
+      semantic::SparseDuplicateWritePolicy::none};
+  semantic::SparseZeroWritePolicy zero_policy{semantic::SparseZeroWritePolicy::none};
+  ArrayStorageFormat source_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat replacement_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat result_storage{ArrayStorageFormat::none};
+  std::vector<std::size_t> input_shape;
+  std::vector<std::size_t> selection_shape;
+  std::vector<std::size_t> replacement_shape;
+  std::vector<std::size_t> result_shape;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return kind != semantic::SparseMutationKind::none;
+  }
+};
+
 enum class ArrayLiteralForm : std::uint8_t { none, direct, shaped_empty };
 
 struct ArrayLiteralPlan {
@@ -393,6 +412,7 @@ struct StatementPlan {
   semantic::IndexedMutationContract indexed_mutation;
   std::vector<std::size_t> mutation_input_shape;
   std::vector<std::size_t> mutation_result_shape;
+  SparseMutationPlan sparse_mutation;
   std::vector<std::string> targets;
   std::vector<VariableAccess> target_accesses;
   std::vector<AssignmentLeafPlan> assignment_leaves;
@@ -565,6 +585,7 @@ struct Statement {
   semantic::IndexedMutationContract indexed_mutation;
   std::vector<std::size_t> mutation_input_shape;
   std::vector<std::size_t> mutation_result_shape;
+  SparseMutationPlan sparse_mutation;
   std::vector<CaseSelector> case_selectors;
   bool default_case{false};
   FunctionAbi function_abi;
