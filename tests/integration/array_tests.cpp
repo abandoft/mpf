@@ -577,12 +577,11 @@ TEST_CASE("Matlab sparse reshape preserves CSC order and target isolation") {
 }
 
 TEST_CASE("Matlab reshape rejects invalid inferred and sparse dimensions") {
-  const std::vector<std::string> invalid{
-      "A = sparse([1 0; 0 1]);\nB = reshape(A, [], []);\n",
-      "A = sparse([1 0; 0 1]);\nB = reshape(A, [], 3);\n",
-      "A = sparse([1 0; 0 1]);\nB = reshape(A, 4);\n",
-      "A = sparse([1 0; 0 1]);\nB = reshape(A, 0, 4);\n",
-      "A = sparse([1 0; 0 1]);\nB = reshape(A, [3 2]);\n"};
+  const std::vector<std::string> invalid{"A = sparse([1 0; 0 1]);\nB = reshape(A, [], []);\n",
+                                         "A = sparse([1 0; 0 1]);\nB = reshape(A, [], 3);\n",
+                                         "A = sparse([1 0; 0 1]);\nB = reshape(A, 4);\n",
+                                         "A = sparse([1 0; 0 1]);\nB = reshape(A, 0, 4);\n",
+                                         "A = sparse([1 0; 0 1]);\nB = reshape(A, [3 2]);\n"};
   for (const auto& source : invalid) {
     for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
       const auto result = transpile_array(source, mpf::SourceLanguage::matlab, target);

@@ -1159,14 +1159,14 @@ TEST_CASE("Matlab sparse reshape plans remain typed through every IR layer") {
   using Inference = mpf::detail::semantic::SparseReshapeInference;
   REQUIRE(mpf::detail::semantic::valid_sparse_reshape_contract(
       Kind::column_major_2d, Form::dimension_list, Inference::one_dimension, 0U,
-      mpf::detail::ArrayStorageFormat::sparse_csc,
-      mpf::detail::ArrayStorageFormat::sparse_csc, std::vector<std::size_t>{2U, 3U},
-      std::vector<std::size_t>{1U, 2U, 3U}, std::vector<std::size_t>{1U, 6U}));
+      mpf::detail::ArrayStorageFormat::sparse_csc, mpf::detail::ArrayStorageFormat::sparse_csc,
+      std::vector<std::size_t>{2U, 3U}, std::vector<std::size_t>{1U, 2U, 3U},
+      std::vector<std::size_t>{1U, 6U}));
   REQUIRE(!mpf::detail::semantic::valid_sparse_reshape_contract(
       Kind::column_major_2d, Form::size_vector, Inference::none, 0U,
-      mpf::detail::ArrayStorageFormat::sparse_csc,
-      mpf::detail::ArrayStorageFormat::sparse_csc, std::vector<std::size_t>{2U, 3U},
-      std::vector<std::size_t>{4U, 2U}, std::vector<std::size_t>{4U, 2U}));
+      mpf::detail::ArrayStorageFormat::sparse_csc, mpf::detail::ArrayStorageFormat::sparse_csc,
+      std::vector<std::size_t>{2U, 3U}, std::vector<std::size_t>{4U, 2U},
+      std::vector<std::size_t>{4U, 2U}));
 
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "A = sparse([1 0 2; 0 3 0]);\n"
@@ -1182,9 +1182,7 @@ TEST_CASE("Matlab sparse reshape plans remain typed through every IR layer") {
                         }) == 3);
   const auto inferred_hir = std::find_if(
       analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
-      [](const auto& facts) {
-        return facts.sparse_reshape.inference == Inference::one_dimension;
-      });
+      [](const auto& facts) { return facts.sparse_reshape.inference == Inference::one_dimension; });
   REQUIRE(inferred_hir != analysis.semantics.expressions.end());
   REQUIRE(inferred_hir->sparse_reshape.dimension_form == Form::dimension_list);
   REQUIRE(inferred_hir->sparse_reshape.inferred_axis == 0U);
@@ -1214,24 +1212,23 @@ TEST_CASE("Matlab sparse reshape plans remain typed through every IR layer") {
                                               std::move(analysis.semantics), analysis.names);
   REQUIRE(mir.diagnostics.empty());
   REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-reshape-plan").empty());
-  const auto folded_mir = std::find_if(
-      mir.program.attributes.expressions.begin() + 1,
-      mir.program.attributes.expressions.end(), [&](const auto& attributes) {
-        return attributes.sparse_reshape.valid() &&
-               mir.program.shapes[attributes.sparse_reshape.requested_shape.value()].extents.size() ==
-                   3U;
-      });
+  const auto folded_mir =
+      std::find_if(mir.program.attributes.expressions.begin() + 1,
+                   mir.program.attributes.expressions.end(), [&](const auto& attributes) {
+                     return attributes.sparse_reshape.valid() &&
+                            mir.program.shapes[attributes.sparse_reshape.requested_shape.value()]
+                                    .extents.size() == 3U;
+                   });
   REQUIRE(folded_mir != mir.program.attributes.expressions.end());
   REQUIRE(mir.program.shapes[folded_mir->sparse_reshape.result_shape.value()].extents ==
           std::vector<std::size_t>({1U, 6U}));
-  REQUIRE(mpf::detail::dump_mir(mir.program).find("sparse-reshape=1 form=2") !=
-          std::string::npos);
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("sparse-reshape=1 form=2") != std::string::npos);
   auto contradictory_mir = mir.program;
-  const auto corrupt_mir = std::find_if(
-      contradictory_mir.attributes.expressions.begin() + 1,
-      contradictory_mir.attributes.expressions.end(), [](const auto& attributes) {
-        return attributes.sparse_reshape.inference == Inference::one_dimension;
-      });
+  const auto corrupt_mir =
+      std::find_if(contradictory_mir.attributes.expressions.begin() + 1,
+                   contradictory_mir.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.sparse_reshape.inference == Inference::one_dimension;
+                   });
   REQUIRE(corrupt_mir != contradictory_mir.attributes.expressions.end());
   corrupt_mir->sparse_reshape.inferred_axis = 1U;
   REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-reshape-axis-mismatch").empty());
@@ -1251,12 +1248,12 @@ TEST_CASE("Matlab sparse reshape plans remain typed through every IR layer") {
   const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
   REQUIRE(javascript.diagnostics.empty());
   REQUIRE(cpp.diagnostics.empty());
-  REQUIRE(javascript.artifact->debug_dump().find(
-              "sparse-reshape 1 form 2 inference 1 axis 0 input [2,3] requested [2,3] result [2,3]") !=
-          std::string::npos);
-  REQUIRE(cpp.artifact->debug_dump().find(
-              "sparse-reshape 1 form 2 inference 0 axis 0 input [2,3] requested [1,2,3] result [1,6]") !=
-          std::string::npos);
+  REQUIRE(
+      javascript.artifact->debug_dump().find(
+          "sparse-reshape 1 form 2 inference 1 axis 0 input [2,3] requested [2,3] result [2,3]") !=
+      std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("sparse-reshape 1 form 2 inference 0 axis 0 input [2,3] "
+                                          "requested [1,2,3] result [1,6]") != std::string::npos);
 }
 
 TEST_CASE("target LIR verifiers independently reject corrupted sparse reshape plans") {
@@ -1271,10 +1268,15 @@ TEST_CASE("target LIR verifiers independently reject corrupted sparse reshape pl
     expression.array_storage = mpf::detail::ArrayStorageFormat::sparse_csc;
     expression.shape = {1U, 6U};
     expression.column_major = true;
-    expression.sparse_reshape = {
-        Kind::column_major_2d, Form::dimension_list, Inference::none, 0U,
-        mpf::detail::ArrayStorageFormat::sparse_csc,
-        mpf::detail::ArrayStorageFormat::sparse_csc, {2U, 3U}, {1U, 2U, 3U}, {1U, 6U}};
+    expression.sparse_reshape = {Kind::column_major_2d,
+                                 Form::dimension_list,
+                                 Inference::none,
+                                 0U,
+                                 mpf::detail::ArrayStorageFormat::sparse_csc,
+                                 mpf::detail::ArrayStorageFormat::sparse_csc,
+                                 {2U, 3U},
+                                 {1U, 2U, 3U},
+                                 {1U, 6U}};
     expression.children.resize(5U);
     auto& callee = expression.children[0];
     callee.kind = mpf::detail::ExpressionKind::identifier;
