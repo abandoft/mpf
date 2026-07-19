@@ -1,3 +1,19 @@
+## 0.6.5
+
+- Matlab 现支持非空、静态 shape、finite-real rank-two 的 sparse×sparse 矩阵乘法。
+- sparse×dense 与 dense×sparse Matlab 矩阵乘法现已支持，且不会先把 sparse operand 转为稠密源矩阵。
+- sparse×sparse 结果保持 canonical CSC，两类 mixed-storage 结果按 Matlab storage 行为返回 dense 矩阵。
+- JavaScript 与 C++17 使用彼此独立的 sparse matrix-product runtime 和目标专属 helper binding。
+- CSC×CSC kernel 使用按列 sparse accumulator，只排序触及的行，并删除 exact-zero cancellation。
+- mixed-storage kernel 直接遍历 CSC 非零项并累计到 dense 结果。
+- 生成 runtime 会在计算前验证 canonical CSC 结构、有限值、dense operand 矩形性和乘法维度。
+- 尚未支持的 sparse scalar multiplication、complex sparse product、零 extent、动态 sparse shape 与维度不匹配会继续以稳定诊断失败关闭。
+- JavaScript 与 C++17 source map 会保留 sparse matrix-product 调用的原始源码位置。
+- 新增同时覆盖 sparse×sparse 与两类 mixed-storage product 的可执行 Matlab 示例。
+- 新增双目标差分、负向语义、跨层损坏、生成计划篡改拒错与 fuzz 覆盖。
+- Semantic dump v19、MIR dump v25 与双目标 LIR dump v31 公开新的 sparse matrix-product storage policy。
+- 新增 sparse matrix-product 专属性能场景及版本化 latency、throughput、arena 和 generated-size 上限。
+
 ## 0.6.4
 
 - Matlab 稀疏矩阵现可使用 size vector 或逗号分隔的维度列表执行 `reshape`。

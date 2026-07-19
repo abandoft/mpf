@@ -1,3 +1,19 @@
+## 0.6.5
+
+- Matlab now supports nonempty, statically shaped, finite-real rank-two sparse-by-sparse matrix multiplication.
+- Sparse-by-dense and dense-by-sparse Matlab matrix products are now supported without converting the sparse operand to a dense source matrix.
+- Sparse-by-sparse products return canonical CSC matrices, while both mixed-storage products return dense matrices in line with Matlab storage behavior.
+- JavaScript and C++17 use independent sparse matrix-product runtimes and target-specific helper bindings.
+- The CSC-by-CSC kernel uses a column-wise sparse accumulator, sorts only touched rows, and removes exact-zero cancellations.
+- Mixed-storage kernels traverse CSC nonzero entries directly and accumulate into dense results.
+- Generated runtimes validate canonical CSC structure, finite values, rectangular dense operands, and multiplication dimensions before computing a result.
+- Unsupported sparse scalar multiplication, complex sparse products, zero extents, dynamic sparse shapes, and incompatible dimensions continue to fail closed with stable diagnostics.
+- Sparse matrix-product calls retain their original locations in JavaScript and C++17 source maps.
+- Added an executable Matlab example covering sparse-by-sparse and both mixed-storage product forms.
+- Added dual-target differential, negative, cross-layer corruption, generated-plan rejection, and fuzz coverage for sparse matrix products.
+- Semantic dump v19, MIR dump v25, and both target LIR dumps v31 expose the new sparse matrix-product storage policy.
+- Added a dedicated sparse matrix-product performance scenario with versioned latency, throughput, arena, and generated-size limits.
+
 ## 0.6.4
 
 - Matlab sparse matrices can now be reshaped with either a size vector or a comma-separated dimension list.
