@@ -1338,6 +1338,38 @@ TEST_CASE("Matlab sparse scalar products remain typed through every IR layer") {
   }
 }
 
+TEST_CASE("Matlab sparse logical storage policy is explicit and shape checked") {
+  using Operation = mpf::detail::semantic::SparseLogicalOperation;
+  using Policy = mpf::detail::semantic::SparseLogicalStoragePolicy;
+  using Source = mpf::detail::semantic::BroadcastShapeSource;
+  using Axis = mpf::detail::semantic::BroadcastAxis;
+  using Storage = mpf::detail::ArrayStorageFormat;
+  const std::vector<std::size_t> shape{2U, 3U};
+  const std::vector<Axis> matched{Axis::match, Axis::match};
+
+  REQUIRE(mpf::detail::semantic::valid_sparse_logical_contract(
+      Operation::logical_not, Policy::preserve_sparse, Source::static_extents, Storage::sparse_csc,
+      Storage::none, Storage::sparse_csc, shape, std::vector<std::size_t>{}, shape,
+      std::vector<Axis>{}));
+  REQUIRE(mpf::detail::semantic::valid_sparse_logical_contract(
+      Operation::logical_and, Policy::preserve_sparse, Source::static_extents, Storage::sparse_csc,
+      Storage::dense, Storage::sparse_csc, shape, shape, shape, matched));
+  REQUIRE(mpf::detail::semantic::valid_sparse_logical_contract(
+      Operation::logical_or, Policy::materialize_dense, Source::static_extents, Storage::sparse_csc,
+      Storage::dense, Storage::dense, shape, shape, shape, matched));
+  REQUIRE(mpf::detail::semantic::valid_sparse_logical_contract(
+      Operation::logical_or, Policy::preserve_sparse, Source::static_extents, Storage::sparse_csc,
+      Storage::sparse_csc, Storage::sparse_csc, shape, shape, shape, matched));
+
+  REQUIRE(!mpf::detail::semantic::valid_sparse_logical_contract(
+      Operation::logical_or, Policy::preserve_sparse, Source::static_extents, Storage::sparse_csc,
+      Storage::dense, Storage::sparse_csc, shape, shape, shape, matched));
+  REQUIRE(!mpf::detail::semantic::valid_sparse_logical_contract(
+      Operation::logical_and, Policy::preserve_sparse, Source::static_extents, Storage::sparse_csc,
+      Storage::dense, Storage::sparse_csc, shape, shape, shape,
+      std::vector<Axis>{Axis::match, Axis::runtime}));
+}
+
 TEST_CASE("Matlab sparse element-wise plans remain typed through every IR layer") {
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "A = sparse([1 0 2; 0 3 0]);\n"

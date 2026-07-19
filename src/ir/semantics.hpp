@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -167,6 +168,103 @@ template <typename Shape, typename Axes>
   if (!valid_operand(left_storage, left_shape) || !valid_operand(right_storage, right_shape)) {
     return false;
   }
+  for (std::size_t axis = 0U; axis < result_shape.size(); ++axis) {
+    const auto left_extent = axis < left_shape.size() ? left_shape[axis] : 1U;
+    const auto right_extent = axis < right_shape.size() ? right_shape[axis] : 1U;
+    const auto expected_axis = left_extent == right_extent ? BroadcastAxis::match
+                               : left_extent == 1U         ? BroadcastAxis::expand_left
+                               : right_extent == 1U        ? BroadcastAxis::expand_right
+                                                           : BroadcastAxis::runtime;
+    const auto expected_extent = left_extent == right_extent ? left_extent
+                                 : left_extent == 1U         ? right_extent
+                                                             : left_extent;
+    if (expected_axis == BroadcastAxis::runtime || axes[axis] != expected_axis ||
+        result_shape[axis] != expected_extent) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Matlab sparse logical operations have storage behavior that is distinct from both numeric
+// `.*` and dense logical broadcasting. Unary NOT preserves sparse storage even when the
+// complement is structurally dense. Binary AND preserves sparse storage whenever either operand
+// is sparse, while mixed sparse/full OR materializes a dense result. Keep that decision typed so
+// target lowering cannot infer it from a helper name or from runtime values.
+enum class SparseLogicalOperation : std::uint8_t { none, logical_not, logical_and, logical_or };
+enum class SparseLogicalStoragePolicy : std::uint8_t { none, preserve_sparse, materialize_dense };
+
+[[nodiscard]] constexpr ArrayStorageFormat sparse_logical_result_storage(
+    const SparseLogicalOperation operation, const ArrayStorageFormat left,
+    const ArrayStorageFormat right) noexcept {
+  const bool left_sparse = left == ArrayStorageFormat::sparse_csc;
+  const bool right_sparse = right == ArrayStorageFormat::sparse_csc;
+  if (operation == SparseLogicalOperation::logical_not) {
+    return left_sparse && right == ArrayStorageFormat::none ? ArrayStorageFormat::sparse_csc
+                                                            : ArrayStorageFormat::none;
+  }
+  if (operation != SparseLogicalOperation::logical_and &&
+      operation != SparseLogicalOperation::logical_or) {
+    return ArrayStorageFormat::none;
+  }
+  const bool left_supported =
+      left == ArrayStorageFormat::none || left == ArrayStorageFormat::dense || left_sparse;
+  const bool right_supported =
+      right == ArrayStorageFormat::none || right == ArrayStorageFormat::dense || right_sparse;
+  if (!left_supported || !right_supported || (!left_sparse && !right_sparse)) {
+    return ArrayStorageFormat::none;
+  }
+  if (operation == SparseLogicalOperation::logical_and || (left_sparse && right_sparse)) {
+    return ArrayStorageFormat::sparse_csc;
+  }
+  return ArrayStorageFormat::dense;
+}
+
+[[nodiscard]] constexpr SparseLogicalStoragePolicy sparse_logical_storage_policy(
+    const SparseLogicalOperation operation, const ArrayStorageFormat left,
+    const ArrayStorageFormat right) noexcept {
+  const auto result = sparse_logical_result_storage(operation, left, right);
+  if (result == ArrayStorageFormat::sparse_csc) {
+    return SparseLogicalStoragePolicy::preserve_sparse;
+  }
+  return result == ArrayStorageFormat::dense ? SparseLogicalStoragePolicy::materialize_dense
+                                             : SparseLogicalStoragePolicy::none;
+}
+
+template <typename Shape, typename Axes>
+[[nodiscard]] bool valid_sparse_logical_contract(
+    const SparseLogicalOperation operation, const SparseLogicalStoragePolicy policy,
+    const BroadcastShapeSource shape_source, const ArrayStorageFormat left_storage,
+    const ArrayStorageFormat right_storage, const ArrayStorageFormat result_storage,
+    const Shape& left_shape, const Shape& right_shape, const Shape& result_shape,
+    const Axes& axes) noexcept {
+  if (operation == SparseLogicalOperation::none ||
+      shape_source != BroadcastShapeSource::static_extents ||
+      result_storage != sparse_logical_result_storage(operation, left_storage, right_storage) ||
+      policy != sparse_logical_storage_policy(operation, left_storage, right_storage) ||
+      result_storage == ArrayStorageFormat::none || result_shape.size() != 2U) {
+    return false;
+  }
+  constexpr auto dynamic = std::numeric_limits<std::size_t>::max();
+  const auto valid_operand = [](const ArrayStorageFormat storage, const Shape& shape) {
+    if (storage == ArrayStorageFormat::none) return shape.empty();
+    if (storage != ArrayStorageFormat::dense && storage != ArrayStorageFormat::sparse_csc) {
+      return false;
+    }
+    constexpr auto dynamic_extent = std::numeric_limits<std::size_t>::max();
+    return shape.size() == 2U && shape[0] != dynamic_extent && shape[1] != dynamic_extent;
+  };
+  if (!valid_operand(left_storage, left_shape) || !valid_operand(right_storage, right_shape) ||
+      std::any_of(result_shape.begin(), result_shape.end(),
+                  [dynamic](const auto extent) { return extent == dynamic; })) {
+    return false;
+  }
+  if (operation == SparseLogicalOperation::logical_not) {
+    return left_storage == ArrayStorageFormat::sparse_csc &&
+           right_storage == ArrayStorageFormat::none && right_shape.empty() &&
+           result_shape == left_shape && axes.empty();
+  }
+  if (axes.size() != result_shape.size()) return false;
   for (std::size_t axis = 0U; axis < result_shape.size(); ++axis) {
     const auto left_extent = axis < left_shape.size() ? left_shape[axis] : 1U;
     const auto right_extent = axis < right_shape.size() ? right_shape[axis] : 1U;
