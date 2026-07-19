@@ -1141,12 +1141,10 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                 right_array ? right_facts.shape : std::vector<std::size_t>{});
       if (!broadcast.has_value() ||
           broadcast->shape_source != semantic::BroadcastShapeSource::static_extents ||
-          broadcast->result_shape.size() != 2U ||
-          std::find(broadcast->result_shape.begin(), broadcast->result_shape.end(), 0U) !=
-              broadcast->result_shape.end()) {
+          broadcast->result_shape.size() != 2U) {
         diagnose(expression.location.line, "MPF2054",
-                 "sparse element-wise multiplication requires compatible nonempty static "
-                 "rank-2 operands");
+                 "sparse element-wise multiplication requires compatible static rank-2 "
+                 "operands");
         return facts.inferred_type = ValueType::unknown;
       }
       const auto left_shape =
