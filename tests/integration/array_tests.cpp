@@ -391,6 +391,55 @@ TEST_CASE("Matlab sparse CSC square solves preserve storage and target isolation
   }
 }
 
+TEST_CASE("Matlab sparse CSC square solves preserve zero extents") {
+  const std::string source =
+      "coefficient = sparse([], [], []);\n"
+      "dense_right = reshape([], 0, 3);\n"
+      "sparse_right = sparse(0, 3);\n"
+      "dense_left = reshape([], 2, 0);\n"
+      "sparse_left = sparse(2, 0);\n"
+      "dense_solution = coefficient \\ dense_right;\n"
+      "sparse_solution = coefficient \\ sparse_right;\n"
+      "dense_quotient = dense_left / coefficient;\n"
+      "sparse_quotient = sparse_left / coefficient;\n"
+      "disp(issparse(dense_solution), issparse(sparse_solution), "
+      "issparse(dense_quotient), issparse(sparse_quotient), nnz(dense_solution), "
+      "nnz(sparse_solution), nnz(dense_quotient), nnz(sparse_quotient), "
+      "length(dense_solution), length(full(sparse_solution)), length(dense_quotient), "
+      "length(full(sparse_quotient)))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_mldivide_sparse_real_square("
+                               "coefficient, dense_right, [0, 0], [0, 3], [0, 3])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mldivide_sparse_real_square("
+                               "coefficient, sparse_right, [0, 0], [0, 3], [0, 3])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mrdivide_sparse_real_square("
+                               "dense_left, coefficient, [2, 0], [0, 0], [2, 0])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_mrdivide_sparse_real_square("
+                               "sparse_left, coefficient, [2, 0], [0, 0], [2, 0])") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mldivide_sparse_real_square("
+                        "coefficient, dense_right, std::array<std::size_t, 2>{0, 0}, "
+                        "std::array<std::size_t, 2>{0, 3}, "
+                        "std::array<std::size_t, 2>{0, 3})") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_sparse_real_square("
+                        "sparse_left, coefficient, std::array<std::size_t, 2>{2, 0}, "
+                        "std::array<std::size_t, 2>{0, 0}, "
+                        "std::array<std::size_t, 2>{2, 0})") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 10U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
 TEST_CASE("Matlab sparse matrix products preserve storage and target isolation") {
   const std::string source =
       "A = sparse([1 0 2; 0 3 0]);\n"
