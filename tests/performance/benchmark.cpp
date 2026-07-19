@@ -518,7 +518,11 @@ std::string matlab_sparse_elementwise_workload(const std::size_t width, const st
 }
 
 std::string matlab_logical_sparse_workload(const std::size_t width, const std::size_t rounds) {
-  std::string source = "dense = [";
+  const auto width_text = std::to_string(width);
+  const auto element_count = std::to_string(width * width);
+  std::string source;
+  source.reserve(width * width * 6U + width * 48U + rounds * 192U + 256U);
+  source = "dense = [";
   for (std::size_t row = 0U; row < width; ++row) {
     if (row != 0U) source += "; ";
     for (std::size_t column = 0U; column < width; ++column) {
@@ -541,18 +545,21 @@ std::string matlab_logical_sparse_workload(const std::size_t width, const std::s
     if (index != 0U) source += ' ';
     source += index % 2U == 0U ? "false true" : "true false";
   }
-  source += "], " + std::to_string(width) + ", " + std::to_string(width) + ");\n";
-  const auto width_text = std::to_string(width);
-  const auto element_count = std::to_string(width * width);
+  source.append("], ").append(width_text).append(", ").append(width_text).append(");\n");
   for (std::size_t round = 0U; round < rounds; ++round) {
     source += "transposed = matrix.';\n";
-    source += "selected = triplets([" + width_text + " 1], [" + width_text + " 1]);\n";
+    source.append("selected = triplets([")
+        .append(width_text)
+        .append(" 1], [")
+        .append(width_text)
+        .append(" 1]);\n");
     source += "reshaped = reshape(selected, [1 4]);\n";
-    source += "triplets(1, " + std::to_string(round % width + 1U) + ") = true;\n";
+    source.append("triplets(1, ").append(std::to_string(round % width + 1U)).append(") = true;\n");
     source += "dense_result = full(reshaped);\n";
   }
-  source += "disp(nnz(matrix) + nnz(triplets) + nnz(transposed) + nnz(dense_result) + " +
-            element_count + ")\n";
+  source.append("disp(nnz(matrix) + nnz(triplets) + nnz(transposed) + nnz(dense_result) + ")
+      .append(element_count)
+      .append(")\n");
   return source;
 }
 
