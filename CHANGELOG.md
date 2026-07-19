@@ -1,3 +1,18 @@
+## 0.6.6
+
+- Matlab sparse matrices can now be multiplied by a scalar on either side with `A * factor` and `factor * A`.
+- Sparse scalar products preserve the source dimensions and return canonical CSC storage.
+- Multiplication by zero returns an empty CSC matrix of the same shape without scanning stored values.
+- Negative and logical scalar factors are supported within the static finite-real rank-two sparse contract.
+- Values that underflow to exact zero are removed from the result instead of being retained as explicit sparse entries.
+- Nonfinite scalar factors and nonfinite multiplication results fail with stable runtime errors in generated JavaScript and C++17.
+- JavaScript and C++17 use independent nonzero-driven scaling kernels and do not materialize a dense source matrix.
+- Source maps now preserve both right-scalar and left-scalar sparse product call sites.
+- Compiler validation rejects inconsistent scalar direction, shape, storage, and target helper plans before emission.
+- Differential coverage now compares bidirectional scaling, zero scaling, signs, logical factors, values, and sparse storage across both targets.
+- Generated-runtime rejection tests and the Matlab fuzz corpus now cover nonfinite factors, overflow, and sparse scaling syntax.
+- A dedicated sparse-scaling benchmark constrains compilation latency, throughput, peak arena memory, and generated-code size.
+
 ## 0.6.5
 
 - Matlab now supports nonempty, statically shaped, finite-real rank-two sparse-by-sparse matrix multiplication.

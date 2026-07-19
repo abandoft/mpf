@@ -1,3 +1,18 @@
+## 0.6.6
+
+- Matlab 稀疏矩阵现在支持 `A * factor` 与 `factor * A` 两个方向的标量乘法。
+- 稀疏标量乘法保持源矩阵维度，并返回 canonical CSC 存储。
+- 乘以零会直接返回同 shape 的空 CSC 矩阵，无需扫描已存储值。
+- 在静态 finite-real rank-2 稀疏合同内支持负数和 logical 标量因子。
+- 下溢为 exact zero 的结果会从 CSC 中移除，不会保留为显式稀疏项。
+- 非有限标量因子或非有限乘法结果会在生成的 JavaScript 与 C++17 中以稳定 runtime 错误拒绝。
+- JavaScript 与 C++17 使用彼此独立、由非零项驱动的缩放 kernel，不会物化 dense source matrix。
+- source map 现在同时保持右侧标量与左侧标量稀疏乘法的调用位置。
+- 编译器会在发射前拒绝相互矛盾的标量方向、shape、storage 与目标 helper 计划。
+- 差分覆盖现在比较双向缩放、零缩放、符号、logical 因子、数值和两目标的稀疏存储。
+- 生成 runtime 拒错测试和 Matlab fuzz corpus 现在覆盖非有限因子、溢出与稀疏缩放语法。
+- 新增独立 sparse-scaling benchmark，约束编译延迟、吞吐、arena 峰值与生成代码大小。
+
 ## 0.6.5
 
 - Matlab 现支持非空、静态 shape、finite-real rank-two 的 sparse×sparse 矩阵乘法。
