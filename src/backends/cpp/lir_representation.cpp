@@ -1026,6 +1026,19 @@ lir::ExpressionPlan expected_expression_plan(
               semantic::SparseConstructionKind::dense_conversion) {
         result.runtime_shape_arguments = {expression.sparse_construction.result_shape};
       }
+      if (result.call == lir::CallForm::matlab_sparse) {
+        if (!result.runtime_shape_arguments.empty()) {
+          result.token =
+              expression.sparse_construction.value_domain == semantic::SparseValueDomain::logical
+                  ? "mpf_runtime::sparse_logical_from_dense"
+                  : "mpf_runtime::sparse_from_dense";
+        } else {
+          result.token = expression.sparse_construction.duplicate_policy ==
+                                 semantic::SparseDuplicatePolicy::logical_any
+                             ? "mpf_runtime::sparse_logical_any"
+                             : "mpf_runtime::sparse";
+        }
+      }
       result.call_arguments.reserve(expression.argument_transfers.size());
       for (const auto transfer : expression.argument_transfers) {
         lir::CallArgumentPlan argument;

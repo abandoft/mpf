@@ -329,6 +329,7 @@ struct ExpressionPlan {
   BroadcastPlan broadcast;
   SparseElementwisePlan sparse_elementwise;
   std::vector<std::vector<std::size_t>> runtime_shape_arguments;
+  std::vector<std::int64_t> runtime_integer_arguments;
   ReductionPlan reduction;
   SparseIndexPlan sparse_index;
   SparseReshapePlan sparse_reshape;

@@ -280,20 +280,25 @@ class Renderer final {
         return;
       case javascript::lir::CallForm::matlab_sparse:
         if (!plan.runtime_shape_arguments.empty()) {
-          output_ << "__mpf_sparse_from_dense(";
+          output_ << plan.token << '(';
           emit_expression(expression.children[1]);
           for (const auto& shape : plan.runtime_shape_arguments) {
             output_ << ", ";
             emit_shape(shape);
           }
-          output_ << ", " << static_cast<int>(expression.sparse_construction.value_domain);
+          for (const auto argument : plan.runtime_integer_arguments) {
+            output_ << ", " << argument;
+          }
           output_ << ')';
           return;
         }
-        output_ << "__mpf_sparse(" << static_cast<int>(expression.sparse_construction.value_domain)
-                << ", " << static_cast<int>(expression.sparse_construction.duplicate_policy);
+        output_ << plan.token << '(';
+        for (std::size_t index = 0U; index < plan.runtime_integer_arguments.size(); ++index) {
+          if (index != 0U) output_ << ", ";
+          output_ << plan.runtime_integer_arguments[index];
+        }
         for (std::size_t index = 1U; index < expression.children.size(); ++index) {
-          output_ << ", ";
+          if (!plan.runtime_integer_arguments.empty() || index != 1U) output_ << ", ";
           emit_expression(expression.children[index]);
         }
         output_ << ')';

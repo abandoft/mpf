@@ -928,6 +928,16 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
               semantic::SparseConstructionKind::dense_conversion) {
         result.runtime_shape_arguments = {expression.sparse_construction.result_shape};
       }
+      if (result.call == lir::CallForm::matlab_sparse) {
+        const auto dense = !result.runtime_shape_arguments.empty();
+        result.token = dense ? "__mpf_sparse_from_dense" : "__mpf_sparse";
+        result.runtime_integer_arguments = {
+            static_cast<std::int64_t>(expression.sparse_construction.value_domain)};
+        if (!dense) {
+          result.runtime_integer_arguments.push_back(
+              static_cast<std::int64_t>(expression.sparse_construction.duplicate_policy));
+        }
+      }
       result.call_value = expression.multi_output_call && expression.requested_outputs == 1
                               ? lir::CallValueForm::first_result
                               : lir::CallValueForm::direct;
@@ -1050,6 +1060,7 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.sparse_elementwise.result_shape != right.sparse_elementwise.result_shape ||
       left.sparse_elementwise.axes != right.sparse_elementwise.axes ||
       left.runtime_shape_arguments != right.runtime_shape_arguments ||
+      left.runtime_integer_arguments != right.runtime_integer_arguments ||
       left.reduction.operation != right.reduction.operation ||
       left.reduction.axis_policy != right.reduction.axis_policy ||
       left.reduction.shape_source != right.reduction.shape_source ||
