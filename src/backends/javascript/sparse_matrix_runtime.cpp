@@ -214,7 +214,7 @@ function __mpf_sparse_scale_left(scalarValue, matrixValue) {
 }
 function __mpf_sparse_times_shape(shape, name, scalar = false) {
   if (!Array.isArray(shape) || (scalar ? shape.length !== 0 : shape.length !== 2) ||
-      shape.some(extent => !Number.isSafeInteger(extent) || extent <= 0)) {
+      shape.some(extent => !Number.isSafeInteger(extent) || extent < 0)) {
     throw new RangeError(`MPF Matlab ${name} has an invalid static shape contract`);
   }
   return shape;
@@ -245,8 +245,8 @@ function __mpf_sparse_times_validate_plan(leftShape, rightShape, resultShape,
   for (let axis = 0; axis < 2; ++axis) {
     const left = leftScalar ? 1 : leftShape[axis];
     const right = rightScalar ? 1 : rightShape[axis];
-    if ((left !== right && left !== 1 && right !== 1) ||
-        resultShape[axis] !== Math.max(left, right)) {
+    const expected = left === right ? left : left === 1 ? right : left;
+    if ((left !== right && left !== 1 && right !== 1) || resultShape[axis] !== expected) {
       throw new RangeError('MPF Matlab sparse element-wise multiplication shape mismatch');
     }
   }
