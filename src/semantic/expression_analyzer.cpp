@@ -895,10 +895,12 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
          analyzed_right_facts.array_storage == ArrayStorageFormat::sparse_csc);
     const bool supported_sparse_multiply = operation == BinaryOperator::multiply &&
                                            left == ValueType::list && right == ValueType::list;
-    if (!supported_sparse_solve && !supported_sparse_multiply) {
+    const bool supported_sparse_scale = operation == BinaryOperator::multiply &&
+                                        (left == ValueType::list) != (right == ValueType::list);
+    if (!supported_sparse_solve && !supported_sparse_multiply && !supported_sparse_scale) {
       diagnose(expression.location.line, "MPF2054",
                "this sparse array operation is outside the current CSC contract; convert the "
-               "operand with full or use sparse matrix multiplication or square division");
+               "operand with full or use sparse multiplication or square division");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
   }
@@ -1114,6 +1116,59 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                "Matlab array operator '" + expression.value +
                    "' requires numeric scalar or array operands");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+    }
+    const bool sparse_scale =
+        scalar_scale &&
+        (left_facts.array_storage == ArrayStorageFormat::sparse_csc ||
+         right_facts.array_storage == ArrayStorageFormat::sparse_csc);
+    if (sparse_scale) {
+      auto& facts = semantic(semantics_, expression);
+      const auto& sparse_facts = left_array ? left_facts : right_facts;
+      const auto numeric_domain = matlab_matrix_numeric_domain(left_facts, right_facts);
+      if (!numeric_domain.has_value() ||
+          *numeric_domain != semantic::MatrixNumericDomain::real) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse scalar matrix multiplication currently requires a resolved real scalar "
+                 "and real CSC operand");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      if (!static_rank_two_shape(sparse_facts.shape) ||
+          std::find(sparse_facts.shape.begin(), sparse_facts.shape.end(), 0U) !=
+              sparse_facts.shape.end()) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse scalar matrix multiplication currently requires a nonempty static "
+                 "rank-2 CSC operand");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      const auto storage_policy = semantic::matrix_storage_policy(
+          semantic::MatrixOperation::multiply, left_facts.array_storage, right_facts.array_storage);
+      const auto result_storage = semantic::matrix_multiply_result_storage(
+          left_facts.array_storage, right_facts.array_storage);
+      if (storage_policy != semantic::MatrixStoragePolicy::sparse_csc_scale ||
+          result_storage != ArrayStorageFormat::sparse_csc) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse scalar matrix multiplication requires one scalar and one CSC operand");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      facts.array_operation = semantic::ArrayOperation::matlab;
+      facts.inferred_type = ValueType::list;
+      facts.element_type = matlab_arithmetic_join(left_element, right_element);
+      facts.shape = sparse_facts.shape;
+      facts.matrix_operation = {semantic::MatrixOperation::multiply,
+                                semantic::MatrixSolveKind::none,
+                                *numeric_domain,
+                                semantic::MatrixConditionPolicy::none,
+                                semantic::MatrixFactorizationPolicy::none,
+                                semantic::MatrixStructurePolicy::none,
+                                storage_policy,
+                                left_facts.array_storage,
+                                right_facts.array_storage,
+                                result_storage,
+                                left_facts.shape,
+                                right_facts.shape,
+                                facts.shape};
+      facts.array_storage = result_storage;
+      return facts.inferred_type;
     }
     if ((has_array || (runtime_operand && elementwise)) &&
         (elementwise || scalar_scale || scalar_matrix_division)) {

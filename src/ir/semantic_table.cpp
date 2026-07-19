@@ -55,7 +55,11 @@ semantic::MatrixOperation expected_matrix_operation(const Expression& expression
   if (left == nullptr || right == nullptr) return semantic::MatrixOperation::none;
   const bool left_array = left->inferred_type == ValueType::list;
   const bool right_array = right->inferred_type == ValueType::list;
-  if (expression.operation == BinaryOperator::multiply && left_array && right_array) {
+  const bool sparse_scale =
+      (left_array && !right_array && left->array_storage == ArrayStorageFormat::sparse_csc) ||
+      (!left_array && right_array && right->array_storage == ArrayStorageFormat::sparse_csc);
+  if (expression.operation == BinaryOperator::multiply &&
+      ((left_array && right_array) || sparse_scale)) {
     return semantic::MatrixOperation::multiply;
   }
   if (expression.operation == BinaryOperator::left_divide && left_array && right_array) {
@@ -160,7 +164,7 @@ void collect_index_extent(const Expression& expression, const SemanticTable& tab
 }
 
 bool valid_matrix_shapes(const MatrixOperationPlan& plan) noexcept {
-  if (!static_rank_two(plan.left_shape) || !static_rank_two(plan.result_shape) ||
+  if (!static_rank_two(plan.result_shape) ||
       plan.numeric_domain == semantic::MatrixNumericDomain::none ||
       plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
       plan.storage_policy !=
@@ -169,10 +173,30 @@ bool valid_matrix_shapes(const MatrixOperationPlan& plan) noexcept {
           semantic::matrix_factorization_policy(plan.solve, plan.storage_policy) ||
       plan.structure_policy !=
           semantic::matrix_structure_policy(plan.solve, plan.numeric_domain, plan.storage_policy) ||
-      !array_storage_known(plan.left_storage) ||
-      (plan.operation != semantic::MatrixOperation::integer_power &&
-       !array_storage_known(plan.right_storage)) ||
       !array_storage_known(plan.result_storage)) {
+    return false;
+  }
+  if (plan.storage_policy == semantic::MatrixStoragePolicy::sparse_csc_scale) {
+    const bool left_sparse = plan.left_storage == ArrayStorageFormat::sparse_csc &&
+                             plan.right_storage == ArrayStorageFormat::none &&
+                             static_rank_two(plan.left_shape) && plan.right_shape.empty();
+    const bool right_sparse = plan.left_storage == ArrayStorageFormat::none &&
+                              plan.right_storage == ArrayStorageFormat::sparse_csc &&
+                              plan.left_shape.empty() && static_rank_two(plan.right_shape);
+    const auto& sparse_shape = left_sparse ? plan.left_shape : plan.right_shape;
+    return plan.operation == semantic::MatrixOperation::multiply &&
+           plan.solve == semantic::MatrixSolveKind::none &&
+           plan.numeric_domain == semantic::MatrixNumericDomain::real &&
+           semantic::valid_matrix_multiply_storage_contract(
+               plan.storage_policy, plan.left_storage, plan.right_storage,
+               plan.result_storage) &&
+           (left_sparse || right_sparse) &&
+           std::find(sparse_shape.begin(), sparse_shape.end(), 0U) == sparse_shape.end() &&
+           plan.result_shape == sparse_shape;
+  }
+  if (!static_rank_two(plan.left_shape) || !array_storage_known(plan.left_storage) ||
+      (plan.operation != semantic::MatrixOperation::integer_power &&
+       !array_storage_known(plan.right_storage))) {
     return false;
   }
   switch (plan.operation) {
