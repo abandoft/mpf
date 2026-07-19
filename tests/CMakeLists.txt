@@ -135,6 +135,42 @@ function(mpf_add_generated_runtime_failure_test name input expected_error source
     TIMEOUT 300)
 endfunction()
 
+function(mpf_add_generated_plan_rejection_test name input expected_error source_label)
+  set(options)
+  set(one_value_arguments JAVASCRIPT_SEARCH JAVASCRIPT_REPLACEMENT CPP_SEARCH CPP_REPLACEMENT)
+  cmake_parse_arguments(PARSE_ARGV 4 plan "${options}" "${one_value_arguments}" "")
+  foreach(required JAVASCRIPT_SEARCH JAVASCRIPT_REPLACEMENT CPP_SEARCH CPP_REPLACEMENT)
+    if(NOT DEFINED plan_${required} OR plan_${required} STREQUAL "")
+      message(FATAL_ERROR "${name}: generated plan rejection test requires ${required}")
+    endif()
+  endforeach()
+  set(tool_arguments)
+  if(MPF_NODE_EXECUTABLE)
+    list(APPEND tool_arguments "-DNODE=${MPF_NODE_EXECUTABLE}")
+  endif()
+  add_test(NAME mpf.generated.failure.${name}
+    COMMAND ${CMAKE_COMMAND}
+      -DMPFC=$<TARGET_FILE:mpfc>
+      -DINPUT=${PROJECT_SOURCE_DIR}/${input}
+      -DCASE_NAME=${name}
+      -DTEST_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/generated
+      -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/generated-failure-${name}
+      "-DEXPECTED_ERROR=${expected_error}"
+      "-DJAVASCRIPT_SEARCH=${plan_JAVASCRIPT_SEARCH}"
+      "-DJAVASCRIPT_REPLACEMENT=${plan_JAVASCRIPT_REPLACEMENT}"
+      "-DCPP_SEARCH=${plan_CPP_SEARCH}"
+      "-DCPP_REPLACEMENT=${plan_CPP_REPLACEMENT}"
+      "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}"
+      "-DGENERATOR=${CMAKE_GENERATOR}"
+      "-DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+      "-DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+      ${tool_arguments}
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_generated_runtime_failure.cmake)
+  set_tests_properties(mpf.generated.failure.${name} PROPERTIES
+    LABELS "generated;runtime-rejection;plan-corruption;${source_label}"
+    TIMEOUT 300)
+endfunction()
+
 function(mpf_add_differential_case name language input expected_output)
   if(ARGC GREATER 4)
     set(output_mode "${ARGV4}")
@@ -271,6 +307,17 @@ if(TARGET mpfc)
     matlab-sparse-assignment-nonfinite
     tests/fixtures/matlab_sparse_assignment_nonfinite.m
     "sparse assignment requires finite real values" matlab)
+  mpf_add_generated_plan_rejection_test(
+    matlab-sparse-reshape-plan tests/fixtures/matlab_sparse_reshape_plan.m
+    "result plan does not match requested dimensions" matlab
+    JAVASCRIPT_SEARCH
+      "__mpf_sparse_reshape(A, [2, 3], [3, 2], [3, 2])"
+    JAVASCRIPT_REPLACEMENT
+      "__mpf_sparse_reshape(A, [2, 3], [3, 2], [2, 3])"
+    CPP_SEARCH
+      "mpf_runtime::sparse_reshape(A, std::array<std::size_t, 2>{2, 3}, std::array<std::size_t, 2>{3, 2}, std::array<std::size_t, 2>{3, 2})"
+    CPP_REPLACEMENT
+      "mpf_runtime::sparse_reshape(A, std::array<std::size_t, 2>{2, 3}, std::array<std::size_t, 2>{3, 2}, std::array<std::size_t, 2>{2, 3})")
   mpf_add_generated_runtime_failure_test(
     python-true-division-by-zero tests/fixtures/python_true_division_by_zero.py
     "division by zero" python)

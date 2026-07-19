@@ -25,6 +25,22 @@ function(require_failure stage status stdout stderr)
   endif()
 endfunction()
 
+function(apply_required_mutation path search replacement label)
+  if("${search}" STREQUAL "")
+    return()
+  endif()
+  file(READ "${path}" source)
+  string(FIND "${source}" "${search}" offset)
+  if(offset EQUAL -1)
+    message(FATAL_ERROR "${CASE_NAME}: ${label} mutation anchor was not emitted: ${search}")
+  endif()
+  string(REPLACE "${search}" "${replacement}" mutated "${source}")
+  if(mutated STREQUAL source)
+    message(FATAL_ERROR "${CASE_NAME}: ${label} mutation did not change generated source")
+  endif()
+  file(WRITE "${path}" "${mutated}")
+endfunction()
+
 file(REMOVE_RECURSE "${TEST_BINARY_DIR}")
 file(MAKE_DIRECTORY "${TEST_BINARY_DIR}")
 
@@ -37,6 +53,8 @@ if(DEFINED NODE AND NOT NODE STREQUAL "" AND NOT NODE MATCHES "-NOTFOUND$")
     ERROR_VARIABLE javascript_transpile_error)
   require_success("JavaScript transpilation" "${javascript_transpile_status}"
                   "${javascript_transpile_output}" "${javascript_transpile_error}")
+  apply_required_mutation("${javascript_source}" "${JAVASCRIPT_SEARCH}"
+                          "${JAVASCRIPT_REPLACEMENT}" "JavaScript")
   execute_process(
     COMMAND "${NODE}" "${javascript_source}"
     RESULT_VARIABLE javascript_run_status
@@ -54,6 +72,7 @@ execute_process(
   ERROR_VARIABLE cpp_transpile_error)
 require_success("C++17 transpilation" "${cpp_transpile_status}"
                 "${cpp_transpile_output}" "${cpp_transpile_error}")
+apply_required_mutation("${cpp_source}" "${CPP_SEARCH}" "${CPP_REPLACEMENT}" "C++17")
 
 set(configure_arguments
   -S "${TEST_SOURCE_DIR}"
