@@ -343,6 +343,207 @@ function __mpf_sparse_submatrix_selection(value, rowSelector, columnSelector, re
   }
   return __mpf_make_sparse_csc(rows, columns, pointers, rowIndices, values);
 }
+function __mpf_sparse_nonsingleton_shape(shape) {
+  return shape.filter((extent) => extent !== 1);
+}
+function __mpf_sparse_same_shape(left, right) {
+  return left.length === right.length && left.every((extent, axis) => extent === right[axis]);
+}
+function __mpf_sparse_replacement_payload(value) {
+  if (__mpf_issparse(value)) {
+    const matrix = __mpf_validate_sparse_csc(value, 'assignment replacement');
+    const size = matrix.rows * matrix.columns;
+    if (!Number.isSafeInteger(size)) {
+      throw new RangeError('MPF Matlab sparse replacement exceeds safe integer limits');
+    }
+    const flattened = new Array(size).fill(0);
+    for (let column = 0; column < matrix.columns; ++column) {
+      for (let stored = matrix.columnPointers[column];
+           stored < matrix.columnPointers[column + 1]; ++stored) {
+        flattened[matrix.rowIndices[stored] + column * matrix.rows] = matrix.values[stored];
+      }
+    }
+    return { shape: [matrix.rows, matrix.columns], flattened };
+  }
+  if (Array.isArray(value)) {
+    const shape = __mpf_matlab_runtime_shape(value, 'sparse assignment replacement');
+    const flattened = __mpf_flatten_column_major(value).map((item) => {
+      if ((typeof item !== 'number' && typeof item !== 'boolean') ||
+          (typeof item === 'number' && !Number.isFinite(item))) {
+        throw new TypeError('MPF Matlab sparse assignment requires finite real values');
+      }
+      return Number(item);
+    });
+    return { shape, flattened };
+  }
+  if ((typeof value !== 'number' && typeof value !== 'boolean') ||
+      (typeof value === 'number' && !Number.isFinite(value))) {
+    throw new TypeError('MPF Matlab sparse assignment requires a finite real scalar');
+  }
+  return { shape: [], flattened: [Number(value)] };
+}
+function __mpf_sparse_assignment_payload(value, scalarExpansion, selectionShape, count) {
+  const payload = __mpf_sparse_replacement_payload(value);
+  if (scalarExpansion) {
+    if (payload.flattened.length !== 1) {
+      throw new RangeError('MPF Matlab sparse scalar expansion requires one replacement value');
+    }
+    return { scalar: true, values: payload.flattened };
+  }
+  if (payload.flattened.length !== count ||
+      !__mpf_sparse_same_shape(__mpf_sparse_nonsingleton_shape(payload.shape),
+                               __mpf_sparse_nonsingleton_shape(selectionShape))) {
+    throw new RangeError('MPF Matlab sparse assignment replacement shape mismatch');
+  }
+  return { scalar: false, values: payload.flattened };
+}
+function __mpf_sparse_verify_result_shape(planned, actual, operation) {
+  if (planned !== undefined && !__mpf_sparse_same_shape(planned, actual)) {
+    throw new RangeError(`MPF Matlab sparse ${operation} result shape disagrees with lowering`);
+  }
+}
+function __mpf_sparse_commit(value, rows, columns, columnPointers, rowIndices, values) {
+  const result = __mpf_make_sparse_csc(rows, columns, columnPointers, rowIndices, values);
+  value.rows = result.rows; value.columns = result.columns;
+  value.columnPointers = result.columnPointers; value.rowIndices = result.rowIndices;
+  value.values = result.values;
+  return value;
+}
+function __mpf_sparse_assign(value, selectors, replacement, base, linear, scalarExpansion,
+                             plannedSelectionShape, plannedResultShape) {
+  const matrix = __mpf_validate_sparse_csc(value, 'assignment target');
+  if (!Array.isArray(selectors) || selectors.length !== (linear ? 1 : 2)) {
+    throw new RangeError('MPF Matlab sparse assignment selector arity mismatch');
+  }
+  let rows = matrix.rows; let columns = matrix.columns; let selectedRows; let selectedColumns;
+  let selectionShape; const coordinates = [];
+  if (linear) {
+    const size = matrix.rows * matrix.columns;
+    if (!Number.isSafeInteger(size)) {
+      throw new RangeError('MPF Matlab sparse linear assignment exceeds safe integer limits');
+    }
+    const resolved = __mpf_resolve_extent(selectors[0], size);
+    const required = __mpf_growth_extent(size, resolved, base);
+    if (matrix.rows === 1) columns = required;
+    else if (matrix.columns === 1) rows = required;
+    else columns = Math.max(matrix.columns, Math.ceil(required / matrix.rows));
+    const grownSize = rows * columns;
+    if (!Number.isSafeInteger(grownSize)) {
+      throw new RangeError('MPF Matlab sparse growth exceeds safe integer limits');
+    }
+    const indices = __mpf_selector_indices(grownSize, resolved, base, false);
+    selectionShape = plannedSelectionShape.length === 0
+      ? [1, 1] : __mpf_sparse_linear_shape(plannedSelectionShape, indices.length);
+    for (const index of indices) {
+      coordinates.push({ row: index % rows, column: Math.floor(index / rows) });
+    }
+  } else {
+    const resolvedRows = __mpf_resolve_extent(selectors[0], matrix.rows);
+    const resolvedColumns = __mpf_resolve_extent(selectors[1], matrix.columns);
+    rows = __mpf_growth_extent(matrix.rows, resolvedRows, base);
+    columns = __mpf_growth_extent(matrix.columns, resolvedColumns, base);
+    selectedRows = __mpf_selector_indices(rows, resolvedRows, base, false);
+    selectedColumns = __mpf_selector_indices(columns, resolvedColumns, base, false);
+    selectionShape = plannedSelectionShape.length === 0
+      ? [1, 1]
+      : __mpf_sparse_submatrix_shape(
+          plannedSelectionShape, selectedRows.length, selectedColumns.length);
+    for (const column of selectedColumns) {
+      for (const row of selectedRows) coordinates.push({ row, column });
+    }
+  }
+  __mpf_sparse_verify_result_shape(plannedResultShape, [rows, columns], 'assignment');
+  const payload = __mpf_sparse_assignment_payload(
+    replacement, scalarExpansion, selectionShape, coordinates.length);
+  const updates = coordinates.map((coordinate, sequence) => ({
+    ...coordinate, sequence, value: payload.values[payload.scalar ? 0 : sequence]
+  }));
+  updates.sort((left, right) => left.column - right.column || left.row - right.row ||
+    left.sequence - right.sequence);
+  const collapsed = [];
+  for (const update of updates) {
+    const previous = collapsed[collapsed.length - 1];
+    if (previous !== undefined && previous.row === update.row &&
+        previous.column === update.column) collapsed[collapsed.length - 1] = update;
+    else collapsed.push(update);
+  }
+  const columnPointers = [0]; const rowIndices = []; const values = []; let update = 0;
+  for (let column = 0; column < columns; ++column) {
+    let stored = column < matrix.columns ? matrix.columnPointers[column]
+                                         : matrix.values.length;
+    const storedEnd = column < matrix.columns ? matrix.columnPointers[column + 1]
+                                               : matrix.values.length;
+    while ((update < collapsed.length && collapsed[update].column === column) ||
+           stored < storedEnd) {
+      const changed = update < collapsed.length && collapsed[update].column === column
+        ? collapsed[update] : undefined;
+      const changedRow = changed === undefined ? rows : changed.row;
+      const storedRow = stored < storedEnd ? matrix.rowIndices[stored] : rows;
+      if (storedRow < changedRow) {
+        rowIndices.push(storedRow); values.push(matrix.values[stored++]);
+      } else if (changedRow < storedRow) {
+        if (changed.value !== 0) { rowIndices.push(changedRow); values.push(changed.value); }
+        ++update;
+      } else {
+        if (changed.value !== 0) { rowIndices.push(changedRow); values.push(changed.value); }
+        ++stored; ++update;
+      }
+    }
+    columnPointers.push(values.length);
+  }
+  return __mpf_sparse_commit(
+    value, rows, columns, columnPointers, rowIndices, values);
+}
+function __mpf_sparse_erase(value, selectors, base, linear, axis, plannedResultShape) {
+  const matrix = __mpf_validate_sparse_csc(value, 'deletion target');
+  if (!Array.isArray(selectors) || selectors.length !== (linear ? 1 : 2)) {
+    throw new RangeError('MPF Matlab sparse deletion selector arity mismatch');
+  }
+  let deletionAxis = axis;
+  if (linear) {
+    const expectedAxis = matrix.rows === 1 ? 1 : matrix.columns === 1 ? 0 : -1;
+    if (expectedAxis < 0 || deletionAxis !== expectedAxis) {
+      throw new RangeError('MPF Matlab sparse linear deletion requires a vector');
+    }
+  }
+  if (deletionAxis !== 0 && deletionAxis !== 1) {
+    throw new RangeError('MPF Matlab sparse deletion axis is invalid');
+  }
+  const extent = deletionAxis === 0 ? matrix.rows : matrix.columns;
+  const selector = __mpf_resolve_extent(selectors[linear ? 0 : deletionAxis], extent);
+  const removed = [...new Set(__mpf_selector_indices(extent, selector, base, false))]
+    .sort((left, right) => left - right);
+  const rows = matrix.rows - (deletionAxis === 0 ? removed.length : 0);
+  const columns = matrix.columns - (deletionAxis === 1 ? removed.length : 0);
+  __mpf_sparse_verify_result_shape(plannedResultShape, [rows, columns], 'deletion');
+  const removedSet = new Set(removed); const columnPointers = [0];
+  const rowIndices = []; const values = [];
+  if (deletionAxis === 1) {
+    for (let column = 0; column < matrix.columns; ++column) {
+      if (removedSet.has(column)) continue;
+      for (let stored = matrix.columnPointers[column];
+           stored < matrix.columnPointers[column + 1]; ++stored) {
+        rowIndices.push(matrix.rowIndices[stored]); values.push(matrix.values[stored]);
+      }
+      columnPointers.push(values.length);
+    }
+  } else {
+    const rowMap = new Array(matrix.rows); let nextRow = 0;
+    for (let row = 0; row < matrix.rows; ++row) {
+      rowMap[row] = removedSet.has(row) ? -1 : nextRow++;
+    }
+    for (let column = 0; column < matrix.columns; ++column) {
+      for (let stored = matrix.columnPointers[column];
+           stored < matrix.columnPointers[column + 1]; ++stored) {
+        const row = rowMap[matrix.rowIndices[stored]];
+        if (row >= 0) { rowIndices.push(row); values.push(matrix.values[stored]); }
+      }
+      columnPointers.push(values.length);
+    }
+  }
+  return __mpf_sparse_commit(
+    value, rows, columns, columnPointers, rowIndices, values);
+}
 function __mpf_sparse_is_tridiagonal(matrix) {
   for (let column = 0; column < matrix.columns; ++column) {
     for (let index = matrix.columnPointers[column]; index < matrix.columnPointers[column + 1];
