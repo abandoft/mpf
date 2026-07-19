@@ -414,6 +414,246 @@ sparse_matrix<double> sparse_submatrix_selection(
   validate_sparse_csc(result, "submatrix result");
   return result;
 }
+template <typename T> struct is_sparse_matrix : std::false_type {};
+template <typename T> struct is_sparse_matrix<sparse_matrix<T>> : std::true_type {};
+struct sparse_replacement_payload {
+  std::vector<std::size_t> shape;
+  std::vector<double> values;
+};
+template <typename Replacement> sparse_replacement_payload sparse_replacement_values(
+    const Replacement& replacement) {
+  sparse_replacement_payload result;
+  if constexpr (is_sparse_matrix<std::decay_t<Replacement>>::value) {
+    validate_sparse_csc(replacement, "assignment replacement");
+    const auto size = sparse_element_count(replacement.rows, replacement.columns);
+    result.shape = {replacement.rows, replacement.columns};
+    result.values.assign(size, 0.0);
+    for (std::size_t column = 0U; column < replacement.columns; ++column)
+      for (auto stored = replacement.column_pointers[column];
+           stored < replacement.column_pointers[column + 1U]; ++stored)
+        result.values[replacement.row_indices[stored] + column * replacement.rows] =
+            static_cast<double>(replacement.values[stored]);
+  } else if constexpr (is_vector<std::decay_t<Replacement>>::value) {
+    selector_shape(replacement, result.shape);
+    const auto flattened = flatten_selector_column_major(replacement);
+    result.values.reserve(flattened.size());
+    for (const auto& value : flattened) result.values.push_back(static_cast<double>(value));
+  } else {
+    static_assert(std::is_arithmetic_v<std::decay_t<Replacement>>,
+                  "MPF Matlab sparse assignment replacement must be real numeric");
+    result.values.push_back(static_cast<double>(replacement));
+  }
+  for (const auto value : result.values)
+    if (!std::isfinite(value))
+      throw std::invalid_argument(
+          "MPF Matlab sparse assignment requires finite real values");
+  return result;
+}
+inline std::vector<std::size_t> sparse_nonsingleton_shape(
+    const std::vector<std::size_t>& shape) {
+  std::vector<std::size_t> result;
+  for (const auto extent : shape)
+    if (extent != 1U) result.push_back(extent);
+  return result;
+}
+template <typename Replacement> sparse_replacement_payload sparse_assignment_payload(
+    const Replacement& replacement, const bool scalar_expansion,
+    const std::vector<std::size_t>& selection_shape, const std::size_t count) {
+  auto result = sparse_replacement_values(replacement);
+  if (scalar_expansion) {
+    if (result.values.size() != 1U)
+      throw std::invalid_argument(
+          "MPF Matlab sparse scalar expansion requires one replacement value");
+    return result;
+  }
+  if (result.values.size() != count ||
+      sparse_nonsingleton_shape(result.shape) != sparse_nonsingleton_shape(selection_shape))
+    throw std::invalid_argument("MPF Matlab sparse assignment replacement shape mismatch");
+  return result;
+}
+struct sparse_update {
+  std::size_t row{};
+  std::size_t column{};
+  std::size_t sequence{};
+  double value{};
+};
+inline void verify_sparse_mutation_result_shape(
+    const std::vector<std::size_t>& planned, const std::size_t rows,
+    const std::size_t columns, const std::string& operation) {
+  if (!planned.empty() && planned != std::vector<std::size_t>{rows, columns})
+    throw std::invalid_argument("MPF Matlab sparse " + operation +
+                                " result shape disagrees with lowering");
+}
+template <typename T> void sparse_apply_updates(
+    sparse_matrix<T>& value, const std::size_t rows, const std::size_t columns,
+    std::vector<sparse_update> updates) {
+  std::sort(updates.begin(), updates.end(), [](const auto& left, const auto& right) {
+    if (left.column != right.column) return left.column < right.column;
+    if (left.row != right.row) return left.row < right.row;
+    return left.sequence < right.sequence;
+  });
+  std::vector<sparse_update> collapsed;
+  collapsed.reserve(updates.size());
+  for (const auto& update : updates) {
+    if (!collapsed.empty() && collapsed.back().row == update.row &&
+        collapsed.back().column == update.column)
+      collapsed.back() = update;
+    else
+      collapsed.push_back(update);
+  }
+  sparse_matrix<T> result;
+  result.rows = rows; result.columns = columns; result.column_pointers.push_back(0U);
+  result.row_indices.reserve(value.row_indices.size() + collapsed.size());
+  result.values.reserve(value.values.size() + collapsed.size());
+  auto changed = collapsed.begin();
+  for (std::size_t column = 0U; column < columns; ++column) {
+    auto stored = column < value.columns ? value.column_pointers[column] : value.values.size();
+    const auto stored_end =
+        column < value.columns ? value.column_pointers[column + 1U] : value.values.size();
+    while ((changed != collapsed.end() && changed->column == column) || stored < stored_end) {
+      const auto changed_row = changed != collapsed.end() && changed->column == column
+                                   ? changed->row
+                                   : rows;
+      const auto stored_row = stored < stored_end ? value.row_indices[stored] : rows;
+      if (stored_row < changed_row) {
+        result.row_indices.push_back(stored_row);
+        result.values.push_back(value.values[stored++]);
+      } else if (changed_row < stored_row) {
+        if (changed->value != 0.0) {
+          result.row_indices.push_back(changed_row);
+          result.values.push_back(static_cast<T>(changed->value));
+        }
+        ++changed;
+      } else {
+        if (changed->value != 0.0) {
+          result.row_indices.push_back(changed_row);
+          result.values.push_back(static_cast<T>(changed->value));
+        }
+        ++stored; ++changed;
+      }
+    }
+    result.column_pointers.push_back(result.values.size());
+  }
+  validate_sparse_csc(result, "assignment result");
+  value = std::move(result);
+}
+template <typename T, typename Selector, typename Replacement>
+void sparse_assign_linear(
+    sparse_matrix<T>& value, const Selector& selector, const Replacement& replacement,
+    const std::size_t base, const bool scalar_expansion,
+    const std::optional<std::size_t> planned_selection_rows,
+    const std::optional<std::size_t> planned_selection_columns,
+    const std::vector<std::size_t>& planned_result_shape = {}) {
+  validate_sparse_csc(value, "assignment target");
+  const auto original_size = sparse_element_count(value.rows, value.columns);
+  const auto resolved = resolve_selector_extent(selector, original_size);
+  const auto required = selector_growth_extent(original_size, resolved, base, false);
+  auto rows = value.rows; auto columns = value.columns;
+  if (value.rows == 1U) columns = required;
+  else if (value.columns == 1U) rows = required;
+  else columns = std::max(value.columns, (required + value.rows - 1U) / value.rows);
+  const auto indices = selector_indices(sparse_element_count(rows, columns), resolved, base, false);
+  const auto selection_shape = !planned_selection_rows.has_value() &&
+                                       !planned_selection_columns.has_value() && indices.size() == 1U
+                                   ? std::pair<std::size_t, std::size_t>{1U, 1U}
+                                   : sparse_linear_result_shape(
+                                         planned_selection_rows, planned_selection_columns,
+                                         indices.size());
+  verify_sparse_mutation_result_shape(planned_result_shape, rows, columns, "assignment");
+  const auto payload = sparse_assignment_payload(
+      replacement, scalar_expansion, {selection_shape.first, selection_shape.second},
+      indices.size());
+  std::vector<sparse_update> updates; updates.reserve(indices.size());
+  for (std::size_t sequence = 0U; sequence < indices.size(); ++sequence) {
+    const auto index = indices[sequence];
+    updates.push_back({index % rows, index / rows, sequence,
+                       payload.values[scalar_expansion ? 0U : sequence]});
+  }
+  sparse_apply_updates(value, rows, columns, std::move(updates));
+}
+template <typename T, typename RowSelector, typename ColumnSelector, typename Replacement>
+void sparse_assign_subscripts(
+    sparse_matrix<T>& value, const RowSelector& row_selector,
+    const ColumnSelector& column_selector, const Replacement& replacement,
+    const std::size_t base, const bool scalar_expansion,
+    const std::optional<std::size_t> planned_selection_rows,
+    const std::optional<std::size_t> planned_selection_columns,
+    const std::vector<std::size_t>& planned_result_shape = {}) {
+  validate_sparse_csc(value, "assignment target");
+  const auto resolved_rows = resolve_selector_extent(row_selector, value.rows);
+  const auto resolved_columns = resolve_selector_extent(column_selector, value.columns);
+  const auto rows = selector_growth_extent(value.rows, resolved_rows, base, false);
+  const auto columns = selector_growth_extent(value.columns, resolved_columns, base, false);
+  const auto selected_rows = selector_indices(rows, resolved_rows, base, false);
+  const auto selected_columns = selector_indices(columns, resolved_columns, base, false);
+  const auto selection_shape =
+      !planned_selection_rows.has_value() && !planned_selection_columns.has_value() &&
+              selected_rows.size() == 1U && selected_columns.size() == 1U
+          ? std::pair<std::size_t, std::size_t>{1U, 1U}
+          : sparse_submatrix_result_shape(planned_selection_rows, planned_selection_columns,
+                                          selected_rows.size(), selected_columns.size());
+  verify_sparse_mutation_result_shape(planned_result_shape, rows, columns, "assignment");
+  const auto count = sparse_element_count(selected_rows.size(), selected_columns.size());
+  const auto payload = sparse_assignment_payload(
+      replacement, scalar_expansion, {selection_shape.first, selection_shape.second}, count);
+  std::vector<sparse_update> updates; updates.reserve(count); std::size_t sequence = 0U;
+  for (const auto column : selected_columns)
+    for (const auto row : selected_rows) {
+      updates.push_back(
+          {row, column, sequence, payload.values[scalar_expansion ? 0U : sequence]});
+      ++sequence;
+    }
+  sparse_apply_updates(value, rows, columns, std::move(updates));
+}
+template <typename T, typename Selectors> void sparse_erase_indexed(
+    sparse_matrix<T>& value, const Selectors& selectors, const std::size_t base,
+    const bool linear, std::size_t axis,
+    const std::vector<std::size_t>& planned_result_shape = {}) {
+  validate_sparse_csc(value, "deletion target");
+  if (linear) {
+    const auto expected = value.rows == 1U ? 1U : value.columns == 1U ? 0U : 2U;
+    if (expected > 1U || axis != expected)
+      throw std::invalid_argument("MPF Matlab sparse linear deletion requires a vector");
+  }
+  if (axis > 1U) throw std::invalid_argument("MPF Matlab sparse deletion axis is invalid");
+  const auto extent = axis == 0U ? value.rows : value.columns;
+  auto removed = erase_selector_indices(selectors, linear ? 0U : axis, extent, base, false);
+  std::sort(removed.begin(), removed.end());
+  removed.erase(std::unique(removed.begin(), removed.end()), removed.end());
+  const auto rows = value.rows - (axis == 0U ? removed.size() : 0U);
+  const auto columns = value.columns - (axis == 1U ? removed.size() : 0U);
+  verify_sparse_mutation_result_shape(planned_result_shape, rows, columns, "deletion");
+  sparse_matrix<T> result;
+  result.rows = rows; result.columns = columns; result.column_pointers.push_back(0U);
+  result.row_indices.reserve(value.row_indices.size()); result.values.reserve(value.values.size());
+  if (axis == 1U) {
+    for (std::size_t column = 0U; column < value.columns; ++column) {
+      if (std::binary_search(removed.begin(), removed.end(), column)) continue;
+      for (auto stored = value.column_pointers[column];
+           stored < value.column_pointers[column + 1U]; ++stored) {
+        result.row_indices.push_back(value.row_indices[stored]);
+        result.values.push_back(value.values[stored]);
+      }
+      result.column_pointers.push_back(result.values.size());
+    }
+  } else {
+    std::vector<std::size_t> row_map(value.rows, value.rows); std::size_t next_row = 0U;
+    for (std::size_t row = 0U; row < value.rows; ++row)
+      if (!std::binary_search(removed.begin(), removed.end(), row)) row_map[row] = next_row++;
+    for (std::size_t column = 0U; column < value.columns; ++column) {
+      for (auto stored = value.column_pointers[column];
+           stored < value.column_pointers[column + 1U]; ++stored) {
+        const auto row = row_map[value.row_indices[stored]];
+        if (row != value.rows) {
+          result.row_indices.push_back(row); result.values.push_back(value.values[stored]);
+        }
+      }
+      result.column_pointers.push_back(result.values.size());
+    }
+  }
+  validate_sparse_csc(result, "deletion result");
+  value = std::move(result);
+}
 template <typename T> std::ostream& operator<<(std::ostream& output,
                                                const sparse_matrix<T>& matrix) {
   validate_sparse_csc(matrix);
