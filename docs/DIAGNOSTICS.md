@@ -132,6 +132,6 @@ TypeScript statement lexer 诊断使用 `MPF19xx`：`MPF1901` 表示 block comme
 | `MPF2051` | Matlab logical operator 的 operand、shape、truthiness 或短路上下文超出当前可保持边界 |
 | `MPF2052` | Matlab `all`/`any` 的 operand、`dim`/`vecdim` 或未知 rank reduction contract 无法静态保持 |
 | `MPF2053` | Matlab complex 操作超出已交付的 binary64 scalar/element-wise array 与 dense matrix 子集，例如 complex comparison/logical/reduction、complex sparse，或 `complex`/projection intrinsic 参数不满足当前标量 contract |
-| `MPF2054` | Matlab sparse 操作超出非空静态 finite-real rank-2 canonical CSC 子集，例如 logical/element-wise/power、rectangular solve、complex/零 extent/动态 shape、scalar×sparse，或 constructor/index/mutation/reshape/matrix-product storage 与 shape contract 无法保持 |
+| `MPF2054` | Matlab sparse 操作超出非空静态 finite-real rank-2 canonical CSC 子集，例如 logical/element-wise/power、rectangular solve、complex/零 extent/动态 shape，或 constructor/index/mutation/reshape/matrix-product/scalar-product storage 与 shape contract 无法保持；非有限 scalar/result 由目标 runtime 稳定拒绝 |
 
 语义分析和 capability validator 必须在 emitter 前产生这些错误；失败结果不应包含可被误认为成功输出的目标代码。新增或重新定义稳定 code 时必须同步本表、测试和 changelog。
