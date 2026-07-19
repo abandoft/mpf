@@ -109,6 +109,7 @@ struct TypeData {
   ParameterIntent reference_intent{ParameterIntent::none};
   NumericType numeric_type{unknown_numeric_type};
   NumericType element_numeric_type{unknown_numeric_type};
+  ArrayStorageFormat array_storage{ArrayStorageFormat::none};
 };
 
 struct ShapeData {
@@ -313,6 +314,10 @@ struct MatrixOperationPlan {
   semantic::MatrixFactorizationPolicy factorization_policy{
       semantic::MatrixFactorizationPolicy::none};
   semantic::MatrixStructurePolicy structure_policy{semantic::MatrixStructurePolicy::none};
+  semantic::MatrixStoragePolicy storage_policy{semantic::MatrixStoragePolicy::none};
+  ArrayStorageFormat left_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat right_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat result_storage{ArrayStorageFormat::none};
   ShapeId left_shape{};
   ShapeId right_shape{};
   ShapeId result_shape{};
@@ -466,6 +471,7 @@ struct Program {
 [[nodiscard]] ValueType element_type(const Program& program, TypeId id) noexcept;
 [[nodiscard]] NumericType numeric_type(const Program& program, TypeId id) noexcept;
 [[nodiscard]] NumericType element_numeric_type(const Program& program, TypeId id) noexcept;
+[[nodiscard]] ArrayStorageFormat array_storage(const Program& program, TypeId id) noexcept;
 [[nodiscard]] bool column_major(const Program& program, ShapeId id) noexcept;
 
 struct StorageAliasFacts {

@@ -169,7 +169,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v13 hir-nodes=" << table.hir_node_count
+  output << "semantic-v14 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -181,6 +181,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
       dump_numeric_type(output, facts.numeric_type);
       output << " element=" << enum_value(facts.element_type) << " element-numeric=";
       dump_numeric_type(output, facts.element_numeric_type);
+      output << " array-storage=" << enum_value(facts.array_storage);
       output << " binding=" << enum_value(facts.binding)
              << " intrinsic=" << enum_value(facts.intrinsic) << " shape=[";
       for (std::size_t extent = 0; extent < facts.shape.size(); ++extent) {
@@ -243,7 +244,10 @@ std::string dump_semantics(const hir::SemanticTable& table) {
                << " factorization-policy="
                << enum_value(facts.matrix_operation.factorization_policy)
                << " structure-policy=" << enum_value(facts.matrix_operation.structure_policy)
-               << ' ';
+               << " storage-policy=" << enum_value(facts.matrix_operation.storage_policy)
+               << " storage=" << enum_value(facts.matrix_operation.left_storage) << ','
+               << enum_value(facts.matrix_operation.right_storage) << "->"
+               << enum_value(facts.matrix_operation.result_storage) << ' ';
         dump_shape(facts.matrix_operation.left_shape);
         if (!facts.matrix_operation.right_shape.empty()) {
           output << ',';
@@ -285,6 +289,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
       dump_numeric_type(output, facts.declared_numeric_type);
       output << " element=" << enum_value(facts.element_type) << " element-numeric=";
       dump_numeric_type(output, facts.element_numeric_type);
+      output << " array-storage=" << enum_value(facts.array_storage);
       output << " shape=[";
       for (std::size_t extent = 0; extent < facts.shape.size(); ++extent) {
         if (extent != 0) output << ',';
@@ -307,7 +312,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v19 language=" << enum_value(program.source_language)
+  output << "mir-v20 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -388,7 +393,11 @@ std::string dump_mir(const mir::Program& program) {
                << " factorization-policy="
                << enum_value(attributes->matrix_operation.factorization_policy)
                << " structure-policy=" << enum_value(attributes->matrix_operation.structure_policy)
-               << " !s" << attributes->matrix_operation.left_shape.value();
+               << " storage-policy=" << enum_value(attributes->matrix_operation.storage_policy)
+               << " storage=" << enum_value(attributes->matrix_operation.left_storage) << ','
+               << enum_value(attributes->matrix_operation.right_storage) << "->"
+               << enum_value(attributes->matrix_operation.result_storage) << " !s"
+               << attributes->matrix_operation.left_shape.value();
         if (attributes->matrix_operation.right_shape.valid()) {
           output << ",!s" << attributes->matrix_operation.right_shape.value();
         }
@@ -450,6 +459,7 @@ std::string dump_mir(const mir::Program& program) {
     dump_numeric_type(output, type.numeric_type);
     output << " element=" << enum_value(type.element_type) << " element-numeric=";
     dump_numeric_type(output, type.element_numeric_type);
+    output << " array-storage=" << enum_value(type.array_storage);
     output << " elements=";
     dump_ids(output, type.elements, "!t");
     output << " parameters=";

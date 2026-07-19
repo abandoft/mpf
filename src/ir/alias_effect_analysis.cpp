@@ -48,6 +48,7 @@ Effect intrinsic_effects(const IntrinsicId intrinsic) noexcept {
     case IntrinsicId::ceiling:
     case IntrinsicId::not_a_number:
     case IntrinsicId::infinity:
+    case IntrinsicId::matlab_is_sparse:
     case IntrinsicId::present: return Effect::none;
     case IntrinsicId::python_float:
     case IntrinsicId::python_length:
@@ -55,8 +56,11 @@ Effect intrinsic_effects(const IntrinsicId intrinsic) noexcept {
     case IntrinsicId::element_count:
     case IntrinsicId::logical_all:
     case IntrinsicId::logical_any:
+    case IntrinsicId::matlab_nonzero_count:
     case IntrinsicId::sum: return Effect::may_fail;
-    case IntrinsicId::reshape: return Effect::allocate | Effect::may_fail;
+    case IntrinsicId::reshape:
+    case IntrinsicId::matlab_sparse:
+    case IntrinsicId::matlab_full: return Effect::allocate | Effect::may_fail;
     case IntrinsicId::count: break;
   }
   return Effect::read | Effect::write | Effect::may_fail | Effect::external_unknown;

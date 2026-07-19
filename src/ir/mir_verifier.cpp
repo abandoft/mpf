@@ -127,9 +127,12 @@ bool compatible_type(const Program& program, const TypeId actual, const TypeId e
     return false;
   }
   if (actual_data->kind == TypeKind::sequence) {
-    return actual_data->element_type == expected_data->element_type ||
-           actual_data->element_type == ValueType::unknown ||
-           expected_data->element_type == ValueType::unknown;
+    const bool compatible_storage = actual_data->array_storage == expected_data->array_storage ||
+                                    actual_data->array_storage == ArrayStorageFormat::unknown ||
+                                    expected_data->array_storage == ArrayStorageFormat::unknown;
+    return compatible_storage && (actual_data->element_type == expected_data->element_type ||
+                                  actual_data->element_type == ValueType::unknown ||
+                                  expected_data->element_type == ValueType::unknown);
   }
   if (actual_data->kind == TypeKind::tuple) {
     if (actual_data->elements.size() != expected_data->elements.size()) return false;
@@ -283,26 +286,50 @@ bool valid_matrix_shapes(const Program& program, const MatrixOperationPlan& plan
   if (!static_rank_two(left) || !static_rank_two(result) || plan.result_shape != expression_shape ||
       plan.numeric_domain == semantic::MatrixNumericDomain::none ||
       plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
-      plan.factorization_policy != semantic::matrix_factorization_policy(plan.solve) ||
-      plan.structure_policy != semantic::matrix_structure_policy(plan.solve, plan.numeric_domain)) {
+      plan.storage_policy !=
+          semantic::matrix_storage_policy(plan.operation, plan.left_storage, plan.right_storage) ||
+      plan.factorization_policy !=
+          semantic::matrix_factorization_policy(plan.solve, plan.storage_policy) ||
+      plan.structure_policy !=
+          semantic::matrix_structure_policy(plan.solve, plan.numeric_domain, plan.storage_policy) ||
+      !array_storage_known(plan.left_storage) ||
+      (plan.operation != semantic::MatrixOperation::integer_power &&
+       !array_storage_known(plan.right_storage)) ||
+      !array_storage_known(plan.result_storage)) {
     return false;
   }
   switch (plan.operation) {
     case semantic::MatrixOperation::none: return false;
     case semantic::MatrixOperation::multiply:
       return plan.solve == semantic::MatrixSolveKind::none && static_rank_two(right) &&
+             plan.storage_policy == semantic::MatrixStoragePolicy::dense &&
+             plan.left_storage == ArrayStorageFormat::dense &&
+             plan.right_storage == ArrayStorageFormat::dense &&
+             plan.result_storage == ArrayStorageFormat::dense &&
              left->extents[1] == right->extents[0] && result->extents[0] == left->extents[0] &&
              result->extents[1] == right->extents[1];
     case semantic::MatrixOperation::left_divide:
       return static_rank_two(right) && left->extents[0] == right->extents[0] &&
+             plan.result_storage == plan.right_storage &&
+             (plan.storage_policy != semantic::MatrixStoragePolicy::sparse_csc_coefficient ||
+              (plan.solve == semantic::MatrixSolveKind::square &&
+               plan.numeric_domain == semantic::MatrixNumericDomain::real)) &&
              plan.solve == semantic::matrix_solve_kind(left->extents[0], left->extents[1]) &&
              result->extents[0] == left->extents[1] && result->extents[1] == right->extents[1];
     case semantic::MatrixOperation::right_divide:
       return static_rank_two(right) && left->extents[1] == right->extents[1] &&
+             plan.result_storage == plan.left_storage &&
+             (plan.storage_policy != semantic::MatrixStoragePolicy::sparse_csc_coefficient ||
+              (plan.solve == semantic::MatrixSolveKind::square &&
+               plan.numeric_domain == semantic::MatrixNumericDomain::real)) &&
              plan.solve == semantic::matrix_solve_kind(right->extents[1], right->extents[0]) &&
              result->extents[0] == left->extents[0] && result->extents[1] == right->extents[0];
     case semantic::MatrixOperation::integer_power:
       return plan.solve == semantic::MatrixSolveKind::none && !plan.right_shape.valid() &&
+             plan.storage_policy == semantic::MatrixStoragePolicy::dense &&
+             plan.left_storage == ArrayStorageFormat::dense &&
+             plan.right_storage == ArrayStorageFormat::none &&
+             plan.result_storage == ArrayStorageFormat::dense &&
              left->extents[0] == left->extents[1] && result->extents == left->extents;
   }
   return false;
@@ -465,6 +492,11 @@ void verify_expression(const Expression& expression, const Program& program,
             semantic::MatrixFactorizationPolicy::none ||
         retired_attributes->matrix_operation.structure_policy !=
             semantic::MatrixStructurePolicy::none ||
+        retired_attributes->matrix_operation.storage_policy !=
+            semantic::MatrixStoragePolicy::none ||
+        retired_attributes->matrix_operation.left_storage != ArrayStorageFormat::none ||
+        retired_attributes->matrix_operation.right_storage != ArrayStorageFormat::none ||
+        retired_attributes->matrix_operation.result_storage != ArrayStorageFormat::none ||
         retired_attributes->matrix_operation.left_shape.valid() ||
         retired_attributes->matrix_operation.right_shape.valid() ||
         retired_attributes->matrix_operation.result_shape.valid() ||
@@ -747,10 +779,20 @@ void verify_expression(const Expression& expression, const Program& program,
   } else if (matrix.valid()) {
     const auto expected_domain =
         expected_matrix_numeric_domain(program, expression, *expression_attributes);
+    const auto* left = expression.children.size() == 2U
+                           ? mir::expression(program, expression.children[0])
+                           : nullptr;
+    const auto* right = expression.children.size() == 2U
+                            ? mir::expression(program, expression.children[1])
+                            : nullptr;
     if (expression_attributes->array_operation != semantic::ArrayOperation::matlab ||
         expression.kind != ExpressionKind::binary || expression_attributes->broadcast.valid ||
         matrix.operation != matrix_operation_for_operator(expression_attributes->operation) ||
         !expected_domain.has_value() || matrix.numeric_domain != *expected_domain ||
+        left == nullptr || right == nullptr ||
+        matrix.left_storage != array_storage(program, left->type_id) ||
+        matrix.right_storage != array_storage(program, right->type_id) ||
+        matrix.result_storage != array_storage(program, expression.type_id) ||
         !valid_matrix_shapes(program, matrix, expression.shape_id)) {
       add_error(diagnostics, expression.location, stage,
                 "expression matrix-operation attributes have an invalid operator, numeric "
@@ -762,8 +804,11 @@ void verify_expression(const Expression& expression, const Program& program,
               matrix.condition_policy != semantic::MatrixConditionPolicy::none ||
               matrix.factorization_policy != semantic::MatrixFactorizationPolicy::none ||
               matrix.structure_policy != semantic::MatrixStructurePolicy::none ||
-              matrix.left_shape.valid() || matrix.right_shape.valid() ||
-              matrix.result_shape.valid())) {
+              matrix.storage_policy != semantic::MatrixStoragePolicy::none ||
+              matrix.left_storage != ArrayStorageFormat::none ||
+              matrix.right_storage != ArrayStorageFormat::none ||
+              matrix.result_storage != ArrayStorageFormat::none || matrix.left_shape.valid() ||
+              matrix.right_shape.valid() || matrix.result_shape.valid())) {
     add_error(diagnostics, expression.location, stage,
               "inactive expression matrix-operation attributes retain solve or shape facts");
   }
@@ -1718,9 +1763,10 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
     const auto& type = program.types[index];
     if (type.kind == TypeKind::reference) {
       if (type.numeric_type != unknown_numeric_type ||
-          type.element_numeric_type != unknown_numeric_type) {
+          type.element_numeric_type != unknown_numeric_type ||
+          type.array_storage != ArrayStorageFormat::none) {
         add_error(diagnostics, {1, 1}, stage,
-                  "reference type duplicates numeric metadata instead of using its referent");
+                  "reference type duplicates value metadata instead of using its referent");
       }
     } else if (!numeric_contract_matches(type.value_type, type.numeric_type) ||
                !element_numeric_contract_matches(type.value_type, type.element_type,
@@ -1734,6 +1780,18 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
               std::to_string(static_cast<unsigned>(type.element_type)) + ':' +
               std::to_string(static_cast<unsigned>(type.element_numeric_type.value_class)) + '/' +
               std::to_string(static_cast<unsigned>(type.element_numeric_type.complexity)) + ')');
+    }
+    const bool valid_array_storage = type.value_type == ValueType::list
+                                         ? type.array_storage == ArrayStorageFormat::unknown ||
+                                               array_storage_known(type.array_storage)
+                                     : type.value_type == ValueType::unknown
+                                         ? type.array_storage == ArrayStorageFormat::none ||
+                                               type.array_storage == ArrayStorageFormat::unknown
+                                         : type.array_storage == ArrayStorageFormat::none;
+    if (type.kind != TypeKind::reference && !valid_array_storage) {
+      add_error(diagnostics, {1, 1}, stage,
+                "type !t" + std::to_string(index) +
+                    " has an array-storage format inconsistent with its value type");
     }
     for (const auto element : type.elements) {
       if (!valid_index(element, program.types)) {

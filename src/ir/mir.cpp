@@ -15,14 +15,15 @@ namespace mpf::detail::mir {
 namespace {
 
 std::uint64_t type_key(const ValueType type, const ValueType element_type,
-                       const NumericType numeric_type,
-                       const NumericType element_numeric_type) noexcept {
+                       const NumericType numeric_type, const NumericType element_numeric_type,
+                       const ArrayStorageFormat array_storage) noexcept {
   return (static_cast<std::uint64_t>(type) << 48U) |
          (static_cast<std::uint64_t>(element_type) << 40U) |
          (static_cast<std::uint64_t>(numeric_type.value_class) << 32U) |
          (static_cast<std::uint64_t>(numeric_type.complexity) << 24U) |
          (static_cast<std::uint64_t>(element_numeric_type.value_class) << 16U) |
-         (static_cast<std::uint64_t>(element_numeric_type.complexity) << 8U);
+         (static_cast<std::uint64_t>(element_numeric_type.complexity) << 8U) |
+         static_cast<std::uint64_t>(array_storage);
 }
 
 std::string composite_type_key(const char prefix, const std::vector<TypeId>& first,
@@ -192,7 +193,8 @@ class Builder final {
     if (semantic_facts != nullptr) {
       result_attributes.previous_type = intern_type(
           semantic_facts->previous_type, semantic_facts->previous_element_type,
-          semantic_facts->previous_numeric_type, semantic_facts->previous_element_numeric_type);
+          semantic_facts->previous_numeric_type, semantic_facts->previous_element_numeric_type,
+          semantic_facts->previous_array_storage);
       result_attributes.indexed_mutation.contract = semantic_facts->indexed_mutation;
       if (semantic_facts->indexed_mutation.valid()) {
         const bool column_major = program_.source_language == SourceLanguage::matlab;
@@ -259,11 +261,19 @@ class Builder final {
             index < semantic_facts->target_previous_element_numeric_types.size()
                 ? semantic_facts->target_previous_element_numeric_types[index]
                 : unknown_numeric_type;
+        const auto target_array_storage = index < semantic_facts->target_array_storage.size()
+                                              ? semantic_facts->target_array_storage[index]
+                                              : ArrayStorageFormat::none;
+        const auto previous_array_storage =
+            index < semantic_facts->target_previous_array_storage.size()
+                ? semantic_facts->target_previous_array_storage[index]
+                : ArrayStorageFormat::none;
         result_attributes.targets.push_back(
-            {intern_type(target_type, target_element, target_numeric, target_element_numeric),
+            {intern_type(target_type, target_element, target_numeric, target_element_numeric,
+                         target_array_storage),
              intern_shape(target_shape, false),
              intern_type(previous_type, previous_element, previous_numeric,
-                         previous_element_numeric)});
+                         previous_element_numeric, previous_array_storage)});
       }
     }
     result.case_selectors.reserve(source.case_selectors.size());
@@ -516,13 +526,23 @@ class Builder final {
     return id;
   }
 
-  [[nodiscard]] TypeId intern_type(const ValueType type, const ValueType element_type,
-                                   const NumericType numeric_type = unknown_numeric_type,
-                                   const NumericType element_numeric_type = unknown_numeric_type) {
+  [[nodiscard]] TypeId intern_type(
+      const ValueType type, const ValueType element_type,
+      const NumericType numeric_type = unknown_numeric_type,
+      const NumericType element_numeric_type = unknown_numeric_type,
+      const ArrayStorageFormat array_storage = ArrayStorageFormat::none) {
     const auto normalized_element_numeric_type =
         type == ValueType::list || type == ValueType::unknown ? element_numeric_type
                                                               : no_numeric_type;
-    const auto key = type_key(type, element_type, numeric_type, normalized_element_numeric_type);
+    const auto normalized_array_storage =
+        type == ValueType::list
+            ? (array_storage == ArrayStorageFormat::none ? ArrayStorageFormat::dense
+                                                         : array_storage)
+        : type == ValueType::unknown && array_storage == ArrayStorageFormat::unknown
+            ? ArrayStorageFormat::unknown
+            : ArrayStorageFormat::none;
+    const auto key = type_key(type, element_type, numeric_type, normalized_element_numeric_type,
+                              normalized_array_storage);
     const auto found = types_.find(key);
     if (found != types_.end()) return found->second;
     const auto id = TypeId{static_cast<TypeId::value_type>(program_.types.size())};
@@ -539,7 +559,8 @@ class Builder final {
                               {},
                               ParameterIntent::none,
                               numeric_type,
-                              normalized_element_numeric_type});
+                              normalized_element_numeric_type,
+                              normalized_array_storage});
     types_.emplace(key, id);
     return id;
   }
@@ -608,7 +629,7 @@ class Builder final {
     if (facts == nullptr) return intern_type(ValueType::unknown, ValueType::unknown);
     if (facts->inferred_type != ValueType::tuple && facts->tuple_types.empty()) {
       return intern_type(facts->inferred_type, facts->element_type, facts->numeric_type,
-                         facts->element_numeric_type);
+                         facts->element_numeric_type, facts->array_storage);
     }
     std::vector<TypeId> elements;
     if (!facts->tuple_types.empty()) {
@@ -622,7 +643,9 @@ class Builder final {
                                                       : unknown_numeric_type,
             index < facts->tuple_element_numeric_types.size()
                 ? facts->tuple_element_numeric_types[index]
-                : unknown_numeric_type));
+                : unknown_numeric_type,
+            index < facts->tuple_array_storage.size() ? facts->tuple_array_storage[index]
+                                                      : ArrayStorageFormat::none));
       }
     } else {
       elements.reserve(children.size());
@@ -664,7 +687,7 @@ class Builder final {
   [[nodiscard]] ValueMetadata intern_value_metadata(const detail::ValueMetadata& source) {
     ValueMetadata result;
     result.type = intern_type(source.type, source.element_type, source.numeric_type,
-                              source.element_numeric_type);
+                              source.element_numeric_type, source.array_storage);
     result.shape = intern_shape(source.shape, false);
     result.sequence = source.sequence;
     result.list_sequence = source.list_sequence;
@@ -682,11 +705,11 @@ class Builder final {
     result.location = source.location;
     result.name = source.name;
     result.type = intern_type(source.type, source.element_type, source.numeric_type,
-                              source.element_numeric_type);
+                              source.element_numeric_type, source.array_storage);
     result.shape = intern_shape(source.shape, false);
-    result.previous_type =
-        intern_type(source.previous_type, source.previous_element_type,
-                    source.previous_numeric_type, source.previous_element_numeric_type);
+    result.previous_type = intern_type(
+        source.previous_type, source.previous_element_type, source.previous_numeric_type,
+        source.previous_element_numeric_type, source.previous_array_storage);
     result.access_path = source.access_path;
     result.captured_paths = source.captured_paths;
     result.children.reserve(source.children.size());
@@ -809,6 +832,14 @@ class Builder final {
             semantic_facts->matrix_operation.factorization_policy;
         result_attributes.matrix_operation.structure_policy =
             semantic_facts->matrix_operation.structure_policy;
+        result_attributes.matrix_operation.storage_policy =
+            semantic_facts->matrix_operation.storage_policy;
+        result_attributes.matrix_operation.left_storage =
+            semantic_facts->matrix_operation.left_storage;
+        result_attributes.matrix_operation.right_storage =
+            semantic_facts->matrix_operation.right_storage;
+        result_attributes.matrix_operation.result_storage =
+            semantic_facts->matrix_operation.result_storage;
         result_attributes.matrix_operation.left_shape =
             intern_shape(semantic_facts->matrix_operation.left_shape, false);
         if (!semantic_facts->matrix_operation.right_shape.empty()) {
@@ -1230,7 +1261,8 @@ class Builder final {
           intern_type(facts == nullptr ? ValueType::unknown : facts->declared_type,
                       facts == nullptr ? ValueType::unknown : facts->element_type,
                       facts == nullptr ? unknown_numeric_type : facts->declared_numeric_type,
-                      facts == nullptr ? unknown_numeric_type : facts->element_numeric_type),
+                      facts == nullptr ? unknown_numeric_type : facts->element_numeric_type,
+                      facts == nullptr ? ArrayStorageFormat::none : facts->array_storage),
           intern_shape(facts == nullptr ? std::vector<std::size_t>{} : facts->shape, false));
     } else if (statement.kind == StatementKind::indexed_assignment) {
       const auto* target = mir::expression(program_, statement.target_expression);
@@ -1406,7 +1438,10 @@ class Builder final {
               : unknown_numeric_type,
           facts != nullptr && index < facts->parameter_element_numeric_types.size()
               ? facts->parameter_element_numeric_types[index]
-              : unknown_numeric_type);
+              : unknown_numeric_type,
+          facts != nullptr && index < facts->parameter_array_storage.size()
+              ? facts->parameter_array_storage[index]
+              : ArrayStorageFormat::none);
       const auto parameter_shape = facts != nullptr && index < facts->parameter_shapes.size()
                                        ? facts->parameter_shapes[index]
                                        : std::vector<std::size_t>{};
@@ -1440,14 +1475,16 @@ class Builder final {
                                                          : unknown_numeric_type,
               index < facts->return_element_numeric_types.size()
                   ? facts->return_element_numeric_types[index]
-                  : unknown_numeric_type));
+                  : unknown_numeric_type,
+              index < facts->return_array_storage.size() ? facts->return_array_storage[index]
+                                                         : ArrayStorageFormat::none));
         }
         function.result_types.push_back(intern_tuple_type(elements));
         function.result_shapes.push_back(intern_shape({}, false));
       } else {
-        function.result_types.push_back(intern_type(facts->declared_type, facts->element_type,
-                                                    facts->declared_numeric_type,
-                                                    facts->element_numeric_type));
+        function.result_types.push_back(
+            intern_type(facts->declared_type, facts->element_type, facts->declared_numeric_type,
+                        facts->element_numeric_type, facts->array_storage));
         function.result_shapes.push_back(intern_shape(facts->shape, false));
       }
     } else if (facts != nullptr) {
@@ -1460,7 +1497,9 @@ class Builder final {
                                                        : unknown_numeric_type,
             index < facts->return_element_numeric_types.size()
                 ? facts->return_element_numeric_types[index]
-                : unknown_numeric_type));
+                : unknown_numeric_type,
+            index < facts->return_array_storage.size() ? facts->return_array_storage[index]
+                                                       : ArrayStorageFormat::none));
         function.result_shapes.push_back(intern_shape(index < facts->return_shapes.size()
                                                           ? facts->return_shapes[index]
                                                           : std::vector<std::size_t>{},
@@ -1725,6 +1764,12 @@ NumericType element_numeric_type(const Program& program, const TypeId id) noexce
   const auto* data = type(program, id);
   if (data != nullptr && data->kind == TypeKind::reference) data = type(program, data->referent);
   return data == nullptr ? unknown_numeric_type : data->element_numeric_type;
+}
+
+ArrayStorageFormat array_storage(const Program& program, const TypeId id) noexcept {
+  const auto* data = type(program, id);
+  if (data != nullptr && data->kind == TypeKind::reference) data = type(program, data->referent);
+  return data == nullptr ? ArrayStorageFormat::none : data->array_storage;
 }
 
 bool column_major(const Program& program, const ShapeId id) noexcept {
