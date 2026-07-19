@@ -402,6 +402,50 @@ std::string matlab_sparse_solve_workload(const std::size_t rounds) {
   return source;
 }
 
+std::string matlab_sparse_index_workload(const std::size_t width, const std::size_t rounds) {
+  std::string source = "matrix = sparse([";
+  for (std::size_t row = 0U; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0U; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += (row == column || (row + 2U * column) % 11U == 0U)
+                    ? std::to_string(row + column + 1U)
+                    : "0";
+    }
+  }
+  source += "]);\nrow_mask = [";
+  for (std::size_t row = 0U; row < width; ++row) {
+    if (row != 0U) source += ' ';
+    source += row % 3U == 0U ? "true" : "false";
+  }
+  source += "];\n";
+  const auto last = std::to_string(width);
+  const auto linear_last = std::to_string(width * width);
+  for (std::size_t round = 0U; round < rounds; ++round) {
+    source.append("scalar = matrix(").append(linear_last).append(");\n");
+    source.append("linear = matrix([")
+        .append(linear_last)
+        .append(" 1; ")
+        .append(last)
+        .append(" 2]);\n");
+    source += "logical_rows = matrix(row_mask, :);\n";
+    source.append("repeated = matrix([")
+        .append(last)
+        .append(" 1 ")
+        .append(last)
+        .append("], [")
+        .append(last)
+        .append(" 1 2]);\n");
+    source.append("strided = matrix(")
+        .append(last)
+        .append(":-2:1, ")
+        .append(last)
+        .append(":-3:1);\n");
+  }
+  source += "disp(scalar + nnz(linear) + nnz(logical_rows) + nnz(repeated) + nnz(strided))\n";
+  return source;
+}
+
 std::string matlab_rank_aware_solve_workload(const std::size_t rounds) {
   std::string source =
       "rank_deficient_tall = [1 2; 2 4; 3 6; 4 8];\n"
@@ -582,6 +626,7 @@ int main() {
        mpf::SourceLanguage::matlab},
       {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-solve", matlab_sparse_solve_workload(24), mpf::SourceLanguage::matlab},
+      {"matlab-sparse-index", matlab_sparse_index_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-rank-aware-solve", matlab_rank_aware_solve_workload(24),
        mpf::SourceLanguage::matlab},
       {"matlab-conditioned-square-solve", matlab_conditioned_square_solve_workload(24),
@@ -624,7 +669,7 @@ int main() {
     }
   }
 
-  std::cout << "{\"schemaVersion\":2,\"projectVersion\":\"" << MPF_VERSION_STRING
+  std::cout << "{\"schemaVersion\":3,\"projectVersion\":\"" << MPF_VERSION_STRING
             << "\",\"maxLatencyNanoseconds\":" << max_latency
             << ",\"minThroughputBytesPerSecond\":" << min_throughput
             << ",\"maxPeakArenaBytes\":" << max_arena << ",\"maxGeneratedBytes\":" << max_generated
