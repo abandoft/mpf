@@ -181,6 +181,36 @@ enum class SparseIndexKind : std::uint8_t {
   submatrix_selection
 };
 
+// Sparse writes require a storage-aware contract in addition to the generic indexed-mutation
+// shape contract.  Assignment order and explicit-zero handling are observable Matlab semantics,
+// so neither target is allowed to infer them from helper names or CSC representation details.
+enum class SparseMutationKind : std::uint8_t {
+  none,
+  linear_assignment,
+  subscript_assignment,
+  linear_deletion,
+  axis_deletion
+};
+enum class SparseReplacementKind : std::uint8_t { none, scalar_expansion, elementwise };
+enum class SparseDuplicateWritePolicy : std::uint8_t { none, last_write_wins, erase_once };
+enum class SparseZeroWritePolicy : std::uint8_t { none, erase_entry };
+
+[[nodiscard]] constexpr bool sparse_mutation_is_assignment(
+    const SparseMutationKind kind) noexcept {
+  return kind == SparseMutationKind::linear_assignment ||
+         kind == SparseMutationKind::subscript_assignment;
+}
+
+[[nodiscard]] constexpr bool sparse_mutation_is_deletion(
+    const SparseMutationKind kind) noexcept {
+  return kind == SparseMutationKind::linear_deletion || kind == SparseMutationKind::axis_deletion;
+}
+
+[[nodiscard]] constexpr bool sparse_mutation_is_linear(const SparseMutationKind kind) noexcept {
+  return kind == SparseMutationKind::linear_assignment ||
+         kind == SparseMutationKind::linear_deletion;
+}
+
 [[nodiscard]] constexpr bool sparse_index_returns_scalar(const SparseIndexKind kind) noexcept {
   return kind == SparseIndexKind::linear_element || kind == SparseIndexKind::subscript_element;
 }
@@ -340,6 +370,49 @@ template <typename Extents>
     return changed;
   }
   return false;
+}
+
+template <typename Shape>
+[[nodiscard]] bool valid_sparse_mutation_contract(
+    const SparseMutationKind kind, const SparseReplacementKind replacement,
+    const SparseDuplicateWritePolicy duplicate_policy, const SparseZeroWritePolicy zero_policy,
+    const ArrayStorageFormat source_storage, const ArrayStorageFormat replacement_storage,
+    const ArrayStorageFormat result_storage, const Shape& input_shape,
+    const Shape& selection_shape, const Shape& replacement_shape, const Shape& result_shape,
+    const std::size_t selector_count, const IndexedMutationContract& mutation) noexcept {
+  constexpr auto dynamic = std::numeric_limits<std::size_t>::max();
+  if (kind == SparseMutationKind::none || source_storage != ArrayStorageFormat::sparse_csc ||
+      result_storage != ArrayStorageFormat::sparse_csc || input_shape.size() != 2U ||
+      result_shape.size() != 2U || input_shape[0] == 0U || input_shape[1] == 0U ||
+      input_shape[0] == dynamic || input_shape[1] == dynamic ||
+      selector_count != (sparse_mutation_is_linear(kind) ? 1U : 2U) ||
+      mutation.linear != sparse_mutation_is_linear(kind) ||
+      !valid_indexed_mutation_shapes(mutation, input_shape, result_shape) ||
+      (!selection_shape.empty() && selection_shape.size() != 2U)) {
+    return false;
+  }
+  if (sparse_mutation_is_assignment(kind)) {
+    if (mutation.kind != IndexedMutationKind::overwrite &&
+        mutation.kind != IndexedMutationKind::grow) {
+      return false;
+    }
+    if (replacement == SparseReplacementKind::none ||
+        duplicate_policy != SparseDuplicateWritePolicy::last_write_wins ||
+        zero_policy != SparseZeroWritePolicy::erase_entry ||
+        (replacement_storage != ArrayStorageFormat::none &&
+         replacement_storage != ArrayStorageFormat::dense &&
+         replacement_storage != ArrayStorageFormat::sparse_csc)) {
+      return false;
+    }
+    if (replacement_storage == ArrayStorageFormat::none) return replacement_shape.empty();
+    if (replacement_shape.empty()) return false;
+    return replacement_storage != ArrayStorageFormat::sparse_csc || replacement_shape.size() == 2U;
+  }
+  return sparse_mutation_is_deletion(kind) && mutation.kind == IndexedMutationKind::erase &&
+         replacement == SparseReplacementKind::none &&
+         duplicate_policy == SparseDuplicateWritePolicy::erase_once &&
+         zero_policy == SparseZeroWritePolicy::none &&
+         replacement_storage == ArrayStorageFormat::none && replacement_shape.empty();
 }
 
 [[nodiscard]] constexpr bool selector_preserves_dimension(const IndexSelectorKind kind) noexcept {

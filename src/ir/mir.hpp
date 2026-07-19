@@ -405,6 +405,25 @@ struct IndexedMutationPlan {
   ShapeId result_shape{};
 };
 
+struct SparseMutationPlan {
+  semantic::SparseMutationKind kind{semantic::SparseMutationKind::none};
+  semantic::SparseReplacementKind replacement{semantic::SparseReplacementKind::none};
+  semantic::SparseDuplicateWritePolicy duplicate_policy{
+      semantic::SparseDuplicateWritePolicy::none};
+  semantic::SparseZeroWritePolicy zero_policy{semantic::SparseZeroWritePolicy::none};
+  ArrayStorageFormat source_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat replacement_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat result_storage{ArrayStorageFormat::none};
+  ShapeId input_shape{};
+  ShapeId selection_shape{};
+  ShapeId replacement_shape{};
+  ShapeId result_shape{};
+
+  [[nodiscard]] bool valid() const noexcept {
+    return kind != semantic::SparseMutationKind::none;
+  }
+};
+
 struct StatementAttributes {
   MirStatementId origin{};
   bool procedure_call{false};
@@ -414,6 +433,7 @@ struct StatementAttributes {
   AssignmentPattern target_pattern;
   std::vector<TargetAttributes> targets;
   IndexedMutationPlan indexed_mutation;
+  SparseMutationPlan sparse_mutation;
 };
 
 enum class MemoryAccessMode : std::uint8_t { none, read, write, read_write };
