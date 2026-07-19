@@ -153,6 +153,22 @@ semantic::SparseIndexKind expected_sparse_index_kind(const Program& program,
                           : semantic::SparseIndexKind::submatrix_selection);
 }
 
+semantic::SparseReshapeKind expected_sparse_reshape_kind(const Program& program,
+                                                         const Expression& expression) noexcept {
+  if (expression.kind != ExpressionKind::call || expression.children.size() < 3U) {
+    return semantic::SparseReshapeKind::none;
+  }
+  const auto* callee = mir::expression(program, expression.children.front());
+  const auto* source = mir::expression(program, expression.children[1]);
+  const auto* callee_attributes = callee == nullptr ? nullptr : attributes(program, callee->id);
+  return callee_attributes != nullptr && source != nullptr &&
+                 callee_attributes->binding == BindingKind::builtin &&
+                 callee_attributes->intrinsic == IntrinsicId::reshape &&
+                 array_storage(program, source->type_id) == ArrayStorageFormat::sparse_csc
+             ? semantic::SparseReshapeKind::column_major_2d
+             : semantic::SparseReshapeKind::none;
+}
+
 StorageId storage_root(const Program& program, StorageId storage) noexcept {
   for (std::size_t depth = 0; depth < program.storages.size(); ++depth) {
     if (!valid_index(storage, program.storages)) return {};
@@ -968,6 +984,69 @@ void verify_expression(const Expression& expression, const Program& program,
              sparse_index.input_shape.valid() || sparse_index.result_shape.valid()) {
     add_error(diagnostics, expression.location, stage,
               "inactive sparse-index attributes retain MIR state");
+  }
+  const auto& sparse_reshape = expression_attributes->sparse_reshape;
+  const auto expected_sparse_reshape = expected_sparse_reshape_kind(program, expression);
+  if (sparse_reshape.kind != expected_sparse_reshape) {
+    add_error(diagnostics, expression.location, stage,
+              "sparse-reshape identity disagrees with its MIR source intrinsic");
+  } else if (sparse_reshape.valid()) {
+    const auto* source = mir::expression(program, expression.children[1]);
+    const auto* input_shape = shape(program, sparse_reshape.input_shape);
+    const auto* requested_shape = shape(program, sparse_reshape.requested_shape);
+    const auto* result_shape = shape(program, sparse_reshape.result_shape);
+    const auto expected_form = expression.children.size() == 3U
+                                   ? semantic::SparseReshapeDimensionForm::size_vector
+                                   : semantic::SparseReshapeDimensionForm::dimension_list;
+    std::size_t empty_dimensions = 0U;
+    std::size_t empty_axis = 0U;
+    if (expected_form == semantic::SparseReshapeDimensionForm::dimension_list) {
+      for (std::size_t child = 2U; child < expression.children.size(); ++child) {
+        const auto* dimension = mir::expression(program, expression.children[child]);
+        if (dimension != nullptr && dimension->kind == ExpressionKind::list &&
+            dimension->children.empty()) {
+          empty_axis = child - 2U;
+          ++empty_dimensions;
+        }
+      }
+    }
+    const auto expected_inference = empty_dimensions == 1U
+                                        ? semantic::SparseReshapeInference::one_dimension
+                                        : semantic::SparseReshapeInference::none;
+    const bool valid =
+        source != nullptr && input_shape != nullptr && requested_shape != nullptr &&
+        result_shape != nullptr && value_type(program, source->type_id) == ValueType::list &&
+        element_type(program, source->type_id) == ValueType::real &&
+        element_numeric_type(program, source->type_id) == real_numeric_type &&
+        value_type(program, expression.type_id) == ValueType::list &&
+        element_type(program, expression.type_id) == ValueType::real &&
+        element_numeric_type(program, expression.type_id) == real_numeric_type &&
+        sparse_reshape.dimension_form == expected_form && empty_dimensions <= 1U &&
+        sparse_reshape.inference == expected_inference &&
+        (expected_inference == semantic::SparseReshapeInference::none ||
+         sparse_reshape.inferred_axis == empty_axis) &&
+        sparse_reshape.input_shape == source->shape_id &&
+        sparse_reshape.result_shape == expression.shape_id &&
+        sparse_reshape.source_storage == array_storage(program, source->type_id) &&
+        sparse_reshape.result_storage == array_storage(program, expression.type_id) &&
+        semantic::valid_sparse_reshape_contract(
+            sparse_reshape.kind, sparse_reshape.dimension_form, sparse_reshape.inference,
+            sparse_reshape.inferred_axis, sparse_reshape.source_storage,
+            sparse_reshape.result_storage, input_shape->extents, requested_shape->extents,
+            result_shape->extents);
+    if (!valid) {
+      add_error(diagnostics, expression.location, stage,
+                "sparse-reshape attributes have an invalid type, syntax, storage, or shape");
+    }
+  } else if (sparse_reshape.dimension_form != semantic::SparseReshapeDimensionForm::none ||
+             sparse_reshape.inference != semantic::SparseReshapeInference::none ||
+             sparse_reshape.inferred_axis != 0U ||
+             sparse_reshape.source_storage != ArrayStorageFormat::none ||
+             sparse_reshape.result_storage != ArrayStorageFormat::none ||
+             sparse_reshape.input_shape.valid() || sparse_reshape.requested_shape.valid() ||
+             sparse_reshape.result_shape.valid()) {
+    add_error(diagnostics, expression.location, stage,
+              "inactive sparse-reshape attributes retain MIR state");
   }
   const auto& sparse = expression_attributes->sparse_construction;
   const auto expected_sparse = expected_sparse_construction_kind(program, expression);
