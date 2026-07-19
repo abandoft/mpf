@@ -504,6 +504,7 @@ endforeach()
 file(READ "${SOURCE_DIR}/src/ir/semantics.hpp" index_extent_contract)
 file(READ "${SOURCE_DIR}/src/ir/semantic_facts.hpp" hir_extent_contract)
 file(READ "${SOURCE_DIR}/src/ir/mir.hpp" mir_extent_contract)
+file(READ "${SOURCE_DIR}/src/compiler/array_storage.hpp" array_storage_contract)
 if(NOT index_extent_contract MATCHES "IndexExtentSource" OR
    NOT index_extent_contract MATCHES "runtime_axis" OR
    NOT index_extent_contract MATCHES "runtime_linear" OR
@@ -521,14 +522,24 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT index_extent_contract MATCHES "MatrixStructurePolicy" OR
    NOT index_extent_contract MATCHES "matrix_structure_policy" OR
    NOT index_extent_contract MATCHES "classify_real_square" OR
+   NOT index_extent_contract MATCHES "MatrixStoragePolicy" OR
+   NOT index_extent_contract MATCHES "matrix_storage_policy" OR
+   NOT index_extent_contract MATCHES "sparse_csc_coefficient" OR
+   NOT array_storage_contract MATCHES "ArrayStorageFormat" OR
+   NOT array_storage_contract MATCHES "sparse_csc" OR
+   NOT array_storage_contract MATCHES "join_array_storage_formats" OR
    NOT hir_extent_contract MATCHES "MatrixConditionPolicy condition_policy" OR
    NOT hir_extent_contract MATCHES "MatrixFactorizationPolicy factorization_policy" OR
    NOT hir_extent_contract MATCHES "MatrixStructurePolicy structure_policy" OR
+   NOT hir_extent_contract MATCHES "MatrixStoragePolicy storage_policy" OR
+   NOT hir_extent_contract MATCHES "ArrayStorageFormat array_storage" OR
    NOT mir_extent_contract MATCHES "MatrixConditionPolicy condition_policy" OR
    NOT mir_extent_contract MATCHES "MatrixFactorizationPolicy factorization_policy" OR
-   NOT mir_extent_contract MATCHES "MatrixStructurePolicy structure_policy")
+   NOT mir_extent_contract MATCHES "MatrixStructurePolicy structure_policy" OR
+   NOT mir_extent_contract MATCHES "MatrixStoragePolicy storage_policy" OR
+   NOT mir_extent_contract MATCHES "ArrayStorageFormat array_storage")
   message(FATAL_ERROR
-    "matrix condition/factorization/structure policy is not a typed Semantic/HIR/MIR contract")
+    "matrix condition/factorization/structure/storage policy is not a typed Semantic/HIR/MIR contract")
 endif()
 mpf_assert_file_excludes("src/ir/semantics.hpp" "detect_diagonal_triangular"
   "matrix structure policy restored the pre-advanced real classifier")
@@ -538,7 +549,13 @@ if(NOT condition_lir_builder_contract MATCHES
    NOT condition_lir_builder_contract MATCHES
      "matrix_operation\.factorization_policy =" OR
    NOT condition_lir_builder_contract MATCHES
-     "matrix_operation\.structure_policy = attributes\.matrix_operation\.structure_policy")
+     "matrix_operation\.structure_policy = attributes\.matrix_operation\.structure_policy" OR
+   NOT condition_lir_builder_contract MATCHES
+     "matrix_operation\.storage_policy = attributes\.matrix_operation\.storage_policy" OR
+   NOT condition_lir_builder_contract MATCHES
+     "matrix_operation\.left_storage = attributes\.matrix_operation\.left_storage" OR
+   NOT condition_lir_builder_contract MATCHES
+     "result\.array_storage = mir::array_storage")
   message(FATAL_ERROR
     "target LIR builder does not propagate analyzed matrix policies")
 endif()
@@ -547,7 +564,10 @@ foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir
   if(NOT condition_target_lir_contract MATCHES "MatrixConditionPolicy condition_policy" OR
      NOT condition_target_lir_contract MATCHES
        "MatrixFactorizationPolicy factorization_policy" OR
-     NOT condition_target_lir_contract MATCHES "MatrixStructurePolicy structure_policy")
+     NOT condition_target_lir_contract MATCHES "MatrixStructurePolicy structure_policy" OR
+     NOT condition_target_lir_contract MATCHES "MatrixStoragePolicy storage_policy" OR
+     NOT condition_target_lir_contract MATCHES "ArrayStorageFormat left_storage" OR
+     NOT condition_target_lir_contract MATCHES "ArrayStorageFormat array_storage")
     message(FATAL_ERROR "target LIR does not own matrix policies: ${target_lir}")
   endif()
 endforeach()
@@ -559,14 +579,18 @@ foreach(representation IN ITEMS
     "condition_policy != semantic::matrix_condition_policy(plan.solve)"
     condition_policy_verification)
   string(FIND "${condition_representation_contract}"
-    "factorization_policy != semantic::matrix_factorization_policy(plan.solve)"
+    "semantic::matrix_factorization_policy(plan.solve, plan.storage_policy)"
     factorization_policy_verification)
   string(FIND "${condition_representation_contract}"
-    "semantic::matrix_structure_policy(plan.solve,"
+    "plan.solve, plan.numeric_domain, plan.storage_policy"
     structure_policy_verification)
+  string(FIND "${condition_representation_contract}"
+    "semantic::matrix_storage_policy(plan.operation, plan.left_storage, plan.right_storage)"
+    storage_policy_verification)
   if(condition_policy_verification EQUAL -1 OR
      factorization_policy_verification EQUAL -1 OR
-     structure_policy_verification EQUAL -1)
+     structure_policy_verification EQUAL -1 OR
+     storage_policy_verification EQUAL -1)
     message(FATAL_ERROR
       "target representation verifier does not enforce matrix policies: ${representation}")
   endif()
@@ -632,6 +656,30 @@ foreach(complex_matrix_runtime IN ITEMS
   mpf_assert_file_excludes("${complex_matrix_runtime}" "minimum[_ -]?norm"
     "target complex-matrix runtime restored the incorrect underdetermined minimum-norm contract")
 endforeach()
+foreach(sparse_matrix_runtime IN ITEMS
+    src/backends/javascript/sparse_matrix_runtime.cpp
+    src/backends/cpp/sparse_matrix_runtime.cpp)
+  if(NOT EXISTS "${SOURCE_DIR}/${sparse_matrix_runtime}")
+    message(FATAL_ERROR "target sparse-matrix runtime is missing: ${sparse_matrix_runtime}")
+  endif()
+  file(READ "${SOURCE_DIR}/${sparse_matrix_runtime}" sparse_matrix_runtime_contract)
+  if(NOT sparse_matrix_runtime_contract MATCHES "validate_sparse_csc" OR
+     NOT sparse_matrix_runtime_contract MATCHES "(column_pointers|columnPointers)" OR
+     NOT sparse_matrix_runtime_contract MATCHES "(row_indices|rowIndices)" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_transpose" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_tridiagonal_factor" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_row_lu_factor" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_rcond" OR
+     NOT sparse_matrix_runtime_contract MATCHES "mldivide_sparse_real_square" OR
+     NOT sparse_matrix_runtime_contract MATCHES "mrdivide_sparse_real_square")
+    message(FATAL_ERROR
+      "target sparse-matrix runtime does not own canonical CSC conversion, sparse square solve, "
+      "transpose and condition kernels: ${sparse_matrix_runtime}")
+  endif()
+  mpf_assert_file_excludes("${sparse_matrix_runtime}"
+    "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
+    "target sparse-matrix runtime depends on compiler state")
+endforeach()
 mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
   "function __mpf_matlab_lu_"
   "generic JavaScript runtime regained matrix factorization ownership")
@@ -644,6 +692,12 @@ mpf_assert_file_excludes("src/backends/cpp/runtime.cpp"
 mpf_assert_file_excludes("src/backends/cpp/runtime.cpp"
   "inline[^\n]*matlab_complex_(lu|cholesky|mtimes|mpower)"
   "generic cpp runtime regained complex-matrix kernel ownership")
+mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
+  "function __mpf_(validate_sparse_csc|sparse_row_lu|sparse_tridiagonal)"
+  "generic JavaScript runtime regained sparse-matrix kernel ownership")
+mpf_assert_file_excludes("src/backends/cpp/runtime.cpp"
+  "(struct|inline|template)[^\n]*(validate_sparse_csc|sparse_row_lu|sparse_tridiagonal)"
+  "generic cpp runtime regained sparse-matrix kernel ownership")
 file(READ "${SOURCE_DIR}/src/backends/javascript/runtime.cpp" javascript_runtime_contract)
 file(READ "${SOURCE_DIR}/src/backends/cpp/runtime.cpp" cpp_runtime_contract)
 if(NOT javascript_runtime_contract MATCHES
@@ -988,6 +1042,13 @@ foreach(target_directory IN ITEMS javascript cpp)
        "${SOURCE_DIR}/src/backends/${target_directory}/${complex_matrix_component}")
       message(FATAL_ERROR
         "target backend directory is missing ${target_directory}/${complex_matrix_component}")
+    endif()
+  endforeach()
+  foreach(sparse_matrix_component IN ITEMS sparse_matrix_runtime.cpp sparse_matrix_runtime.hpp)
+    if(NOT EXISTS
+       "${SOURCE_DIR}/src/backends/${target_directory}/${sparse_matrix_component}")
+      message(FATAL_ERROR
+        "target backend directory is missing ${target_directory}/${sparse_matrix_component}")
     endif()
   endforeach()
 endforeach()
