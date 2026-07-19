@@ -297,7 +297,7 @@ sparse_matrix<double> sparse_scale_left(const Scalar& scalar,
 void validate_sparse_times_shape(const std::array<std::size_t, Rank>& shape,
                                  const std::string& name) {
   for (const auto extent : shape)
-    if (extent == 0U)
+    if (extent == std::numeric_limits<std::size_t>::max())
       throw std::invalid_argument("MPF Matlab " + name +
                                   " has an invalid static shape contract");
 }
@@ -320,8 +320,8 @@ void validate_sparse_times_plan(const std::array<std::size_t, LeftRank>& left_sh
       if constexpr (RightRank == 0U) return std::size_t{1U};
       else return right_shape[axis];
     }();
-    if ((left != right && left != 1U && right != 1U) ||
-        result_shape[axis] != std::max(left, right))
+    const auto expected = left == right ? left : left == 1U ? right : left;
+    if ((left != right && left != 1U && right != 1U) || result_shape[axis] != expected)
       throw std::invalid_argument(
           "MPF Matlab sparse element-wise multiplication shape mismatch");
   }
@@ -349,7 +349,7 @@ std::vector<double> sparse_times_dense_input(
     const Dense& value, const std::array<std::size_t, 2U>& shape,
     const std::string& name) {
   const auto flattened = flatten_selector_column_major(value);
-  if (shape[0] > std::numeric_limits<std::size_t>::max() / shape[1] ||
+  if ((shape[1] != 0U && shape[0] > std::numeric_limits<std::size_t>::max() / shape[1]) ||
       flattened.size() != shape[0] * shape[1])
     throw std::invalid_argument("MPF Matlab " + name +
                                 " disagrees with its static shape contract");
@@ -378,7 +378,8 @@ sparse_matrix<double> sparse_times_one_sparse(
   result.column_pointers.push_back(0U);
   const auto row_replication = matrix.rows == 1U ? result.rows : 1U;
   const auto column_replication = matrix.columns == 1U ? result.columns : 1U;
-  if (matrix.values.size() <= std::numeric_limits<std::size_t>::max() /
+  if (row_replication != 0U && column_replication != 0U &&
+      matrix.values.size() <= std::numeric_limits<std::size_t>::max() /
                                   row_replication / column_replication) {
     const auto reserve = matrix.values.size() * row_replication * column_replication;
     result.row_indices.reserve(reserve); result.values.reserve(reserve);
