@@ -107,10 +107,10 @@ sparse_matrix<double> sparse_from_triplets(
   }
   const auto rows = explicit_rows.has_value()
                         ? *explicit_rows
-                        : sparse_dimension(inferred_rows, "inferred row extent");
+                        : sparse_dimension(inferred_rows, "inferred row extent", true);
   const auto columns = explicit_columns.has_value()
                            ? *explicit_columns
-                           : sparse_dimension(inferred_columns, "inferred column extent");
+                           : sparse_dimension(inferred_columns, "inferred column extent", true);
   for (const auto& entry : entries)
     if (entry.row >= rows || entry.column >= columns)
       throw std::invalid_argument(
@@ -162,10 +162,51 @@ template <typename T> sparse_matrix<double> sparse(const std::vector<T>& values)
 template <typename T> sparse_matrix<T> sparse(const sparse_matrix<T>& matrix) {
   validate_sparse_csc(matrix); return matrix;
 }
+template <typename Values>
+sparse_matrix<double> sparse_from_dense(
+    const Values& values, const std::array<std::size_t, 2U>& planned_shape) {
+  if (planned_shape[0] > 9007199254740991ULL || planned_shape[1] > 9007199254740991ULL ||
+      (planned_shape[0] != 0U &&
+       planned_shape[1] > std::numeric_limits<std::size_t>::max() / planned_shape[0]))
+    throw std::length_error("MPF Matlab sparse conversion plan has an invalid shape");
+  std::vector<std::size_t> actual_shape;
+  selector_shape(values, actual_shape);
+  const auto flattened = flatten_selector_column_major(values);
+  const auto expected_size = planned_shape[0] * planned_shape[1];
+  if (flattened.size() != expected_size ||
+      (expected_size != 0U &&
+       actual_shape != std::vector<std::size_t>(planned_shape.begin(), planned_shape.end())))
+    throw std::invalid_argument(
+        "MPF Matlab sparse input disagrees with its static shape contract");
+  sparse_matrix<double> result;
+  result.rows = planned_shape[0]; result.columns = planned_shape[1];
+  result.column_pointers.reserve(result.columns + 1U);
+  result.column_pointers.push_back(0U);
+  for (std::size_t column = 0U; column < result.columns; ++column) {
+    for (std::size_t row = 0U; row < result.rows; ++row) {
+      const auto numeric = static_cast<double>(flattened[row + column * result.rows]);
+      if (!std::isfinite(numeric))
+        throw std::invalid_argument("MPF Matlab sparse input requires finite real values");
+      if (numeric != 0.0) { result.row_indices.push_back(row); result.values.push_back(numeric); }
+    }
+    result.column_pointers.push_back(result.values.size());
+  }
+  validate_sparse_csc(result);
+  return result;
+}
+template <typename T>
+sparse_matrix<T> sparse_from_dense(
+    const sparse_matrix<T>& matrix, const std::array<std::size_t, 2U>& planned_shape) {
+  validate_sparse_csc(matrix);
+  if (matrix.rows != planned_shape[0] || matrix.columns != planned_shape[1])
+    throw std::invalid_argument(
+        "MPF Matlab sparse input disagrees with its static shape contract");
+  return matrix;
+}
 template <typename Rows, typename Columns>
 sparse_matrix<double> sparse(const Rows& rows_value, const Columns& columns_value) {
-  const auto rows = sparse_dimension(rows_value, "row extent");
-  const auto columns = sparse_dimension(columns_value, "column extent");
+  const auto rows = sparse_dimension(rows_value, "row extent", true);
+  const auto columns = sparse_dimension(columns_value, "column extent", true);
   sparse_matrix<double> result;
   result.rows = rows; result.columns = columns;
   result.column_pointers.assign(columns + 1U, 0U);
@@ -180,8 +221,8 @@ sparse_matrix<double> sparse(const Row& row_values, const Column& column_values,
                              const Value& values, const Rows& rows_value,
                              const Columns& columns_value) {
   return sparse_from_triplets(row_values, column_values, values,
-                              sparse_dimension(rows_value, "row extent"),
-                              sparse_dimension(columns_value, "column extent"));
+                              sparse_dimension(rows_value, "row extent", true),
+                              sparse_dimension(columns_value, "column extent", true));
 }
 template <typename Row, typename Column, typename Value, typename Rows, typename Columns,
           typename Reserve>
@@ -189,8 +230,8 @@ sparse_matrix<double> sparse(const Row& row_values, const Column& column_values,
                              const Value& values, const Rows& rows_value,
                              const Columns& columns_value, const Reserve& reserve_value) {
   return sparse_from_triplets(row_values, column_values, values,
-                              sparse_dimension(rows_value, "row extent"),
-                              sparse_dimension(columns_value, "column extent"),
+                              sparse_dimension(rows_value, "row extent", true),
+                              sparse_dimension(columns_value, "column extent", true),
                               sparse_dimension(reserve_value, "nzmax", true));
 }
 template <typename T> std::vector<std::vector<double>> full(const sparse_matrix<T>& value) {

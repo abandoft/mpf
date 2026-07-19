@@ -525,6 +525,15 @@ class Renderer final {
         output_ << ')';
         return;
       case cpp::lir::CallForm::matlab_sparse:
+        if (expression.sparse_construction.kind ==
+            semantic::SparseConstructionKind::dense_conversion) {
+          output_ << "mpf_runtime::sparse_from_dense(";
+          emit_expression(expression.children[1]);
+          output_ << ", ";
+          emit_shape_array(expression.sparse_construction.result_shape);
+          output_ << ')';
+          return;
+        }
         output_ << "mpf_runtime::sparse(";
         for (std::size_t index = 1U; index < expression.children.size(); ++index) {
           if (index != 1U) output_ << ", ";
