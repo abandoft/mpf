@@ -1118,15 +1118,13 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
     const bool sparse_scale =
-        scalar_scale &&
-        (left_facts.array_storage == ArrayStorageFormat::sparse_csc ||
-         right_facts.array_storage == ArrayStorageFormat::sparse_csc);
+        scalar_scale && (left_facts.array_storage == ArrayStorageFormat::sparse_csc ||
+                         right_facts.array_storage == ArrayStorageFormat::sparse_csc);
     if (sparse_scale) {
       auto& facts = semantic(semantics_, expression);
       const auto& sparse_facts = left_array ? left_facts : right_facts;
       const auto numeric_domain = matlab_matrix_numeric_domain(left_facts, right_facts);
-      if (!numeric_domain.has_value() ||
-          *numeric_domain != semantic::MatrixNumericDomain::real) {
+      if (!numeric_domain.has_value() || *numeric_domain != semantic::MatrixNumericDomain::real) {
         diagnose(expression.location.line, "MPF2054",
                  "sparse scalar matrix multiplication currently requires a resolved real scalar "
                  "and real CSC operand");

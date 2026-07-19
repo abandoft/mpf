@@ -399,8 +399,7 @@ bool valid_matrix_shapes(const Program& program, const MatrixOperationPlan& plan
            plan.solve == semantic::MatrixSolveKind::none &&
            plan.numeric_domain == semantic::MatrixNumericDomain::real &&
            semantic::valid_matrix_multiply_storage_contract(
-               plan.storage_policy, plan.left_storage, plan.right_storage,
-               plan.result_storage) &&
+               plan.storage_policy, plan.left_storage, plan.right_storage, plan.result_storage) &&
            (left_sparse || right_sparse) && sparse_shape != nullptr &&
            std::find(sparse_shape->extents.begin(), sparse_shape->extents.end(), 0U) ==
                sparse_shape->extents.end() &&
