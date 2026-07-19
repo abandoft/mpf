@@ -246,6 +246,174 @@ template <typename T> sparse_matrix<double> sparse_transpose(const sparse_matrix
     }
   return result;
 }
+template <typename T> double sparse_value_at(const sparse_matrix<T>& matrix,
+                                             const std::size_t row,
+                                             const std::size_t column) {
+  const auto first = matrix.row_indices.begin() +
+                     static_cast<std::ptrdiff_t>(matrix.column_pointers[column]);
+  const auto last = matrix.row_indices.begin() +
+                    static_cast<std::ptrdiff_t>(matrix.column_pointers[column + 1U]);
+  const auto found = std::lower_bound(first, last, row);
+  if (found == last || *found != row) return 0.0;
+  const auto offset = static_cast<std::size_t>(found - matrix.row_indices.begin());
+  return static_cast<double>(matrix.values[offset]);
+}
+inline std::size_t sparse_element_count(const std::size_t rows, const std::size_t columns) {
+  if (rows != 0U && columns > std::numeric_limits<std::size_t>::max() / rows)
+    throw std::length_error("MPF Matlab sparse index extent exceeds size limits");
+  return rows * columns;
+}
+inline std::pair<std::size_t, std::size_t> sparse_linear_result_shape(
+    std::optional<std::size_t> rows, std::optional<std::size_t> columns,
+    const std::size_t count) {
+  if (!rows.has_value() && !columns.has_value())
+    throw std::invalid_argument("MPF Matlab sparse linear result shape is underdetermined");
+  if (!rows.has_value()) {
+    if (*columns == 0U ? count != 0U : count % *columns != 0U)
+      throw std::invalid_argument("MPF Matlab sparse linear result shape is inconsistent");
+    rows = *columns == 0U ? 0U : count / *columns;
+  }
+  if (!columns.has_value()) {
+    if (*rows == 0U ? count != 0U : count % *rows != 0U)
+      throw std::invalid_argument("MPF Matlab sparse linear result shape is inconsistent");
+    columns = *rows == 0U ? 0U : count / *rows;
+  }
+  if (sparse_element_count(*rows, *columns) != count)
+    throw std::invalid_argument("MPF Matlab sparse linear result shape is inconsistent");
+  return {*rows, *columns};
+}
+inline std::pair<std::size_t, std::size_t> sparse_submatrix_result_shape(
+    const std::optional<std::size_t> planned_rows,
+    const std::optional<std::size_t> planned_columns, const std::size_t rows,
+    const std::size_t columns) {
+  if ((planned_rows.has_value() && *planned_rows != rows) ||
+      (planned_columns.has_value() && *planned_columns != columns))
+    throw std::invalid_argument("MPF Matlab sparse submatrix result shape is inconsistent");
+  return {rows, columns};
+}
+template <typename Selector> bool sparse_is_full_slice(const Selector&) { return false; }
+inline bool sparse_is_full_slice(const slice_selector& selector) {
+  return !selector.start.has_value() && !selector.stop.has_value() &&
+         !selector.step.has_value() && selector.inclusive;
+}
+template <typename T, typename Selector> double sparse_linear_element(
+    const sparse_matrix<T>& value, const Selector& selector, const std::size_t base = 1U) {
+  validate_sparse_csc(value, "linear index operand");
+  const auto size = sparse_element_count(value.rows, value.columns);
+  const auto resolved = resolve_selector_extent(selector, size);
+  const auto indices = selector_indices(size, resolved, base, false);
+  if (indices.size() != 1U)
+    throw std::invalid_argument(
+        "MPF Matlab sparse scalar linear index selected multiple elements");
+  const auto linear = indices.front();
+  return sparse_value_at(value, linear % value.rows, linear / value.rows);
+}
+template <typename T, typename RowSelector, typename ColumnSelector>
+double sparse_subscript_element(const sparse_matrix<T>& value,
+                                const RowSelector& row_selector,
+                                const ColumnSelector& column_selector,
+                                const std::size_t base = 1U) {
+  validate_sparse_csc(value, "subscript operand");
+  const auto rows = selector_indices(
+      value.rows, resolve_selector_extent(row_selector, value.rows), base, false);
+  const auto columns = selector_indices(
+      value.columns, resolve_selector_extent(column_selector, value.columns), base, false);
+  if (rows.size() != 1U || columns.size() != 1U)
+    throw std::invalid_argument("MPF Matlab sparse scalar subscript selected multiple elements");
+  return sparse_value_at(value, rows.front(), columns.front());
+}
+template <typename T, typename Selector> sparse_matrix<double> sparse_linear_selection(
+    const sparse_matrix<T>& value, const Selector& selector,
+    const std::optional<std::size_t> planned_rows,
+    const std::optional<std::size_t> planned_columns, const std::size_t base = 1U) {
+  validate_sparse_csc(value, "linear selection operand");
+  const auto size = sparse_element_count(value.rows, value.columns);
+  const auto resolved = resolve_selector_extent(selector, size);
+  if (sparse_is_full_slice(resolved)) {
+    const auto [rows, columns] = sparse_linear_result_shape(planned_rows, planned_columns, size);
+    if (rows != size || columns != 1U)
+      throw std::invalid_argument("MPF Matlab sparse full-colon result shape is inconsistent");
+    sparse_matrix<double> result;
+    result.rows = rows; result.columns = columns;
+    result.column_pointers = {0U, value.values.size()};
+    result.row_indices.reserve(value.row_indices.size());
+    result.values.reserve(value.values.size());
+    for (std::size_t column = 0U; column < value.columns; ++column) {
+      const auto offset = column * value.rows;
+      for (auto stored = value.column_pointers[column];
+           stored < value.column_pointers[column + 1U]; ++stored) {
+        result.row_indices.push_back(offset + value.row_indices[stored]);
+        result.values.push_back(static_cast<double>(value.values[stored]));
+      }
+    }
+    validate_sparse_csc(result, "full-colon selection result");
+    return result;
+  }
+  const auto indices = selector_indices(size, resolved, base, false);
+  const auto [rows, columns] = sparse_linear_result_shape(planned_rows, planned_columns,
+                                                          indices.size());
+  sparse_matrix<double> result;
+  result.rows = rows; result.columns = columns; result.column_pointers.push_back(0U);
+  result.row_indices.reserve(indices.size()); result.values.reserve(indices.size());
+  for (std::size_t column = 0U; column < columns; ++column) {
+    for (std::size_t row = 0U; row < rows; ++row) {
+      const auto linear = indices[row + column * rows];
+      const auto stored = sparse_value_at(value, linear % value.rows, linear / value.rows);
+      if (stored != 0.0) { result.row_indices.push_back(row); result.values.push_back(stored); }
+    }
+    result.column_pointers.push_back(result.values.size());
+  }
+  validate_sparse_csc(result, "linear selection result");
+  return result;
+}
+template <typename T, typename RowSelector, typename ColumnSelector>
+sparse_matrix<double> sparse_submatrix_selection(
+    const sparse_matrix<T>& value, const RowSelector& row_selector,
+    const ColumnSelector& column_selector, const std::optional<std::size_t> planned_rows,
+    const std::optional<std::size_t> planned_columns, const std::size_t base = 1U) {
+  validate_sparse_csc(value, "submatrix operand");
+  const auto selected_rows = selector_indices(
+      value.rows, resolve_selector_extent(row_selector, value.rows), base, false);
+  const auto selected_columns = selector_indices(
+      value.columns, resolve_selector_extent(column_selector, value.columns), base, false);
+  const auto [rows, columns] = sparse_submatrix_result_shape(
+      planned_rows, planned_columns, selected_rows.size(), selected_columns.size());
+  std::vector<std::pair<std::size_t, std::size_t>> row_map;
+  row_map.reserve(selected_rows.size());
+  for (std::size_t output_row = 0U; output_row < selected_rows.size(); ++output_row)
+    row_map.emplace_back(selected_rows[output_row], output_row);
+  std::sort(row_map.begin(), row_map.end());
+  sparse_matrix<double> result;
+  result.rows = rows; result.columns = columns; result.column_pointers.push_back(0U);
+  const auto capacity = sparse_element_count(rows, columns);
+  const auto sparse_capacity = std::min(capacity, value.values.size());
+  result.row_indices.reserve(sparse_capacity); result.values.reserve(sparse_capacity);
+  for (std::size_t column = 0U; column < columns; ++column) {
+    const auto source_column = selected_columns[column];
+    auto selected = row_map.begin();
+    auto stored = value.column_pointers[source_column];
+    const auto stored_end = value.column_pointers[source_column + 1U];
+    std::vector<std::pair<std::size_t, double>> entries;
+    while (selected != row_map.end() && stored < stored_end) {
+      const auto selected_row = selected->first;
+      const auto stored_row = value.row_indices[stored];
+      if (selected_row < stored_row) { ++selected; continue; }
+      if (stored_row < selected_row) { ++stored; continue; }
+      const auto stored_value = static_cast<double>(value.values[stored++]);
+      while (selected != row_map.end() && selected->first == selected_row) {
+        entries.emplace_back(selected->second, stored_value);
+        ++selected;
+      }
+    }
+    std::sort(entries.begin(), entries.end());
+    for (const auto& [row, stored_value] : entries) {
+      result.row_indices.push_back(row); result.values.push_back(stored_value);
+    }
+    result.column_pointers.push_back(result.values.size());
+  }
+  validate_sparse_csc(result, "submatrix result");
+  return result;
+}
 template <typename T> std::ostream& operator<<(std::ostream& output,
                                                const sparse_matrix<T>& matrix) {
   validate_sparse_csc(matrix);
