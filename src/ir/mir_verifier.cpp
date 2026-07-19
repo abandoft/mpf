@@ -386,10 +386,13 @@ bool valid_matrix_shapes(const Program& program, const MatrixOperationPlan& plan
     case semantic::MatrixOperation::none: return false;
     case semantic::MatrixOperation::multiply:
       return plan.solve == semantic::MatrixSolveKind::none && static_rank_two(right) &&
-             plan.storage_policy == semantic::MatrixStoragePolicy::dense &&
-             plan.left_storage == ArrayStorageFormat::dense &&
-             plan.right_storage == ArrayStorageFormat::dense &&
-             plan.result_storage == ArrayStorageFormat::dense &&
+             semantic::valid_matrix_multiply_storage_contract(
+                 plan.storage_policy, plan.left_storage, plan.right_storage, plan.result_storage) &&
+             (plan.storage_policy != semantic::MatrixStoragePolicy::sparse_csc_multiply ||
+              (plan.numeric_domain == semantic::MatrixNumericDomain::real &&
+               std::find(left->extents.begin(), left->extents.end(), 0U) == left->extents.end() &&
+               std::find(right->extents.begin(), right->extents.end(), 0U) ==
+                   right->extents.end())) &&
              left->extents[1] == right->extents[0] && result->extents[0] == left->extents[0] &&
              result->extents[1] == right->extents[1];
     case semantic::MatrixOperation::left_divide:
