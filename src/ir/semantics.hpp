@@ -156,7 +156,33 @@ enum class MatrixStructurePolicy : std::uint8_t {
 // Operand storage participates in Matlab matrix dispatch independently of numeric domain and
 // mathematical structure. A sparse coefficient selects a CSC-aware solver; target code must not
 // infer this from a runtime object tag or helper spelling.
-enum class MatrixStoragePolicy : std::uint8_t { none, dense, sparse_csc_coefficient };
+enum class MatrixStoragePolicy : std::uint8_t {
+  none,
+  dense,
+  sparse_csc_coefficient,
+  sparse_csc_multiply
+};
+
+[[nodiscard]] constexpr ArrayStorageFormat matrix_multiply_result_storage(
+    const ArrayStorageFormat left, const ArrayStorageFormat right) noexcept {
+  if (!array_storage_known(left) || !array_storage_known(right)) {
+    return ArrayStorageFormat::none;
+  }
+  return left == ArrayStorageFormat::sparse_csc && right == ArrayStorageFormat::sparse_csc
+             ? ArrayStorageFormat::sparse_csc
+             : ArrayStorageFormat::dense;
+}
+
+[[nodiscard]] constexpr bool valid_matrix_multiply_storage_contract(
+    const MatrixStoragePolicy policy, const ArrayStorageFormat left, const ArrayStorageFormat right,
+    const ArrayStorageFormat result) noexcept {
+  const auto expected_result = matrix_multiply_result_storage(left, right);
+  if (expected_result == ArrayStorageFormat::none || result != expected_result) return false;
+  const bool has_sparse =
+      left == ArrayStorageFormat::sparse_csc || right == ArrayStorageFormat::sparse_csc;
+  return policy ==
+         (has_sparse ? MatrixStoragePolicy::sparse_csc_multiply : MatrixStoragePolicy::dense);
+}
 
 // Matlab sparse construction has several observably different source forms.  Preserve the
 // selected form through every IR layer so target planning never has to recover it from a callee
@@ -306,6 +332,9 @@ template <typename Shape>
     return solve == MatrixSolveKind::square ? MatrixFactorizationPolicy::sparse_row_pivoted_lu
                                             : MatrixFactorizationPolicy::none;
   }
+  if (storage == MatrixStoragePolicy::sparse_csc_multiply) {
+    return MatrixFactorizationPolicy::none;
+  }
   switch (solve) {
     case MatrixSolveKind::overdetermined:
     case MatrixSolveKind::underdetermined:
@@ -339,6 +368,11 @@ template <typename Shape>
   }
   if (operation == MatrixOperation::right_divide && right == ArrayStorageFormat::sparse_csc) {
     return MatrixStoragePolicy::sparse_csc_coefficient;
+  }
+  if (operation == MatrixOperation::multiply && array_storage_known(left) &&
+      array_storage_known(right) &&
+      (left == ArrayStorageFormat::sparse_csc || right == ArrayStorageFormat::sparse_csc)) {
+    return MatrixStoragePolicy::sparse_csc_multiply;
   }
   if (operation != MatrixOperation::none && array_storage_known(left) &&
       (right == ArrayStorageFormat::none || array_storage_known(right))) {
