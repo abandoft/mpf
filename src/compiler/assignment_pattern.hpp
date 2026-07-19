@@ -24,11 +24,13 @@ struct AssignmentPattern {
   ValueType element_type{ValueType::unknown};
   NumericType numeric_type{unknown_numeric_type};
   NumericType element_numeric_type{unknown_numeric_type};
+  ArrayStorageFormat array_storage{ArrayStorageFormat::none};
   std::vector<std::size_t> shape;
   ValueType previous_type{ValueType::unknown};
   ValueType previous_element_type{ValueType::unknown};
   NumericType previous_numeric_type{unknown_numeric_type};
   NumericType previous_element_numeric_type{unknown_numeric_type};
+  ArrayStorageFormat previous_array_storage{ArrayStorageFormat::none};
   std::vector<AssignmentAccess> access_path;
   std::vector<std::vector<AssignmentAccess>> captured_paths;
 

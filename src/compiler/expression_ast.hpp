@@ -6,6 +6,7 @@
 #include <string_view>
 #include <vector>
 
+#include "array_storage.hpp"
 #include "intrinsic.hpp"
 #include "mpf/diagnostic.hpp"
 #include "numeric_type.hpp"
@@ -146,6 +147,7 @@ struct ValueMetadata {
   ValueType element_type{ValueType::unknown};
   NumericType numeric_type{unknown_numeric_type};
   NumericType element_numeric_type{unknown_numeric_type};
+  ArrayStorageFormat array_storage{ArrayStorageFormat::none};
   std::vector<std::size_t> shape;
   bool sequence{false};
   bool list_sequence{false};
@@ -167,11 +169,13 @@ struct Expression {
   ValueType element_type{ValueType::unknown};
   NumericType numeric_type{unknown_numeric_type};
   NumericType element_numeric_type{unknown_numeric_type};
+  ArrayStorageFormat array_storage{ArrayStorageFormat::none};
   std::vector<std::size_t> shape;
   std::vector<ValueType> tuple_types;
   std::vector<NumericType> tuple_numeric_types;
   std::vector<ValueType> tuple_element_types;
   std::vector<NumericType> tuple_element_numeric_types;
+  std::vector<ArrayStorageFormat> tuple_array_storage;
   std::vector<std::vector<std::size_t>> tuple_shapes;
   bool sequence_is_list{false};
   std::vector<ValueMetadata> sequence_elements;

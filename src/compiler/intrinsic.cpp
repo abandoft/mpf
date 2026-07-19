@@ -41,6 +41,10 @@ constexpr std::array<IntrinsicDescriptor, static_cast<std::size_t>(IntrinsicId::
         {IntrinsicId::matlab_length, "matlab_length"},
         {IntrinsicId::element_count, "element_count"},
         {IntrinsicId::reshape, "reshape"},
+        {IntrinsicId::matlab_sparse, "matlab_sparse"},
+        {IntrinsicId::matlab_full, "matlab_full"},
+        {IntrinsicId::matlab_is_sparse, "matlab_is_sparse"},
+        {IntrinsicId::matlab_nonzero_count, "matlab_nonzero_count"},
         {IntrinsicId::present, "present"},
     }};
 
