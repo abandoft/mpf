@@ -2090,6 +2090,98 @@ TEST_CASE("target LIR planners independently own sparse matrix product kernels")
   REQUIRE(!diagnostics.empty());
 }
 
+TEST_CASE("target LIR planners independently own sparse scalar product direction") {
+  using Storage = mpf::detail::ArrayStorageFormat;
+  using Operation = mpf::detail::semantic::MatrixOperation;
+  using Solve = mpf::detail::semantic::MatrixSolveKind;
+  using NumericDomain = mpf::detail::semantic::MatrixNumericDomain;
+  using ConditionPolicy = mpf::detail::semantic::MatrixConditionPolicy;
+  using FactorizationPolicy = mpf::detail::semantic::MatrixFactorizationPolicy;
+  using StructurePolicy = mpf::detail::semantic::MatrixStructurePolicy;
+  using StoragePolicy = mpf::detail::semantic::MatrixStoragePolicy;
+  const auto configure_statement = [](auto& statement, const bool sparse_left) {
+    auto& expression = statement.expression;
+    expression.kind = mpf::detail::ExpressionKind::binary;
+    expression.value = "*";
+    expression.operation = mpf::detail::BinaryOperator::multiply;
+    expression.inferred_type = mpf::detail::ValueType::list;
+    expression.element_type = mpf::detail::ValueType::real;
+    expression.element_numeric_type = mpf::detail::real_numeric_type;
+    expression.array_storage = Storage::sparse_csc;
+    expression.shape = {2U, 3U};
+    expression.array_operation = mpf::detail::semantic::ArrayOperation::matlab;
+    expression.matrix_operation = {
+        Operation::multiply,
+        Solve::none,
+        NumericDomain::real,
+        ConditionPolicy::none,
+        FactorizationPolicy::none,
+        StructurePolicy::none,
+        StoragePolicy::sparse_csc_scale,
+        sparse_left ? Storage::sparse_csc : Storage::none,
+        sparse_left ? Storage::none : Storage::sparse_csc,
+        Storage::sparse_csc,
+        sparse_left ? std::vector<std::size_t>{2U, 3U} : std::vector<std::size_t>{},
+        sparse_left ? std::vector<std::size_t>{} : std::vector<std::size_t>{2U, 3U},
+        {2U, 3U}};
+    expression.children.resize(2U);
+    auto& sparse = expression.children[sparse_left ? 0U : 1U];
+    sparse.kind = mpf::detail::ExpressionKind::identifier;
+    sparse.value = "matrix";
+    sparse.inferred_type = mpf::detail::ValueType::list;
+    sparse.element_type = mpf::detail::ValueType::real;
+    sparse.element_numeric_type = mpf::detail::real_numeric_type;
+    sparse.array_storage = Storage::sparse_csc;
+    sparse.shape = {2U, 3U};
+    auto& scalar = expression.children[sparse_left ? 1U : 0U];
+    scalar.kind = mpf::detail::ExpressionKind::identifier;
+    scalar.value = "factor";
+    scalar.inferred_type = mpf::detail::ValueType::real;
+    scalar.numeric_type = mpf::detail::real_numeric_type;
+    scalar.array_storage = Storage::none;
+  };
+  const auto configure_program = [&](auto& program) {
+    program.source_language = mpf::SourceLanguage::matlab;
+    program.statements.resize(2U);
+    configure_statement(program.statements[0], true);
+    configure_statement(program.statements[1], false);
+  };
+
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  configure_program(javascript);
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  REQUIRE(javascript.statements[0].expression.plan.token == "__mpf_sparse_scale_right");
+  REQUIRE(javascript.statements[1].expression.plan.token == "__mpf_sparse_scale_left");
+  javascript.statements[0].expression.plan.token = "__mpf_sparse_scale_left";
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  javascript.statements[0].expression.plan.token = "__mpf_sparse_scale_right";
+  javascript.statements[0].expression.matrix_operation.right_shape = {1U};
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  configure_program(cpp);
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  REQUIRE(cpp.statements[0].expression.plan.token == "mpf_runtime::sparse_scale_right");
+  REQUIRE(cpp.statements[1].expression.plan.token == "mpf_runtime::sparse_scale_left");
+  cpp.statements[1].expression.plan.token = "mpf_runtime::sparse_scale_right";
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  cpp.statements[1].expression.plan.token = "mpf_runtime::sparse_scale_left";
+  cpp.statements[1].expression.matrix_operation.left_storage = Storage::dense;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+}
+
 TEST_CASE("Matlab generalized selector plans remain explicit and reject cross-layer corruption") {
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "values = [10 20 30 40];\n"
