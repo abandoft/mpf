@@ -509,6 +509,8 @@ TEST_CASE("Matlab sparse element-wise products preserve CSC storage and broadcas
     REQUIRE(cpp.code.find(std::string("__mpf_") + helper) == std::string::npos);
   }
   REQUIRE(cpp.code.find("std::array<std::size_t, 0>{}") != std::string::npos);
+  REQUIRE(cpp.code.find("void validate_sparse_times_operand(") != std::string::npos);
+  REQUIRE(cpp.code.find("= validate_sparse_times_operand(") == std::string::npos);
   for (const auto* result : {&javascript, &cpp}) {
     for (std::size_t line = 1U; line <= 14U; ++line) {
       REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
