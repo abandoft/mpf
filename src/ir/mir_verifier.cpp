@@ -1149,8 +1149,11 @@ void verify_expression(const Expression& expression, const Program& program,
     bool valid = value_type(program, expression.type_id) == ValueType::list &&
                  array_storage(program, expression.type_id) == ArrayStorageFormat::sparse_csc &&
                  sparse.result_shape == expression.shape_id && result_shape != nullptr &&
-                 result_shape->extents.size() == 2U && result_shape->extents[0] != 0U &&
-                 result_shape->extents[1] != 0U;
+                 result_shape->extents.size() == 2U &&
+                 std::none_of(result_shape->extents.begin(), result_shape->extents.end(),
+                              [](const auto extent) {
+                                return extent == std::numeric_limits<std::size_t>::max();
+                              });
     const bool triplets = sparse.kind == semantic::SparseConstructionKind::triplets_inferred ||
                           sparse.kind == semantic::SparseConstructionKind::triplets_sized ||
                           sparse.kind == semantic::SparseConstructionKind::triplets_reserved;
@@ -1162,6 +1165,14 @@ void verify_expression(const Expression& expression, const Program& program,
         const auto count = argument == nullptr ? std::optional<std::size_t>{}
                                                : sparse_argument_count(program, *argument);
         valid = count.has_value() && *count == sparse.triplet_element_counts[child_index];
+      }
+      const bool zero_extent = result_shape != nullptr &&
+                               std::find(result_shape->extents.begin(), result_shape->extents.end(),
+                                         0U) != result_shape->extents.end();
+      if (zero_extent) {
+        valid = valid && std::all_of(sparse.triplet_element_counts.begin(),
+                                     sparse.triplet_element_counts.end(),
+                                     [](const auto count) { return count == 0U; });
       }
     } else {
       valid = valid && sparse.triplet_element_counts.empty();
