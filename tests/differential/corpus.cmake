@@ -43,6 +43,9 @@ mpf_add_differential_case(
   matlab-sparse-square-solve matlab examples/matlab/sparse_square_solve.m
   "3 5 6 5 1 2 3 1 2 3 1 2 3 4 5 6")
 mpf_add_differential_case(
+  matlab-sparse-zero-extent matlab examples/matlab/sparse_zero_extent.m
+  "11 0 1 3 2 3 3 2 3 3 3 4 3 3 2 2")
+mpf_add_differential_case(
   matlab-sparse-matrix-product matlab examples/matlab/sparse_matrix_product.m
   "16 15 16 15 1 0 0 2")
 mpf_add_differential_case(

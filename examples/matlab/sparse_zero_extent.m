@@ -1,0 +1,33 @@
+coefficient = sparse([], [], []);
+zero_rows = sparse(0, 3);
+zero_columns = sparse(2, 0);
+transposed = zero_rows.';
+reshaped = reshape(zero_rows, 0, 1, 3);
+selected = zero_rows(:, [1 3]);
+
+mutated = sparse(0, 3);
+mutated(1, 2) = 5;
+scaled = zero_rows * 3;
+elementwise = zero_rows .* [1 2 3];
+product = zero_columns * sparse(0, 4);
+
+dense_solution = coefficient \ reshape([], 0, 3);
+sparse_solution = coefficient \ zero_rows;
+dense_quotient = reshape([], 2, 0) / coefficient;
+sparse_quotient = zero_columns / coefficient;
+
+sparse_count = 0 + issparse(zero_rows) + issparse(zero_columns) + ...
+               issparse(transposed) + issparse(reshaped) + issparse(selected) + ...
+               issparse(mutated) + issparse(scaled) + issparse(elementwise) + ...
+               issparse(product) + issparse(sparse_solution) + issparse(sparse_quotient);
+dense_sparse_count = 0 + issparse(dense_solution) + issparse(dense_quotient);
+nonzero_count = nnz(mutated) + nnz(scaled) + nnz(elementwise) + nnz(product) + ...
+                nnz(dense_solution) + nnz(sparse_solution) + ...
+                nnz(dense_quotient) + nnz(sparse_quotient);
+
+disp(sparse_count, dense_sparse_count, nonzero_count, ...
+     length(full(zero_rows)), length(full(zero_columns)), length(full(transposed)), ...
+     length(full(reshaped)), length(full(selected)), length(full(mutated)), ...
+     length(full(scaled)), length(full(elementwise)), length(full(product)), ...
+     length(dense_solution), length(full(sparse_solution)), length(dense_quotient), ...
+     length(full(sparse_quotient)))
