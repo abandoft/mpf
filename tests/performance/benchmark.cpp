@@ -446,6 +446,40 @@ std::string matlab_sparse_index_workload(const std::size_t width, const std::siz
   return source;
 }
 
+std::string matlab_sparse_assignment_workload(const std::size_t width, const std::size_t rounds) {
+  std::string source = "matrix = sparse([";
+  for (std::size_t row = 0U; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0U; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += row == column ? std::to_string(row + 1U) : "0";
+    }
+  }
+  source += "]);\nblock = sparse([1 0; 0 2]);\n";
+  for (std::size_t round = 0U; round < rounds; ++round) {
+    const auto value = std::to_string(round + 1U);
+    source.append("matrix([1 3 1]) = [")
+        .append(value)
+        .append(" ")
+        .append(std::to_string(round + 2U))
+        .append(" ")
+        .append(std::to_string(round + 3U))
+        .append("];\n");
+    source.append("matrix(2:3, [2 4]) = [0 ")
+        .append(value)
+        .append("; ")
+        .append(std::to_string(round + 4U))
+        .append(" 0];\n");
+    source += "matrix(5:6, 5:6) = block;\n";
+    source += "matrix(7, 7) = 0;\n";
+  }
+  const auto grown = std::to_string(width + 1U);
+  source.append("matrix(").append(grown).append(", ").append(grown).append(") = 17;\n");
+  source += "matrix(:, 2) = [];\n";
+  source += "disp(nnz(matrix) + issparse(matrix))\n";
+  return source;
+}
+
 std::string matlab_rank_aware_solve_workload(const std::size_t rounds) {
   std::string source =
       "rank_deficient_tall = [1 2; 2 4; 3 6; 4 8];\n"
@@ -627,6 +661,8 @@ int main() {
       {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-solve", matlab_sparse_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-index", matlab_sparse_index_workload(24, 24), mpf::SourceLanguage::matlab},
+      {"matlab-sparse-assignment", matlab_sparse_assignment_workload(24, 24),
+       mpf::SourceLanguage::matlab},
       {"matlab-rank-aware-solve", matlab_rank_aware_solve_workload(24),
        mpf::SourceLanguage::matlab},
       {"matlab-conditioned-square-solve", matlab_conditioned_square_solve_workload(24),
