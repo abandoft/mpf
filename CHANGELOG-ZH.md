@@ -1,3 +1,19 @@
+## 0.6.3
+
+- Matlab 稀疏矩阵现支持通过一个线性 selector 或两个行/列 selector 进行索引赋值。
+- 在已交付的静态 real rank-two contract 内，sparse assignment 可使用 scalar、colon、slice、保序或重复 numeric、logical 与 empty selector。
+- scalar replacement 会扩展到全部选中元素；dense 或 sparse 非标量 replacement 遵循 Matlab 的非 singleton 维度 shape 规则。
+- 重复目标下标按 Matlab 列主序执行，并由最后一个 replacement value 确定最终结果。
+- 写入 exact zero 会删除对应 CSC entry，不会存储显式零值。
+- 线性与双下标赋值均可扩展稀疏矩阵，并保持 Matlab 的列主序 shape 规则。
+- null assignment 支持 vector 线性删除，以及合法的单轴整行或整列删除形式。
+- sparse RHS 与自引用 sparse selection 均无需物化源矩阵的稠密副本。
+- sparse update 会先完成全部验证再事务式提交，非法 selector 或 replacement 不会造成部分写入。
+- 生成的 JavaScript 与 C++17 会彼此独立地排序、折叠更新，并以 O(nnz + k log k) 合并为 canonical CSC storage。
+- 新增类型化 `SparseMutationPlan`，使赋值/删除 identity、shape、storage、scalar-expansion、重复写入与零值策略贯穿全部编译层。
+- 跨层 verifier 会在发射前拒绝损坏的 sparse-mutation identity、shape、storage、policy 或 inactive-state fact。
+- 新增可执行 sparse-assignment 示例，在双目标覆盖插入、覆盖、零值删除、重复下标、扩容、删除、sparse replacement 与 self-alias。
+
 ## 0.6.2
 
 - Matlab 稀疏矩阵现支持通过一个线性 index 或两个行/列 subscript 进行只读 scalar 访问。

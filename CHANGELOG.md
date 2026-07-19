@@ -1,3 +1,19 @@
+## 0.6.3
+
+- Matlab sparse matrices now support indexed assignment through one linear selector or two row/column selectors.
+- Sparse assignment accepts scalar, colon, slice, ordered or repeated numeric, logical, and empty selectors within the delivered static real rank-two contract.
+- Scalar replacement expands across the selected elements, while dense and sparse nonscalar replacements follow Matlab's nonsingleton-dimension shape rules.
+- Repeated target indices are applied in Matlab column-major order, with the last replacement value winning deterministically.
+- Assigning an exact zero removes the corresponding CSC entry instead of storing an explicit zero.
+- Linear and two-subscript assignments can grow a sparse matrix while preserving Matlab's column-major shape rules.
+- Null assignment supports vector linear deletion and the legal single-axis row or column deletion forms.
+- Sparse right-hand sides and self-referential sparse selections are accepted without materializing a dense copy of the source matrix.
+- Sparse updates are validated completely before a transactional commit, so invalid selectors or replacement values do not partially modify the target.
+- Generated JavaScript and C++17 independently sort, collapse, and merge updates into canonical CSC storage in O(nnz + k log k).
+- A typed `SparseMutationPlan` now carries assignment or deletion identity, shape, storage, scalar-expansion, duplicate-write, and zero-write policies through every compiler layer.
+- Cross-layer verifiers reject corrupted sparse-mutation identity, shape, storage, policy, or inactive-state facts before emission.
+- Added an executable sparse-assignment example covering insertion, overwrite, zero removal, repeated indices, growth, deletion, sparse replacement, and self-aliasing on both targets.
+
 ## 0.6.2
 
 - Matlab sparse matrices now support read-only scalar access through one linear index or two row/column subscripts.
