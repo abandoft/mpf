@@ -1329,6 +1329,182 @@ TEST_CASE("target LIR verifiers independently reject corrupted sparse index plan
   REQUIRE(!diagnostics.empty());
 }
 
+TEST_CASE("Matlab sparse mutation plans retain assignment order and CSC storage across layers") {
+  using Kind = mpf::detail::semantic::SparseMutationKind;
+  using Replacement = mpf::detail::semantic::SparseReplacementKind;
+  using Duplicate = mpf::detail::semantic::SparseDuplicateWritePolicy;
+  using Zero = mpf::detail::semantic::SparseZeroWritePolicy;
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "A = sparse([1 0 2; 0 3 0; 4 0 5]);\n"
+                              "A([1 3 1]) = [8 9 10];\n"
+                              "A(2:3, [2 3]) = [0 11; 12 0];\n"
+                              "A(4, 4) = 13;\n"
+                              "A(:, 2) = [];\n",
+                              "sparse_assignment.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  const auto count_kind = [&](const Kind kind) {
+    return std::count_if(analysis.semantics.statements.begin(),
+                         analysis.semantics.statements.end(),
+                         [&](const auto& facts) { return facts.sparse_mutation.kind == kind; });
+  };
+  REQUIRE(count_kind(Kind::linear_assignment) == 1);
+  REQUIRE(count_kind(Kind::subscript_assignment) == 2);
+  REQUIRE(count_kind(Kind::axis_deletion) == 1);
+  const auto hir_linear = std::find_if(
+      analysis.semantics.statements.begin(), analysis.semantics.statements.end(),
+      [](const auto& facts) { return facts.sparse_mutation.kind == Kind::linear_assignment; });
+  REQUIRE(hir_linear != analysis.semantics.statements.end());
+  REQUIRE(hir_linear->sparse_mutation.replacement == Replacement::elementwise);
+  REQUIRE(hir_linear->sparse_mutation.duplicate_policy == Duplicate::last_write_wins);
+  REQUIRE(hir_linear->sparse_mutation.zero_policy == Zero::erase_entry);
+  REQUIRE(hir_linear->sparse_mutation.source_storage ==
+          mpf::detail::ArrayStorageFormat::sparse_csc);
+  REQUIRE(hir_linear->sparse_mutation.result_storage ==
+          mpf::detail::ArrayStorageFormat::sparse_csc);
+  REQUIRE(hir_linear->sparse_mutation.input_shape == std::vector<std::size_t>({3U, 3U}));
+  REQUIRE(hir_linear->sparse_mutation.result_shape == std::vector<std::size_t>({3U, 3U}));
+
+  auto contradictory_hir = analysis.semantics;
+  const auto corrupt_hir = std::find_if(
+      contradictory_hir.statements.begin(), contradictory_hir.statements.end(),
+      [](const auto& facts) { return facts.sparse_mutation.kind == Kind::linear_assignment; });
+  REQUIRE(corrupt_hir != contradictory_hir.statements.end());
+  corrupt_hir->sparse_mutation.duplicate_policy = Duplicate::none;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
+                                              "sparse-mutation-order-corruption")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-mutation-plan").empty());
+  const auto mir_linear = std::find_if(
+      mir.program.attributes.statements.begin() + 1,
+      mir.program.attributes.statements.end(),
+      [](const auto& attributes) {
+        return attributes.sparse_mutation.kind == Kind::linear_assignment;
+      });
+  REQUIRE(mir_linear != mir.program.attributes.statements.end());
+  REQUIRE(mir_linear->sparse_mutation.duplicate_policy == Duplicate::last_write_wins);
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("sparse-mutation=1") != std::string::npos);
+
+  auto contradictory_mir = mir.program;
+  const auto corrupt_mir = std::find_if(
+      contradictory_mir.attributes.statements.begin() + 1,
+      contradictory_mir.attributes.statements.end(),
+      [](const auto& attributes) {
+        return attributes.sparse_mutation.kind == Kind::subscript_assignment;
+      });
+  REQUIRE(corrupt_mir != contradictory_mir.attributes.statements.end());
+  corrupt_mir->sparse_mutation.zero_policy = Zero::none;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-mutation-zero-corruption").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, effects,
+                                                 "sparse-mutation-effects")
+              .empty());
+  for (std::size_t index = 1U; index < mir.program.statements.size(); ++index) {
+    const auto& attributes = mir.program.attributes.statements[index];
+    if (!attributes.sparse_mutation.valid()) continue;
+    const auto* effect = effects.instruction(mir.program.statements[index].instruction);
+    REQUIRE(effect != nullptr);
+    REQUIRE(mpf::detail::mir::has_effect(effect->effects, mpf::detail::mir::Effect::write));
+    REQUIRE(!effect->writes.empty());
+  }
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("sparse-mutation 1") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("sparse-mutation 4") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("sparse-mutation 1") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("sparse-mutation 4") != std::string::npos);
+}
+
+TEST_CASE("target LIR verifiers reject corrupted sparse mutation policies") {
+  using Mutation = mpf::detail::semantic::IndexedMutationKind;
+  using ShapeSource = mpf::detail::semantic::IndexedMutationShapeSource;
+  using SparseKind = mpf::detail::semantic::SparseMutationKind;
+  using Replacement = mpf::detail::semantic::SparseReplacementKind;
+  using Duplicate = mpf::detail::semantic::SparseDuplicateWritePolicy;
+  using Zero = mpf::detail::semantic::SparseZeroWritePolicy;
+  using IndexKind = mpf::detail::semantic::SparseIndexKind;
+  const auto configure = [&](auto& statement) {
+    statement.kind = mpf::detail::StatementKind::indexed_assignment;
+    statement.expression.kind = mpf::detail::ExpressionKind::number_literal;
+    statement.expression.value = "7";
+    statement.expression.inferred_type = mpf::detail::ValueType::integer;
+    statement.expression.numeric_type = mpf::detail::integer_numeric_type;
+    auto& target = statement.target_expression;
+    target.kind = mpf::detail::ExpressionKind::index;
+    target.inferred_type = mpf::detail::ValueType::real;
+    target.numeric_type = mpf::detail::real_numeric_type;
+    target.column_major = true;
+    target.index_base = 1U;
+    target.index_selectors = {mpf::detail::semantic::IndexSelectorKind::scalar};
+    target.index_extents = {mpf::detail::semantic::IndexExtentSource::none};
+    target.sparse_index = {IndexKind::linear_element,
+                           mpf::detail::ArrayStorageFormat::sparse_csc,
+                           mpf::detail::ArrayStorageFormat::none,
+                           {3U, 3U},
+                           {}};
+    target.children.resize(2U);
+    auto& source = target.children[0];
+    source.kind = mpf::detail::ExpressionKind::identifier;
+    source.value = "matrix";
+    source.inferred_type = mpf::detail::ValueType::list;
+    source.element_type = mpf::detail::ValueType::real;
+    source.element_numeric_type = mpf::detail::real_numeric_type;
+    source.array_storage = mpf::detail::ArrayStorageFormat::sparse_csc;
+    source.shape = {3U, 3U};
+    auto& selector = target.children[1];
+    selector.kind = mpf::detail::ExpressionKind::number_literal;
+    selector.value = "1";
+    selector.inferred_type = mpf::detail::ValueType::integer;
+    selector.numeric_type = mpf::detail::integer_numeric_type;
+    statement.indexed_mutation = {Mutation::overwrite, ShapeSource::preserve, true};
+    statement.mutation_input_shape = {3U, 3U};
+    statement.mutation_result_shape = {3U, 3U};
+    statement.sparse_mutation = {SparseKind::linear_assignment,
+                                 Replacement::scalar_expansion,
+                                 Duplicate::last_write_wins,
+                                 Zero::erase_entry,
+                                 mpf::detail::ArrayStorageFormat::sparse_csc,
+                                 mpf::detail::ArrayStorageFormat::none,
+                                 mpf::detail::ArrayStorageFormat::sparse_csc,
+                                 {3U, 3U},
+                                 {},
+                                 {},
+                                 {3U, 3U}};
+  };
+
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.source_language = mpf::SourceLanguage::matlab;
+  javascript.statements.resize(1U);
+  configure(javascript.statements.front());
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript.statements.front().sparse_mutation.duplicate_policy = Duplicate::none;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.source_language = mpf::SourceLanguage::matlab;
+  cpp.statements.resize(1U);
+  configure(cpp.statements.front());
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp.statements.front().sparse_mutation.zero_policy = Zero::none;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+}
+
 TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   using Operation = mpf::detail::semantic::MatrixOperation;
   using Solve = mpf::detail::semantic::MatrixSolveKind;
@@ -1957,7 +2133,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v16") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v17") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -1968,7 +2144,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v22") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v23") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -3437,9 +3613,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v28") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v29") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v28") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v29") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
