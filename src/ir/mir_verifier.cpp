@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -82,6 +83,47 @@ void collect_index_extent(const Program& program, const Expression& expression,
       continue;
     }
     collect_index_extent(program, *child, source, valid);
+  }
+}
+
+std::optional<std::size_t> sparse_argument_count(const Program& program,
+                                                 const Expression& expression) noexcept {
+  if (value_type(program, expression.type_id) != ValueType::list) {
+    const auto type = value_type(program, expression.type_id);
+    return type == ValueType::integer || type == ValueType::real ? std::optional<std::size_t>{1U}
+                                                                 : std::nullopt;
+  }
+  const auto* argument_shape = shape(program, expression.shape_id);
+  if (argument_shape == nullptr) return std::nullopt;
+  std::size_t count = 1U;
+  for (const auto extent : argument_shape->extents) {
+    if (extent == dynamic_extent ||
+        (extent != 0U && count > std::numeric_limits<std::size_t>::max() / extent)) {
+      return std::nullopt;
+    }
+    count *= extent;
+  }
+  return count;
+}
+
+semantic::SparseConstructionKind expected_sparse_construction_kind(
+    const Program& program, const Expression& expression) noexcept {
+  if (expression.kind != ExpressionKind::call || expression.children.empty()) {
+    return semantic::SparseConstructionKind::none;
+  }
+  const auto* callee = mir::expression(program, expression.children.front());
+  const auto* callee_attributes = callee == nullptr ? nullptr : attributes(program, callee->id);
+  if (callee_attributes == nullptr || callee_attributes->binding != BindingKind::builtin ||
+      callee_attributes->intrinsic != IntrinsicId::matlab_sparse) {
+    return semantic::SparseConstructionKind::none;
+  }
+  switch (expression.children.size()) {
+    case 2U: return semantic::SparseConstructionKind::dense_conversion;
+    case 3U: return semantic::SparseConstructionKind::zero_matrix;
+    case 4U: return semantic::SparseConstructionKind::triplets_inferred;
+    case 6U: return semantic::SparseConstructionKind::triplets_sized;
+    case 7U: return semantic::SparseConstructionKind::triplets_reserved;
+    default: return semantic::SparseConstructionKind::none;
   }
 }
 
@@ -509,6 +551,10 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->reduction.output_shape.valid() ||
         !retired_attributes->reduction.axes.empty() ||
         retired_attributes->reduction.scalar_result ||
+        retired_attributes->sparse_construction.valid() ||
+        retired_attributes->sparse_construction.result_shape.valid() ||
+        !retired_attributes->sparse_construction.triplet_element_counts.empty() ||
+        retired_attributes->sparse_construction.reserve_hint != 0U ||
         retired_attributes->binding != BindingKind::unresolved ||
         retired_attributes->intrinsic != IntrinsicId::none ||
         !retired_attributes->tuple_shapes.empty() ||
@@ -856,6 +902,54 @@ void verify_expression(const Expression& expression, const Program& program,
              reduction.output_shape.valid() || !reduction.axes.empty() || reduction.scalar_result) {
     add_error(diagnostics, expression.location, stage,
               "inactive logical reduction retains MIR attributes");
+  }
+  const auto& sparse = expression_attributes->sparse_construction;
+  const auto expected_sparse = expected_sparse_construction_kind(program, expression);
+  if (sparse.kind != expected_sparse) {
+    add_error(diagnostics, expression.location, stage,
+              "sparse-construction identity disagrees with its source intrinsic");
+  } else if (sparse.valid()) {
+    const auto* result_shape = shape(program, sparse.result_shape);
+    bool valid = value_type(program, expression.type_id) == ValueType::list &&
+                 array_storage(program, expression.type_id) == ArrayStorageFormat::sparse_csc &&
+                 sparse.result_shape == expression.shape_id && result_shape != nullptr &&
+                 result_shape->extents.size() == 2U && result_shape->extents[0] != 0U &&
+                 result_shape->extents[1] != 0U;
+    const bool triplets = sparse.kind == semantic::SparseConstructionKind::triplets_inferred ||
+                          sparse.kind == semantic::SparseConstructionKind::triplets_sized ||
+                          sparse.kind == semantic::SparseConstructionKind::triplets_reserved;
+    if (triplets) {
+      valid =
+          valid && sparse.triplet_element_counts.size() == 3U && expression.children.size() >= 4U;
+      for (std::size_t child_index = 0U; valid && child_index < 3U; ++child_index) {
+        const auto* argument = mir::expression(program, expression.children[child_index + 1U]);
+        const auto count = argument == nullptr ? std::optional<std::size_t>{}
+                                               : sparse_argument_count(program, *argument);
+        valid = count.has_value() && *count == sparse.triplet_element_counts[child_index];
+      }
+    } else {
+      valid = valid && sparse.triplet_element_counts.empty();
+    }
+    if (sparse.kind == semantic::SparseConstructionKind::dense_conversion) {
+      const auto* argument = expression.children.size() == 2U
+                                 ? mir::expression(program, expression.children[1])
+                                 : nullptr;
+      const auto* argument_shape =
+          argument == nullptr ? nullptr : shape(program, argument->shape_id);
+      valid = valid && argument_shape != nullptr && result_shape != nullptr &&
+              argument_shape->extents == result_shape->extents;
+    }
+    if (sparse.kind != semantic::SparseConstructionKind::triplets_reserved) {
+      valid = valid && sparse.reserve_hint == 0U;
+    }
+    if (!valid) {
+      add_error(diagnostics, expression.location, stage,
+                "sparse-construction attributes have an invalid shape or triplet count");
+    }
+  } else if (sparse.result_shape.valid() || !sparse.triplet_element_counts.empty() ||
+             sparse.reserve_hint != 0U) {
+    add_error(diagnostics, expression.location, stage,
+              "inactive sparse-construction attributes retain MIR state");
   }
   if (expression.instruction.valid() &&
       expression.instruction.value() < program.instructions.size()) {

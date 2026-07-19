@@ -280,6 +280,21 @@ std::string dump_semantics(const hir::SemanticTable& table) {
         output << " output=";
         dump_shape(facts.reduction.output_shape);
       }
+      if (facts.sparse_construction.valid()) {
+        output << " sparse-construction=" << enum_value(facts.sparse_construction.kind)
+               << " shape=[";
+        for (std::size_t axis = 0; axis < facts.sparse_construction.result_shape.size(); ++axis) {
+          if (axis != 0U) output << ',';
+          output << facts.sparse_construction.result_shape[axis];
+        }
+        output << "] counts=[";
+        for (std::size_t index = 0; index < facts.sparse_construction.triplet_element_counts.size();
+             ++index) {
+          if (index != 0U) output << ',';
+          output << facts.sparse_construction.triplet_element_counts[index];
+        }
+        output << "] reserve=" << facts.sparse_construction.reserve_hint;
+      }
       output << " region=";
       dump_storage_region(output, facts.storage_region);
     } else if (slot.kind == hir::SemanticNodeKind::statement &&
@@ -415,6 +430,18 @@ std::string dump_mir(const mir::Program& program) {
         }
         output << "]->!s" << attributes->reduction.result_shape.value() << " output=!s"
                << attributes->reduction.output_shape.value();
+      }
+      if (attributes->sparse_construction.valid()) {
+        output << " sparse-construction=" << enum_value(attributes->sparse_construction.kind)
+               << " shape=!s" << attributes->sparse_construction.result_shape.value()
+               << " counts=[";
+        for (std::size_t count_index = 0;
+             count_index < attributes->sparse_construction.triplet_element_counts.size();
+             ++count_index) {
+          if (count_index != 0U) output << ',';
+          output << attributes->sparse_construction.triplet_element_counts[count_index];
+        }
+        output << "] reserve=" << attributes->sparse_construction.reserve_hint;
       }
     }
     output << '\n';
