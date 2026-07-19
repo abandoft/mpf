@@ -682,7 +682,7 @@ std::size_t sparse_reshape_shape_count(const std::array<std::size_t, Rank>& shap
     throw std::invalid_argument("MPF Matlab sparse reshape " + name + " has an invalid rank");
   std::size_t count = 1U;
   for (const auto extent : shape) {
-    if (extent == 0U || count > std::numeric_limits<std::size_t>::max() / extent)
+    if (extent != 0U && count > std::numeric_limits<std::size_t>::max() / extent)
       throw std::length_error("MPF Matlab sparse reshape " + name + " has an invalid extent");
     count *= extent;
   }
@@ -704,7 +704,8 @@ sparse_matrix<double> sparse_reshape(
     throw std::invalid_argument("MPF Matlab sparse reshape shape plans are inconsistent");
   std::size_t folded_columns = 1U;
   for (std::size_t axis = 1U; axis < RequestedRank; ++axis) {
-    if (folded_columns > std::numeric_limits<std::size_t>::max() / requested_shape[axis])
+    if (requested_shape[axis] != 0U &&
+        folded_columns > std::numeric_limits<std::size_t>::max() / requested_shape[axis])
       throw std::length_error("MPF Matlab sparse reshape folded extent exceeds size limits");
     folded_columns *= requested_shape[axis];
   }
