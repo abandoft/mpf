@@ -233,6 +233,26 @@ class Renderer final {
         }
         output_ << ')';
         return;
+      case javascript::lir::CallForm::matlab_sparse:
+        output_ << "__mpf_sparse(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        return;
+      case javascript::lir::CallForm::matlab_full:
+        output_ << "__mpf_full(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        return;
+      case javascript::lir::CallForm::matlab_is_sparse:
+        output_ << "__mpf_issparse(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        return;
+      case javascript::lir::CallForm::matlab_nonzero_count:
+        output_ << "__mpf_nnz(";
+        emit_expression(expression.children[1]);
+        output_ << ')';
+        return;
       case javascript::lir::CallForm::none:
       case javascript::lir::CallForm::direct: break;
     }

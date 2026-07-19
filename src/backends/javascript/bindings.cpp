@@ -37,6 +37,10 @@ constexpr std::array<CodeBinding, static_cast<std::size_t>(IntrinsicId::count)> 
     {IntrinsicId::matlab_length, CodeBindingKind::custom, "__mpf_length"},
     {IntrinsicId::element_count, CodeBindingKind::custom, "__mpf_numel"},
     {IntrinsicId::reshape, CodeBindingKind::custom, "__mpf_reshape"},
+    {IntrinsicId::matlab_sparse, CodeBindingKind::custom, "__mpf_sparse"},
+    {IntrinsicId::matlab_full, CodeBindingKind::custom, "__mpf_full"},
+    {IntrinsicId::matlab_is_sparse, CodeBindingKind::custom, "__mpf_issparse"},
+    {IntrinsicId::matlab_nonzero_count, CodeBindingKind::custom, "__mpf_nnz"},
     {IntrinsicId::present, CodeBindingKind::custom, "present"},
 }};
 

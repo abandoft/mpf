@@ -38,6 +38,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::complex_matrices)) {
     result.push_back(lir::RuntimeFragment::complex_matrices);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::sparse_matrices)) {
+    result.push_back(lir::RuntimeFragment::sparse_matrices);
+  }
   if (program.runtime.contains(lir::RuntimeFeature::scalar_division)) {
     result.push_back(lir::RuntimeFragment::scalar_division);
   }
@@ -83,6 +86,10 @@ void verify_module(const lir::SemanticProgram& program, std::vector<Diagnostic>&
        !program.runtime.contains(lir::RuntimeFeature::arrays))) {
     add_error(diagnostics, {1, 1},
               "JavaScript complex-matrix runtime requires complex scalar and array fragments");
+  }
+  if (program.runtime.contains(lir::RuntimeFeature::sparse_matrices) &&
+      !program.runtime.contains(lir::RuntimeFeature::arrays)) {
+    add_error(diagnostics, {1, 1}, "JavaScript sparse-matrix runtime requires the array fragment");
   }
 }
 
