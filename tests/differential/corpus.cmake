@@ -52,6 +52,8 @@ mpf_add_differential_case(
   matlab-sparse-assignment matlab examples/matlab/sparse_assignment.m
   "10 7 9 11 13 0 5 1 5 2 2 3 6 1 3 7 7 2 2")
 mpf_add_differential_case(
+  matlab-sparse-reshape matlab examples/matlab/sparse_reshape.m "3 2 3 2 3 2 3")
+mpf_add_differential_case(
   matlab-sparse-singular-square-warning matlab
   examples/matlab/sparse_singular_square_warning.m "0 4" tokens
   "matrix is singular to working precision")
