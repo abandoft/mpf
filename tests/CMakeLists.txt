@@ -318,6 +318,17 @@ if(TARGET mpfc)
       "mpf_runtime::sparse_reshape(A, std::array<std::size_t, 2>{2, 3}, std::array<std::size_t, 2>{3, 2}, std::array<std::size_t, 2>{3, 2})"
     CPP_REPLACEMENT
       "mpf_runtime::sparse_reshape(A, std::array<std::size_t, 2>{2, 3}, std::array<std::size_t, 2>{3, 2}, std::array<std::size_t, 2>{2, 3})")
+  mpf_add_generated_plan_rejection_test(
+    matlab-sparse-product-plan tests/fixtures/matlab_sparse_product_plan.m
+    "sparse matrix multiplication shape mismatch" matlab
+    JAVASCRIPT_SEARCH
+      "__mpf_sparse_sparse_mtimes(A, B)"
+    JAVASCRIPT_REPLACEMENT
+      "__mpf_sparse_sparse_mtimes(A, A)"
+    CPP_SEARCH
+      "mpf_runtime::sparse_sparse_mtimes(A, B)"
+    CPP_REPLACEMENT
+      "mpf_runtime::sparse_sparse_mtimes(A, A)")
   mpf_add_generated_runtime_failure_test(
     python-true-division-by-zero tests/fixtures/python_true_division_by_zero.py
     "division by zero" python)
