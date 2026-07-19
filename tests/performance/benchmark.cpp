@@ -457,6 +457,56 @@ std::string matlab_sparse_scale_workload(const std::size_t width, const std::siz
   return source;
 }
 
+std::string matlab_sparse_elementwise_workload(const std::size_t width,
+                                               const std::size_t rounds) {
+  std::string source = "matrix = sparse([";
+  for (std::size_t row = 0U; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0U; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += (row == column || (7U * row + 5U * column) % 23U == 0U)
+                    ? std::to_string(row + column + 1U)
+                    : "0";
+    }
+  }
+  source += "]);\ndense = [";
+  for (std::size_t row = 0U; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0U; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += std::to_string((3U * row + 2U * column) % 29U + 1U);
+    }
+  }
+  source += "];\nrow = sparse([";
+  for (std::size_t index = 0U; index < width; ++index) {
+    if (index != 0U) source += ' ';
+    source += "1";
+  }
+  source += "], [";
+  for (std::size_t index = 0U; index < width; ++index) {
+    if (index != 0U) source += ' ';
+    source += std::to_string(index + 1U);
+  }
+  source += "], [";
+  for (std::size_t index = 0U; index < width; ++index) {
+    if (index != 0U) source += ' ';
+    source += index % 4U == 0U ? std::to_string(index + 1U) : "0";
+  }
+  source += "], 1, " + std::to_string(width) + ");\ncolumn = row.';\n";
+  for (std::size_t round = 0U; round < rounds; ++round) {
+    source += "right_scalar = matrix .* 3;\n";
+    source += "left_scalar = -2 .* matrix;\n";
+    source += "sparse_dense = row .* dense;\n";
+    source += "dense_sparse = dense .* column;\n";
+    source += "sparse_sparse = row .* column;\n";
+    source += "matrix = matrix .* matrix;\n";
+  }
+  source +=
+      "disp(nnz(right_scalar) + nnz(left_scalar) + nnz(sparse_dense) + "
+      "nnz(dense_sparse) + nnz(sparse_sparse) + nnz(matrix))\n";
+  return source;
+}
+
 std::string matlab_sparse_index_workload(const std::size_t width, const std::size_t rounds) {
   std::string source = "matrix = sparse([";
   for (std::size_t row = 0U; row < width; ++row) {
@@ -752,6 +802,8 @@ int main() {
       {"matlab-sparse-multiply", matlab_sparse_multiply_workload(24, 24),
        mpf::SourceLanguage::matlab},
       {"matlab-sparse-scale", matlab_sparse_scale_workload(24, 24), mpf::SourceLanguage::matlab},
+      {"matlab-sparse-elementwise", matlab_sparse_elementwise_workload(24, 24),
+       mpf::SourceLanguage::matlab},
       {"matlab-sparse-index", matlab_sparse_index_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-reshape", matlab_sparse_reshape_workload(24, 24),
        mpf::SourceLanguage::matlab},
