@@ -1,0 +1,5 @@
+A = sparse([1 0 -2; 0 3 0]);
+right_scaled = A * 4;
+left_scaled = -0.5 * A;
+zero_scaled = A * 0;
+disp(nnz(right_scaled), nnz(left_scaled), nnz(zero_scaled))
