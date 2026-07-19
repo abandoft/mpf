@@ -381,17 +381,24 @@ std::string matlab_sparse_solve_workload(const std::size_t rounds) {
       "dense_rhs = [4; 9; 19; 20];\n"
       "sparse_rhs = sparse([4; 10; 18; 17]);\n"
       "left = sparse([7 8 14 3; 16 23 29 9]);\n"
-      "right = sparse([1 2 0 0; 0 3 1 0; 2 0 4 1; 0 1 0 5]);\n";
+      "right = sparse([1 2 0 0; 0 3 1 0; 2 0 4 1; 0 1 0 5]);\n"
+      "constructed = sparse([1 4 1 2], [1 1 1 3], [2 5 -2 7], 4, 4, 8);\n"
+      "inferred = sparse([2 1 2], [4 2 4], [3 6 4]);\n"
+      "zero_matrix = sparse(4, 4);\n";
   for (std::size_t round = 0; round < rounds; ++round) {
     source += "tridiagonal_solution = tridiagonal \\ dense_rhs;\n";
     source += "pivoted_solution = pivoted \\ sparse_rhs;\n";
     source += "quotient = left / right;\n";
     source += "dense_pivoted = full(pivoted_solution);\n";
     source += "dense_quotient = full(quotient);\n";
+    source += "transposed = constructed.';\n";
+    source += "conjugate_transposed = inferred';\n";
+    source += "dense_transposed = full(transposed);\n";
   }
   source +=
       "disp(tridiagonal_solution(1) + dense_pivoted(1) + dense_quotient(1, 1) + "
-      "nnz(pivoted))\n";
+      "nnz(pivoted) + nnz(zero_matrix) + nnz(conjugate_transposed) + "
+      "dense_transposed(1, 4))\n";
   return source;
 }
 
