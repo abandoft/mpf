@@ -859,8 +859,10 @@ class Builder final {
             semantic_facts->matrix_operation.right_storage;
         result_attributes.matrix_operation.result_storage =
             semantic_facts->matrix_operation.result_storage;
-        result_attributes.matrix_operation.left_shape =
-            intern_shape(semantic_facts->matrix_operation.left_shape, false);
+        if (!semantic_facts->matrix_operation.left_shape.empty()) {
+          result_attributes.matrix_operation.left_shape =
+              intern_shape(semantic_facts->matrix_operation.left_shape, false);
+        }
         if (!semantic_facts->matrix_operation.right_shape.empty()) {
           result_attributes.matrix_operation.right_shape =
               intern_shape(semantic_facts->matrix_operation.right_shape, false);

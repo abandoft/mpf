@@ -452,10 +452,17 @@ std::string dump_mir(const mir::Program& program) {
                << " storage-policy=" << enum_value(attributes->matrix_operation.storage_policy)
                << " storage=" << enum_value(attributes->matrix_operation.left_storage) << ','
                << enum_value(attributes->matrix_operation.right_storage) << "->"
-               << enum_value(attributes->matrix_operation.result_storage) << " !s"
-               << attributes->matrix_operation.left_shape.value();
+               << enum_value(attributes->matrix_operation.result_storage) << ' ';
+        if (attributes->matrix_operation.left_shape.valid()) {
+          output << "!s" << attributes->matrix_operation.left_shape.value();
+        } else {
+          output << "scalar";
+        }
         if (attributes->matrix_operation.right_shape.valid()) {
           output << ",!s" << attributes->matrix_operation.right_shape.value();
+        } else if (attributes->matrix_operation.storage_policy ==
+                   semantic::MatrixStoragePolicy::sparse_csc_scale) {
+          output << ",scalar";
         }
         output << "->!s" << attributes->matrix_operation.result_shape.value();
       }
