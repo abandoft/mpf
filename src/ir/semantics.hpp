@@ -121,8 +121,9 @@ enum class ArrayOperation : std::uint8_t { native, matlab };
 // Sparse element-wise arithmetic is not a matrix operation. Keep its source operation and
 // storage propagation independent so target lowering never aliases Matlab `.*` to `*` or infers
 // sparse preservation from a helper name. The current finite-real CSC contract deliberately
-// requires analyzer-owned extents; dynamic rank, empty dimensions, and complex sparse values fail
-// closed until their own typed contracts are implemented.
+// requires analyzer-owned extents; dynamic rank and complex sparse values fail closed until their
+// own typed contracts are implemented. Zero extents participate in singleton expansion and remain
+// explicit in the result contract.
 enum class SparseElementwiseOperation : std::uint8_t { none, multiply };
 enum class SparseElementwiseStoragePolicy : std::uint8_t { none, preserve_sparse };
 
@@ -159,10 +160,10 @@ template <typename Shape, typename Axes>
     if (storage != ArrayStorageFormat::dense && storage != ArrayStorageFormat::sparse_csc) {
       return false;
     }
-    return shape.size() == 2U && shape[0] != 0U && shape[1] != 0U;
+    constexpr auto dynamic = std::numeric_limits<std::size_t>::max();
+    return shape.size() == 2U && shape[0] != dynamic && shape[1] != dynamic;
   };
-  if (!valid_operand(left_storage, left_shape) || !valid_operand(right_storage, right_shape) ||
-      result_shape[0] == 0U || result_shape[1] == 0U) {
+  if (!valid_operand(left_storage, left_shape) || !valid_operand(right_storage, right_shape)) {
     return false;
   }
   for (std::size_t axis = 0U; axis < result_shape.size(); ++axis) {
@@ -172,7 +173,9 @@ template <typename Shape, typename Axes>
                                : left_extent == 1U         ? BroadcastAxis::expand_left
                                : right_extent == 1U        ? BroadcastAxis::expand_right
                                                            : BroadcastAxis::runtime;
-    const auto expected_extent = left_extent > right_extent ? left_extent : right_extent;
+    const auto expected_extent = left_extent == right_extent ? left_extent
+                                 : left_extent == 1U         ? right_extent
+                                                             : left_extent;
     if (expected_axis == BroadcastAxis::runtime || axes[axis] != expected_axis ||
         result_shape[axis] != expected_extent) {
       return false;
