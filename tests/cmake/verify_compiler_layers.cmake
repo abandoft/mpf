@@ -532,6 +532,9 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT index_extent_contract MATCHES "valid_sparse_elementwise_contract" OR
    NOT index_extent_contract MATCHES "SparseConstructionKind" OR
    NOT index_extent_contract MATCHES "triplets_reserved" OR
+   NOT index_extent_contract MATCHES "SparseValueDomain" OR
+   NOT index_extent_contract MATCHES "SparseDuplicatePolicy" OR
+   NOT index_extent_contract MATCHES "valid_sparse_stored_value_type" OR
    NOT index_extent_contract MATCHES "SparseIndexKind" OR
    NOT index_extent_contract MATCHES "valid_sparse_index_contract" OR
    NOT index_extent_contract MATCHES "SparseMutationKind" OR
@@ -547,6 +550,8 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT hir_extent_contract MATCHES "sparse_elementwise" OR
    NOT hir_extent_contract MATCHES "SparseConstructionPlan" OR
    NOT hir_extent_contract MATCHES "sparse_construction" OR
+   NOT hir_extent_contract MATCHES "SparseValueDomain value_domain" OR
+   NOT hir_extent_contract MATCHES "SparseDuplicatePolicy duplicate_policy" OR
    NOT hir_extent_contract MATCHES "SparseIndexPlan" OR
    NOT hir_extent_contract MATCHES "sparse_index" OR
    NOT hir_extent_contract MATCHES "SparseMutationPlan" OR
@@ -560,6 +565,8 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT mir_extent_contract MATCHES "sparse_elementwise" OR
    NOT mir_extent_contract MATCHES "SparseConstructionPlan" OR
    NOT mir_extent_contract MATCHES "sparse_construction" OR
+   NOT mir_extent_contract MATCHES "SparseValueDomain value_domain" OR
+   NOT mir_extent_contract MATCHES "SparseDuplicatePolicy duplicate_policy" OR
    NOT mir_extent_contract MATCHES "SparseIndexPlan" OR
    NOT mir_extent_contract MATCHES "sparse_index" OR
    NOT mir_extent_contract MATCHES "SparseMutationPlan" OR
@@ -590,6 +597,10 @@ if(NOT condition_lir_builder_contract MATCHES
    NOT condition_lir_builder_contract MATCHES
      "sparse_construction\.triplet_element_counts" OR
    NOT condition_lir_builder_contract MATCHES
+     "sparse_construction\.value_domain = attributes\.sparse_construction\.value_domain" OR
+   NOT condition_lir_builder_contract MATCHES
+     "sparse_construction\.duplicate_policy = attributes\.sparse_construction\.duplicate_policy" OR
+   NOT condition_lir_builder_contract MATCHES
      "sparse_index\.kind = attributes\.sparse_index\.kind" OR
    NOT condition_lir_builder_contract MATCHES
      "sparse_index\.result_shape" OR
@@ -614,6 +625,8 @@ foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir
        "SparseElementwiseStoragePolicy storage_policy" OR
      NOT condition_target_lir_contract MATCHES "SparseConstructionPlan" OR
      NOT condition_target_lir_contract MATCHES "SparseConstructionKind kind" OR
+     NOT condition_target_lir_contract MATCHES "SparseValueDomain value_domain" OR
+     NOT condition_target_lir_contract MATCHES "SparseDuplicatePolicy duplicate_policy" OR
      NOT condition_target_lir_contract MATCHES "SparseIndexPlan" OR
      NOT condition_target_lir_contract MATCHES "SparseIndexKind kind" OR
      NOT condition_target_lir_contract MATCHES "SparseMutationPlan" OR
@@ -721,6 +734,10 @@ foreach(sparse_matrix_runtime IN ITEMS
      NOT sparse_matrix_runtime_contract MATCHES "sparse_from_triplets" OR
      NOT sparse_matrix_runtime_contract MATCHES "triplet indices must be positive safe integers" OR
      NOT sparse_matrix_runtime_contract MATCHES "duplicate accumulation is not finite" OR
+     NOT sparse_matrix_runtime_contract MATCHES
+       "(sparse_value_logical|sparse_logical_any)" OR
+     NOT sparse_matrix_runtime_contract MATCHES
+       "(sparse_duplicate_logical_any|LogicalAny)" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_transpose" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_linear_element" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_subscript_element" OR
@@ -788,7 +805,8 @@ foreach(sparse_representation IN ITEMS
   endif()
 endforeach()
 foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
-  mpf_assert_file_excludes("${renderer}" "SparseConstructionKind|sparse_construction"
+  mpf_assert_file_excludes("${renderer}"
+    "Sparse(ConstructionKind|ValueDomain|DuplicatePolicy)|sparse_construction"
     "target renderer recovered sparse-construction semantics from source plans")
   mpf_assert_file_excludes("${renderer}" "MatrixStoragePolicy|sparse_csc_(multiply|scale)"
     "target renderer recovered sparse-product semantics from source plans")
@@ -801,6 +819,21 @@ foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/
       "target renderer does not serialize the verified target-call shape ABI: ${renderer}")
   endif()
 endforeach()
+file(READ "${SOURCE_DIR}/src/backends/javascript/lir.hpp" javascript_sparse_call_abi)
+file(READ "${SOURCE_DIR}/src/backends/javascript/lir_representation.cpp"
+     javascript_sparse_call_planner)
+if(NOT javascript_sparse_call_abi MATCHES "runtime_integer_arguments" OR
+   NOT javascript_sparse_call_planner MATCHES
+     "runtime_integer_arguments =" OR
+   NOT javascript_sparse_call_planner MATCHES "__mpf_sparse_from_dense")
+  message(FATAL_ERROR
+    "JavaScript target LIR does not own the logical sparse runtime integer ABI")
+endif()
+file(READ "${SOURCE_DIR}/src/backends/cpp/lir_representation.cpp" cpp_sparse_call_planner)
+if(NOT cpp_sparse_call_planner MATCHES "sparse_logical_from_dense" OR
+   NOT cpp_sparse_call_planner MATCHES "sparse_logical_any")
+  message(FATAL_ERROR "cpp target LIR does not own logical sparse helper selection")
+endif()
 mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
   "function __mpf_matlab_lu_"
   "generic JavaScript runtime regained matrix factorization ownership")
