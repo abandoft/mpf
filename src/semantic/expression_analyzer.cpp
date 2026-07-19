@@ -26,6 +26,72 @@ std::optional<long long> integral_constant(const Expression& expression) {
                                                  : std::nullopt;
 }
 
+std::optional<std::size_t> nonnegative_size_constant(const Expression& expression) {
+  const auto value = integral_constant(expression);
+  if (!value.has_value() || *value < 0) return std::nullopt;
+  const auto unsigned_value = static_cast<unsigned long long>(*value);
+  if (unsigned_value > static_cast<unsigned long long>(std::numeric_limits<std::size_t>::max())) {
+    return std::nullopt;
+  }
+  return static_cast<std::size_t>(unsigned_value);
+}
+
+std::optional<std::size_t> positive_size_constant(const Expression& expression) {
+  const auto value = nonnegative_size_constant(expression);
+  return value.has_value() && *value != 0U ? value : std::nullopt;
+}
+
+std::optional<std::size_t> checked_element_count(const std::vector<std::size_t>& shape) {
+  if (!known_shape(shape)) return std::nullopt;
+  std::size_t count = 1U;
+  for (const auto extent : shape) {
+    if (extent != 0U && count > std::numeric_limits<std::size_t>::max() / extent) {
+      return std::nullopt;
+    }
+    count *= extent;
+  }
+  return count;
+}
+
+std::optional<std::size_t> matlab_sparse_argument_count(const hir::ExpressionFacts& facts) {
+  if (facts.inferred_type == ValueType::list) return checked_element_count(facts.shape);
+  const auto type = facts.inferred_type;
+  return type == ValueType::integer || type == ValueType::real ? std::optional<std::size_t>{1U}
+                                                               : std::nullopt;
+}
+
+bool matlab_sparse_real_value(const hir::ExpressionFacts& facts) noexcept {
+  const auto type =
+      facts.inferred_type == ValueType::list ? facts.element_type : facts.inferred_type;
+  const auto numeric_type = expression_numeric_type(facts);
+  return (type == ValueType::integer || type == ValueType::real) && numeric_type.present() &&
+         numeric_type.complexity == NumericComplexity::real;
+}
+
+std::optional<std::size_t> matlab_sparse_literal_index_max(const Expression& expression) {
+  if (expression.kind == ExpressionKind::list) {
+    std::size_t maximum = 0U;
+    for (const auto& child : expression.children) {
+      const auto child_maximum = matlab_sparse_literal_index_max(child);
+      if (!child_maximum.has_value()) return std::nullopt;
+      maximum = std::max(maximum, *child_maximum);
+    }
+    return maximum;
+  }
+  return positive_size_constant(expression);
+}
+
+bool matlab_sparse_known_indices_within(const Expression& expression, const std::size_t extent) {
+  if (expression.kind == ExpressionKind::list) {
+    return std::all_of(
+        expression.children.begin(), expression.children.end(),
+        [&](const auto& child) { return matlab_sparse_known_indices_within(child, extent); });
+  }
+  if (!numeric_constant(expression).has_value()) return true;
+  const auto index = positive_size_constant(expression);
+  return index.has_value() && *index <= extent;
+}
+
 bool matlab_all_dimensions_literal(const Expression& expression) {
   if (expression.kind != ExpressionKind::string_literal || expression.value.size() < 2U) {
     return false;
@@ -490,13 +556,6 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
         facts.numeric_type = operand_facts.numeric_type;
         facts.element_numeric_type = operand_facts.element_numeric_type;
         if (operand == ValueType::list) {
-          if (program_.language == SourceLanguage::matlab &&
-              operand_facts.array_storage == ArrayStorageFormat::sparse_csc) {
-            diagnose(expression.location.line, "MPF2054",
-                     "sparse transpose is not part of the current CSC runtime contract; "
-                     "convert with full before transposing");
-            return facts.inferred_type = ValueType::unknown;
-          }
           facts.array_storage = operand_facts.array_storage;
           if (operand_facts.shape.size() == 1U) {
             facts.shape = {operand_facts.shape.front(), 1U};
@@ -1840,44 +1899,139 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       semantic(semantics_, expression).numeric_type = integer_numeric_type;
       return semantic(semantics_, expression).inferred_type = ValueType::integer;
     }
-    if (associated_callee_facts.intrinsic == IntrinsicId::matlab_sparse ||
-        associated_callee_facts.intrinsic == IntrinsicId::matlab_full) {
+    if (associated_callee_facts.intrinsic == IntrinsicId::matlab_sparse) {
+      auto& facts = semantic(semantics_, expression);
+      using Kind = semantic::SparseConstructionKind;
+      const auto arity = expression.children.size();
+      const auto valid_arity =
+          arity == 2U || arity == 3U || arity == 4U || arity == 6U || arity == 7U;
+      if (!valid_arity) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse supports sparse(A), sparse(m,n), sparse(i,j,v), "
+                 "sparse(i,j,v,m,n), or sparse(i,j,v,m,n,nzmax)");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      auto& construction = facts.sparse_construction;
+      if (arity == 2U) {
+        const auto& argument = semantic(semantics_, expression.children[1]);
+        if (argument.inferred_type != ValueType::list || argument.shape.size() != 2U ||
+            !known_shape(argument.shape) || !matlab_sparse_real_value(argument) ||
+            !array_storage_known(argument.array_storage)) {
+          diagnose(expression.location.line, "MPF2054",
+                   "sparse(A) requires a statically shaped real rank-2 dense or CSC array");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        if (std::any_of(argument.shape.begin(), argument.shape.end(),
+                        [](const auto extent) { return extent == 0U; })) {
+          diagnose(expression.location.line, "MPF2054",
+                   "sparse(A) currently requires non-empty rank-2 extents");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        construction.kind = Kind::dense_conversion;
+        construction.result_shape = argument.shape;
+      } else if (arity == 3U) {
+        const auto rows = positive_size_constant(expression.children[1]);
+        const auto columns = positive_size_constant(expression.children[2]);
+        if (!rows.has_value() || !columns.has_value()) {
+          diagnose(expression.location.line, "MPF2054",
+                   "sparse(m,n) currently requires positive compile-time integer dimensions");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        construction.kind = Kind::zero_matrix;
+        construction.result_shape = {*rows, *columns};
+      } else {
+        std::optional<std::size_t> sequence_count;
+        construction.triplet_element_counts.reserve(3U);
+        for (std::size_t index = 1U; index <= 3U; ++index) {
+          const auto& argument = semantic(semantics_, expression.children[index]);
+          const auto count = matlab_sparse_argument_count(argument);
+          if (!count.has_value() || !matlab_sparse_real_value(argument)) {
+            diagnose(expression.location.line, "MPF2054",
+                     "sparse triplets require statically sized real numeric scalars or arrays");
+            return facts.inferred_type = ValueType::unknown;
+          }
+          construction.triplet_element_counts.push_back(*count);
+          if (argument.inferred_type == ValueType::list) {
+            if (sequence_count.has_value() && *sequence_count != *count) {
+              diagnose(expression.location.line, "MPF2054",
+                       "nonscalar sparse triplet arguments must have the same element count");
+              return facts.inferred_type = ValueType::unknown;
+            }
+            sequence_count = *count;
+          }
+        }
+        if (arity == 4U) {
+          const auto rows = matlab_sparse_literal_index_max(expression.children[1]);
+          const auto columns = matlab_sparse_literal_index_max(expression.children[2]);
+          if (!rows.has_value() || !columns.has_value() || *rows == 0U || *columns == 0U) {
+            diagnose(expression.location.line, "MPF2054",
+                     "sparse(i,j,v) requires positive compile-time literal indices so its "
+                     "shape is known");
+            return facts.inferred_type = ValueType::unknown;
+          }
+          construction.kind = Kind::triplets_inferred;
+          construction.result_shape = {*rows, *columns};
+        } else {
+          const auto rows = positive_size_constant(expression.children[4]);
+          const auto columns = positive_size_constant(expression.children[5]);
+          if (!rows.has_value() || !columns.has_value()) {
+            diagnose(expression.location.line, "MPF2054",
+                     "sparse triplet output dimensions must be positive compile-time integers");
+            return facts.inferred_type = ValueType::unknown;
+          }
+          if (!matlab_sparse_known_indices_within(expression.children[1], *rows) ||
+              !matlab_sparse_known_indices_within(expression.children[2], *columns)) {
+            diagnose(expression.location.line, "MPF2054",
+                     "a compile-time sparse triplet index exceeds the requested dimensions");
+            return facts.inferred_type = ValueType::unknown;
+          }
+          construction.kind = arity == 7U ? Kind::triplets_reserved : Kind::triplets_sized;
+          construction.result_shape = {*rows, *columns};
+          if (arity == 7U) {
+            const auto reserve = nonnegative_size_constant(expression.children[6]);
+            if (!reserve.has_value()) {
+              diagnose(expression.location.line, "MPF2054",
+                       "sparse nzmax must be a nonnegative compile-time integer");
+              return facts.inferred_type = ValueType::unknown;
+            }
+            construction.reserve_hint = *reserve;
+          }
+        }
+      }
+      facts.inferred_type = ValueType::list;
+      facts.numeric_type = no_numeric_type;
+      facts.element_type = ValueType::real;
+      facts.element_numeric_type = real_numeric_type;
+      facts.shape = construction.result_shape;
+      facts.array_storage = ArrayStorageFormat::sparse_csc;
+      return facts.inferred_type;
+    }
+    if (associated_callee_facts.intrinsic == IntrinsicId::matlab_full) {
       auto& facts = semantic(semantics_, expression);
       if (expression.children.size() != 2U) {
-        diagnose(expression.location.line, "MPF2054",
-                 associated_callee_facts.intrinsic == IntrinsicId::matlab_sparse
-                     ? "the current sparse contract supports only sparse(A)"
-                     : "full requires exactly one array argument");
+        diagnose(expression.location.line, "MPF2054", "full requires exactly one array argument");
         return facts.inferred_type = ValueType::unknown;
       }
       const auto& argument = semantic(semantics_, expression.children[1]);
-      const auto numeric_type = expression_numeric_type(argument);
       if (argument.inferred_type != ValueType::list || argument.shape.size() != 2U ||
-          !known_shape(argument.shape) || !numeric_type.present() ||
-          numeric_type.complexity != NumericComplexity::real) {
+          !known_shape(argument.shape) || !matlab_sparse_real_value(argument) ||
+          !array_storage_known(argument.array_storage)) {
         diagnose(expression.location.line, "MPF2054",
-                 "sparse/full currently requires a statically shaped real rank-2 array");
+                 "full requires a statically shaped real rank-2 dense or CSC array");
         return facts.inferred_type = ValueType::unknown;
       }
       if (std::any_of(argument.shape.begin(), argument.shape.end(),
                       [](const auto extent) { return extent == 0U; })) {
         diagnose(expression.location.line, "MPF2054",
-                 "sparse/full currently requires non-empty rank-2 extents");
-        return facts.inferred_type = ValueType::unknown;
-      }
-      if (!array_storage_known(argument.array_storage)) {
-        diagnose(expression.location.line, "MPF2054",
-                 "sparse/full requires a statically resolved dense or CSC representation");
+                 "full currently requires non-empty rank-2 extents");
         return facts.inferred_type = ValueType::unknown;
       }
       facts.inferred_type = ValueType::list;
       facts.numeric_type = no_numeric_type;
-      facts.element_type = argument.element_type;
-      facts.element_numeric_type = argument.element_numeric_type;
+      facts.element_type = ValueType::real;
+      facts.element_numeric_type = real_numeric_type;
       facts.shape = argument.shape;
-      facts.array_storage = associated_callee_facts.intrinsic == IntrinsicId::matlab_sparse
-                                ? ArrayStorageFormat::sparse_csc
-                                : ArrayStorageFormat::dense;
+      facts.array_storage = ArrayStorageFormat::dense;
       return facts.inferred_type;
     }
     if (associated_callee_facts.intrinsic == IntrinsicId::matlab_is_sparse) {
