@@ -1153,6 +1153,176 @@ TEST_CASE("target LIR verifiers independently reject corrupted sparse constructi
   REQUIRE(!diagnostics.empty());
 }
 
+TEST_CASE("Matlab sparse reshape plans remain typed through every IR layer") {
+  using Kind = mpf::detail::semantic::SparseReshapeKind;
+  using Form = mpf::detail::semantic::SparseReshapeDimensionForm;
+  using Inference = mpf::detail::semantic::SparseReshapeInference;
+  REQUIRE(mpf::detail::semantic::valid_sparse_reshape_contract(
+      Kind::column_major_2d, Form::dimension_list, Inference::one_dimension, 0U,
+      mpf::detail::ArrayStorageFormat::sparse_csc,
+      mpf::detail::ArrayStorageFormat::sparse_csc, std::vector<std::size_t>{2U, 3U},
+      std::vector<std::size_t>{1U, 2U, 3U}, std::vector<std::size_t>{1U, 6U}));
+  REQUIRE(!mpf::detail::semantic::valid_sparse_reshape_contract(
+      Kind::column_major_2d, Form::size_vector, Inference::none, 0U,
+      mpf::detail::ArrayStorageFormat::sparse_csc,
+      mpf::detail::ArrayStorageFormat::sparse_csc, std::vector<std::size_t>{2U, 3U},
+      std::vector<std::size_t>{4U, 2U}, std::vector<std::size_t>{4U, 2U}));
+
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "A = sparse([1 0 2; 0 3 0]);\n"
+                              "B = reshape(A, [3 2]);\n"
+                              "C = reshape(A, [], 3);\n"
+                              "D = reshape(A, 1, 2, 3);\n",
+                              "sparse_reshape.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  REQUIRE(std::count_if(analysis.semantics.expressions.begin(),
+                        analysis.semantics.expressions.end(), [](const auto& facts) {
+                          return facts.sparse_reshape.kind == Kind::column_major_2d;
+                        }) == 3);
+  const auto inferred_hir = std::find_if(
+      analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+      [](const auto& facts) {
+        return facts.sparse_reshape.inference == Inference::one_dimension;
+      });
+  REQUIRE(inferred_hir != analysis.semantics.expressions.end());
+  REQUIRE(inferred_hir->sparse_reshape.dimension_form == Form::dimension_list);
+  REQUIRE(inferred_hir->sparse_reshape.inferred_axis == 0U);
+  REQUIRE(inferred_hir->sparse_reshape.input_shape == std::vector<std::size_t>({2U, 3U}));
+  REQUIRE(inferred_hir->sparse_reshape.requested_shape == std::vector<std::size_t>({2U, 3U}));
+  REQUIRE(inferred_hir->sparse_reshape.result_shape == std::vector<std::size_t>({2U, 3U}));
+  const auto folded_hir = std::find_if(
+      analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+      [](const auto& facts) { return facts.sparse_reshape.requested_shape.size() == 3U; });
+  REQUIRE(folded_hir != analysis.semantics.expressions.end());
+  REQUIRE(folded_hir->sparse_reshape.result_shape == std::vector<std::size_t>({1U, 6U}));
+  REQUIRE(mpf::detail::dump_semantics(analysis.semantics)
+              .find("sparse-reshape=1 form=2 inference=1 axis=0 input=[2,3] requested=[2,3] "
+                    "result=[2,3]") != std::string::npos);
+
+  auto contradictory_hir = analysis.semantics;
+  const auto corrupt_hir = std::find_if(
+      contradictory_hir.expressions.begin(), contradictory_hir.expressions.end(),
+      [](const auto& facts) { return facts.sparse_reshape.requested_shape.size() == 3U; });
+  REQUIRE(corrupt_hir != contradictory_hir.expressions.end());
+  corrupt_hir->sparse_reshape.result_shape[1] = 5U;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
+                                              "sparse-reshape-fold-mismatch")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-reshape-plan").empty());
+  const auto folded_mir = std::find_if(
+      mir.program.attributes.expressions.begin() + 1,
+      mir.program.attributes.expressions.end(), [&](const auto& attributes) {
+        return attributes.sparse_reshape.valid() &&
+               mir.program.shapes[attributes.sparse_reshape.requested_shape.value()].extents.size() ==
+                   3U;
+      });
+  REQUIRE(folded_mir != mir.program.attributes.expressions.end());
+  REQUIRE(mir.program.shapes[folded_mir->sparse_reshape.result_shape.value()].extents ==
+          std::vector<std::size_t>({1U, 6U}));
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("sparse-reshape=1 form=2") !=
+          std::string::npos);
+  auto contradictory_mir = mir.program;
+  const auto corrupt_mir = std::find_if(
+      contradictory_mir.attributes.expressions.begin() + 1,
+      contradictory_mir.attributes.expressions.end(), [](const auto& attributes) {
+        return attributes.sparse_reshape.inference == Inference::one_dimension;
+      });
+  REQUIRE(corrupt_mir != contradictory_mir.attributes.expressions.end());
+  corrupt_mir->sparse_reshape.inferred_axis = 1U;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-reshape-axis-mismatch").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, effects, "sparse-reshape-effects")
+              .empty());
+  for (std::size_t index = 1U; index < mir.program.expressions.size(); ++index) {
+    if (!mir.program.attributes.expressions[index].sparse_reshape.valid()) continue;
+    const auto* effect = effects.instruction(mir.program.expressions[index].instruction);
+    REQUIRE(effect != nullptr);
+    REQUIRE(mpf::detail::mir::has_effect(effect->effects, mpf::detail::mir::Effect::read));
+    REQUIRE(effect->writes.empty());
+  }
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find(
+              "sparse-reshape 1 form 2 inference 1 axis 0 input [2,3] requested [2,3] result [2,3]") !=
+          std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find(
+              "sparse-reshape 1 form 2 inference 0 axis 0 input [2,3] requested [1,2,3] result [1,6]") !=
+          std::string::npos);
+}
+
+TEST_CASE("target LIR verifiers independently reject corrupted sparse reshape plans") {
+  using Kind = mpf::detail::semantic::SparseReshapeKind;
+  using Form = mpf::detail::semantic::SparseReshapeDimensionForm;
+  using Inference = mpf::detail::semantic::SparseReshapeInference;
+  const auto configure_sparse_reshape = [](auto& expression) {
+    expression.kind = mpf::detail::ExpressionKind::call;
+    expression.inferred_type = mpf::detail::ValueType::list;
+    expression.element_type = mpf::detail::ValueType::real;
+    expression.element_numeric_type = mpf::detail::real_numeric_type;
+    expression.array_storage = mpf::detail::ArrayStorageFormat::sparse_csc;
+    expression.shape = {1U, 6U};
+    expression.column_major = true;
+    expression.sparse_reshape = {
+        Kind::column_major_2d, Form::dimension_list, Inference::none, 0U,
+        mpf::detail::ArrayStorageFormat::sparse_csc,
+        mpf::detail::ArrayStorageFormat::sparse_csc, {2U, 3U}, {1U, 2U, 3U}, {1U, 6U}};
+    expression.children.resize(5U);
+    auto& callee = expression.children[0];
+    callee.kind = mpf::detail::ExpressionKind::identifier;
+    callee.value = "reshape";
+    callee.binding = mpf::detail::BindingKind::builtin;
+    callee.intrinsic = mpf::detail::IntrinsicId::reshape;
+    auto& source = expression.children[1];
+    source.kind = mpf::detail::ExpressionKind::identifier;
+    source.value = "matrix";
+    source.inferred_type = mpf::detail::ValueType::list;
+    source.element_type = mpf::detail::ValueType::real;
+    source.element_numeric_type = mpf::detail::real_numeric_type;
+    source.array_storage = mpf::detail::ArrayStorageFormat::sparse_csc;
+    source.shape = {2U, 3U};
+    for (std::size_t index = 2U; index < expression.children.size(); ++index) {
+      auto& dimension = expression.children[index];
+      dimension.kind = mpf::detail::ExpressionKind::number_literal;
+      dimension.value = std::to_string(index - 1U);
+      dimension.inferred_type = mpf::detail::ValueType::integer;
+      dimension.numeric_type = mpf::detail::integer_numeric_type;
+    }
+  };
+
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.source_language = mpf::SourceLanguage::matlab;
+  javascript.statements.resize(1U);
+  configure_sparse_reshape(javascript.statements.front().expression);
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript.statements.front().expression.sparse_reshape.requested_shape[2] = 4U;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.source_language = mpf::SourceLanguage::matlab;
+  cpp.statements.resize(1U);
+  configure_sparse_reshape(cpp.statements.front().expression);
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp.statements.front().expression.sparse_reshape.dimension_form = Form::size_vector;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+}
+
 TEST_CASE("Matlab sparse index plans retain scalar and CSC selection contracts across layers") {
   using Kind = mpf::detail::semantic::SparseIndexKind;
   REQUIRE(!mpf::detail::semantic::valid_sparse_index_contract(
