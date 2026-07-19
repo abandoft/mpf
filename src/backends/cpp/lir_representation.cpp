@@ -191,6 +191,17 @@ std::string matlab_array_helper(const lir::Expression& expression) {
                                expression.element_numeric_type == unknown_numeric_type;
   switch (expression.matrix_operation.operation) {
     case semantic::MatrixOperation::multiply:
+      if (expression.matrix_operation.storage_policy ==
+          semantic::MatrixStoragePolicy::sparse_csc_multiply) {
+        const bool left_sparse =
+            expression.matrix_operation.left_storage == ArrayStorageFormat::sparse_csc;
+        const bool right_sparse =
+            expression.matrix_operation.right_storage == ArrayStorageFormat::sparse_csc;
+        if (left_sparse && right_sparse) return "mpf_runtime::sparse_sparse_mtimes";
+        if (left_sparse) return "mpf_runtime::sparse_dense_mtimes";
+        if (right_sparse) return "mpf_runtime::dense_sparse_mtimes";
+        return {};
+      }
       return expression.matrix_operation.numeric_domain == semantic::MatrixNumericDomain::complex
                  ? "mpf_runtime::matlab_complex_mtimes"
                  : "mpf_runtime::matlab_mtimes";
