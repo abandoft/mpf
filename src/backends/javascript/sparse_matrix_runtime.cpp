@@ -378,7 +378,7 @@ function __mpf_sparse_replacement_payload(value) {
   }
   if ((typeof value !== 'number' && typeof value !== 'boolean') ||
       (typeof value === 'number' && !Number.isFinite(value))) {
-    throw new TypeError('MPF Matlab sparse assignment requires a finite real scalar');
+    throw new TypeError('MPF Matlab sparse assignment requires finite real values');
   }
   return { shape: [], flattened: [Number(value)] };
 }

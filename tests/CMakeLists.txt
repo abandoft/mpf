@@ -268,6 +268,10 @@ if(TARGET mpfc)
     tests/fixtures/matlab_sparse_index_out_of_bounds.m
     "index out of bounds" matlab)
   mpf_add_generated_runtime_failure_test(
+    matlab-sparse-assignment-nonfinite
+    tests/fixtures/matlab_sparse_assignment_nonfinite.m
+    "sparse assignment requires finite real values" matlab)
+  mpf_add_generated_runtime_failure_test(
     python-true-division-by-zero tests/fixtures/python_true_division_by_zero.py
     "division by zero" python)
   mpf_add_generated_runtime_failure_test(

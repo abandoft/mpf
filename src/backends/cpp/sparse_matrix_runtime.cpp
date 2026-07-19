@@ -503,6 +503,8 @@ template <typename T> void sparse_apply_updates(
   }
   sparse_matrix<T> result;
   result.rows = rows; result.columns = columns; result.column_pointers.push_back(0U);
+  if (collapsed.size() > std::numeric_limits<std::size_t>::max() - value.values.size())
+    throw std::length_error("MPF Matlab sparse assignment exceeds addressable storage");
   result.row_indices.reserve(value.row_indices.size() + collapsed.size());
   result.values.reserve(value.values.size() + collapsed.size());
   auto changed = collapsed.begin();
