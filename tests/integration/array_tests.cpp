@@ -752,6 +752,50 @@ TEST_CASE("Matlab sparse CSC indexed mutation preserves canonical storage and or
   }
 }
 
+TEST_CASE("Matlab sparse CSC mutation grows and erases zero extents") {
+  const std::string source =
+      "row_empty = sparse(0, 3);\n"
+      "row_empty(1, 2) = 5;\n"
+      "column_empty = sparse(3, 0);\n"
+      "column_empty(2, 1) = 7;\n"
+      "canonical = sparse([], [], []);\n"
+      "canonical(4) = 9;\n"
+      "linear_empty = sparse(0, 3);\n"
+      "linear_empty(4) = 11;\n"
+      "no_op = sparse(0, 3);\n"
+      "no_op([], :) = 13;\n"
+      "delete_column = sparse(0, 3);\n"
+      "delete_column(:, 2) = [];\n"
+      "delete_row = sparse(3, 0);\n"
+      "delete_row(2, :) = [];\n"
+      "disp(row_empty(1, 2), column_empty(2, 1), canonical(4), linear_empty(4), "
+      "nnz(no_op), length(full(row_empty)), length(full(column_empty)), "
+      "length(full(canonical)), length(full(linear_empty)), length(full(no_op)), "
+      "length(full(delete_column)), length(full(delete_row)), issparse(delete_column), "
+      "issparse(delete_row))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_sparse_assign(row_empty,") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_assign(linear_empty,") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_erase(delete_column,") != std::string::npos);
+  REQUIRE(javascript.code.find(", [1, 3])") != std::string::npos);
+  REQUIRE(javascript.code.find(", [2, 0])") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_assign_subscripts(row_empty,") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_assign_linear(linear_empty,") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_erase_indexed(delete_column,") != std::string::npos);
+  REQUIRE(cpp.code.find("std::vector<std::size_t>{1, 3}") != std::string::npos);
+  REQUIRE(cpp.code.find("std::vector<std::size_t>{2, 0}") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 15U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
 TEST_CASE("Matlab sparse CSC contract fails closed outside the supported vertical slice") {
   const std::vector<std::string> unsupported{"A = sparse([1 0; 0 1]);\nvalue = A(1, 1, 1);\n",
                                              "A = sparse([1 0; 0 1]);\n"

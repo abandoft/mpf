@@ -1643,7 +1643,7 @@ TEST_CASE("Matlab sparse index plans retain scalar and CSC selection contracts a
       Kind::submatrix_selection, mpf::detail::ArrayStorageFormat::sparse_csc,
       mpf::detail::ArrayStorageFormat::sparse_csc, std::vector<std::size_t>{3U, 0U},
       std::vector<std::size_t>{2U, 0U}, 2U));
-  REQUIRE(!mpf::detail::semantic::valid_sparse_index_contract(
+  REQUIRE(mpf::detail::semantic::valid_sparse_index_contract(
       Kind::linear_element, mpf::detail::ArrayStorageFormat::sparse_csc,
       mpf::detail::ArrayStorageFormat::none, std::vector<std::size_t>{0U, 3U},
       std::vector<std::size_t>{}, 1U));
@@ -1856,7 +1856,13 @@ TEST_CASE("Matlab sparse mutation plans retain assignment order and CSC storage 
                               "A([1 3 1]) = [8 9 10];\n"
                               "A(2:3, [2 3]) = [0 11; 12 0];\n"
                               "A(4, 4) = 13;\n"
-                              "A(:, 2) = [];\n",
+                              "A(:, 2) = [];\n"
+                              "R = sparse(0, 3);\n"
+                              "R(1, 2) = 7;\n"
+                              "C = sparse(3, 0);\n"
+                              "C(2, :) = [];\n"
+                              "L = sparse([], [], []);\n"
+                              "L(4) = 9;\n",
                               "sparse_assignment.m");
   auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
   REQUIRE(analysis.empty());
@@ -1864,9 +1870,9 @@ TEST_CASE("Matlab sparse mutation plans retain assignment order and CSC storage 
     return std::count_if(analysis.semantics.statements.begin(), analysis.semantics.statements.end(),
                          [&](const auto& facts) { return facts.sparse_mutation.kind == kind; });
   };
-  REQUIRE(count_kind(Kind::linear_assignment) == 1);
-  REQUIRE(count_kind(Kind::subscript_assignment) == 2);
-  REQUIRE(count_kind(Kind::axis_deletion) == 1);
+  REQUIRE(count_kind(Kind::linear_assignment) == 2);
+  REQUIRE(count_kind(Kind::subscript_assignment) == 3);
+  REQUIRE(count_kind(Kind::axis_deletion) == 2);
   const auto hir_linear = std::find_if(
       analysis.semantics.statements.begin(), analysis.semantics.statements.end(),
       [](const auto& facts) { return facts.sparse_mutation.kind == Kind::linear_assignment; });
@@ -1880,6 +1886,24 @@ TEST_CASE("Matlab sparse mutation plans retain assignment order and CSC storage 
           mpf::detail::ArrayStorageFormat::sparse_csc);
   REQUIRE(hir_linear->sparse_mutation.input_shape == std::vector<std::size_t>({3U, 3U}));
   REQUIRE(hir_linear->sparse_mutation.result_shape == std::vector<std::size_t>({3U, 3U}));
+  const auto zero_growth_hir = std::find_if(
+      analysis.semantics.statements.begin(), analysis.semantics.statements.end(),
+      [](const auto& facts) {
+        return facts.sparse_mutation.input_shape == std::vector<std::size_t>({0U, 3U}) &&
+               facts.sparse_mutation.kind == Kind::subscript_assignment;
+      });
+  REQUIRE(zero_growth_hir != analysis.semantics.statements.end());
+  REQUIRE(zero_growth_hir->indexed_mutation.kind ==
+          mpf::detail::semantic::IndexedMutationKind::grow);
+  REQUIRE(zero_growth_hir->sparse_mutation.result_shape == std::vector<std::size_t>({1U, 3U}));
+  const auto zero_deletion_hir = std::find_if(
+      analysis.semantics.statements.begin(), analysis.semantics.statements.end(),
+      [](const auto& facts) {
+        return facts.sparse_mutation.input_shape == std::vector<std::size_t>({3U, 0U}) &&
+               facts.sparse_mutation.kind == Kind::axis_deletion;
+      });
+  REQUIRE(zero_deletion_hir != analysis.semantics.statements.end());
+  REQUIRE(zero_deletion_hir->sparse_mutation.result_shape == std::vector<std::size_t>({2U, 0U}));
 
   auto contradictory_hir = analysis.semantics;
   const auto corrupt_hir = std::find_if(
@@ -1903,6 +1927,18 @@ TEST_CASE("Matlab sparse mutation plans retain assignment order and CSC storage 
   REQUIRE(mir_linear != mir.program.attributes.statements.end());
   REQUIRE(mir_linear->sparse_mutation.duplicate_policy == Duplicate::last_write_wins);
   REQUIRE(mpf::detail::dump_mir(mir.program).find("sparse-mutation=1") != std::string::npos);
+  const auto zero_growth_mir = std::find_if(
+      mir.program.attributes.statements.begin() + 1, mir.program.attributes.statements.end(),
+      [&](const auto& attributes) {
+        if (attributes.sparse_mutation.kind != Kind::subscript_assignment) {
+          return false;
+        }
+        return mir.program.shapes[attributes.sparse_mutation.input_shape.value()].extents ==
+               std::vector<std::size_t>({0U, 3U});
+      });
+  REQUIRE(zero_growth_mir != mir.program.attributes.statements.end());
+  REQUIRE(mir.program.shapes[zero_growth_mir->sparse_mutation.result_shape.value()].extents ==
+          std::vector<std::size_t>({1U, 3U}));
 
   auto contradictory_mir = mir.program;
   const auto corrupt_mir =
