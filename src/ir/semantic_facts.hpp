@@ -78,6 +78,20 @@ struct SparseIndexPlan {
   [[nodiscard]] bool valid() const noexcept { return kind != semantic::SparseIndexKind::none; }
 };
 
+struct SparseReshapePlan {
+  semantic::SparseReshapeKind kind{semantic::SparseReshapeKind::none};
+  semantic::SparseReshapeDimensionForm dimension_form{semantic::SparseReshapeDimensionForm::none};
+  semantic::SparseReshapeInference inference{semantic::SparseReshapeInference::none};
+  std::size_t inferred_axis{0U};
+  ArrayStorageFormat source_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat result_storage{ArrayStorageFormat::none};
+  std::vector<std::size_t> input_shape;
+  std::vector<std::size_t> requested_shape;
+  std::vector<std::size_t> result_shape;
+
+  [[nodiscard]] bool valid() const noexcept { return kind != semantic::SparseReshapeKind::none; }
+};
+
 struct SparseMutationPlan {
   semantic::SparseMutationKind kind{semantic::SparseMutationKind::none};
   semantic::SparseReplacementKind replacement{semantic::SparseReplacementKind::none};
@@ -111,6 +125,7 @@ struct ExpressionFacts {
   ReductionPlan reduction;
   SparseConstructionPlan sparse_construction;
   SparseIndexPlan sparse_index;
+  SparseReshapePlan sparse_reshape;
   std::vector<ValueType> tuple_types;
   std::vector<NumericType> tuple_numeric_types;
   std::vector<ValueType> tuple_element_types;

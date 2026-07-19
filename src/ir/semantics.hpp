@@ -181,6 +181,53 @@ enum class SparseIndexKind : std::uint8_t {
   submatrix_selection
 };
 
+// Matlab sparse reshape preserves column-major element order but always produces a two-dimensional
+// sparse matrix.  A size vector and a comma-separated dimension list have different syntax-level
+// contracts because only the latter can contain one inferred `[]` dimension.
+enum class SparseReshapeKind : std::uint8_t { none, column_major_2d };
+enum class SparseReshapeDimensionForm : std::uint8_t { none, size_vector, dimension_list };
+enum class SparseReshapeInference : std::uint8_t { none, one_dimension };
+
+template <typename Shape>
+[[nodiscard]] bool valid_sparse_reshape_contract(
+    const SparseReshapeKind kind, const SparseReshapeDimensionForm dimension_form,
+    const SparseReshapeInference inference, const std::size_t inferred_axis,
+    const ArrayStorageFormat source_storage, const ArrayStorageFormat result_storage,
+    const Shape& input_shape, const Shape& requested_shape, const Shape& result_shape) noexcept {
+  if (kind != SparseReshapeKind::column_major_2d ||
+      dimension_form == SparseReshapeDimensionForm::none ||
+      source_storage != ArrayStorageFormat::sparse_csc ||
+      result_storage != ArrayStorageFormat::sparse_csc || input_shape.size() != 2U ||
+      requested_shape.size() < 2U || result_shape.size() != 2U || input_shape[0] == 0U ||
+      input_shape[1] == 0U || result_shape[0] == 0U || result_shape[1] == 0U) {
+    return false;
+  }
+  constexpr auto maximum = std::numeric_limits<std::size_t>::max();
+  const auto checked_product = [maximum](const Shape& shape, const std::size_t begin,
+                                         std::size_t& product) {
+    product = 1U;
+    for (std::size_t axis = begin; axis < shape.size(); ++axis) {
+      const auto extent = shape[axis];
+      if (extent == 0U || extent == maximum || product > maximum / extent) return false;
+      product *= extent;
+    }
+    return true;
+  };
+  std::size_t input_count = 0U;
+  std::size_t requested_count = 0U;
+  std::size_t folded_columns = 0U;
+  if (!checked_product(input_shape, 0U, input_count) ||
+      !checked_product(requested_shape, 0U, requested_count) ||
+      !checked_product(requested_shape, 1U, folded_columns) || input_count != requested_count ||
+      result_shape[0] != requested_shape[0] || result_shape[1] != folded_columns) {
+    return false;
+  }
+  if (inference == SparseReshapeInference::none) return inferred_axis == 0U;
+  return inference == SparseReshapeInference::one_dimension &&
+         dimension_form == SparseReshapeDimensionForm::dimension_list &&
+         inferred_axis < requested_shape.size();
+}
+
 // Sparse writes require a storage-aware contract in addition to the generic indexed-mutation
 // shape contract.  Assignment order and explicit-zero handling are observable Matlab semantics,
 // so neither target is allowed to infer them from helper names or CSC representation details.
