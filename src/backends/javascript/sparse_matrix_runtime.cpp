@@ -197,6 +197,59 @@ function __mpf_sparse_transpose(value) {
   }
   return __mpf_make_sparse_csc(matrix.columns, matrix.rows, pointers, rows, values);
 }
+function __mpf_sparse_reshape_shape(shape, name, minimumRank) {
+  if (!Array.isArray(shape) || shape.length < minimumRank) {
+    throw new RangeError(`MPF Matlab sparse reshape ${name} has an invalid rank`);
+  }
+  let count = 1;
+  for (const extent of shape) {
+    if (!Number.isSafeInteger(extent) || extent <= 0 ||
+        count > Number.MAX_SAFE_INTEGER / extent) {
+      throw new RangeError(`MPF Matlab sparse reshape ${name} has an invalid extent`);
+    }
+    count *= extent;
+  }
+  return count;
+}
+function __mpf_sparse_reshape(value, inputShape, requestedShape, resultShape) {
+  const matrix = __mpf_validate_sparse_csc(value, 'reshape operand');
+  const inputCount = __mpf_sparse_reshape_shape(inputShape, 'input-shape plan', 2);
+  const requestedCount = __mpf_sparse_reshape_shape(requestedShape, 'requested-shape plan', 2);
+  const resultCount = __mpf_sparse_reshape_shape(resultShape, 'result-shape plan', 2);
+  if (inputShape.length !== 2 || resultShape.length !== 2 ||
+      inputShape[0] !== matrix.rows || inputShape[1] !== matrix.columns ||
+      inputCount !== requestedCount || requestedCount !== resultCount) {
+    throw new RangeError('MPF Matlab sparse reshape shape plans are inconsistent');
+  }
+  let foldedColumns = 1;
+  for (let axis = 1; axis < requestedShape.length; ++axis) {
+    if (foldedColumns > Number.MAX_SAFE_INTEGER / requestedShape[axis]) {
+      throw new RangeError('MPF Matlab sparse reshape folded extent exceeds safe integer limits');
+    }
+    foldedColumns *= requestedShape[axis];
+  }
+  const rows = requestedShape[0]; const columns = foldedColumns;
+  if (resultShape[0] !== rows || resultShape[1] !== columns) {
+    throw new RangeError('MPF Matlab sparse reshape result plan does not match requested dimensions');
+  }
+  const columnPointers = new Array(columns + 1).fill(0);
+  const rowIndices = new Array(matrix.values.length);
+  const values = new Array(matrix.values.length);
+  let output = 0;
+  for (let column = 0; column < matrix.columns; ++column) {
+    for (let index = matrix.columnPointers[column]; index < matrix.columnPointers[column + 1];
+         ++index) {
+      const linear = matrix.rowIndices[index] + column * matrix.rows;
+      const reshapedColumn = Math.floor(linear / rows);
+      rowIndices[output] = linear % rows; values[output] = matrix.values[index];
+      ++columnPointers[reshapedColumn + 1]; ++output;
+    }
+  }
+  for (let column = 0; column < columns; ++column) {
+    columnPointers[column + 1] += columnPointers[column];
+  }
+  return __mpf_make_sparse_csc(rows, columns, columnPointers, rowIndices, values);
+}
 function __mpf_sparse_value_at(matrix, row, column) {
   let first = matrix.columnPointers[column]; let last = matrix.columnPointers[column + 1];
   while (first < last) {

@@ -264,16 +264,18 @@ class Renderer final {
         output_ << "__mpf_reshape(";
         emit_expression(expression.children[1]);
         output_ << ", ";
-        if (expression.children.size() == 3) {
-          emit_expression(expression.children[2]);
-        } else {
-          output_ << '[';
-          for (std::size_t dimension = 2; dimension < expression.children.size(); ++dimension) {
-            if (dimension != 2) output_ << ", ";
-            emit_expression(expression.children[dimension]);
-          }
-          output_ << ']';
-        }
+        emit_shape(plan.result_shape);
+        output_ << ')';
+        return;
+      case javascript::lir::CallForm::matlab_sparse_reshape:
+        output_ << "__mpf_sparse_reshape(";
+        emit_expression(expression.children[1]);
+        output_ << ", ";
+        emit_shape(plan.sparse_reshape.input_shape);
+        output_ << ", ";
+        emit_shape(plan.sparse_reshape.requested_shape);
+        output_ << ", ";
+        emit_shape(plan.sparse_reshape.result_shape);
         output_ << ')';
         return;
       case javascript::lir::CallForm::matlab_sparse:
