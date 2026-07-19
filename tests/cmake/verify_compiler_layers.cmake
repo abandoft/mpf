@@ -525,6 +525,8 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT index_extent_contract MATCHES "MatrixStoragePolicy" OR
    NOT index_extent_contract MATCHES "matrix_storage_policy" OR
    NOT index_extent_contract MATCHES "sparse_csc_coefficient" OR
+   NOT index_extent_contract MATCHES "SparseConstructionKind" OR
+   NOT index_extent_contract MATCHES "triplets_reserved" OR
    NOT array_storage_contract MATCHES "ArrayStorageFormat" OR
    NOT array_storage_contract MATCHES "sparse_csc" OR
    NOT array_storage_contract MATCHES "join_array_storage_formats" OR
@@ -532,14 +534,18 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT hir_extent_contract MATCHES "MatrixFactorizationPolicy factorization_policy" OR
    NOT hir_extent_contract MATCHES "MatrixStructurePolicy structure_policy" OR
    NOT hir_extent_contract MATCHES "MatrixStoragePolicy storage_policy" OR
+   NOT hir_extent_contract MATCHES "SparseConstructionPlan" OR
+   NOT hir_extent_contract MATCHES "sparse_construction" OR
    NOT hir_extent_contract MATCHES "ArrayStorageFormat array_storage" OR
    NOT mir_extent_contract MATCHES "MatrixConditionPolicy condition_policy" OR
    NOT mir_extent_contract MATCHES "MatrixFactorizationPolicy factorization_policy" OR
    NOT mir_extent_contract MATCHES "MatrixStructurePolicy structure_policy" OR
    NOT mir_extent_contract MATCHES "MatrixStoragePolicy storage_policy" OR
+   NOT mir_extent_contract MATCHES "SparseConstructionPlan" OR
+   NOT mir_extent_contract MATCHES "sparse_construction" OR
    NOT mir_extent_contract MATCHES "ArrayStorageFormat array_storage")
   message(FATAL_ERROR
-    "matrix condition/factorization/structure/storage policy is not a typed Semantic/HIR/MIR contract")
+    "matrix and sparse-construction policy is not a typed Semantic/HIR/MIR contract")
 endif()
 mpf_assert_file_excludes("src/ir/semantics.hpp" "detect_diagonal_triangular"
   "matrix structure policy restored the pre-advanced real classifier")
@@ -555,9 +561,13 @@ if(NOT condition_lir_builder_contract MATCHES
    NOT condition_lir_builder_contract MATCHES
      "matrix_operation\.left_storage = attributes\.matrix_operation\.left_storage" OR
    NOT condition_lir_builder_contract MATCHES
+     "sparse_construction\.kind = attributes\.sparse_construction\.kind" OR
+   NOT condition_lir_builder_contract MATCHES
+     "sparse_construction\.triplet_element_counts" OR
+   NOT condition_lir_builder_contract MATCHES
      "result\.array_storage = mir::array_storage")
   message(FATAL_ERROR
-    "target LIR builder does not propagate analyzed matrix policies")
+    "target LIR builder does not propagate analyzed matrix and sparse-construction policies")
 endif()
 foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir.hpp)
   file(READ "${SOURCE_DIR}/${target_lir}" condition_target_lir_contract)
@@ -566,6 +576,8 @@ foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir
        "MatrixFactorizationPolicy factorization_policy" OR
      NOT condition_target_lir_contract MATCHES "MatrixStructurePolicy structure_policy" OR
      NOT condition_target_lir_contract MATCHES "MatrixStoragePolicy storage_policy" OR
+     NOT condition_target_lir_contract MATCHES "SparseConstructionPlan" OR
+     NOT condition_target_lir_contract MATCHES "SparseConstructionKind kind" OR
      NOT condition_target_lir_contract MATCHES "ArrayStorageFormat left_storage" OR
      NOT condition_target_lir_contract MATCHES "ArrayStorageFormat array_storage")
     message(FATAL_ERROR "target LIR does not own matrix policies: ${target_lir}")
@@ -666,6 +678,9 @@ foreach(sparse_matrix_runtime IN ITEMS
   if(NOT sparse_matrix_runtime_contract MATCHES "validate_sparse_csc" OR
      NOT sparse_matrix_runtime_contract MATCHES "(column_pointers|columnPointers)" OR
      NOT sparse_matrix_runtime_contract MATCHES "(row_indices|rowIndices)" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_from_triplets" OR
+     NOT sparse_matrix_runtime_contract MATCHES "triplet indices must be positive safe integers" OR
+     NOT sparse_matrix_runtime_contract MATCHES "duplicate accumulation is not finite" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_transpose" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_tridiagonal_factor" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_row_lu_factor" OR
@@ -673,12 +688,27 @@ foreach(sparse_matrix_runtime IN ITEMS
      NOT sparse_matrix_runtime_contract MATCHES "mldivide_sparse_real_square" OR
      NOT sparse_matrix_runtime_contract MATCHES "mrdivide_sparse_real_square")
     message(FATAL_ERROR
-      "target sparse-matrix runtime does not own canonical CSC conversion, sparse square solve, "
+      "target sparse-matrix runtime does not own canonical CSC construction, sparse square solve, "
       "transpose and condition kernels: ${sparse_matrix_runtime}")
   endif()
   mpf_assert_file_excludes("${sparse_matrix_runtime}"
     "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
     "target sparse-matrix runtime depends on compiler state")
+endforeach()
+foreach(sparse_representation IN ITEMS
+    src/backends/javascript/lir_representation.cpp
+    src/backends/cpp/lir_representation.cpp)
+  file(READ "${SOURCE_DIR}/${sparse_representation}" sparse_representation_contract)
+  if(NOT sparse_representation_contract MATCHES "valid_sparse_construction" OR
+     NOT sparse_representation_contract MATCHES "matlab_sparse_transpose")
+    message(FATAL_ERROR
+      "target representation does not verify sparse constructors or select sparse transpose: "
+      "${sparse_representation}")
+  endif()
+endforeach()
+foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
+  mpf_assert_file_excludes("${renderer}" "SparseConstructionKind|sparse_construction"
+    "target renderer recovered sparse-construction semantics from source plans")
 endforeach()
 mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
   "function __mpf_matlab_lu_"

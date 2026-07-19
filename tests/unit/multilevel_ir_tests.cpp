@@ -1023,6 +1023,136 @@ TEST_CASE("Matlab sparse storage and solver policies remain typed through every 
   REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-storage-mismatch").empty());
 }
 
+TEST_CASE("Matlab sparse construction plans remain typed through every IR layer") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "Z = sparse(3, 4);\n"
+                              "A = sparse([1 3 1 2], [1 1 1 3], [2 4 -2 5], 3, 4, 8);\n"
+                              "B = sparse([2 1 2], [3 2 3], [4 5 1]);\n"
+                              "T = A.';\n",
+                              "sparse_construction.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  using Kind = mpf::detail::semantic::SparseConstructionKind;
+  const auto count_kind = [&](const Kind kind) {
+    return std::count_if(analysis.semantics.expressions.begin(),
+                         analysis.semantics.expressions.end(),
+                         [&](const auto& facts) { return facts.sparse_construction.kind == kind; });
+  };
+  REQUIRE(count_kind(Kind::zero_matrix) == 1);
+  REQUIRE(count_kind(Kind::triplets_reserved) == 1);
+  REQUIRE(count_kind(Kind::triplets_inferred) == 1);
+  const auto reserved = std::find_if(
+      analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+      [](const auto& facts) { return facts.sparse_construction.kind == Kind::triplets_reserved; });
+  REQUIRE(reserved != analysis.semantics.expressions.end());
+  REQUIRE(reserved->sparse_construction.result_shape == std::vector<std::size_t>({3U, 4U}));
+  REQUIRE(reserved->sparse_construction.triplet_element_counts ==
+          std::vector<std::size_t>({4U, 4U, 4U}));
+  REQUIRE(reserved->sparse_construction.reserve_hint == 8U);
+  auto contradictory_hir = analysis.semantics;
+  const auto corrupt_hir = std::find_if(
+      contradictory_hir.expressions.begin(), contradictory_hir.expressions.end(),
+      [](const auto& facts) { return facts.sparse_construction.kind == Kind::triplets_inferred; });
+  REQUIRE(corrupt_hir != contradictory_hir.expressions.end());
+  corrupt_hir->sparse_construction.triplet_element_counts[0] = 2U;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
+                                              "sparse-construction-count-mismatch")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-construction-plan").empty());
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("sparse-construction=5") != std::string::npos);
+  auto contradictory_mir = mir.program;
+  const auto corrupt_mir =
+      std::find_if(contradictory_mir.attributes.expressions.begin() + 1,
+                   contradictory_mir.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.sparse_construction.kind == Kind::triplets_sized;
+                   });
+  REQUIRE(corrupt_mir == contradictory_mir.attributes.expressions.end());
+  const auto inferred_mir =
+      std::find_if(contradictory_mir.attributes.expressions.begin() + 1,
+                   contradictory_mir.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.sparse_construction.kind == Kind::triplets_inferred;
+                   });
+  REQUIRE(inferred_mir != contradictory_mir.attributes.expressions.end());
+  inferred_mir->sparse_construction.reserve_hint = 1U;
+  REQUIRE(
+      !mpf::detail::mir::verify(contradictory_mir, "sparse-construction-reserve-mismatch").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("sparse-construction 5 shape [3,4]") !=
+          std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("sparse-construction 5 shape [3,4]") !=
+          std::string::npos);
+}
+
+TEST_CASE("target LIR verifiers independently reject corrupted sparse construction plans") {
+  using Kind = mpf::detail::semantic::SparseConstructionKind;
+  const auto configure_sparse_call = [](auto& expression) {
+    expression.kind = mpf::detail::ExpressionKind::call;
+    expression.inferred_type = mpf::detail::ValueType::list;
+    expression.element_type = mpf::detail::ValueType::real;
+    expression.element_numeric_type = mpf::detail::real_numeric_type;
+    expression.array_storage = mpf::detail::ArrayStorageFormat::sparse_csc;
+    expression.shape = {3U, 4U};
+    expression.sparse_construction = {Kind::triplets_reserved, {3U, 4U}, {2U, 2U, 2U}, 8U};
+    expression.children.resize(7U);
+    auto& callee = expression.children[0];
+    callee.kind = mpf::detail::ExpressionKind::identifier;
+    callee.value = "sparse";
+    callee.binding = mpf::detail::BindingKind::builtin;
+    callee.intrinsic = mpf::detail::IntrinsicId::matlab_sparse;
+    for (std::size_t index = 1U; index <= 3U; ++index) {
+      auto& triplet = expression.children[index];
+      triplet.kind = mpf::detail::ExpressionKind::identifier;
+      triplet.value = "triplet" + std::to_string(index);
+      triplet.inferred_type = mpf::detail::ValueType::list;
+      triplet.element_type = mpf::detail::ValueType::real;
+      triplet.element_numeric_type = mpf::detail::real_numeric_type;
+      triplet.array_storage = mpf::detail::ArrayStorageFormat::dense;
+      triplet.shape = {1U, 2U};
+    }
+    for (std::size_t index = 4U; index < expression.children.size(); ++index) {
+      auto& scalar = expression.children[index];
+      scalar.kind = mpf::detail::ExpressionKind::number_literal;
+      scalar.value = index == 4U ? "3" : index == 5U ? "4" : "8";
+      scalar.inferred_type = mpf::detail::ValueType::integer;
+      scalar.numeric_type = mpf::detail::integer_numeric_type;
+    }
+  };
+
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.source_language = mpf::SourceLanguage::matlab;
+  javascript.statements.resize(1U);
+  configure_sparse_call(javascript.statements.front().expression);
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript.statements.front().expression.sparse_construction.triplet_element_counts[0] = 1U;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.source_language = mpf::SourceLanguage::matlab;
+  cpp.statements.resize(1U);
+  configure_sparse_call(cpp.statements.front().expression);
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp.statements.front().expression.sparse_construction.result_shape[1] = 5U;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+}
+
 TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   using Operation = mpf::detail::semantic::MatrixOperation;
   using Solve = mpf::detail::semantic::MatrixSolveKind;
