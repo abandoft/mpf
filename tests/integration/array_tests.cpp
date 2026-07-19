@@ -518,7 +518,6 @@ TEST_CASE("Matlab sparse CSC contract fails closed outside the supported vertica
                                              "A = sparse([1 0; 0 1]);\n"
                                              "value = A(reshape([1 2], 1, 1, 2));\n",
                                              "A = sparse([1 0; 0 1]);\nvalue = A([1+0i]);\n",
-                                             "A = sparse([1 0; 0 1]);\nB = reshape(A, 1, 4);\n",
                                              "A = sparse([1 0; 0 1]);\nB = ~A;\n",
                                              "A = sparse([1 0; 0 1; 1 1]);\nB = A \\ [1; 2; 3];\n",
                                              "A = sparse([1+2i 0; 0 1]);\n",
@@ -535,6 +534,62 @@ TEST_CASE("Matlab sparse CSC contract fails closed outside the supported vertica
       const auto result = transpile_array(source, mpf::SourceLanguage::matlab, target);
       REQUIRE(!result.success());
       REQUIRE(result.diagnostics.front().code == "MPF2054");
+    }
+  }
+}
+
+TEST_CASE("Matlab sparse reshape preserves CSC order and target isolation") {
+  const std::string source =
+      "A = sparse([1 0 2; 0 3 0]);\n"
+      "vector = reshape(A, [6 1]);\n"
+      "inferred_rows = reshape(A, [], 3);\n"
+      "inferred_columns = reshape(A, 2, []);\n"
+      "folded = reshape(A, 1, 2, 3);\n"
+      "restored = reshape(folded, [2 3]);\n"
+      "disp(vector(4), vector(5), inferred_rows(2,2), inferred_columns(1,3), "
+      "folded(1,4), restored(1,3), nnz(folded), issparse(restored))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("function __mpf_sparse_reshape(") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_reshape(A, [2, 3], [6, 1], [6, 1])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_reshape(A, [2, 3], [2, 3], [2, 3])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_reshape(A, [2, 3], [1, 2, 3], [1, 6])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("mpf_runtime::sparse_reshape") == std::string::npos);
+  REQUIRE(cpp.code.find("sparse_matrix<double> sparse_reshape(") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_reshape(A, std::array<std::size_t, 2>{2, 3}, "
+                        "std::array<std::size_t, 2>{6, 1}, "
+                        "std::array<std::size_t, 2>{6, 1})") != std::string::npos);
+  REQUIRE(cpp.code.find("std::array<std::size_t, 3>{1, 2, 3}, "
+                        "std::array<std::size_t, 2>{1, 6})") != std::string::npos);
+  REQUIRE(cpp.code.find("__mpf_sparse_reshape") == std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 7U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
+TEST_CASE("Matlab reshape rejects invalid inferred and sparse dimensions") {
+  const std::vector<std::string> invalid{
+      "A = sparse([1 0; 0 1]);\nB = reshape(A, [], []);\n",
+      "A = sparse([1 0; 0 1]);\nB = reshape(A, [], 3);\n",
+      "A = sparse([1 0; 0 1]);\nB = reshape(A, 4);\n",
+      "A = sparse([1 0; 0 1]);\nB = reshape(A, 0, 4);\n",
+      "A = sparse([1 0; 0 1]);\nB = reshape(A, [3 2]);\n"};
+  for (const auto& source : invalid) {
+    for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+      const auto result = transpile_array(source, mpf::SourceLanguage::matlab, target);
+      REQUIRE(!result.success());
+      REQUIRE(result.diagnostics.front().code == "MPF2027" ||
+              result.diagnostics.front().code == "MPF2024" ||
+              result.diagnostics.front().code == "MPF2022");
     }
   }
 }
