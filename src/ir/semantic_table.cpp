@@ -683,6 +683,67 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
     add_error(diagnostics, expression.location, stage,
               "inactive sparse element-wise plan retains semantic state");
   }
+  const auto& sparse_logical = facts->sparse_logical;
+  if (sparse_logical.valid()) {
+    const bool unary = sparse_logical.operation == semantic::SparseLogicalOperation::logical_not;
+    const auto expected_operation = [&] {
+      if (expression.kind == ExpressionKind::unary &&
+          expression.unary_operation == UnaryOperator::logical_not) {
+        return semantic::SparseLogicalOperation::logical_not;
+      }
+      if (expression.kind != ExpressionKind::binary) {
+        return semantic::SparseLogicalOperation::none;
+      }
+      if (expression.operation == BinaryOperator::elementwise_logical_and) {
+        return semantic::SparseLogicalOperation::logical_and;
+      }
+      if (expression.operation == BinaryOperator::elementwise_logical_or) {
+        return semantic::SparseLogicalOperation::logical_or;
+      }
+      return semantic::SparseLogicalOperation::none;
+    }();
+    const auto* left =
+        !expression.children.empty() ? table.expression(expression.children[0].id) : nullptr;
+    const auto* right =
+        expression.children.size() == 2U ? table.expression(expression.children[1].id) : nullptr;
+    const auto expected_left_shape = left != nullptr && left->inferred_type == ValueType::list
+                                         ? left->shape
+                                         : std::vector<std::size_t>{};
+    const auto expected_right_shape = right != nullptr && right->inferred_type == ValueType::list
+                                          ? right->shape
+                                          : std::vector<std::size_t>{};
+    if (sparse_logical.operation != expected_operation ||
+        expression.children.size() != (unary ? 1U : 2U) || left == nullptr ||
+        (!unary && right == nullptr) || facts->broadcast.valid ||
+        facts->logical_evaluation != semantic::LogicalEvaluation::eager_elementwise ||
+        facts->inferred_type != ValueType::list || facts->element_type != ValueType::boolean ||
+        facts->element_numeric_type != logical_numeric_type ||
+        sparse_logical.left_storage != left->array_storage ||
+        sparse_logical.right_storage !=
+            (right == nullptr ? ArrayStorageFormat::none : right->array_storage) ||
+        sparse_logical.result_storage != facts->array_storage ||
+        sparse_logical.left_shape != expected_left_shape ||
+        sparse_logical.right_shape != expected_right_shape ||
+        sparse_logical.result_shape != facts->shape ||
+        !semantic::valid_sparse_logical_contract(
+            sparse_logical.operation, sparse_logical.storage_policy, sparse_logical.shape_source,
+            sparse_logical.left_storage, sparse_logical.right_storage,
+            sparse_logical.result_storage, sparse_logical.left_shape, sparse_logical.right_shape,
+            sparse_logical.result_shape, sparse_logical.axes)) {
+      add_error(diagnostics, expression.location, stage,
+                "sparse logical plan has an invalid operator, broadcast, storage, or result "
+                "contract");
+    }
+  } else if (sparse_logical.storage_policy != semantic::SparseLogicalStoragePolicy::none ||
+             sparse_logical.shape_source != semantic::BroadcastShapeSource::static_extents ||
+             sparse_logical.left_storage != ArrayStorageFormat::none ||
+             sparse_logical.right_storage != ArrayStorageFormat::none ||
+             sparse_logical.result_storage != ArrayStorageFormat::none ||
+             !sparse_logical.left_shape.empty() || !sparse_logical.right_shape.empty() ||
+             !sparse_logical.result_shape.empty() || !sparse_logical.axes.empty()) {
+    add_error(diagnostics, expression.location, stage,
+              "inactive sparse logical plan retains semantic state");
+  }
   const auto& matrix = facts->matrix_operation;
   const auto expected_matrix = expected_matrix_operation(expression, *facts, table);
   if (matrix.operation != expected_matrix) {

@@ -169,7 +169,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v22 hir-nodes=" << table.hir_node_count
+  output << "semantic-v23 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -247,6 +247,28 @@ std::string dump_semantics(const hir::SemanticTable& table) {
         dump_shape(facts.sparse_elementwise.right_shape);
         output << "->";
         dump_shape(facts.sparse_elementwise.result_shape);
+      }
+      if (facts.sparse_logical.valid()) {
+        const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
+          output << '[';
+          for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+            if (axis != 0U) output << ',';
+            output << shape[axis];
+          }
+          output << ']';
+        };
+        output << " sparse-logical=" << enum_value(facts.sparse_logical.operation)
+               << " storage-policy=" << enum_value(facts.sparse_logical.storage_policy)
+               << " storage=" << enum_value(facts.sparse_logical.left_storage) << ','
+               << enum_value(facts.sparse_logical.right_storage) << "->"
+               << enum_value(facts.sparse_logical.result_storage) << ' ';
+        dump_shape(facts.sparse_logical.left_shape);
+        if (!facts.sparse_logical.right_shape.empty()) {
+          output << ',';
+          dump_shape(facts.sparse_logical.right_shape);
+        }
+        output << "->";
+        dump_shape(facts.sparse_logical.result_shape);
       }
       if (facts.matrix_operation.valid()) {
         const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
