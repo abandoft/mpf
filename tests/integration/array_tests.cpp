@@ -410,23 +410,72 @@ TEST_CASE("Matlab sparse matrix products preserve storage and target isolation")
   REQUIRE(javascript.code.find("function __mpf_sparse_sparse_mtimes(") != std::string::npos);
   REQUIRE(javascript.code.find("function __mpf_sparse_dense_mtimes(") != std::string::npos);
   REQUIRE(javascript.code.find("function __mpf_dense_sparse_mtimes(") != std::string::npos);
-  REQUIRE(javascript.code.find("__mpf_sparse_sparse_mtimes(A, B)") != std::string::npos);
-  REQUIRE(javascript.code.find("__mpf_sparse_dense_mtimes(A, __mpf_full(B))") != std::string::npos);
-  REQUIRE(javascript.code.find("__mpf_dense_sparse_mtimes(__mpf_full(A), B)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_sparse_mtimes(A, B, [2, 3], [3, 2], [2, 2])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_dense_mtimes(A, __mpf_full(B), "
+                               "[2, 3], [3, 2], [2, 2])") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_dense_sparse_mtimes(__mpf_full(A), B, "
+                               "[2, 3], [3, 2], [2, 2])") != std::string::npos);
   REQUIRE(javascript.code.find("mpf_runtime::sparse_sparse_mtimes") == std::string::npos);
   REQUIRE(cpp.code.find("sparse_matrix<double> sparse_sparse_mtimes(") != std::string::npos);
   REQUIRE(cpp.code.find("std::vector<std::vector<double>> sparse_dense_mtimes(") !=
           std::string::npos);
   REQUIRE(cpp.code.find("std::vector<std::vector<double>> dense_sparse_mtimes(") !=
           std::string::npos);
-  REQUIRE(cpp.code.find("mpf_runtime::sparse_sparse_mtimes(A, B)") != std::string::npos);
-  REQUIRE(cpp.code.find("mpf_runtime::sparse_dense_mtimes(A, mpf_runtime::full(B))") !=
-          std::string::npos);
-  REQUIRE(cpp.code.find("mpf_runtime::dense_sparse_mtimes(mpf_runtime::full(A), B)") !=
-          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_sparse_mtimes(A, B, "
+                        "std::array<std::size_t, 2>{2, 3}") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_dense_mtimes(A, mpf_runtime::full(B), "
+                        "std::array<std::size_t, 2>{2, 3}") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::dense_sparse_mtimes(mpf_runtime::full(A), B, "
+                        "std::array<std::size_t, 2>{2, 3}") != std::string::npos);
   REQUIRE(cpp.code.find("__mpf_sparse_sparse_mtimes") == std::string::npos);
   for (const auto* result : {&javascript, &cpp}) {
     for (std::size_t line = 1U; line <= 7U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
+TEST_CASE("Matlab sparse matrix products preserve zero extents and empty inner dimensions") {
+  const std::string source =
+      "left_outer = sparse(0, 3);\n"
+      "right_outer = sparse(3, 2);\n"
+      "sparse_outer = left_outer * right_outer;\n"
+      "sparse_dense_outer = left_outer * full(right_outer);\n"
+      "dense_sparse_outer = full(left_outer) * right_outer;\n"
+      "left_inner = sparse(2, 0);\n"
+      "right_inner = sparse(0, 4);\n"
+      "sparse_inner = left_inner * right_inner;\n"
+      "sparse_dense_inner = left_inner * full(right_inner);\n"
+      "dense_sparse_inner = full(left_inner) * right_inner;\n"
+      "disp(issparse(sparse_outer), issparse(sparse_inner), "
+      "issparse(sparse_dense_outer), issparse(dense_sparse_outer), nnz(sparse_outer), "
+      "nnz(sparse_inner), nnz(sparse_dense_inner), nnz(dense_sparse_inner), "
+      "length(full(sparse_outer)), length(full(sparse_inner)), "
+      "length(sparse_dense_outer), length(dense_sparse_outer), "
+      "length(sparse_dense_inner), length(dense_sparse_inner))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_sparse_sparse_mtimes(left_outer, right_outer, "
+                               "[0, 3], [3, 2], [0, 2])") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_dense_mtimes(left_inner, "
+                               "__mpf_full(right_inner), [2, 0], [0, 4], [2, 4])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_dense_sparse_mtimes(__mpf_full(left_inner), "
+                               "right_inner, [2, 0], [0, 4], [2, 4])") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_sparse_mtimes(left_outer, right_outer, "
+                        "std::array<std::size_t, 2>{0, 3}") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_dense_mtimes(left_inner, "
+                        "mpf_runtime::full(right_inner), "
+                        "std::array<std::size_t, 2>{2, 0}") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::dense_sparse_mtimes(mpf_runtime::full(left_inner), "
+                        "right_inner, std::array<std::size_t, 2>{2, 0}") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 11U; ++line) {
       REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
                           [line](const auto& segment) { return segment.original_line == line; }));
     }

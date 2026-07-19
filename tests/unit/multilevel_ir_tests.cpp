@@ -1029,7 +1029,15 @@ TEST_CASE("Matlab sparse matrix products remain typed through every IR layer") {
                               "B = sparse([0 4; 5 0; 0 6]);\n"
                               "SS = A * B;\n"
                               "SD = A * full(B);\n"
-                              "DS = full(A) * B;\n",
+                              "DS = full(A) * B;\n"
+                              "ZL = sparse(0, 3);\n"
+                              "ZR = sparse(3, 2);\n"
+                              "ZSS = ZL * ZR;\n"
+                              "ZSD = ZL * full(ZR);\n"
+                              "ZDS = full(ZL) * ZR;\n"
+                              "IL = sparse(2, 0);\n"
+                              "IR = sparse(0, 4);\n"
+                              "IZ = IL * IR;\n",
                               "sparse_matrix_products.m");
   auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
   REQUIRE(analysis.empty());
@@ -1063,7 +1071,23 @@ TEST_CASE("Matlab sparse matrix products remain typed through every IR layer") {
                        plan.factorization_policy ==
                            mpf::detail::semantic::MatrixFactorizationPolicy::none &&
                        plan.structure_policy == mpf::detail::semantic::MatrixStructurePolicy::none;
-              }) == 3);
+              }) == 7);
+  const auto zero_outer = std::count_if(
+      analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+      [](const auto& facts) {
+        return facts.matrix_operation.storage_policy == Policy::sparse_csc_multiply &&
+               facts.matrix_operation.result_shape == std::vector<std::size_t>({0U, 2U});
+      });
+  REQUIRE(zero_outer == 3);
+  const auto zero_inner = std::find_if(
+      analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+      [](const auto& facts) {
+        return facts.matrix_operation.storage_policy == Policy::sparse_csc_multiply &&
+               facts.matrix_operation.left_shape == std::vector<std::size_t>({2U, 0U}) &&
+               facts.matrix_operation.right_shape == std::vector<std::size_t>({0U, 4U});
+      });
+  REQUIRE(zero_inner != analysis.semantics.expressions.end());
+  REQUIRE(zero_inner->matrix_operation.result_shape == std::vector<std::size_t>({2U, 4U}));
 
   auto contradictory_hir = analysis.semantics;
   const auto corrupt_hir =
@@ -1114,6 +1138,10 @@ TEST_CASE("Matlab sparse matrix products remain typed through every IR layer") {
     REQUIRE(target_dump.find("storage-policy 3 storage 3,3->3") != std::string::npos);
     REQUIRE(target_dump.find("storage-policy 3 storage 3,2->2") != std::string::npos);
     REQUIRE(target_dump.find("storage-policy 3 storage 2,3->2") != std::string::npos);
+    REQUIRE(target_dump.find("storage-policy 3 storage 3,3->3 [0,3],[3,2]->[0,2]") !=
+            std::string::npos);
+    REQUIRE(target_dump.find("storage-policy 3 storage 3,3->3 [2,0],[0,4]->[2,4]") !=
+            std::string::npos);
   }
 }
 
