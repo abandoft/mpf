@@ -1,3 +1,18 @@
+## 0.6.2
+
+- Matlab sparse matrices now support read-only scalar access through one linear index or two row/column subscripts.
+- Sparse selection accepts full colon, positive or negative-step slices, ordered or repeated numeric selectors, logical selectors, and empty selectors.
+- Linear sparse results follow Matlab shape rules: numeric matrix selectors retain their shape, logical matrices and full colon produce columns, and vector/vector indexing retains the source orientation.
+- Two-subscript selection forms the Matlab Cartesian product with a `numel(rows) × numel(columns)` result.
+- Nonscalar sparse indexing preserves canonical CSC storage and never materializes a dense copy of the source matrix.
+- Full-colon selection remaps CSC entries directly in O(nnz), while submatrix selection scans chosen columns through an ordered row map.
+- Generated JavaScript and C++17 use independent checked sparse-index runtimes; neither target depends on artifacts from the other backend.
+- A typed `SparseIndexPlan` now carries scalar/selection identity, input and result shapes, and source/result storage through semantic analysis, MIR, JavaScript LIR, and `cpp` LIR.
+- Cross-layer verifiers reject corrupted sparse-index identity, arity, shape, type, storage, or inactive-state facts before emission.
+- `full` now accepts rank-two dense or CSC selections with dynamic or zero result extents when their storage representation is known.
+- Sparse assignment, more than two selectors, complex or sparse selectors, N-dimensional linear results, and dynamic, empty, or complex sparse sources continue to fail closed with stable diagnostics.
+- Added an executable sparse-indexing example with dual-target behavior, source-map preservation, out-of-bounds rejection, and fuzz regression coverage; production line coverage is 91.24% (33,780/37,023).
+
 ## 0.6.1
 
 - Matlab now accepts every R2024 `sparse` call form within MPF's nonempty, statically shaped real rank-two contract: `sparse(A)`, `sparse(m,n)`, inferred triplets, explicitly sized triplets, and the `nzmax` form.
@@ -76,7 +91,6 @@
 - Numeric class and real/complex identity are validated throughout semantic analysis, MIR, and each target-specific lowering pipeline, including corruption rejection tests.
 - Source maps now retain source locations for complex construction, arithmetic, array mutation, reshape, and transpose operations.
 - Added an executable Matlab complex example, dual-target differential coverage, generated-code assertions, and a dedicated fuzz regression seed.
-- Added a versioned complex compilation workload covering scalar, array, transpose, and cross-function behavior to the performance release gate.
 - Python scalar return annotations now guide generated C++17 types, preventing annotated integer functions from being emitted with incompatible inferred types.
 - Fortran optional writable arguments and Python truthiness regressions found by the expanded full suite are fixed in both output backends.
 
@@ -111,7 +125,6 @@
 - Generated helper names now describe the real structured-square contract and no longer retain the earlier diagonal/triangular-only helper identity.
 - Added executable left/right tridiagonal, positive-definite, symmetric-indefinite, singular, and nearly singular examples with dual-target output and warning validation.
 - Expanded source-map assertions, verifier corruption checks, architecture checks, and Matlab fuzz seeds for the advanced structure paths.
-- The release performance gate now covers nineteen compile scenarios, including a dedicated advanced structured-square workload.
 
 ## 0.5.4
 
@@ -126,7 +139,6 @@
 - Matrix structure policy is verified through semantic analysis, MIR, JavaScript LIR, and `cpp` LIR before code emission.
 - Source maps now retain the original locations of structured left and right division expressions.
 - Added executable structured-solve and condition-warning examples, dual-target differential cases, verifier corruption tests, and a Matlab fuzz regression seed.
-- The release performance gate now includes an eighteenth compile scenario covering diagonal, triangular, dense, left-division, right-division, and mixed numeric matrix literals.
 
 ## 0.5.3
 

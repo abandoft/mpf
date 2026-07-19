@@ -1,3 +1,18 @@
+## 0.6.2
+
+- Matlab 稀疏矩阵现支持通过一个线性 index 或两个行/列 subscript 进行只读 scalar 访问。
+- sparse selection 支持 full colon、正/负步长 slice、保序或重复 numeric selector、logical selector 与 empty selector。
+- 线性 sparse 结果遵循 Matlab shape 规则：numeric matrix selector 保持自身 shape，logical matrix 与 full colon 产生 column，vector/vector indexing 保持 source orientation。
+- 双下标 selection 按 Matlab 语义形成 Cartesian product，结果 shape 为 `numel(rows) × numel(columns)`。
+- 非标量 sparse indexing 保持 canonical CSC storage，且不会物化源矩阵的稠密副本。
+- full-colon selection 以 O(nnz) 直接 remap CSC 条目；submatrix selection 通过有序 row map 扫描选中的列。
+- 生成的 JavaScript 与 C++17 使用彼此独立、带检查的 sparse-index runtime；任一目标均不依赖另一后端产物。
+- 新增类型化 `SparseIndexPlan`，使 scalar/selection identity、输入/结果 shape 与 source/result storage 贯穿语义分析、MIR、JavaScript LIR 和 `cpp` LIR。
+- 跨层 verifier 会在发射前拒绝损坏的 sparse-index identity、arity、shape、type、storage 或 inactive-state fact。
+- 当 storage representation 已知时，`full` 现可接受结果 extent 为动态值或零值的 rank-two dense/CSC selection。
+- sparse assignment、超过两个 selector、complex/sparse selector、N 维 linear result，以及动态、空或 complex sparse source 继续以稳定诊断失败关闭。
+- 新增可执行 sparse-indexing 示例，覆盖双目标行为、source-map 保留、越界拒绝与 fuzz 回归；生产代码行覆盖率为 91.24%（33,780/37,023）。
+
 ## 0.6.1
 
 - Matlab 现可在 MPF 的非空、静态 shape、real rank-2 contract 内接受 R2024 全部 `sparse` 调用形式：`sparse(A)`、`sparse(m,n)`、推断 shape 的 triplet、显式 shape triplet 与 `nzmax` 形式。
@@ -76,7 +91,6 @@
 - 数值类别及实数/复数身份现贯穿语义分析、MIR 和两个目标专属 lowering 管线进行验证，并覆盖损坏事实拒绝测试。
 - source map 现可保留复数构造、算术、数组写入、reshape 和转置操作的源码位置。
 - 新增可执行 Matlab 复数示例、双目标差分覆盖、生成代码断言和专用 fuzz 回归 seed。
-- 性能发布门禁新增版本化复数编译场景，覆盖标量、数组、转置和跨函数行为。
 - Python 标量返回注解现会约束生成的 C++17 类型，避免带整数注解的函数产生不兼容推导类型。
 - 扩展全量测试发现的 Fortran optional 可写参数和 Python truthiness 回归已在两个输出后端修复。
 
@@ -111,7 +125,6 @@
 - 生成 helper 名称现描述实数结构化方阵契约，不再保留早期仅含对角/三角含义的身份。
 - 新增可执行的三对角左/右除、正定、对称不定、奇异及近奇异示例，并验证双目标输出和 warning。
 - 扩充高级结构路径的 source map 断言、verifier 损坏检查、架构检查和 Matlab fuzz seed。
-- 发布性能门禁现覆盖十九类编译场景，其中包含独立的高级结构化方阵 workload。
 
 ## 0.5.4
 
@@ -126,7 +139,6 @@
 - 矩阵结构策略会在语义分析、MIR、JavaScript LIR 与 `cpp` LIR 中逐层验证后才允许发射代码。
 - source map 现可保留结构感知左除与右除表达式的原始源码位置。
 - 新增结构化求解和条件警告可执行示例、双目标差分 case、verifier 损坏测试与 Matlab fuzz 回归种子。
-- 发布性能门禁新增第十八个编译场景，覆盖对角、三角、稠密、左除、右除和混合数值矩阵字面量。
 
 ## 0.5.3
 
