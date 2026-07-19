@@ -96,6 +96,15 @@ std::vector<Diagnostic> canonicalize_shapes(Program& program, OptimizationStatis
       remap_shape(attributes.broadcast.right_shape, remap);
       remap_shape(attributes.broadcast.result_shape, remap);
     }
+    if (attributes.sparse_elementwise.valid()) {
+      if (attributes.sparse_elementwise.left_shape.valid()) {
+        remap_shape(attributes.sparse_elementwise.left_shape, remap);
+      }
+      if (attributes.sparse_elementwise.right_shape.valid()) {
+        remap_shape(attributes.sparse_elementwise.right_shape, remap);
+      }
+      remap_shape(attributes.sparse_elementwise.result_shape, remap);
+    }
     if (attributes.matrix_operation.valid()) {
       remap_shape(attributes.matrix_operation.left_shape, remap);
       if (attributes.matrix_operation.right_shape.valid()) {
@@ -381,6 +390,7 @@ bool fold_expression(Program& program, const MirExpressionId id, OptimizationSta
   facts->logical_evaluation = semantic::LogicalEvaluation::none;
   facts->array_operation = semantic::ArrayOperation::native;
   facts->broadcast = {};
+  facts->sparse_elementwise = {};
   facts->matrix_operation = {};
   facts->reduction = {};
   facts->sparse_construction = {};

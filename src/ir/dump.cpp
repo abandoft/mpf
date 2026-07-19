@@ -228,6 +228,26 @@ std::string dump_semantics(const hir::SemanticTable& table) {
         output << "->";
         dump_shape(facts.broadcast.result_shape);
       }
+      if (facts.sparse_elementwise.valid()) {
+        const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
+          output << '[';
+          for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+            if (axis != 0U) output << ',';
+            output << shape[axis];
+          }
+          output << ']';
+        };
+        output << " sparse-elementwise=" << enum_value(facts.sparse_elementwise.operation)
+               << " storage-policy=" << enum_value(facts.sparse_elementwise.storage_policy)
+               << " storage=" << enum_value(facts.sparse_elementwise.left_storage) << ','
+               << enum_value(facts.sparse_elementwise.right_storage) << "->"
+               << enum_value(facts.sparse_elementwise.result_storage) << ' ';
+        dump_shape(facts.sparse_elementwise.left_shape);
+        output << ',';
+        dump_shape(facts.sparse_elementwise.right_shape);
+        output << "->";
+        dump_shape(facts.sparse_elementwise.result_shape);
+      }
       if (facts.matrix_operation.valid()) {
         const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
           output << '[';
@@ -440,6 +460,26 @@ std::string dump_mir(const mir::Program& program) {
           output << enum_value(attributes->broadcast.axes[axis]);
         }
         output << ']';
+      }
+      if (attributes->sparse_elementwise.valid()) {
+        output << " sparse-elementwise=" << enum_value(attributes->sparse_elementwise.operation)
+               << " storage-policy="
+               << enum_value(attributes->sparse_elementwise.storage_policy) << " storage="
+               << enum_value(attributes->sparse_elementwise.left_storage) << ','
+               << enum_value(attributes->sparse_elementwise.right_storage) << "->"
+               << enum_value(attributes->sparse_elementwise.result_storage) << ' ';
+        if (attributes->sparse_elementwise.left_shape.valid()) {
+          output << "!s" << attributes->sparse_elementwise.left_shape.value();
+        } else {
+          output << "scalar";
+        }
+        output << ',';
+        if (attributes->sparse_elementwise.right_shape.valid()) {
+          output << "!s" << attributes->sparse_elementwise.right_shape.value();
+        } else {
+          output << "scalar";
+        }
+        output << "->!s" << attributes->sparse_elementwise.result_shape.value();
       }
       if (attributes->matrix_operation.valid()) {
         output << " matrix-operation=" << enum_value(attributes->matrix_operation.operation)
