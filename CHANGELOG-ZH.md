@@ -1,3 +1,20 @@
+## 0.6.9
+
+- Matlab `sparse(A)` 现可接受静态 shape 的 logical rank-2 数组，并产生类型化 logical CSC 矩阵。
+- 推断 shape、显式 shape 与 `nzmax` 三类 R2024 triplet 构造形式现均支持 logical value。
+- 重复 logical triplet 坐标按照 Matlab 语义使用 `any` 聚合，不再执行数值加法。
+- false logical value 不会作为显式 entry 保留在 canonical CSC 存储中。
+- 稀疏普通转置与共轭转置现可保持 logical 值类型。
+- scalar、linear 与 Cartesian submatrix selection 会在适用结果上保持 logical sparse 存储和类型。
+- indexed assignment、扩容与删除会保持 logical CSC；写入 false 会删除对应存储项。
+- sparse reshape 会保持 logical value、Matlab 列主序、推断维度和零 extent。
+- logical sparse 输入经 `full` 转换后返回 logical dense 数组，`issparse` 与 `nnz` 保持预期行为。
+- 生成的 JavaScript 为 sparse value domain 携带显式 tag，并在使用前拒绝损坏的 logical CSC value。
+- 生成的 C++17 使用 `sparse_matrix<bool>` 表示 logical CSC，并安全处理压缩 logical vector 存储。
+- JavaScript 与 C++17 使用彼此独立的类型化 sparse runtime，不要求先生成另一目标。
+- 修复引入类型化 sparse conversion ABI 后，sparse RHS 方阵求解的转换错误。
+- sparse assignment 失败现在会在生成的 JavaScript 与 C++17 中使用一致的 real-or-logical 诊断。
+
 ## 0.6.8
 
 - Matlab 稀疏矩阵现可在已支持的静态 finite-real rank-2 能力中完整保持零 extent。

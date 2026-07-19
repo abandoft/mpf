@@ -1,3 +1,20 @@
+## 0.6.9
+
+- Matlab `sparse(A)` now accepts statically shaped logical rank-two arrays and produces typed logical CSC matrices.
+- Logical triplet constructors are supported across the inferred, explicitly sized, and `nzmax` R2024 call forms.
+- Duplicate logical triplets now follow Matlab semantics by combining values with `any` instead of numeric addition.
+- False logical values are omitted from canonical CSC storage rather than retained as explicit entries.
+- Ordinary and conjugating sparse transpose preserve the logical value class.
+- Scalar, linear, and Cartesian submatrix selection preserve logical sparse storage and result type where applicable.
+- Indexed assignment, growth, and deletion preserve logical CSC matrices, with false assignments removing stored entries.
+- Sparse reshape preserves logical values, Matlab column-major order, inferred dimensions, and zero extents.
+- `full` returns logical dense arrays for logical sparse inputs, while `issparse` and `nnz` retain their expected behavior.
+- Generated JavaScript carries an explicit sparse value-domain tag and rejects malformed logical CSC values before use.
+- Generated C++17 uses `sparse_matrix<bool>` for logical CSC values and safely handles packed logical-vector storage.
+- JavaScript and C++17 use independent typed sparse runtimes and do not require one target to be generated before the other.
+- Fixed sparse square solves with sparse right-hand sides after introducing the typed sparse conversion ABI.
+- Sparse assignment failures now use consistent real-or-logical diagnostics across generated JavaScript and C++17.
+
 ## 0.6.8
 
 - Matlab sparse matrices now preserve zero extents throughout the supported static, finite-real rank-two feature set.
