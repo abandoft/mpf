@@ -297,8 +297,7 @@ template <typename Shape>
       dimension_form == SparseReshapeDimensionForm::none ||
       source_storage != ArrayStorageFormat::sparse_csc ||
       result_storage != ArrayStorageFormat::sparse_csc || input_shape.size() != 2U ||
-      requested_shape.size() < 2U || result_shape.size() != 2U || input_shape[0] == 0U ||
-      input_shape[1] == 0U || result_shape[0] == 0U || result_shape[1] == 0U) {
+      requested_shape.size() < 2U || result_shape.size() != 2U) {
     return false;
   }
   constexpr auto maximum = std::numeric_limits<std::size_t>::max();
@@ -307,7 +306,7 @@ template <typename Shape>
     product = 1U;
     for (std::size_t axis = begin; axis < shape.size(); ++axis) {
       const auto extent = shape[axis];
-      if (extent == 0U || extent == maximum || product > maximum / extent) return false;
+      if (extent == maximum || (extent != 0U && product > maximum / extent)) return false;
       product *= extent;
     }
     return true;
