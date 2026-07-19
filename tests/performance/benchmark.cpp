@@ -446,6 +446,40 @@ std::string matlab_sparse_index_workload(const std::size_t width, const std::siz
   return source;
 }
 
+std::string matlab_sparse_reshape_workload(const std::size_t width, const std::size_t rounds) {
+  std::string source = "matrix = sparse([";
+  for (std::size_t row = 0U; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0U; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += (row == column || (3U * row + column) % 17U == 0U)
+                    ? std::to_string(row + column + 1U)
+                    : "0";
+    }
+  }
+  source += "]);\n";
+  const auto half = std::to_string(width / 2U);
+  const auto twice = std::to_string(width * 2U);
+  const auto quarter = std::to_string(width / 4U);
+  const auto width_text = std::to_string(width);
+  for (std::size_t round = 0U; round < rounds; ++round) {
+    source.append("wide = reshape(matrix, ").append(half).append(", ").append(twice).append(");\n");
+    source.append("matrix = reshape(wide, [], ").append(width_text).append(");\n");
+    source.append("folded = reshape(matrix, ")
+        .append(quarter)
+        .append(", 4, ")
+        .append(width_text)
+        .append(");\n");
+    source.append("matrix = reshape(folded, [")
+        .append(width_text)
+        .append(" ")
+        .append(width_text)
+        .append("]);\n");
+  }
+  source += "disp(nnz(matrix) + nnz(wide) + nnz(folded))\n";
+  return source;
+}
+
 std::string matlab_sparse_assignment_workload(const std::size_t width, const std::size_t rounds) {
   std::string source = "matrix = sparse([";
   for (std::size_t row = 0U; row < width; ++row) {
@@ -661,6 +695,8 @@ int main() {
       {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-solve", matlab_sparse_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-index", matlab_sparse_index_workload(24, 24), mpf::SourceLanguage::matlab},
+      {"matlab-sparse-reshape", matlab_sparse_reshape_workload(24, 24),
+       mpf::SourceLanguage::matlab},
       {"matlab-sparse-assignment", matlab_sparse_assignment_workload(24, 24),
        mpf::SourceLanguage::matlab},
       {"matlab-rank-aware-solve", matlab_rank_aware_solve_workload(24),
