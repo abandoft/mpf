@@ -40,6 +40,17 @@ mpf_add_differential_case(
   examples/matlab/advanced_structured_square_solve.m
   "1 2 3 1 2 3 1 2 3 1 2 3 1 2 3")
 mpf_add_differential_case(
+  matlab-sparse-square-solve matlab examples/matlab/sparse_square_solve.m
+  "3 5 6 5 1 2 3 1 2 3 1 2 3 4 5 6")
+mpf_add_differential_case(
+  matlab-sparse-singular-square-warning matlab
+  examples/matlab/sparse_singular_square_warning.m "0 4" tokens
+  "matrix is singular to working precision")
+mpf_add_differential_case(
+  matlab-sparse-nearly-singular-square-warning matlab
+  examples/matlab/sparse_nearly_singular_square_warning.m "1 0 2" tokens
+  "matrix is close to singular or badly scaled")
+mpf_add_differential_case(
   matlab-singular-tridiagonal-warning matlab examples/matlab/singular_tridiagonal_warning.m "1"
   tokens "matrix is singular to working precision")
 mpf_add_differential_case(
