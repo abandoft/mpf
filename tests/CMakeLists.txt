@@ -319,6 +319,17 @@ if(TARGET mpfc)
     CPP_REPLACEMENT
       "mpf_runtime::sparse_reshape(A, std::array<std::size_t, 2>{2, 3}, std::array<std::size_t, 2>{3, 2}, std::array<std::size_t, 2>{2, 3})")
   mpf_add_generated_plan_rejection_test(
+    matlab-logical-sparse-plan tests/fixtures/matlab_logical_sparse_plan.m
+    "sparse input disagrees with its static shape contract" matlab
+    JAVASCRIPT_SEARCH
+      "__mpf_sparse_from_dense([[true, false], [false, true]], [2, 2], 2)"
+    JAVASCRIPT_REPLACEMENT
+      "__mpf_sparse_from_dense([[true, false], [false, true]], [1, 4], 2)"
+    CPP_SEARCH
+      "mpf_runtime::sparse_logical_from_dense(std::vector<std::vector<bool>>{std::vector<bool>{true, false}, std::vector<bool>{false, true}}, std::array<std::size_t, 2>{2, 2})"
+    CPP_REPLACEMENT
+      "mpf_runtime::sparse_logical_from_dense(std::vector<std::vector<bool>>{std::vector<bool>{true, false}, std::vector<bool>{false, true}}, std::array<std::size_t, 2>{1, 4})")
+  mpf_add_generated_plan_rejection_test(
     matlab-sparse-product-plan tests/fixtures/matlab_sparse_product_plan.m
     "sparse matrix product shape plans are inconsistent" matlab
     JAVASCRIPT_SEARCH
