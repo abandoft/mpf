@@ -227,6 +227,21 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     }
     output << ']';
   }
+  if (!expression.plan.runtime_shape_arguments.empty()) {
+    output << " runtime-shape-arguments [";
+    for (std::size_t argument = 0; argument < expression.plan.runtime_shape_arguments.size();
+         ++argument) {
+      if (argument != 0U) output << ',';
+      output << '[';
+      const auto& shape = expression.plan.runtime_shape_arguments[argument];
+      for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+        if (axis != 0U) output << ',';
+        output << shape[axis];
+      }
+      output << ']';
+    }
+    output << ']';
+  }
   if (!expression.plan.comparisons.empty()) {
     output << " comparisons [";
     for (std::size_t index = 0; index < expression.plan.comparisons.size(); ++index) {
@@ -350,7 +365,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v32 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v34 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

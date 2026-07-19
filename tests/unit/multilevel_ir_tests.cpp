@@ -1023,6 +1023,115 @@ TEST_CASE("Matlab sparse storage and solver policies remain typed through every 
   REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-storage-mismatch").empty());
 }
 
+TEST_CASE("Matlab zero-extent sparse square solve plans remain typed through every IR layer") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "C = sparse([], [], []);\n"
+                              "DR = reshape([], 0, 3);\n"
+                              "SR = sparse(0, 3);\n"
+                              "DL = reshape([], 2, 0);\n"
+                              "SL = sparse(2, 0);\n"
+                              "XD = C \\ DR;\n"
+                              "XS = C \\ SR;\n"
+                              "QD = DL / C;\n"
+                              "QS = SL / C;\n",
+                              "sparse_zero_solve.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+
+  using Operation = mpf::detail::semantic::MatrixOperation;
+  using Policy = mpf::detail::semantic::MatrixStoragePolicy;
+  using Storage = mpf::detail::ArrayStorageFormat;
+  const auto has_plan = [&](const Operation operation, const Storage left_storage,
+                            const Storage right_storage, const std::vector<std::size_t>& left_shape,
+                            const std::vector<std::size_t>& right_shape,
+                            const std::vector<std::size_t>& result_shape) {
+    return std::any_of(
+        analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+        [&](const auto& facts) {
+          const auto& plan = facts.matrix_operation;
+          return plan.operation == operation &&
+                 plan.storage_policy == Policy::sparse_csc_coefficient &&
+                 plan.left_storage == left_storage && plan.right_storage == right_storage &&
+                 plan.result_storage ==
+                     (operation == Operation::left_divide ? right_storage : left_storage) &&
+                 plan.left_shape == left_shape && plan.right_shape == right_shape &&
+                 plan.result_shape == result_shape;
+        });
+  };
+  REQUIRE(has_plan(Operation::left_divide, Storage::sparse_csc, Storage::dense, {0U, 0U}, {0U, 3U},
+                   {0U, 3U}));
+  REQUIRE(has_plan(Operation::left_divide, Storage::sparse_csc, Storage::sparse_csc, {0U, 0U},
+                   {0U, 3U}, {0U, 3U}));
+  REQUIRE(has_plan(Operation::right_divide, Storage::dense, Storage::sparse_csc, {2U, 0U}, {0U, 0U},
+                   {2U, 0U}));
+  REQUIRE(has_plan(Operation::right_divide, Storage::sparse_csc, Storage::sparse_csc, {2U, 0U},
+                   {0U, 0U}, {2U, 0U}));
+
+  auto contradictory_hir = analysis.semantics;
+  const auto corrupt_hir = std::find_if(
+      contradictory_hir.expressions.begin(), contradictory_hir.expressions.end(),
+      [](const auto& facts) {
+        return facts.matrix_operation.storage_policy == Policy::sparse_csc_coefficient &&
+               facts.matrix_operation.result_shape == std::vector<std::size_t>({0U, 3U});
+      });
+  REQUIRE(corrupt_hir != contradictory_hir.expressions.end());
+  corrupt_hir->matrix_operation.result_shape = {1U, 3U};
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
+                                              "sparse-zero-solve-shape-mismatch")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-zero-solve-plan").empty());
+  const auto zero_mir = std::find_if(
+      mir.program.attributes.expressions.begin() + 1, mir.program.attributes.expressions.end(),
+      [&](const auto& attributes) {
+        const auto& plan = attributes.matrix_operation;
+        return plan.storage_policy == Policy::sparse_csc_coefficient && plan.left_shape.valid() &&
+               plan.right_shape.valid() && plan.result_shape.valid() &&
+               mir.program.shapes[plan.left_shape.value()].extents ==
+                   std::vector<std::size_t>({0U, 0U}) &&
+               mir.program.shapes[plan.right_shape.value()].extents ==
+                   std::vector<std::size_t>({0U, 3U}) &&
+               mir.program.shapes[plan.result_shape.value()].extents ==
+                   std::vector<std::size_t>({0U, 3U});
+      });
+  REQUIRE(zero_mir != mir.program.attributes.expressions.end());
+
+  auto contradictory_mir = mir.program;
+  const auto corrupt_mir = std::find_if(
+      contradictory_mir.attributes.expressions.begin() + 1,
+      contradictory_mir.attributes.expressions.end(), [&](const auto& attributes) {
+        const auto& plan = attributes.matrix_operation;
+        return plan.storage_policy == Policy::sparse_csc_coefficient && plan.result_shape.valid() &&
+               contradictory_mir.shapes[plan.result_shape.value()].extents ==
+                   std::vector<std::size_t>({0U, 3U});
+      });
+  REQUIRE(corrupt_mir != contradictory_mir.attributes.expressions.end());
+  corrupt_mir->matrix_operation.result_shape = corrupt_mir->matrix_operation.left_shape;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-zero-solve-shape-mismatch").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, effects, "sparse-zero-solve-effects")
+              .empty());
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  for (const auto& target_dump : {javascript.artifact->debug_dump(), cpp.artifact->debug_dump()}) {
+    REQUIRE(target_dump.find("storage-policy 2 storage 3,2->2 [0,0],[0,3]->[0,3]") !=
+            std::string::npos);
+    REQUIRE(target_dump.find("storage-policy 2 storage 3,3->3 [0,0],[0,3]->[0,3]") !=
+            std::string::npos);
+    REQUIRE(target_dump.find("storage-policy 2 storage 2,3->2 [2,0],[0,0]->[2,0]") !=
+            std::string::npos);
+    REQUIRE(target_dump.find("storage-policy 2 storage 3,3->3 [2,0],[0,0]->[2,0]") !=
+            std::string::npos);
+  }
+}
+
 TEST_CASE("Matlab sparse matrix products remain typed through every IR layer") {
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "A = sparse([1 0 2; 0 3 0]);\n"
@@ -2333,6 +2442,10 @@ TEST_CASE("target LIR planners independently own sparse matrix product kernels")
   REQUIRE(javascript.statements[0].expression.plan.token == "__mpf_sparse_sparse_mtimes");
   REQUIRE(javascript.statements[1].expression.plan.token == "__mpf_sparse_dense_mtimes");
   REQUIRE(javascript.statements[2].expression.plan.token == "__mpf_dense_sparse_mtimes");
+  const std::vector<std::vector<std::size_t>> shape_arguments{{2U, 3U}, {3U, 2U}, {2U, 2U}};
+  for (const auto& statement : javascript.statements) {
+    REQUIRE(statement.expression.plan.runtime_shape_arguments == shape_arguments);
+  }
   javascript.statements[0].expression.plan.token = "__mpf_sparse_dense_mtimes";
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(!diagnostics.empty());
@@ -2351,12 +2464,114 @@ TEST_CASE("target LIR planners independently own sparse matrix product kernels")
   REQUIRE(cpp.statements[0].expression.plan.token == "mpf_runtime::sparse_sparse_mtimes");
   REQUIRE(cpp.statements[1].expression.plan.token == "mpf_runtime::sparse_dense_mtimes");
   REQUIRE(cpp.statements[2].expression.plan.token == "mpf_runtime::dense_sparse_mtimes");
+  for (const auto& statement : cpp.statements) {
+    REQUIRE(statement.expression.plan.runtime_shape_arguments == shape_arguments);
+  }
   cpp.statements[2].expression.plan.token = "mpf_runtime::sparse_dense_mtimes";
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
   diagnostics.clear();
   cpp.statements[2].expression.plan.token = "mpf_runtime::dense_sparse_mtimes";
   cpp.statements[0].expression.matrix_operation.storage_policy = StoragePolicy::dense;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+}
+
+TEST_CASE("target LIR planners own sparse square-solve shape ABIs") {
+  using Storage = mpf::detail::ArrayStorageFormat;
+  using Operation = mpf::detail::semantic::MatrixOperation;
+  using Solve = mpf::detail::semantic::MatrixSolveKind;
+  using NumericDomain = mpf::detail::semantic::MatrixNumericDomain;
+  using ConditionPolicy = mpf::detail::semantic::MatrixConditionPolicy;
+  using FactorizationPolicy = mpf::detail::semantic::MatrixFactorizationPolicy;
+  using StructurePolicy = mpf::detail::semantic::MatrixStructurePolicy;
+  using StoragePolicy = mpf::detail::semantic::MatrixStoragePolicy;
+  const auto configure_operand = [](auto& operand, const std::string_view name,
+                                    const std::vector<std::size_t>& shape) {
+    operand.kind = mpf::detail::ExpressionKind::identifier;
+    operand.value = name;
+    operand.inferred_type = mpf::detail::ValueType::list;
+    operand.element_type = mpf::detail::ValueType::real;
+    operand.element_numeric_type = mpf::detail::real_numeric_type;
+    operand.array_storage = Storage::sparse_csc;
+    operand.shape = shape;
+  };
+  const auto configure_expression = [&](auto& expression, const Operation operation) {
+    const bool left_divide = operation == Operation::left_divide;
+    const std::vector<std::size_t> left_shape =
+        left_divide ? std::vector<std::size_t>{0U, 0U} : std::vector<std::size_t>{2U, 0U};
+    const std::vector<std::size_t> right_shape{0U, left_divide ? 3U : 0U};
+    const std::vector<std::size_t> result_shape =
+        left_divide ? std::vector<std::size_t>{0U, 3U} : std::vector<std::size_t>{2U, 0U};
+    expression.kind = mpf::detail::ExpressionKind::binary;
+    expression.value = left_divide ? "\\" : "/";
+    expression.operation = left_divide ? mpf::detail::BinaryOperator::left_divide
+                                       : mpf::detail::BinaryOperator::divide;
+    expression.inferred_type = mpf::detail::ValueType::list;
+    expression.element_type = mpf::detail::ValueType::real;
+    expression.element_numeric_type = mpf::detail::real_numeric_type;
+    expression.array_storage = Storage::sparse_csc;
+    expression.shape = result_shape;
+    expression.array_operation = mpf::detail::semantic::ArrayOperation::matlab;
+    expression.matrix_operation = {operation,
+                                   Solve::square,
+                                   NumericDomain::real,
+                                   ConditionPolicy::square_continue_with_warning,
+                                   FactorizationPolicy::sparse_row_pivoted_lu,
+                                   StructurePolicy::classify_sparse_real_square,
+                                   StoragePolicy::sparse_csc_coefficient,
+                                   Storage::sparse_csc,
+                                   Storage::sparse_csc,
+                                   Storage::sparse_csc,
+                                   left_shape,
+                                   right_shape,
+                                   result_shape};
+    expression.children.resize(2U);
+    configure_operand(expression.children[0], "left", left_shape);
+    configure_operand(expression.children[1], "right", right_shape);
+  };
+  const auto configure_program = [&](auto& program) {
+    program.source_language = mpf::SourceLanguage::matlab;
+    program.statements.resize(2U);
+    configure_expression(program.statements[0].expression, Operation::left_divide);
+    configure_expression(program.statements[1].expression, Operation::right_divide);
+  };
+  const std::vector<std::vector<std::size_t>> left_arguments{{0U, 0U}, {0U, 3U}, {0U, 3U}};
+  const std::vector<std::vector<std::size_t>> right_arguments{{2U, 0U}, {0U, 0U}, {2U, 0U}};
+
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  configure_program(javascript);
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  REQUIRE(javascript.statements[0].expression.plan.token ==
+          "__mpf_matlab_mldivide_sparse_real_square");
+  REQUIRE(javascript.statements[1].expression.plan.token ==
+          "__mpf_matlab_mrdivide_sparse_real_square");
+  REQUIRE(javascript.statements[0].expression.plan.runtime_shape_arguments == left_arguments);
+  REQUIRE(javascript.statements[1].expression.plan.runtime_shape_arguments == right_arguments);
+  REQUIRE(mpf::detail::javascript::lir::dump(javascript)
+              .find("runtime-shape-arguments [[0,0],[0,3],[0,3]]") != std::string::npos);
+  javascript.statements[0].expression.plan.runtime_shape_arguments.back() = {0U, 2U};
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  configure_program(cpp);
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  REQUIRE(cpp.statements[0].expression.plan.token ==
+          "mpf_runtime::matlab_mldivide_sparse_real_square");
+  REQUIRE(cpp.statements[1].expression.plan.token ==
+          "mpf_runtime::matlab_mrdivide_sparse_real_square");
+  REQUIRE(cpp.statements[0].expression.plan.runtime_shape_arguments == left_arguments);
+  REQUIRE(cpp.statements[1].expression.plan.runtime_shape_arguments == right_arguments);
+  REQUIRE(mpf::detail::cpp::lir::dump(cpp).find("runtime-shape-arguments [[2,0],[0,0],[2,0]]") !=
+          std::string::npos);
+  cpp.statements[1].expression.plan.runtime_shape_arguments.clear();
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
 }
@@ -4510,9 +4725,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v32") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v34") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v32") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v34") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
