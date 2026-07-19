@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <limits>
 
+#include "compiler/array_storage.hpp"
 #include "mpf/transpiler.hpp"
 
 namespace mpf::detail::semantic {
@@ -135,7 +136,11 @@ enum class MatrixConditionPolicy : std::uint8_t {
 // Rectangular division requires an explicit rank-revealing factorization contract. Keeping the
 // algorithm family separate from square-matrix structure classification lets new numeric domains
 // share the same source semantics without selecting a target helper by spelling.
-enum class MatrixFactorizationPolicy : std::uint8_t { none, rank_revealing_column_pivoted_qr };
+enum class MatrixFactorizationPolicy : std::uint8_t {
+  none,
+  rank_revealing_column_pivoted_qr,
+  sparse_row_pivoted_lu
+};
 // Matrix arithmetic must not infer its numeric domain from a target representation. The semantic
 // plan fixes whether a kernel consumes real or complex values before target-specific lowering.
 enum class MatrixNumericDomain : std::uint8_t { none, real, complex };
@@ -145,8 +150,13 @@ enum class MatrixNumericDomain : std::uint8_t { none, real, complex };
 enum class MatrixStructurePolicy : std::uint8_t {
   none,
   classify_real_square,
-  classify_complex_square
+  classify_complex_square,
+  classify_sparse_real_square
 };
+// Operand storage participates in Matlab matrix dispatch independently of numeric domain and
+// mathematical structure. A sparse coefficient selects a CSC-aware solver; target code must not
+// infer this from a runtime object tag or helper spelling.
+enum class MatrixStoragePolicy : std::uint8_t { none, dense, sparse_csc_coefficient };
 
 [[nodiscard]] constexpr MatrixSolveKind matrix_solve_kind(const std::size_t rows,
                                                           const std::size_t columns) noexcept {
@@ -167,7 +177,12 @@ enum class MatrixStructurePolicy : std::uint8_t {
 }
 
 [[nodiscard]] constexpr MatrixFactorizationPolicy matrix_factorization_policy(
-    const MatrixSolveKind solve) noexcept {
+    const MatrixSolveKind solve,
+    const MatrixStoragePolicy storage = MatrixStoragePolicy::dense) noexcept {
+  if (storage == MatrixStoragePolicy::sparse_csc_coefficient) {
+    return solve == MatrixSolveKind::square ? MatrixFactorizationPolicy::sparse_row_pivoted_lu
+                                            : MatrixFactorizationPolicy::none;
+  }
   switch (solve) {
     case MatrixSolveKind::overdetermined:
     case MatrixSolveKind::underdetermined:
@@ -179,13 +194,34 @@ enum class MatrixStructurePolicy : std::uint8_t {
 }
 
 [[nodiscard]] constexpr MatrixStructurePolicy matrix_structure_policy(
-    const MatrixSolveKind solve, const MatrixNumericDomain domain) noexcept {
+    const MatrixSolveKind solve, const MatrixNumericDomain domain,
+    const MatrixStoragePolicy storage = MatrixStoragePolicy::dense) noexcept {
   if (solve != MatrixSolveKind::square) return MatrixStructurePolicy::none;
+  if (storage == MatrixStoragePolicy::sparse_csc_coefficient) {
+    return domain == MatrixNumericDomain::real ? MatrixStructurePolicy::classify_sparse_real_square
+                                               : MatrixStructurePolicy::none;
+  }
   if (domain == MatrixNumericDomain::real) return MatrixStructurePolicy::classify_real_square;
   if (domain == MatrixNumericDomain::complex) {
     return MatrixStructurePolicy::classify_complex_square;
   }
   return MatrixStructurePolicy::none;
+}
+
+[[nodiscard]] constexpr MatrixStoragePolicy matrix_storage_policy(
+    const MatrixOperation operation, const ArrayStorageFormat left,
+    const ArrayStorageFormat right) noexcept {
+  if (operation == MatrixOperation::left_divide && left == ArrayStorageFormat::sparse_csc) {
+    return MatrixStoragePolicy::sparse_csc_coefficient;
+  }
+  if (operation == MatrixOperation::right_divide && right == ArrayStorageFormat::sparse_csc) {
+    return MatrixStoragePolicy::sparse_csc_coefficient;
+  }
+  if (operation != MatrixOperation::none && array_storage_known(left) &&
+      (right == ArrayStorageFormat::none || array_storage_known(right))) {
+    return MatrixStoragePolicy::dense;
+  }
+  return MatrixStoragePolicy::none;
 }
 // Per-subscript execution contract. Keeping selector identity explicit avoids deriving Matlab
 // indexing semantics again in each target backend.

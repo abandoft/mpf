@@ -435,12 +435,14 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
         semantic(semantics_, expression).numeric_type = symbol->numeric_type;
         semantic(semantics_, expression).element_type = symbol->element_type;
         semantic(semantics_, expression).element_numeric_type = symbol->element_numeric_type;
+        semantic(semantics_, expression).array_storage = symbol->array_storage;
         semantic(semantics_, expression).shape = symbol->shape;
         semantic(semantics_, expression).tuple_types = symbol->tuple_types;
         semantic(semantics_, expression).tuple_numeric_types = symbol->tuple_numeric_types;
         semantic(semantics_, expression).tuple_element_types = symbol->tuple_element_types;
         semantic(semantics_, expression).tuple_element_numeric_types =
             symbol->tuple_element_numeric_types;
+        semantic(semantics_, expression).tuple_array_storage = symbol->tuple_array_storage;
         semantic(semantics_, expression).tuple_shapes = symbol->tuple_shapes;
         semantic(semantics_, expression).sequence_is_list = symbol->sequence_is_list;
         semantic(semantics_, expression).sequence_elements = symbol->sequence_elements;
@@ -488,6 +490,14 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
         facts.numeric_type = operand_facts.numeric_type;
         facts.element_numeric_type = operand_facts.element_numeric_type;
         if (operand == ValueType::list) {
+          if (program_.language == SourceLanguage::matlab &&
+              operand_facts.array_storage == ArrayStorageFormat::sparse_csc) {
+            diagnose(expression.location.line, "MPF2054",
+                     "sparse transpose is not part of the current CSC runtime contract; "
+                     "convert with full before transposing");
+            return facts.inferred_type = ValueType::unknown;
+          }
+          facts.array_storage = operand_facts.array_storage;
           if (operand_facts.shape.size() == 1U) {
             facts.shape = {operand_facts.shape.front(), 1U};
           } else if (operand_facts.shape.size() == 2U) {
@@ -519,6 +529,12 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
         auto& facts = semantic(semantics_, expression);
         facts.logical_evaluation = semantic::LogicalEvaluation::eager_elementwise;
         const auto& operand_facts = semantic(semantics_, expression.children.front());
+        if (operand_facts.array_storage == ArrayStorageFormat::sparse_csc) {
+          diagnose(expression.location.line, "MPF2054",
+                   "logical negation over sparse arrays is outside the current CSC runtime "
+                   "contract; convert with full first");
+          return facts.inferred_type = ValueType::unknown;
+        }
         const auto scalar_type = operand == ValueType::list ? operand_facts.element_type : operand;
         if (scalar_type != ValueType::unknown && !numeric(scalar_type) &&
             scalar_type != ValueType::boolean) {
@@ -531,6 +547,7 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
           facts.element_type = ValueType::boolean;
           facts.numeric_type = no_numeric_type;
           facts.element_numeric_type = logical_numeric_type;
+          facts.array_storage = operand_facts.array_storage;
           facts.shape = operand_facts.shape;
           return facts.inferred_type;
         }
@@ -549,6 +566,10 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
       semantic(semantics_, expression).element_numeric_type =
           logical_not ? no_numeric_type
                       : semantic(semantics_, expression.children.front()).element_numeric_type;
+      semantic(semantics_, expression).array_storage =
+          operand == ValueType::list
+              ? semantic(semantics_, expression.children.front()).array_storage
+              : ArrayStorageFormat::none;
       return semantic(semantics_, expression).inferred_type;
     }
     case ExpressionKind::binary: {
@@ -556,11 +577,15 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
       auto& facts = semantic(semantics_, expression);
       const auto& left = semantic(semantics_, expression.children[0]);
       const auto& right = semantic(semantics_, expression.children[1]);
-      const bool logical_result = expression.comparison != ComparisonOperator::none ||
-                                  expression.operation == BinaryOperator::logical_and ||
-                                  expression.operation == BinaryOperator::logical_or ||
-                                  expression.operation == BinaryOperator::elementwise_logical_and ||
-                                  expression.operation == BinaryOperator::elementwise_logical_or;
+      const bool logical_operator =
+          expression.operation == BinaryOperator::logical_and ||
+          expression.operation == BinaryOperator::logical_or ||
+          expression.operation == BinaryOperator::elementwise_logical_and ||
+          expression.operation == BinaryOperator::elementwise_logical_or;
+      const bool logical_result =
+          expression.comparison != ComparisonOperator::none ||
+          (logical_operator &&
+           facts.logical_evaluation != semantic::LogicalEvaluation::short_circuit_operand);
       const bool complex_operand =
           expression_numeric_type(left).complexity == NumericComplexity::complex ||
           expression_numeric_type(right).complexity == NumericComplexity::complex;
@@ -584,6 +609,9 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
           facts.element_numeric_type = matlab_arithmetic_numeric_join(left, right, floating_result);
         }
         facts.numeric_type = no_numeric_type;
+        if (facts.array_storage == ArrayStorageFormat::none) {
+          facts.array_storage = ArrayStorageFormat::dense;
+        }
       } else if (numeric(result)) {
         const bool floating_result =
             expression.operation == BinaryOperator::divide ||
@@ -609,7 +637,7 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
       const auto result = analyze_conditional(expression);
       auto& facts = semantic(semantics_, expression);
       if (expression.children.size() == 3U) {
-        const auto& when_true = semantic(semantics_, expression.children[0]);
+        const auto& when_true = semantic(semantics_, expression.children[1]);
         const auto& when_false = semantic(semantics_, expression.children[2]);
         if (result == ValueType::list) {
           facts.numeric_type = no_numeric_type;
@@ -688,6 +716,7 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
       facts.element_type = element_type;
       facts.numeric_type = no_numeric_type;
       facts.element_numeric_type = element_numeric_type;
+      facts.array_storage = ArrayStorageFormat::dense;
       facts.column_major = program_.semantics.layout == semantic::IndexLayout::column_major;
       if (nested && !nested_shape.empty() && !ragged) {
         facts.shape.insert(facts.shape.end(), nested_shape.begin(), nested_shape.end());
@@ -719,6 +748,7 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
       semantic(semantics_, expression).tuple_numeric_types.clear();
       semantic(semantics_, expression).tuple_element_types.clear();
       semantic(semantics_, expression).tuple_element_numeric_types.clear();
+      semantic(semantics_, expression).tuple_array_storage.clear();
       semantic(semantics_, expression).tuple_shapes.clear();
       for (auto& child : expression.children) {
         semantic(semantics_, expression).tuple_types.push_back(analyze_expression(child));
@@ -729,6 +759,8 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
         semantic(semantics_, expression)
             .tuple_element_numeric_types.push_back(
                 semantic(semantics_, child).element_numeric_type);
+        semantic(semantics_, expression)
+            .tuple_array_storage.push_back(semantic(semantics_, child).array_storage);
         semantic(semantics_, expression).tuple_shapes.push_back(semantic(semantics_, child).shape);
       }
       semantic(semantics_, expression).sequence_is_list = false;
@@ -752,6 +784,25 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
   const bool child_condition = condition_context && logical_composition;
   const auto left = analyze_expression(expression.children[0], child_condition);
   const auto right = analyze_expression(expression.children[1], child_condition);
+  const auto& analyzed_left_facts = semantic(semantics_, expression.children[0]);
+  const auto& analyzed_right_facts = semantic(semantics_, expression.children[1]);
+  if (program_.language == SourceLanguage::matlab &&
+      (analyzed_left_facts.array_storage == ArrayStorageFormat::sparse_csc ||
+       analyzed_right_facts.array_storage == ArrayStorageFormat::sparse_csc)) {
+    const bool supported_sparse_solve =
+        (operation == BinaryOperator::left_divide && left == ValueType::list &&
+         right == ValueType::list &&
+         analyzed_left_facts.array_storage == ArrayStorageFormat::sparse_csc) ||
+        (operation == BinaryOperator::divide && left == ValueType::list &&
+         right == ValueType::list &&
+         analyzed_right_facts.array_storage == ArrayStorageFormat::sparse_csc);
+    if (!supported_sparse_solve) {
+      diagnose(expression.location.line, "MPF2054",
+               "this sparse array operation is outside the current CSC contract; convert the "
+               "operand with full or use sparse square matrix division");
+      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+    }
+  }
   if (expression.comparison != ComparisonOperator::none) {
     if (program_.language == SourceLanguage::matlab) {
       const auto& left_facts = semantic(semantics_, expression.children[0]);
@@ -821,22 +872,29 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
   }
   if (program_.semantics.logical_result == semantic::LogicalResult::operand &&
       (operation == BinaryOperator::logical_and || operation == BinaryOperator::logical_or)) {
-    semantic(semantics_, expression).logical_evaluation =
-        semantic::LogicalEvaluation::short_circuit_operand;
-    semantic(semantics_, expression).inferred_type = join_types(left, right);
+    auto& facts = semantic(semantics_, expression);
+    facts.logical_evaluation = semantic::LogicalEvaluation::short_circuit_operand;
+    facts.inferred_type = join_types(left, right);
     if (left == ValueType::list && right == ValueType::list) {
       const auto& left_facts = semantic(semantics_, expression.children[0]);
       const auto& right_facts = semantic(semantics_, expression.children[1]);
-      semantic(semantics_, expression).element_type =
-          join_types(left_facts.element_type, right_facts.element_type);
+      facts.numeric_type = no_numeric_type;
+      facts.element_type = join_types(left_facts.element_type, right_facts.element_type);
+      facts.element_numeric_type =
+          join_numeric_types(left_facts.element_numeric_type, right_facts.element_numeric_type);
+      facts.array_storage =
+          join_array_storage_formats(left_facts.array_storage, right_facts.array_storage);
       if (left_facts.shape == right_facts.shape) {
-        semantic(semantics_, expression).shape = left_facts.shape;
+        facts.shape = left_facts.shape;
       } else {
         const auto rank = std::max(left_facts.shape.size(), right_facts.shape.size());
-        semantic(semantics_, expression).shape.assign(rank, dynamic_extent);
+        facts.shape.assign(rank, dynamic_extent);
       }
+    } else if (facts.inferred_type != ValueType::list) {
+      facts.numeric_type =
+          join_numeric_types(analyzed_left_facts.numeric_type, analyzed_right_facts.numeric_type);
     }
-    return semantic(semantics_, expression).inferred_type;
+    return facts.inferred_type;
   }
   if (operation == BinaryOperator::logical_and || operation == BinaryOperator::logical_or) {
     auto& facts = semantic(semantics_, expression);
@@ -1035,9 +1093,14 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                 semantic::MatrixConditionPolicy::none,
                                 semantic::MatrixFactorizationPolicy::none,
                                 semantic::MatrixStructurePolicy::none,
+                                semantic::MatrixStoragePolicy::dense,
+                                left_facts.array_storage,
+                                right_facts.array_storage,
+                                ArrayStorageFormat::dense,
                                 left_facts.shape,
                                 right_facts.shape,
                                 facts.shape};
+      facts.array_storage = ArrayStorageFormat::dense;
       return facts.inferred_type;
     }
     if (left_array && right_array &&
@@ -1075,15 +1138,33 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
         facts.shape = {(*left_matrix_shape)[1], (*right_matrix_shape)[1]};
         const auto solve =
             semantic::matrix_solve_kind((*left_matrix_shape)[0], (*left_matrix_shape)[1]);
-        facts.matrix_operation = {semantic::MatrixOperation::left_divide,
-                                  solve,
-                                  *numeric_domain,
-                                  semantic::matrix_condition_policy(solve),
-                                  semantic::matrix_factorization_policy(solve),
-                                  semantic::matrix_structure_policy(solve, *numeric_domain),
-                                  *left_matrix_shape,
-                                  *right_matrix_shape,
-                                  facts.shape};
+        const auto storage_policy =
+            semantic::matrix_storage_policy(semantic::MatrixOperation::left_divide,
+                                            left_facts.array_storage, right_facts.array_storage);
+        if (storage_policy == semantic::MatrixStoragePolicy::sparse_csc_coefficient &&
+            (solve != semantic::MatrixSolveKind::square ||
+             *numeric_domain != semantic::MatrixNumericDomain::real)) {
+          diagnose(expression.location.line, "MPF2054",
+                   "sparse matrix left division currently requires a real square coefficient "
+                   "matrix");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        const auto result_storage = right_facts.array_storage;
+        facts.matrix_operation = {
+            semantic::MatrixOperation::left_divide,
+            solve,
+            *numeric_domain,
+            semantic::matrix_condition_policy(solve),
+            semantic::matrix_factorization_policy(solve, storage_policy),
+            semantic::matrix_structure_policy(solve, *numeric_domain, storage_policy),
+            storage_policy,
+            left_facts.array_storage,
+            right_facts.array_storage,
+            result_storage,
+            *left_matrix_shape,
+            *right_matrix_shape,
+            facts.shape};
+        facts.array_storage = result_storage;
       } else {
         if ((*left_matrix_shape)[1] != (*right_matrix_shape)[1]) {
           diagnose(expression.location.line, "MPF2046",
@@ -1094,15 +1175,33 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
         facts.shape = {(*left_matrix_shape)[0], (*right_matrix_shape)[0]};
         const auto solve =
             semantic::matrix_solve_kind((*right_matrix_shape)[1], (*right_matrix_shape)[0]);
-        facts.matrix_operation = {semantic::MatrixOperation::right_divide,
-                                  solve,
-                                  *numeric_domain,
-                                  semantic::matrix_condition_policy(solve),
-                                  semantic::matrix_factorization_policy(solve),
-                                  semantic::matrix_structure_policy(solve, *numeric_domain),
-                                  *left_matrix_shape,
-                                  *right_matrix_shape,
-                                  facts.shape};
+        const auto storage_policy =
+            semantic::matrix_storage_policy(semantic::MatrixOperation::right_divide,
+                                            left_facts.array_storage, right_facts.array_storage);
+        if (storage_policy == semantic::MatrixStoragePolicy::sparse_csc_coefficient &&
+            (solve != semantic::MatrixSolveKind::square ||
+             *numeric_domain != semantic::MatrixNumericDomain::real)) {
+          diagnose(expression.location.line, "MPF2054",
+                   "sparse matrix right division currently requires a real square coefficient "
+                   "matrix");
+          return facts.inferred_type = ValueType::unknown;
+        }
+        const auto result_storage = left_facts.array_storage;
+        facts.matrix_operation = {
+            semantic::MatrixOperation::right_divide,
+            solve,
+            *numeric_domain,
+            semantic::matrix_condition_policy(solve),
+            semantic::matrix_factorization_policy(solve, storage_policy),
+            semantic::matrix_structure_policy(solve, *numeric_domain, storage_policy),
+            storage_policy,
+            left_facts.array_storage,
+            right_facts.array_storage,
+            result_storage,
+            *left_matrix_shape,
+            *right_matrix_shape,
+            facts.shape};
+        facts.array_storage = result_storage;
       }
       return facts.inferred_type;
     }
@@ -1147,9 +1246,14 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                 semantic::MatrixConditionPolicy::none,
                                 semantic::MatrixFactorizationPolicy::none,
                                 semantic::MatrixStructurePolicy::none,
+                                semantic::MatrixStoragePolicy::dense,
+                                left_facts.array_storage,
+                                ArrayStorageFormat::none,
+                                ArrayStorageFormat::dense,
                                 left_facts.shape,
                                 {},
                                 facts.shape};
+      facts.array_storage = ArrayStorageFormat::dense;
       return facts.inferred_type;
     }
     if (has_array &&
@@ -1297,18 +1401,22 @@ ValueType Analyzer::analyze_conditional(Expression& expression) {
       const auto rank = std::max(true_facts.shape.size(), false_facts.shape.size());
       semantic(semantics_, expression).shape.assign(rank, dynamic_extent);
     }
+    semantic(semantics_, expression).array_storage =
+        join_array_storage_formats(true_facts.array_storage, false_facts.array_storage);
   }
   if (true_type == ValueType::tuple && false_type == ValueType::tuple &&
       true_facts.tuple_types == false_facts.tuple_types &&
       true_facts.tuple_numeric_types == false_facts.tuple_numeric_types &&
       true_facts.tuple_element_types == false_facts.tuple_element_types &&
       true_facts.tuple_element_numeric_types == false_facts.tuple_element_numeric_types &&
+      true_facts.tuple_array_storage == false_facts.tuple_array_storage &&
       true_facts.tuple_shapes == false_facts.tuple_shapes) {
     semantic(semantics_, expression).tuple_types = true_facts.tuple_types;
     semantic(semantics_, expression).tuple_numeric_types = true_facts.tuple_numeric_types;
     semantic(semantics_, expression).tuple_element_types = true_facts.tuple_element_types;
     semantic(semantics_, expression).tuple_element_numeric_types =
         true_facts.tuple_element_numeric_types;
+    semantic(semantics_, expression).tuple_array_storage = true_facts.tuple_array_storage;
     semantic(semantics_, expression).tuple_shapes = true_facts.tuple_shapes;
   }
   if ((true_type == ValueType::list || true_type == ValueType::tuple) && true_type == false_type &&
@@ -1732,6 +1840,80 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       semantic(semantics_, expression).numeric_type = integer_numeric_type;
       return semantic(semantics_, expression).inferred_type = ValueType::integer;
     }
+    if (associated_callee_facts.intrinsic == IntrinsicId::matlab_sparse ||
+        associated_callee_facts.intrinsic == IntrinsicId::matlab_full) {
+      auto& facts = semantic(semantics_, expression);
+      if (expression.children.size() != 2U) {
+        diagnose(expression.location.line, "MPF2054",
+                 associated_callee_facts.intrinsic == IntrinsicId::matlab_sparse
+                     ? "the current sparse contract supports only sparse(A)"
+                     : "full requires exactly one array argument");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      const auto& argument = semantic(semantics_, expression.children[1]);
+      const auto numeric_type = expression_numeric_type(argument);
+      if (argument.inferred_type != ValueType::list || argument.shape.size() != 2U ||
+          !known_shape(argument.shape) || !numeric_type.present() ||
+          numeric_type.complexity != NumericComplexity::real) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse/full currently requires a statically shaped real rank-2 array");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      if (std::any_of(argument.shape.begin(), argument.shape.end(),
+                      [](const auto extent) { return extent == 0U; })) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse/full currently requires non-empty rank-2 extents");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      if (!array_storage_known(argument.array_storage)) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse/full requires a statically resolved dense or CSC representation");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      facts.inferred_type = ValueType::list;
+      facts.numeric_type = no_numeric_type;
+      facts.element_type = argument.element_type;
+      facts.element_numeric_type = argument.element_numeric_type;
+      facts.shape = argument.shape;
+      facts.array_storage = associated_callee_facts.intrinsic == IntrinsicId::matlab_sparse
+                                ? ArrayStorageFormat::sparse_csc
+                                : ArrayStorageFormat::dense;
+      return facts.inferred_type;
+    }
+    if (associated_callee_facts.intrinsic == IntrinsicId::matlab_is_sparse) {
+      auto& facts = semantic(semantics_, expression);
+      if (expression.children.size() != 2U) {
+        diagnose(expression.location.line, "MPF2054", "issparse requires exactly one argument");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      const auto& argument = semantic(semantics_, expression.children[1]);
+      if (argument.inferred_type != ValueType::list &&
+          argument.inferred_type != ValueType::unknown) {
+        diagnose(expression.location.line, "MPF2054", "issparse argument must be an array");
+      }
+      facts.numeric_type = logical_numeric_type;
+      facts.array_storage = ArrayStorageFormat::none;
+      return facts.inferred_type = ValueType::boolean;
+    }
+    if (associated_callee_facts.intrinsic == IntrinsicId::matlab_nonzero_count) {
+      auto& facts = semantic(semantics_, expression);
+      if (expression.children.size() != 2U) {
+        diagnose(expression.location.line, "MPF2054", "nnz requires exactly one argument");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      const auto& argument = semantic(semantics_, expression.children[1]);
+      const auto type = argument.inferred_type == ValueType::list ? argument.element_type
+                                                                  : argument.inferred_type;
+      const auto numeric_type = expression_numeric_type(argument);
+      if ((type != ValueType::unknown && !numeric(type) && type != ValueType::boolean) ||
+          numeric_type.complexity == NumericComplexity::complex) {
+        diagnose(expression.location.line, "MPF2054",
+                 "nnz currently requires a real numeric or logical value");
+      }
+      facts.numeric_type = integer_numeric_type;
+      facts.array_storage = ArrayStorageFormat::none;
+      return facts.inferred_type = ValueType::integer;
+    }
     if (associated_callee_facts.intrinsic == IntrinsicId::sum && expression.children.size() == 2) {
       const auto& argument_facts = semantic(semantics_, expression.children[1]);
       if (argument_facts.inferred_type != ValueType::list &&
@@ -1852,6 +2034,7 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       semantic(semantics_, expression).tuple_element_types = function_facts.return_element_types;
       semantic(semantics_, expression).tuple_element_numeric_types =
           function_facts.return_element_numeric_types;
+      semantic(semantics_, expression).tuple_array_storage = function_facts.return_array_storage;
       semantic(semantics_, expression).tuple_shapes = function_facts.return_shapes;
       if (semantic(semantics_, expression).requested_outputs > function->return_names.size()) {
         diagnose(expression.location.line, "MPF2034",
@@ -1871,6 +2054,12 @@ ValueType Analyzer::analyze_call(Expression& expression) {
             function_facts.return_element_numeric_types.empty()
                 ? default_numeric_type(function_facts.return_element_types.front())
                 : function_facts.return_element_numeric_types.front();
+        semantic(semantics_, expression).array_storage =
+            function_facts.return_array_storage.empty()
+                ? (function_facts.return_types.front() == ValueType::list
+                       ? ArrayStorageFormat::unknown
+                       : ArrayStorageFormat::none)
+                : function_facts.return_array_storage.front();
         semantic(semantics_, expression).shape = function_facts.return_shapes.front();
         return semantic(semantics_, expression).inferred_type = function_facts.return_types.front();
       }
@@ -1883,6 +2072,7 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       semantic(semantics_, expression).tuple_element_types = function_facts.return_element_types;
       semantic(semantics_, expression).tuple_element_numeric_types =
           function_facts.return_element_numeric_types;
+      semantic(semantics_, expression).tuple_array_storage = function_facts.return_array_storage;
       semantic(semantics_, expression).tuple_shapes = function_facts.return_shapes;
     }
     if (program_.language == SourceLanguage::python &&
@@ -1890,12 +2080,14 @@ ValueType Analyzer::analyze_call(Expression& expression) {
          function_facts.declared_type == ValueType::list)) {
       semantic(semantics_, expression).element_type = function_facts.element_type;
       semantic(semantics_, expression).element_numeric_type = function_facts.element_numeric_type;
+      semantic(semantics_, expression).array_storage = function_facts.array_storage;
       semantic(semantics_, expression).shape = function_facts.shape;
       semantic(semantics_, expression).sequence_is_list = function_facts.return_sequence_is_list;
       semantic(semantics_, expression).sequence_elements = function_facts.return_sequence_elements;
     }
     semantic(semantics_, expression).numeric_type = function_facts.declared_numeric_type;
     semantic(semantics_, expression).element_numeric_type = function_facts.element_numeric_type;
+    semantic(semantics_, expression).array_storage = function_facts.array_storage;
     return semantic(semantics_, expression).inferred_type = function_facts.declared_type;
   }
   return semantic(semantics_, expression).inferred_type = ValueType::unknown;
@@ -1913,6 +2105,11 @@ ValueType Analyzer::analyze_logical_reduction(Expression& expression,
   }
 
   const auto& input = semantic(semantics_, expression.children[1]);
+  if (input.array_storage == ArrayStorageFormat::sparse_csc) {
+    diagnose(expression.location.line, "MPF2054",
+             "all/any over sparse arrays is outside the current CSC runtime contract");
+    return facts.inferred_type = ValueType::unknown;
+  }
   if (expression_numeric_type(input).complexity == NumericComplexity::complex) {
     diagnose(expression.location.line, "MPF2053",
              "Matlab logical reduction over complex values is not supported yet");
@@ -2013,6 +2210,7 @@ ValueType Analyzer::analyze_logical_reduction(Expression& expression,
   facts.inferred_type = scalar_result ? ValueType::boolean : ValueType::list;
   facts.numeric_type = scalar_result ? logical_numeric_type : no_numeric_type;
   facts.element_numeric_type = scalar_result ? no_numeric_type : logical_numeric_type;
+  facts.array_storage = scalar_result ? ArrayStorageFormat::none : ArrayStorageFormat::dense;
   return facts.inferred_type;
 }
 
@@ -2025,6 +2223,11 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
   auto& container = expression.children[0];
   if (!container_already_analyzed) analyze_expression(container);
   const auto& container_facts = semantic(semantics_, container);
+  if (container_facts.array_storage == ArrayStorageFormat::sparse_csc) {
+    diagnose(expression.location.line, "MPF2054",
+             "sparse indexing is outside the current CSC runtime contract; convert with full");
+    return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+  }
   if (container_facts.inferred_type != ValueType::list &&
       container_facts.inferred_type != ValueType::unknown) {
     diagnose(expression.location.line, "MPF2022", "indexed expression is not an array/list");
@@ -2210,6 +2413,7 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
     if (has_expanding_selector) {
       semantic(semantics_, expression).shape = std::move(result_shape);
       semantic(semantics_, expression).numeric_type = no_numeric_type;
+      semantic(semantics_, expression).array_storage = ArrayStorageFormat::dense;
       return semantic(semantics_, expression).inferred_type = ValueType::list;
     }
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
@@ -2224,6 +2428,7 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
   if (has_expanding_selector || !result_shape.empty()) {
     semantic(semantics_, expression).shape = std::move(result_shape);
     semantic(semantics_, expression).numeric_type = no_numeric_type;
+    semantic(semantics_, expression).array_storage = ArrayStorageFormat::dense;
     return semantic(semantics_, expression).inferred_type = ValueType::list;
   }
   semantic(semantics_, expression).numeric_type = container_facts.element_numeric_type;
@@ -2574,6 +2779,12 @@ ValueType Analyzer::analyze_reshape(Expression& expression) {
   }
   auto& source = expression.children[1];
   const auto& source_facts = semantic(semantics_, source);
+  if (source_facts.array_storage == ArrayStorageFormat::sparse_csc) {
+    diagnose(expression.location.line, "MPF2054",
+             "reshape over sparse arrays is outside the current CSC runtime contract; convert "
+             "with full first");
+    return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+  }
   if (source_facts.inferred_type != ValueType::list ||
       (!matlab_dimensions &&
        semantic(semantics_, expression.children[2]).inferred_type != ValueType::list)) {
@@ -2633,6 +2844,7 @@ ValueType Analyzer::analyze_reshape(Expression& expression) {
   semantic(semantics_, expression).element_type = source_facts.element_type;
   semantic(semantics_, expression).numeric_type = no_numeric_type;
   semantic(semantics_, expression).element_numeric_type = source_facts.element_numeric_type;
+  semantic(semantics_, expression).array_storage = ArrayStorageFormat::dense;
   semantic(semantics_, expression).shape = std::move(dimensions);
   semantic(semantics_, expression).column_major = true;
   return semantic(semantics_, expression).inferred_type;

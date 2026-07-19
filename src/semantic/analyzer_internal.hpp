@@ -31,11 +31,13 @@ struct Symbol {
   bool assigned{false};
   ValueType element_type{ValueType::unknown};
   NumericType element_numeric_type{unknown_numeric_type};
+  ArrayStorageFormat array_storage{ArrayStorageFormat::none};
   std::vector<std::size_t> shape;
   std::vector<ValueType> tuple_types;
   std::vector<NumericType> tuple_numeric_types;
   std::vector<ValueType> tuple_element_types;
   std::vector<NumericType> tuple_element_numeric_types;
+  std::vector<ArrayStorageFormat> tuple_array_storage;
   std::vector<std::vector<std::size_t>> tuple_shapes;
   bool sequence_is_list{false};
   std::vector<ValueMetadata> sequence_elements;

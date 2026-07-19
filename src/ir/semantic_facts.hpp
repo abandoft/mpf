@@ -31,6 +31,10 @@ struct MatrixOperationPlan {
   semantic::MatrixFactorizationPolicy factorization_policy{
       semantic::MatrixFactorizationPolicy::none};
   semantic::MatrixStructurePolicy structure_policy{semantic::MatrixStructurePolicy::none};
+  semantic::MatrixStoragePolicy storage_policy{semantic::MatrixStoragePolicy::none};
+  ArrayStorageFormat left_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat right_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat result_storage{ArrayStorageFormat::none};
   std::vector<std::size_t> left_shape;
   std::vector<std::size_t> right_shape;
   std::vector<std::size_t> result_shape;
@@ -61,6 +65,7 @@ struct ExpressionFacts {
   IntrinsicId intrinsic{IntrinsicId::none};
   ValueType element_type{ValueType::unknown};
   NumericType element_numeric_type{unknown_numeric_type};
+  ArrayStorageFormat array_storage{ArrayStorageFormat::none};
   std::vector<std::size_t> shape;
   semantic::LogicalEvaluation logical_evaluation{semantic::LogicalEvaluation::none};
   semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
@@ -71,6 +76,7 @@ struct ExpressionFacts {
   std::vector<NumericType> tuple_numeric_types;
   std::vector<ValueType> tuple_element_types;
   std::vector<NumericType> tuple_element_numeric_types;
+  std::vector<ArrayStorageFormat> tuple_array_storage;
   std::vector<std::vector<std::size_t>> tuple_shapes;
   bool sequence_is_list{false};
   std::vector<ValueMetadata> sequence_elements;
@@ -96,10 +102,12 @@ struct StatementFacts {
   NumericType declared_numeric_type{unknown_numeric_type};
   ValueType element_type{ValueType::unknown};
   NumericType element_numeric_type{unknown_numeric_type};
+  ArrayStorageFormat array_storage{ArrayStorageFormat::none};
   ValueType previous_type{ValueType::unknown};
   NumericType previous_numeric_type{unknown_numeric_type};
   ValueType previous_element_type{ValueType::unknown};
   NumericType previous_element_numeric_type{unknown_numeric_type};
+  ArrayStorageFormat previous_array_storage{ArrayStorageFormat::none};
   ParameterIntent parameter_intent{ParameterIntent::none};
   bool optional_parameter{false};
   bool dummy_parameter{false};
@@ -113,12 +121,14 @@ struct StatementFacts {
   std::vector<NumericType> parameter_numeric_types;
   std::vector<ValueType> parameter_element_types;
   std::vector<NumericType> parameter_element_numeric_types;
+  std::vector<ArrayStorageFormat> parameter_array_storage;
   std::vector<std::vector<std::size_t>> parameter_shapes;
   bool has_value_return{false};
   std::vector<ValueType> return_types;
   std::vector<NumericType> return_numeric_types;
   std::vector<ValueType> return_element_types;
   std::vector<NumericType> return_element_numeric_types;
+  std::vector<ArrayStorageFormat> return_array_storage;
   std::vector<std::vector<std::size_t>> return_shapes;
   bool return_sequence_is_list{false};
   std::vector<ValueMetadata> return_sequence_elements;
@@ -127,11 +137,13 @@ struct StatementFacts {
   std::vector<NumericType> target_numeric_types;
   std::vector<ValueType> target_element_types;
   std::vector<NumericType> target_element_numeric_types;
+  std::vector<ArrayStorageFormat> target_array_storage;
   std::vector<std::vector<std::size_t>> target_shapes;
   std::vector<ValueType> target_previous_types;
   std::vector<NumericType> target_previous_numeric_types;
   std::vector<ValueType> target_previous_element_types;
   std::vector<NumericType> target_previous_element_numeric_types;
+  std::vector<ArrayStorageFormat> target_previous_array_storage;
   semantic::IndexedMutationContract indexed_mutation;
   std::vector<std::size_t> mutation_input_shape;
   std::vector<std::size_t> mutation_result_shape;

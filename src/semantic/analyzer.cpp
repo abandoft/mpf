@@ -34,6 +34,8 @@ Symbol::Symbol(const ValueType symbol_type, const BindingKind symbol_binding,
       assigned(symbol_assigned),
       element_type(symbol_element_type),
       element_numeric_type(default_numeric_type(symbol_element_type)),
+      array_storage(symbol_type == ValueType::list ? ArrayStorageFormat::dense
+                                                   : ArrayStorageFormat::none),
       shape(std::move(symbol_shape)) {}
 
 NumericType default_numeric_type(const ValueType type) noexcept {
@@ -52,6 +54,22 @@ NumericType default_numeric_type(const ValueType type) noexcept {
 }
 
 namespace {
+
+void finalize_array_storage(const ValueType type, ArrayStorageFormat& storage) noexcept {
+  if (type == ValueType::list) {
+    if (storage == ArrayStorageFormat::none) storage = ArrayStorageFormat::dense;
+    return;
+  }
+  if (type != ValueType::unknown) storage = ArrayStorageFormat::none;
+}
+
+void finalize_array_storage_vector(const std::vector<ValueType>& types,
+                                   std::vector<ArrayStorageFormat>& storage) noexcept {
+  const auto size = std::min(types.size(), storage.size());
+  for (std::size_t index = 0; index < size; ++index) {
+    finalize_array_storage(types[index], storage[index]);
+  }
+}
 
 void finalize_numeric_slot(const ValueType type, NumericType& numeric_type) noexcept {
   if (type == ValueType::unknown) {
@@ -84,14 +102,17 @@ void finalize_value_numeric(const ValueType type, NumericType& numeric_type,
 void finalize_value_metadata(ValueMetadata& metadata) {
   finalize_value_numeric(metadata.type, metadata.numeric_type, metadata.element_type,
                          metadata.element_numeric_type);
+  finalize_array_storage(metadata.type, metadata.array_storage);
   for (auto& element : metadata.elements) finalize_value_metadata(element);
 }
 
 void finalize_assignment_pattern(AssignmentPattern& pattern) {
   finalize_value_numeric(pattern.type, pattern.numeric_type, pattern.element_type,
                          pattern.element_numeric_type);
+  finalize_array_storage(pattern.type, pattern.array_storage);
   finalize_value_numeric(pattern.previous_type, pattern.previous_numeric_type,
                          pattern.previous_element_type, pattern.previous_element_numeric_type);
+  finalize_array_storage(pattern.previous_type, pattern.previous_array_storage);
   for (auto& child : pattern.children) finalize_assignment_pattern(child);
 }
 
@@ -119,7 +140,9 @@ void finalize_numeric_facts(hir::SemanticTable& semantics) {
   for (auto& facts : semantics.expressions) {
     finalize_value_numeric(facts.inferred_type, facts.numeric_type, facts.element_type,
                            facts.element_numeric_type);
+    finalize_array_storage(facts.inferred_type, facts.array_storage);
     finalize_numeric_vector(facts.tuple_types, facts.tuple_numeric_types);
+    finalize_array_storage_vector(facts.tuple_types, facts.tuple_array_storage);
     finalize_element_numeric_vector(facts.tuple_types, facts.tuple_element_types,
                                     facts.tuple_element_numeric_types);
     for (auto& element : facts.sequence_elements) finalize_value_metadata(element);
@@ -127,18 +150,24 @@ void finalize_numeric_facts(hir::SemanticTable& semantics) {
   for (auto& facts : semantics.statements) {
     finalize_value_numeric(facts.declared_type, facts.declared_numeric_type, facts.element_type,
                            facts.element_numeric_type);
+    finalize_array_storage(facts.declared_type, facts.array_storage);
     finalize_value_numeric(facts.previous_type, facts.previous_numeric_type,
                            facts.previous_element_type, facts.previous_element_numeric_type);
+    finalize_array_storage(facts.previous_type, facts.previous_array_storage);
     finalize_numeric_vector(facts.parameter_types, facts.parameter_numeric_types);
+    finalize_array_storage_vector(facts.parameter_types, facts.parameter_array_storage);
     finalize_element_numeric_vector(facts.parameter_types, facts.parameter_element_types,
                                     facts.parameter_element_numeric_types);
     finalize_numeric_vector(facts.return_types, facts.return_numeric_types);
+    finalize_array_storage_vector(facts.return_types, facts.return_array_storage);
     finalize_element_numeric_vector(facts.return_types, facts.return_element_types,
                                     facts.return_element_numeric_types);
     finalize_numeric_vector(facts.target_types, facts.target_numeric_types);
+    finalize_array_storage_vector(facts.target_types, facts.target_array_storage);
     finalize_element_numeric_vector(facts.target_types, facts.target_element_types,
                                     facts.target_element_numeric_types);
     finalize_numeric_vector(facts.target_previous_types, facts.target_previous_numeric_types);
+    finalize_array_storage_vector(facts.target_previous_types, facts.target_previous_array_storage);
     finalize_element_numeric_vector(facts.target_previous_types,
                                     facts.target_previous_element_types,
                                     facts.target_previous_element_numeric_types);
@@ -173,7 +202,8 @@ ValueType join_types(const ValueType left, const ValueType right) noexcept {
 bool same_metadata(const ValueMetadata& left, const ValueMetadata& right) {
   if (left.type != right.type || left.element_type != right.element_type ||
       left.numeric_type != right.numeric_type ||
-      left.element_numeric_type != right.element_numeric_type || left.shape != right.shape ||
+      left.element_numeric_type != right.element_numeric_type ||
+      left.array_storage != right.array_storage || left.shape != right.shape ||
       left.sequence != right.sequence || left.list_sequence != right.list_sequence ||
       left.elements.size() != right.elements.size()) {
     return false;
@@ -200,6 +230,7 @@ ValueMetadata expression_metadata(const Expression& expression, const hir::Seman
   metadata.element_type = facts.element_type;
   metadata.numeric_type = facts.numeric_type;
   metadata.element_numeric_type = facts.element_numeric_type;
+  metadata.array_storage = facts.array_storage;
   metadata.shape = facts.shape;
   metadata.sequence =
       facts.inferred_type == ValueType::tuple || facts.inferred_type == ValueType::list;
@@ -445,6 +476,7 @@ ScopeState Analyzer::make_scope_state(const ScopeId id) const {
         symbol.numeric_type = facts->declared_numeric_type;
         symbol.element_type = facts->element_type;
         symbol.element_numeric_type = facts->element_numeric_type;
+        symbol.array_storage = facts->array_storage;
         symbol.shape = facts->shape;
       }
     }
@@ -527,6 +559,7 @@ ValueMetadata Analyzer::materialize_sequence(ValueMetadata metadata) const {
     child.numeric_type = metadata.element_numeric_type;
   } else {
     child.type = ValueType::list;
+    child.array_storage = metadata.array_storage;
     child.numeric_type = no_numeric_type;
     child.element_type = metadata.element_type;
     child.element_numeric_type = metadata.element_numeric_type;
@@ -547,22 +580,26 @@ void Analyzer::bind_assignment_leaf(Statement& statement, AssignmentPattern& lea
   leaf.element_type = metadata.element_type;
   leaf.numeric_type = metadata.numeric_type;
   leaf.element_numeric_type = metadata.element_numeric_type;
+  leaf.array_storage = metadata.array_storage;
   leaf.shape = metadata.shape;
   leaf.previous_type = symbol.type;
   leaf.previous_element_type = symbol.element_type;
   leaf.previous_numeric_type = symbol.numeric_type;
   leaf.previous_element_numeric_type = symbol.element_numeric_type;
+  leaf.previous_array_storage = symbol.array_storage;
   semantic(semantics_, statement).target_previous_types.push_back(symbol.type);
   semantic(semantics_, statement).target_previous_numeric_types.push_back(symbol.numeric_type);
   semantic(semantics_, statement).target_previous_element_types.push_back(symbol.element_type);
   semantic(semantics_, statement)
       .target_previous_element_numeric_types.push_back(symbol.element_numeric_type);
+  semantic(semantics_, statement).target_previous_array_storage.push_back(symbol.array_storage);
   symbol.binding = BindingKind::variable;
   symbol.type = join_types(symbol.type, metadata.type);
   symbol.numeric_type = join_numeric_types(symbol.numeric_type, metadata.numeric_type);
   symbol.element_type = join_types(symbol.element_type, metadata.element_type);
   symbol.element_numeric_type =
       join_numeric_types(symbol.element_numeric_type, metadata.element_numeric_type);
+  symbol.array_storage = join_array_storage_formats(symbol.array_storage, metadata.array_storage);
   if (symbol.shape.empty()) symbol.shape = metadata.shape;
   symbol.sequence_is_list = metadata.list_sequence;
   symbol.sequence_elements = metadata.elements;
@@ -571,12 +608,14 @@ void Analyzer::bind_assignment_leaf(Statement& statement, AssignmentPattern& lea
     symbol.tuple_numeric_types.clear();
     symbol.tuple_element_types.clear();
     symbol.tuple_element_numeric_types.clear();
+    symbol.tuple_array_storage.clear();
     symbol.tuple_shapes.clear();
     for (const auto& element : metadata.elements) {
       symbol.tuple_types.push_back(element.type);
       symbol.tuple_numeric_types.push_back(element.numeric_type);
       symbol.tuple_element_types.push_back(element.element_type);
       symbol.tuple_element_numeric_types.push_back(element.element_numeric_type);
+      symbol.tuple_array_storage.push_back(element.array_storage);
       symbol.tuple_shapes.push_back(element.shape);
     }
   }
@@ -586,12 +625,14 @@ void Analyzer::bind_assignment_leaf(Statement& statement, AssignmentPattern& lea
   semantic(semantics_, statement).target_element_types.push_back(metadata.element_type);
   semantic(semantics_, statement)
       .target_element_numeric_types.push_back(metadata.element_numeric_type);
+  semantic(semantics_, statement).target_array_storage.push_back(metadata.array_storage);
   semantic(semantics_, statement).target_shapes.push_back(metadata.shape);
 }
 
 ValueMetadata Analyzer::captured_metadata(const std::vector<ValueMetadata>& elements) const {
   ValueMetadata result;
   result.type = ValueType::list;
+  result.array_storage = ArrayStorageFormat::dense;
   result.sequence = true;
   result.list_sequence = true;
   result.elements = elements;
@@ -731,6 +772,11 @@ bool Analyzer::analyze_statement(Statement& statement) {
         symbol.element_numeric_type = default_numeric_type(symbol.element_type);
       }
       semantic(semantics_, statement).element_numeric_type = symbol.element_numeric_type;
+      symbol.array_storage = semantic(semantics_, statement).array_storage;
+      if (symbol.type == ValueType::list && symbol.array_storage == ArrayStorageFormat::none) {
+        symbol.array_storage = ArrayStorageFormat::dense;
+      }
+      semantic(semantics_, statement).array_storage = symbol.array_storage;
       symbol.shape = semantic(semantics_, statement).shape;
       if (statement.has_expression) {
         const auto initializer_type = analyze_expression(statement.expression);
@@ -739,6 +785,8 @@ bool Analyzer::analyze_statement(Statement& statement) {
         symbol.numeric_type =
             join_numeric_types(symbol.numeric_type, initializer_facts.numeric_type);
         if (semantic(semantics_, statement.expression).inferred_type == ValueType::list) {
+          symbol.array_storage = join_array_storage_formats(
+              symbol.array_storage, semantic(semantics_, statement.expression).array_storage);
           if (symbol.element_type != ValueType::unknown &&
               semantic(semantics_, statement.expression).element_type != ValueType::unknown &&
               join_types(symbol.element_type,
@@ -781,11 +829,14 @@ bool Analyzer::analyze_statement(Statement& statement) {
       semantic(semantics_, statement).previous_numeric_type = symbol.numeric_type;
       semantic(semantics_, statement).previous_element_type = symbol.element_type;
       semantic(semantics_, statement).previous_element_numeric_type = symbol.element_numeric_type;
+      semantic(semantics_, statement).previous_array_storage = symbol.array_storage;
       const auto joined = join_types(symbol.type, type);
       symbol.type = joined;
       symbol.numeric_type = join_numeric_types(
           symbol.numeric_type, semantic(semantics_, statement.expression).numeric_type);
       if (type == ValueType::list) {
+        symbol.array_storage = join_array_storage_formats(
+            symbol.array_storage, semantic(semantics_, statement.expression).array_storage);
         const auto joined_element = join_types(
             symbol.element_type, semantic(semantics_, statement.expression).element_type);
         symbol.element_type = joined_element;
@@ -812,6 +863,8 @@ bool Analyzer::analyze_statement(Statement& statement) {
               semantic(semantics_, statement.expression).tuple_element_types;
           symbol.tuple_element_numeric_types =
               semantic(semantics_, statement.expression).tuple_element_numeric_types;
+          symbol.tuple_array_storage =
+              semantic(semantics_, statement.expression).tuple_array_storage;
           symbol.tuple_shapes = semantic(semantics_, statement.expression).tuple_shapes;
         } else if (symbol.tuple_types != semantic(semantics_, statement.expression).tuple_types ||
                    symbol.tuple_numeric_types !=
@@ -820,11 +873,14 @@ bool Analyzer::analyze_statement(Statement& statement) {
                        semantic(semantics_, statement.expression).tuple_element_types ||
                    symbol.tuple_element_numeric_types !=
                        semantic(semantics_, statement.expression).tuple_element_numeric_types ||
+                   symbol.tuple_array_storage !=
+                       semantic(semantics_, statement.expression).tuple_array_storage ||
                    symbol.tuple_shapes != semantic(semantics_, statement.expression).tuple_shapes) {
           symbol.tuple_types.clear();
           symbol.tuple_numeric_types.clear();
           symbol.tuple_element_types.clear();
           symbol.tuple_element_numeric_types.clear();
+          symbol.tuple_array_storage.clear();
           symbol.tuple_shapes.clear();
         }
       }
@@ -850,16 +906,19 @@ bool Analyzer::analyze_statement(Statement& statement) {
       semantic(semantics_, statement).target_numeric_types.clear();
       semantic(semantics_, statement).target_element_types.clear();
       semantic(semantics_, statement).target_element_numeric_types.clear();
+      semantic(semantics_, statement).target_array_storage.clear();
       semantic(semantics_, statement).target_shapes.clear();
       semantic(semantics_, statement).target_previous_types.clear();
       semantic(semantics_, statement).target_previous_numeric_types.clear();
       semantic(semantics_, statement).target_previous_element_types.clear();
       semantic(semantics_, statement).target_previous_element_numeric_types.clear();
+      semantic(semantics_, statement).target_previous_array_storage.clear();
       semantic(semantics_, statement).target_types.reserve(statement.target_names.size());
       semantic(semantics_, statement).target_numeric_types.reserve(statement.target_names.size());
       semantic(semantics_, statement).target_element_types.reserve(statement.target_names.size());
       semantic(semantics_, statement)
           .target_element_numeric_types.reserve(statement.target_names.size());
+      semantic(semantics_, statement).target_array_storage.reserve(statement.target_names.size());
       semantic(semantics_, statement).target_shapes.reserve(statement.target_names.size());
       semantic(semantics_, statement).target_previous_types.reserve(statement.target_names.size());
       semantic(semantics_, statement)
@@ -868,6 +927,8 @@ bool Analyzer::analyze_statement(Statement& statement) {
           .target_previous_element_types.reserve(statement.target_names.size());
       semantic(semantics_, statement)
           .target_previous_element_numeric_types.reserve(statement.target_names.size());
+      semantic(semantics_, statement)
+          .target_previous_array_storage.reserve(statement.target_names.size());
       if (program_.language == SourceLanguage::matlab) {
         if (statement.expression.kind != ExpressionKind::call ||
             !semantic(semantics_, statement.expression).multi_output_call) {
@@ -905,6 +966,11 @@ bool Analyzer::analyze_statement(Statement& statement) {
                             .tuple_element_numeric_types.size()
                     ? semantic(semantics_, statement.expression).tuple_element_numeric_types[index]
                     : default_numeric_type(element.element_type);
+            element.array_storage =
+                index < semantic(semantics_, statement.expression).tuple_array_storage.size()
+                    ? semantic(semantics_, statement.expression).tuple_array_storage[index]
+                    : (element.type == ValueType::list ? ArrayStorageFormat::unknown
+                                                       : ArrayStorageFormat::none);
             element.shape = index < semantic(semantics_, statement.expression).tuple_shapes.size()
                                 ? semantic(semantics_, statement.expression).tuple_shapes[index]
                                 : std::vector<std::size_t>{};
@@ -948,6 +1014,11 @@ bool Analyzer::analyze_statement(Statement& statement) {
         const auto shape = index < semantic(semantics_, statement.expression).tuple_shapes.size()
                                ? semantic(semantics_, statement.expression).tuple_shapes[index]
                                : std::vector<std::size_t>{};
+        const auto array_storage =
+            index < semantic(semantics_, statement.expression).tuple_array_storage.size()
+                ? semantic(semantics_, statement.expression).tuple_array_storage[index]
+                : (type == ValueType::list ? ArrayStorageFormat::unknown
+                                           : ArrayStorageFormat::none);
         semantic(semantics_, statement).target_previous_types.push_back(symbol.type);
         semantic(semantics_, statement)
             .target_previous_numeric_types.push_back(symbol.numeric_type);
@@ -955,12 +1026,15 @@ bool Analyzer::analyze_statement(Statement& statement) {
             .target_previous_element_types.push_back(symbol.element_type);
         semantic(semantics_, statement)
             .target_previous_element_numeric_types.push_back(symbol.element_numeric_type);
+        semantic(semantics_, statement)
+            .target_previous_array_storage.push_back(symbol.array_storage);
         symbol.binding = BindingKind::variable;
         symbol.type = join_types(symbol.type, type);
         symbol.numeric_type = join_numeric_types(symbol.numeric_type, numeric_type);
         symbol.element_type = join_types(symbol.element_type, element_type);
         symbol.element_numeric_type =
             join_numeric_types(symbol.element_numeric_type, element_numeric_type);
+        symbol.array_storage = join_array_storage_formats(symbol.array_storage, array_storage);
         if (symbol.shape.empty()) symbol.shape = shape;
         symbol.assigned = true;
         semantic(semantics_, statement).target_types.push_back(type);
@@ -968,6 +1042,7 @@ bool Analyzer::analyze_statement(Statement& statement) {
         semantic(semantics_, statement).target_element_types.push_back(element_type);
         semantic(semantics_, statement)
             .target_element_numeric_types.push_back(element_numeric_type);
+        semantic(semantics_, statement).target_array_storage.push_back(array_storage);
         semantic(semantics_, statement).target_shapes.push_back(shape);
       }
       return false;
@@ -1037,6 +1112,10 @@ bool Analyzer::analyze_statement(Statement& statement) {
           expression_numeric_type(semantic(semantics_, statement.expression));
       semantic(semantics_, statement).element_numeric_type =
           erase ? target_numeric : join_numeric_types(target_numeric, value_numeric);
+      // Indexed assignment does not declare a value of its own. The mutated container's
+      // representation lives on target_expression and its root storage; keeping it on the
+      // statement would attach an array representation to declared_type=unknown.
+      semantic(semantics_, statement).array_storage = ArrayStorageFormat::none;
       if (root_use != nullptr && root_use->symbol.valid()) {
         if (auto* symbol = lookup(root_use->symbol); symbol != nullptr) {
           symbol->element_numeric_type = join_numeric_types(
@@ -1235,23 +1314,28 @@ bool Analyzer::analyze_branches(Statement& statement) {
     symbol.element_type = join_types(body_symbol.element_type, alternative_symbol.element_type);
     symbol.element_numeric_type = join_numeric_types(body_symbol.element_numeric_type,
                                                      alternative_symbol.element_numeric_type);
+    symbol.array_storage =
+        join_array_storage_formats(body_symbol.array_storage, alternative_symbol.array_storage);
     symbol.shape = body_symbol.shape == alternative_symbol.shape ? body_symbol.shape
                                                                  : std::vector<std::size_t>{};
     if (body_symbol.tuple_types == alternative_symbol.tuple_types &&
         body_symbol.tuple_numeric_types == alternative_symbol.tuple_numeric_types &&
         body_symbol.tuple_element_types == alternative_symbol.tuple_element_types &&
         body_symbol.tuple_element_numeric_types == alternative_symbol.tuple_element_numeric_types &&
+        body_symbol.tuple_array_storage == alternative_symbol.tuple_array_storage &&
         body_symbol.tuple_shapes == alternative_symbol.tuple_shapes) {
       symbol.tuple_types = body_symbol.tuple_types;
       symbol.tuple_numeric_types = body_symbol.tuple_numeric_types;
       symbol.tuple_element_types = body_symbol.tuple_element_types;
       symbol.tuple_element_numeric_types = body_symbol.tuple_element_numeric_types;
+      symbol.tuple_array_storage = body_symbol.tuple_array_storage;
       symbol.tuple_shapes = body_symbol.tuple_shapes;
     } else {
       symbol.tuple_types.clear();
       symbol.tuple_numeric_types.clear();
       symbol.tuple_element_types.clear();
       symbol.tuple_element_numeric_types.clear();
+      symbol.tuple_array_storage.clear();
       symbol.tuple_shapes.clear();
     }
     if (body_symbol.sequence_is_list == alternative_symbol.sequence_is_list &&
@@ -1308,6 +1392,11 @@ void Analyzer::merge_select_flows(const ScopeState& before, const std::vector<Sc
     };
     symbol.numeric_type = merge_numeric_type(&Symbol::numeric_type);
     symbol.element_numeric_type = merge_numeric_type(&Symbol::element_numeric_type);
+    symbol.array_storage = candidates.front()->array_storage;
+    for (auto candidate = candidates.begin() + 1; candidate != candidates.end(); ++candidate) {
+      symbol.array_storage =
+          join_array_storage_formats(symbol.array_storage, (*candidate)->array_storage);
+    }
 
     const auto merged_shape = candidates.front()->shape;
     symbol.shape = merged_shape;
@@ -1322,6 +1411,7 @@ void Analyzer::merge_select_flows(const ScopeState& before, const std::vector<Sc
                  candidate->tuple_numeric_types == first.tuple_numeric_types &&
                  candidate->tuple_element_types == first.tuple_element_types &&
                  candidate->tuple_element_numeric_types == first.tuple_element_numeric_types &&
+                 candidate->tuple_array_storage == first.tuple_array_storage &&
                  candidate->tuple_shapes == first.tuple_shapes;
         });
     if (same_tuple) {
@@ -1329,12 +1419,14 @@ void Analyzer::merge_select_flows(const ScopeState& before, const std::vector<Sc
       symbol.tuple_numeric_types = first.tuple_numeric_types;
       symbol.tuple_element_types = first.tuple_element_types;
       symbol.tuple_element_numeric_types = first.tuple_element_numeric_types;
+      symbol.tuple_array_storage = first.tuple_array_storage;
       symbol.tuple_shapes = first.tuple_shapes;
     } else {
       symbol.tuple_types.clear();
       symbol.tuple_numeric_types.clear();
       symbol.tuple_element_types.clear();
       symbol.tuple_element_numeric_types.clear();
+      symbol.tuple_array_storage.clear();
       symbol.tuple_shapes.clear();
     }
     const bool same_sequence =
@@ -1553,10 +1645,12 @@ void Analyzer::infer_python_tuple_returns(Statement& function) const {
   semantic(semantics_, function).return_element_types = first_return.tuple_element_types;
   semantic(semantics_, function).return_element_numeric_types =
       first_return.tuple_element_numeric_types;
+  semantic(semantics_, function).return_array_storage = first_return.tuple_array_storage;
   semantic(semantics_, function).return_shapes = first_return.tuple_shapes;
   semantic(semantics_, function).return_numeric_types.resize(arity, unknown_numeric_type);
   semantic(semantics_, function).return_element_types.resize(arity, ValueType::unknown);
   semantic(semantics_, function).return_element_numeric_types.resize(arity, unknown_numeric_type);
+  semantic(semantics_, function).return_array_storage.resize(arity, ArrayStorageFormat::none);
   semantic(semantics_, function).return_shapes.resize(arity);
   for (std::size_t index = 0; index < arity; ++index) {
     bool type_conflict = false;
@@ -1565,6 +1659,7 @@ void Analyzer::infer_python_tuple_returns(Statement& function) const {
     auto numeric_type = semantic(semantics_, function).return_numeric_types[index];
     auto element = semantic(semantics_, function).return_element_types[index];
     auto element_numeric_type = semantic(semantics_, function).return_element_numeric_types[index];
+    auto array_storage = semantic(semantics_, function).return_array_storage[index];
     auto shape = semantic(semantics_, function).return_shapes[index];
     for (std::size_t path = 1; path < returns.size(); ++path) {
       const auto& next = semantic(semantics_, *returns[path]);
@@ -1591,6 +1686,11 @@ void Analyzer::infer_python_tuple_returns(Statement& function) const {
           join_numeric_types(element_numeric_type, index < next.tuple_element_numeric_types.size()
                                                        ? next.tuple_element_numeric_types[index]
                                                        : unknown_numeric_type);
+      array_storage = join_array_storage_formats(
+          array_storage, index < next.tuple_array_storage.size()
+                             ? next.tuple_array_storage[index]
+                             : (next_type == ValueType::list ? ArrayStorageFormat::unknown
+                                                             : ArrayStorageFormat::none));
       const auto next_shape =
           index < next.tuple_shapes.size() ? next.tuple_shapes[index] : std::vector<std::size_t>{};
       if (shape != next_shape) shape.clear();
@@ -1600,6 +1700,7 @@ void Analyzer::infer_python_tuple_returns(Statement& function) const {
     semantic(semantics_, function).return_element_types[index] =
         element_conflict ? ValueType::unknown : element;
     semantic(semantics_, function).return_element_numeric_types[index] = element_numeric_type;
+    semantic(semantics_, function).return_array_storage[index] = array_storage;
     semantic(semantics_, function).return_shapes[index] = std::move(shape);
   }
 }
@@ -1615,6 +1716,7 @@ void Analyzer::infer_python_sequence_metadata(Statement& function) const {
   }
   semantic(semantics_, function).element_type = first.element_type;
   semantic(semantics_, function).element_numeric_type = first.element_numeric_type;
+  semantic(semantics_, function).array_storage = first.array_storage;
   semantic(semantics_, function).shape = first.shape;
   semantic(semantics_, function).return_sequence_is_list = first.list_sequence;
   semantic(semantics_, function).return_sequence_elements = first.elements;
@@ -1698,6 +1800,11 @@ void Analyzer::analyze_function(Statement& function) {
                 function.parameter_defaults[index].valid()
             ? semantic(semantics_, function.parameter_defaults[index]).numeric_type
             : unknown_numeric_type;
+    const auto default_storage =
+        program_.semantics.emit_parameter_defaults && index < function.parameter_defaults.size() &&
+                function.parameter_defaults[index].valid()
+            ? semantic(semantics_, function.parameter_defaults[index]).array_storage
+            : ArrayStorageFormat::none;
     const auto type = join_types(annotated_type, default_type);
     const auto element_type = index < semantic(semantics_, function).parameter_element_types.size()
                                   ? semantic(semantics_, function).parameter_element_types[index]
@@ -1726,6 +1833,14 @@ void Analyzer::analyze_function(Statement& function) {
     if (!parameter_state.element_numeric_type.known() && element_type != ValueType::unknown) {
       parameter_state.element_numeric_type = default_numeric_type(element_type);
     }
+    parameter_state.array_storage =
+        index < semantic(semantics_, function).parameter_array_storage.size()
+            ? join_array_storage_formats(
+                  semantic(semantics_, function).parameter_array_storage[index], default_storage)
+            : default_storage;
+    if (type == ValueType::list && parameter_state.array_storage == ArrayStorageFormat::none) {
+      parameter_state.array_storage = ArrayStorageFormat::unknown;
+    }
   }
   for (std::size_t index = 0; index < function.return_names.size(); ++index) {
     const auto type = index < semantic(semantics_, function).return_types.size()
@@ -1737,6 +1852,10 @@ void Analyzer::analyze_function(Statement& function) {
     result_state.numeric_type = index < semantic(semantics_, function).return_numeric_types.size()
                                     ? semantic(semantics_, function).return_numeric_types[index]
                                     : default_numeric_type(type);
+    result_state.array_storage =
+        index < semantic(semantics_, function).return_array_storage.size()
+            ? semantic(semantics_, function).return_array_storage[index]
+            : (type == ValueType::list ? ArrayStorageFormat::unknown : ArrayStorageFormat::none);
   }
   ++function_depth_;
   const auto saved_loop_depth = loop_depth_;
@@ -1749,12 +1868,14 @@ void Analyzer::analyze_function(Statement& function) {
   semantic(semantics_, function).parameter_numeric_types.clear();
   semantic(semantics_, function).parameter_element_types.clear();
   semantic(semantics_, function).parameter_element_numeric_types.clear();
+  semantic(semantics_, function).parameter_array_storage.clear();
   semantic(semantics_, function).parameter_shapes.clear();
   semantic(semantics_, function).parameter_types.reserve(function.parameters.size());
   semantic(semantics_, function).parameter_numeric_types.reserve(function.parameters.size());
   semantic(semantics_, function).parameter_element_types.reserve(function.parameters.size());
   semantic(semantics_, function)
       .parameter_element_numeric_types.reserve(function.parameters.size());
+  semantic(semantics_, function).parameter_array_storage.reserve(function.parameters.size());
   semantic(semantics_, function).parameter_shapes.reserve(function.parameters.size());
   for (std::size_t index = 0; index < function.parameters.size(); ++index) {
     const auto* parameter = lookup(definition(function, NameRole::parameter, index)->symbol);
@@ -1769,6 +1890,9 @@ void Analyzer::analyze_function(Statement& function) {
     semantic(semantics_, function)
         .parameter_element_numeric_types.push_back(
             parameter == nullptr ? unknown_numeric_type : parameter->element_numeric_type);
+    semantic(semantics_, function)
+        .parameter_array_storage.push_back(parameter == nullptr ? ArrayStorageFormat::none
+                                                                : parameter->array_storage);
     semantic(semantics_, function)
         .parameter_shapes.push_back(parameter == nullptr ? std::vector<std::size_t>{}
                                                          : parameter->shape);
@@ -1828,11 +1952,13 @@ void Analyzer::analyze_function(Statement& function) {
   std::vector<NumericType> output_numeric_types;
   std::vector<ValueType> output_element_types;
   std::vector<NumericType> output_element_numeric_types;
+  std::vector<ArrayStorageFormat> output_array_storage;
   std::vector<std::vector<std::size_t>> output_shapes;
   output_types.reserve(function.return_names.size());
   output_numeric_types.reserve(function.return_names.size());
   output_element_types.reserve(function.return_names.size());
   output_element_numeric_types.reserve(function.return_names.size());
+  output_array_storage.reserve(function.return_names.size());
   output_shapes.reserve(function.return_names.size());
   for (std::size_t index = 0; index < function.return_names.size(); ++index) {
     const auto& result = function.return_names[index];
@@ -1844,12 +1970,14 @@ void Analyzer::analyze_function(Statement& function) {
       output_numeric_types.push_back(unknown_numeric_type);
       output_element_types.push_back(ValueType::unknown);
       output_element_numeric_types.push_back(unknown_numeric_type);
+      output_array_storage.push_back(ArrayStorageFormat::none);
       output_shapes.emplace_back();
     } else {
       output_types.push_back(symbol->type);
       output_numeric_types.push_back(symbol->numeric_type);
       output_element_types.push_back(symbol->element_type);
       output_element_numeric_types.push_back(symbol->element_numeric_type);
+      output_array_storage.push_back(symbol->array_storage);
       output_shapes.push_back(symbol->shape);
     }
   }
@@ -1857,10 +1985,12 @@ void Analyzer::analyze_function(Statement& function) {
   semantic(semantics_, function).return_numeric_types = output_numeric_types;
   semantic(semantics_, function).return_element_types = output_element_types;
   semantic(semantics_, function).return_element_numeric_types = output_element_numeric_types;
+  semantic(semantics_, function).return_array_storage = output_array_storage;
   semantic(semantics_, function).return_shapes = output_shapes;
   if (output_types.size() == 1) {
     semantic(semantics_, function).declared_type = output_types.front();
     semantic(semantics_, function).declared_numeric_type = output_numeric_types.front();
+    semantic(semantics_, function).array_storage = output_array_storage.front();
   } else if (output_types.size() > 1) {
     semantic(semantics_, function).declared_type = ValueType::tuple;
     semantic(semantics_, function).declared_numeric_type = no_numeric_type;
@@ -1934,12 +2064,14 @@ void Analyzer::annotate_types(std::vector<Statement>& statements) {
         semantic(semantics_, statement).declared_numeric_type = symbol->numeric_type;
         semantic(semantics_, statement).element_type = symbol->element_type;
         semantic(semantics_, statement).element_numeric_type = symbol->element_numeric_type;
+        semantic(semantics_, statement).array_storage = symbol->array_storage;
         semantic(semantics_, statement).shape = symbol->shape;
         if (statement.kind == StatementKind::assignment &&
             statement.expression.kind == ExpressionKind::list) {
           semantic(semantics_, statement.expression).element_type = symbol->element_type;
           semantic(semantics_, statement.expression).element_numeric_type =
               symbol->element_numeric_type;
+          semantic(semantics_, statement.expression).array_storage = symbol->array_storage;
         }
       }
     }

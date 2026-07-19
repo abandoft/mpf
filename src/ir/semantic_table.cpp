@@ -139,32 +139,66 @@ bool valid_matrix_shapes(const MatrixOperationPlan& plan) noexcept {
   if (!static_rank_two(plan.left_shape) || !static_rank_two(plan.result_shape) ||
       plan.numeric_domain == semantic::MatrixNumericDomain::none ||
       plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
-      plan.factorization_policy != semantic::matrix_factorization_policy(plan.solve) ||
-      plan.structure_policy != semantic::matrix_structure_policy(plan.solve, plan.numeric_domain)) {
+      plan.storage_policy !=
+          semantic::matrix_storage_policy(plan.operation, plan.left_storage, plan.right_storage) ||
+      plan.factorization_policy !=
+          semantic::matrix_factorization_policy(plan.solve, plan.storage_policy) ||
+      plan.structure_policy !=
+          semantic::matrix_structure_policy(plan.solve, plan.numeric_domain, plan.storage_policy) ||
+      !array_storage_known(plan.left_storage) ||
+      (plan.operation != semantic::MatrixOperation::integer_power &&
+       !array_storage_known(plan.right_storage)) ||
+      !array_storage_known(plan.result_storage)) {
     return false;
   }
   switch (plan.operation) {
     case semantic::MatrixOperation::none: return false;
     case semantic::MatrixOperation::multiply:
       return plan.solve == semantic::MatrixSolveKind::none && static_rank_two(plan.right_shape) &&
+             plan.storage_policy == semantic::MatrixStoragePolicy::dense &&
+             plan.left_storage == ArrayStorageFormat::dense &&
+             plan.right_storage == ArrayStorageFormat::dense &&
+             plan.result_storage == ArrayStorageFormat::dense &&
              plan.left_shape[1] == plan.right_shape[0] &&
              plan.result_shape[0] == plan.left_shape[0] &&
              plan.result_shape[1] == plan.right_shape[1];
     case semantic::MatrixOperation::left_divide:
       return static_rank_two(plan.right_shape) && plan.left_shape[0] == plan.right_shape[0] &&
+             plan.result_storage == plan.right_storage &&
+             (plan.storage_policy != semantic::MatrixStoragePolicy::sparse_csc_coefficient ||
+              (plan.solve == semantic::MatrixSolveKind::square &&
+               plan.numeric_domain == semantic::MatrixNumericDomain::real)) &&
              plan.solve == semantic::matrix_solve_kind(plan.left_shape[0], plan.left_shape[1]) &&
              plan.result_shape[0] == plan.left_shape[1] &&
              plan.result_shape[1] == plan.right_shape[1];
     case semantic::MatrixOperation::right_divide:
       return static_rank_two(plan.right_shape) && plan.left_shape[1] == plan.right_shape[1] &&
+             plan.result_storage == plan.left_storage &&
+             (plan.storage_policy != semantic::MatrixStoragePolicy::sparse_csc_coefficient ||
+              (plan.solve == semantic::MatrixSolveKind::square &&
+               plan.numeric_domain == semantic::MatrixNumericDomain::real)) &&
              plan.solve == semantic::matrix_solve_kind(plan.right_shape[1], plan.right_shape[0]) &&
              plan.result_shape[0] == plan.left_shape[0] &&
              plan.result_shape[1] == plan.right_shape[0];
     case semantic::MatrixOperation::integer_power:
       return plan.solve == semantic::MatrixSolveKind::none && plan.right_shape.empty() &&
+             plan.storage_policy == semantic::MatrixStoragePolicy::dense &&
+             plan.left_storage == ArrayStorageFormat::dense &&
+             plan.right_storage == ArrayStorageFormat::none &&
+             plan.result_storage == ArrayStorageFormat::dense &&
              plan.left_shape[0] == plan.left_shape[1] && plan.result_shape == plan.left_shape;
   }
   return false;
+}
+
+bool valid_array_storage_contract(const ValueType type, const ArrayStorageFormat storage) noexcept {
+  if (type == ValueType::list) {
+    return storage == ArrayStorageFormat::unknown || array_storage_known(storage);
+  }
+  if (type == ValueType::unknown) {
+    return storage == ArrayStorageFormat::none || storage == ArrayStorageFormat::unknown;
+  }
+  return storage == ArrayStorageFormat::none;
 }
 
 bool logical_composition(const BinaryOperator operation) noexcept {
@@ -236,6 +270,10 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
                   ", element " +
                   numeric_contract_summary(facts->element_type, facts->element_numeric_type) +
                   ", tuple arity " + std::to_string(facts->tuple_types.size()) + ')');
+  }
+  if (analyzed && !valid_array_storage_contract(facts->inferred_type, facts->array_storage)) {
+    add_error(diagnostics, expression.location, stage,
+              "expression array-storage format disagrees with its value type");
   }
   if (analyzed && facts->logical_evaluation !=
                       expected_logical_evaluation(expression, source_language, condition_context)) {
@@ -348,21 +386,38 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
               "matrix-operation identity disagrees with the typed operands");
   } else if (matrix.valid()) {
     const auto expected_domain = expected_matrix_numeric_domain(expression, table);
+    const auto* left =
+        expression.children.size() == 2U ? table.expression(expression.children[0].id) : nullptr;
+    const auto* right =
+        expression.children.size() == 2U ? table.expression(expression.children[1].id) : nullptr;
     if (facts->array_operation != semantic::ArrayOperation::matlab ||
         expression.kind != ExpressionKind::binary || facts->broadcast.valid ||
         matrix.operation != matrix_operation_for_operator(expression.operation) ||
         !expected_domain.has_value() || matrix.numeric_domain != *expected_domain ||
-        facts->shape != matrix.result_shape || !valid_matrix_shapes(matrix)) {
-      add_error(diagnostics, expression.location, stage,
-                "matrix-operation plan has an invalid operator, shape, or result contract");
+        left == nullptr || right == nullptr || matrix.left_storage != left->array_storage ||
+        matrix.right_storage != right->array_storage ||
+        facts->array_storage != matrix.result_storage || facts->shape != matrix.result_shape ||
+        !valid_matrix_shapes(matrix)) {
+      add_error(
+          diagnostics, expression.location, stage,
+          "matrix-operation plan has an invalid operator, shape, storage, or result "
+          "contract (left-storage=" +
+              std::to_string(static_cast<unsigned>(matrix.left_storage)) +
+              ", right-storage=" + std::to_string(static_cast<unsigned>(matrix.right_storage)) +
+              ", result-storage=" + std::to_string(static_cast<unsigned>(matrix.result_storage)) +
+              ", expression-storage=" +
+              std::to_string(static_cast<unsigned>(facts->array_storage)) + ")");
     }
   } else if (matrix.solve != semantic::MatrixSolveKind::none ||
              matrix.numeric_domain != semantic::MatrixNumericDomain::none ||
              matrix.condition_policy != semantic::MatrixConditionPolicy::none ||
              matrix.factorization_policy != semantic::MatrixFactorizationPolicy::none ||
              matrix.structure_policy != semantic::MatrixStructurePolicy::none ||
-             !matrix.left_shape.empty() || !matrix.right_shape.empty() ||
-             !matrix.result_shape.empty()) {
+             matrix.storage_policy != semantic::MatrixStoragePolicy::none ||
+             matrix.left_storage != ArrayStorageFormat::none ||
+             matrix.right_storage != ArrayStorageFormat::none ||
+             matrix.result_storage != ArrayStorageFormat::none || !matrix.left_shape.empty() ||
+             !matrix.right_shape.empty() || !matrix.result_shape.empty()) {
     add_error(diagnostics, expression.location, stage,
               "inactive matrix-operation plan retains shape facts");
   }
@@ -406,9 +461,10 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
   if (facts->tuple_types.size() != facts->tuple_numeric_types.size() ||
       facts->tuple_types.size() != facts->tuple_element_types.size() ||
       facts->tuple_types.size() != facts->tuple_element_numeric_types.size() ||
+      facts->tuple_types.size() != facts->tuple_array_storage.size() ||
       facts->tuple_types.size() != facts->tuple_shapes.size()) {
     add_error(diagnostics, expression.location, stage,
-              "tuple type, numeric-class, element-type, and shape arities disagree");
+              "tuple type, numeric-class, element-type, storage, and shape arities disagree");
   }
   if (expression.kind == ExpressionKind::call && !facts->argument_names.empty() &&
       facts->argument_names.size() + 1U != expression.children.size()) {
@@ -447,6 +503,12 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
                     numeric_contract_summary(facts->element_type, facts->element_numeric_type) +
                     ')');
     }
+    if (analyzed &&
+        (!valid_array_storage_contract(facts->declared_type, facts->array_storage) ||
+         !valid_array_storage_contract(facts->previous_type, facts->previous_array_storage))) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "statement array-storage format disagrees with its value type");
+    }
     const auto parameters = statement.parameters.size();
     if (facts->exported && statement.kind != StatementKind::function) {
       add_error(diagnostics, {statement.line, 1}, stage,
@@ -458,6 +520,7 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
         !compatible_arity(facts->parameter_numeric_types.size(), parameters) ||
         !compatible_arity(facts->parameter_element_types.size(), parameters) ||
         !compatible_arity(facts->parameter_element_numeric_types.size(), parameters) ||
+        !compatible_arity(facts->parameter_array_storage.size(), parameters) ||
         !compatible_arity(facts->parameter_shapes.size(), parameters)) {
       add_error(diagnostics, {statement.line, 1}, stage,
                 "function parameter semantic arity disagrees with HIR");
@@ -467,6 +530,7 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
                          !compatible_arity(facts->return_numeric_types.size(), returns) ||
                          !compatible_arity(facts->return_element_types.size(), returns) ||
                          !compatible_arity(facts->return_element_numeric_types.size(), returns) ||
+                         !compatible_arity(facts->return_array_storage.size(), returns) ||
                          !compatible_arity(facts->return_shapes.size(), returns))) {
       add_error(diagnostics, {statement.line, 1}, stage,
                 "function result semantic arity disagrees with HIR");
@@ -480,11 +544,13 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
         !compatible_arity(facts->target_numeric_types.size(), targets) ||
         !compatible_arity(facts->target_element_types.size(), targets) ||
         !compatible_arity(facts->target_element_numeric_types.size(), targets) ||
+        !compatible_arity(facts->target_array_storage.size(), targets) ||
         !compatible_arity(facts->target_shapes.size(), targets) ||
         !compatible_arity(facts->target_previous_types.size(), targets) ||
         !compatible_arity(facts->target_previous_numeric_types.size(), targets) ||
         !compatible_arity(facts->target_previous_element_types.size(), targets) ||
-        !compatible_arity(facts->target_previous_element_numeric_types.size(), targets)) {
+        !compatible_arity(facts->target_previous_element_numeric_types.size(), targets) ||
+        !compatible_arity(facts->target_previous_array_storage.size(), targets)) {
       add_error(diagnostics, {statement.line, 1}, stage,
                 "assignment target semantic arity disagrees with HIR");
     }
