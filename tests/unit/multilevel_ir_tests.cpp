@@ -1188,6 +1188,101 @@ TEST_CASE("Matlab sparse scalar products remain typed through every IR layer") {
   }
 }
 
+TEST_CASE("Matlab sparse element-wise plans remain typed through every IR layer") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "A = sparse([1 0 2; 0 3 0]);\n"
+                              "D = [10 20 30; 40 50 60];\n"
+                              "row = sparse([1 1], [1 3], [2 4], 1, 3);\n"
+                              "column = sparse([1 2], [1 1], [5 6], 2, 1);\n"
+                              "R = A .* 2;\n"
+                              "L = 3 .* A;\n"
+                              "SD = row .* D;\n"
+                              "DS = D .* column;\n"
+                              "SS = row .* column;\n",
+                              "sparse_elementwise.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+
+  using Storage = mpf::detail::ArrayStorageFormat;
+  using Operation = mpf::detail::semantic::SparseElementwiseOperation;
+  using Policy = mpf::detail::semantic::SparseElementwiseStoragePolicy;
+  const auto has_plan = [&](const Storage left, const Storage right,
+                            const std::vector<std::size_t>& result_shape) {
+    return std::any_of(analysis.semantics.expressions.begin(),
+                       analysis.semantics.expressions.end(), [&](const auto& facts) {
+                         const auto& plan = facts.sparse_elementwise;
+                         return plan.operation == Operation::multiply &&
+                                plan.storage_policy == Policy::preserve_sparse &&
+                                plan.left_storage == left && plan.right_storage == right &&
+                                plan.result_storage == Storage::sparse_csc &&
+                                plan.result_shape == result_shape &&
+                                facts.array_storage == Storage::sparse_csc &&
+                                !facts.broadcast.valid;
+                       });
+  };
+  REQUIRE(has_plan(Storage::sparse_csc, Storage::none, {2U, 3U}));
+  REQUIRE(has_plan(Storage::none, Storage::sparse_csc, {2U, 3U}));
+  REQUIRE(has_plan(Storage::sparse_csc, Storage::dense, {2U, 3U}));
+  REQUIRE(has_plan(Storage::dense, Storage::sparse_csc, {2U, 3U}));
+  REQUIRE(has_plan(Storage::sparse_csc, Storage::sparse_csc, {2U, 3U}));
+
+  auto contradictory_hir = analysis.semantics;
+  const auto corrupt_hir = std::find_if(
+      contradictory_hir.expressions.begin(), contradictory_hir.expressions.end(),
+      [](const auto& facts) { return facts.sparse_elementwise.valid(); });
+  REQUIRE(corrupt_hir != contradictory_hir.expressions.end());
+  corrupt_hir->sparse_elementwise.axes[0] =
+      mpf::detail::semantic::BroadcastAxis::runtime;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
+                                              "sparse-elementwise-axis-mismatch")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-elementwise-plan").empty());
+  const auto dump = mpf::detail::dump_mir(mir.program);
+  REQUIRE(dump.find("sparse-elementwise=1 storage-policy=1 storage=3,0->3") !=
+          std::string::npos);
+  REQUIRE(dump.find("sparse-elementwise=1 storage-policy=1 storage=3,2->3") !=
+          std::string::npos);
+  REQUIRE(dump.find("sparse-elementwise=1 storage-policy=1 storage=2,3->3") !=
+          std::string::npos);
+  REQUIRE(dump.find("sparse-elementwise=1 storage-policy=1 storage=3,3->3") !=
+          std::string::npos);
+
+  auto contradictory_mir = mir.program;
+  const auto corrupt_mir = std::find_if(
+      contradictory_mir.attributes.expressions.begin() + 1,
+      contradictory_mir.attributes.expressions.end(),
+      [](const auto& attributes) { return attributes.sparse_elementwise.valid(); });
+  REQUIRE(corrupt_mir != contradictory_mir.attributes.expressions.end());
+  corrupt_mir->sparse_elementwise.result_shape = {};
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir,
+                                    "sparse-elementwise-shape-mismatch")
+               .empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, effects,
+                                                 "sparse-elementwise-effects")
+              .empty());
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  for (const auto& target_dump : {javascript.artifact->debug_dump(), cpp.artifact->debug_dump()}) {
+    REQUIRE(target_dump.find("sparse-elementwise 1 storage-policy 1 storage 3,0->3") !=
+            std::string::npos);
+    REQUIRE(target_dump.find("sparse-elementwise 1 storage-policy 1 storage 3,2->3") !=
+            std::string::npos);
+    REQUIRE(target_dump.find("sparse-elementwise 1 storage-policy 1 storage 2,3->3") !=
+            std::string::npos);
+    REQUIRE(target_dump.find("sparse-elementwise 1 storage-policy 1 storage 3,3->3") !=
+            std::string::npos);
+  }
+}
+
 TEST_CASE("Matlab sparse construction plans remain typed through every IR layer") {
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
                               "Z = sparse(3, 4);\n"
