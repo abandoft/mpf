@@ -715,6 +715,8 @@ foreach(sparse_matrix_runtime IN ITEMS
      NOT sparse_matrix_runtime_contract MATCHES "sparse_is_full_slice" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_assign" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_erase" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_scale_right" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_scale_left" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_sparse_mtimes" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_dense_mtimes" OR
      NOT sparse_matrix_runtime_contract MATCHES "dense_sparse_mtimes" OR
@@ -726,7 +728,7 @@ foreach(sparse_matrix_runtime IN ITEMS
      NOT sparse_matrix_runtime_contract MATCHES "mrdivide_sparse_real_square")
     message(FATAL_ERROR
       "target sparse-matrix runtime does not own canonical CSC construction/index/mutation, "
-      "sparse product/square-solve, transpose, and condition kernels: ${sparse_matrix_runtime}")
+      "sparse scale/product/square-solve, transpose, and condition kernels: ${sparse_matrix_runtime}")
   endif()
   mpf_assert_file_excludes("${sparse_matrix_runtime}"
     "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
@@ -743,18 +745,21 @@ foreach(sparse_representation IN ITEMS
      NOT sparse_representation_contract MATCHES "valid_sparse_mutation_contract" OR
      NOT sparse_representation_contract MATCHES "sparse_mutation" OR
      NOT sparse_representation_contract MATCHES "sparse_csc_multiply" OR
+     NOT sparse_representation_contract MATCHES "sparse_csc_scale" OR
+     NOT sparse_representation_contract MATCHES "sparse_scale_right" OR
+     NOT sparse_representation_contract MATCHES "sparse_scale_left" OR
      NOT sparse_representation_contract MATCHES "sparse_sparse_mtimes" OR
      NOT sparse_representation_contract MATCHES "sparse_dense_mtimes" OR
      NOT sparse_representation_contract MATCHES "dense_sparse_mtimes")
     message(FATAL_ERROR
-      "target representation does not verify sparse construction/index/mutation/product plans or select sparse forms: "
+      "target representation does not verify sparse construction/index/mutation/scale/product plans or select sparse forms: "
       "${sparse_representation}")
   endif()
 endforeach()
 foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
   mpf_assert_file_excludes("${renderer}" "SparseConstructionKind|sparse_construction"
     "target renderer recovered sparse-construction semantics from source plans")
-  mpf_assert_file_excludes("${renderer}" "MatrixStoragePolicy|sparse_csc_multiply"
+  mpf_assert_file_excludes("${renderer}" "MatrixStoragePolicy|sparse_csc_(multiply|scale)"
     "target renderer recovered sparse-product semantics from source plans")
 endforeach()
 mpf_assert_file_excludes("src/backends/javascript/runtime.cpp"
