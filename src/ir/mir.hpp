@@ -324,6 +324,23 @@ struct SparseElementwisePlan {
   }
 };
 
+struct SparseLogicalPlan {
+  semantic::SparseLogicalOperation operation{semantic::SparseLogicalOperation::none};
+  semantic::SparseLogicalStoragePolicy storage_policy{semantic::SparseLogicalStoragePolicy::none};
+  semantic::BroadcastShapeSource shape_source{semantic::BroadcastShapeSource::static_extents};
+  ArrayStorageFormat left_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat right_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat result_storage{ArrayStorageFormat::none};
+  ShapeId left_shape{};
+  ShapeId right_shape{};
+  ShapeId result_shape{};
+  std::vector<semantic::BroadcastAxis> axes;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return operation != semantic::SparseLogicalOperation::none;
+  }
+};
+
 struct MatrixOperationPlan {
   semantic::MatrixOperation operation{semantic::MatrixOperation::none};
   semantic::MatrixSolveKind solve{semantic::MatrixSolveKind::none};
@@ -406,6 +423,7 @@ struct ExpressionAttributes {
   semantic::ArrayOperation array_operation{semantic::ArrayOperation::native};
   BroadcastPlan broadcast;
   SparseElementwisePlan sparse_elementwise;
+  SparseLogicalPlan sparse_logical;
   MatrixOperationPlan matrix_operation;
   ReductionPlan reduction;
   SparseConstructionPlan sparse_construction;

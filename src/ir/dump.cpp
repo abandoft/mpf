@@ -504,6 +504,22 @@ std::string dump_mir(const mir::Program& program) {
         }
         output << "->!s" << attributes->sparse_elementwise.result_shape.value();
       }
+      if (attributes->sparse_logical.valid()) {
+        output << " sparse-logical=" << enum_value(attributes->sparse_logical.operation)
+               << " storage-policy=" << enum_value(attributes->sparse_logical.storage_policy)
+               << " storage=" << enum_value(attributes->sparse_logical.left_storage) << ','
+               << enum_value(attributes->sparse_logical.right_storage) << "->"
+               << enum_value(attributes->sparse_logical.result_storage) << ' ';
+        if (attributes->sparse_logical.left_shape.valid()) {
+          output << "!s" << attributes->sparse_logical.left_shape.value();
+        } else {
+          output << "scalar";
+        }
+        if (attributes->sparse_logical.right_shape.valid()) {
+          output << ",!s" << attributes->sparse_logical.right_shape.value();
+        }
+        output << "->!s" << attributes->sparse_logical.result_shape.value();
+      }
       if (attributes->matrix_operation.valid()) {
         output << " matrix-operation=" << enum_value(attributes->matrix_operation.operation)
                << " solve=" << enum_value(attributes->matrix_operation.solve)

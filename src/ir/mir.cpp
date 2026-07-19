@@ -865,6 +865,28 @@ class Builder final {
             intern_shape(semantic_facts->sparse_elementwise.result_shape, false);
         result_attributes.sparse_elementwise.axes = semantic_facts->sparse_elementwise.axes;
       }
+      if (semantic_facts->sparse_logical.valid()) {
+        result_attributes.sparse_logical.operation = semantic_facts->sparse_logical.operation;
+        result_attributes.sparse_logical.storage_policy =
+            semantic_facts->sparse_logical.storage_policy;
+        result_attributes.sparse_logical.shape_source = semantic_facts->sparse_logical.shape_source;
+        result_attributes.sparse_logical.left_storage = semantic_facts->sparse_logical.left_storage;
+        result_attributes.sparse_logical.right_storage =
+            semantic_facts->sparse_logical.right_storage;
+        result_attributes.sparse_logical.result_storage =
+            semantic_facts->sparse_logical.result_storage;
+        if (!semantic_facts->sparse_logical.left_shape.empty()) {
+          result_attributes.sparse_logical.left_shape =
+              intern_shape(semantic_facts->sparse_logical.left_shape, false);
+        }
+        if (!semantic_facts->sparse_logical.right_shape.empty()) {
+          result_attributes.sparse_logical.right_shape =
+              intern_shape(semantic_facts->sparse_logical.right_shape, false);
+        }
+        result_attributes.sparse_logical.result_shape =
+            intern_shape(semantic_facts->sparse_logical.result_shape, false);
+        result_attributes.sparse_logical.axes = semantic_facts->sparse_logical.axes;
+      }
       if (semantic_facts->matrix_operation.valid()) {
         result_attributes.matrix_operation.operation = semantic_facts->matrix_operation.operation;
         result_attributes.matrix_operation.solve = semantic_facts->matrix_operation.solve;

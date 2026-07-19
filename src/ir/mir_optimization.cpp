@@ -391,6 +391,7 @@ bool fold_expression(Program& program, const MirExpressionId id, OptimizationSta
   facts->array_operation = semantic::ArrayOperation::native;
   facts->broadcast = {};
   facts->sparse_elementwise = {};
+  facts->sparse_logical = {};
   facts->matrix_operation = {};
   facts->reduction = {};
   facts->sparse_construction = {};

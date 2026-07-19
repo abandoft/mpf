@@ -482,6 +482,24 @@ bool valid_sparse_elementwise_shapes(const Program& program, const SparseElement
       plan.result_storage, left_extents, right_extents, result->extents, plan.axes);
 }
 
+bool valid_sparse_logical_shapes(const Program& program, const SparseLogicalPlan& plan,
+                                 const ShapeId expression_shape) noexcept {
+  const auto* left = shape(program, plan.left_shape);
+  const auto* right = shape(program, plan.right_shape);
+  const auto* result = shape(program, plan.result_shape);
+  const std::vector<std::size_t> scalar_shape;
+  const auto& left_extents = left == nullptr ? scalar_shape : left->extents;
+  const auto& right_extents = right == nullptr ? scalar_shape : right->extents;
+  if ((plan.left_storage == ArrayStorageFormat::none) != !plan.left_shape.valid() ||
+      (plan.right_storage == ArrayStorageFormat::none) != !plan.right_shape.valid() ||
+      result == nullptr || plan.result_shape != expression_shape) {
+    return false;
+  }
+  return semantic::valid_sparse_logical_contract(
+      plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage, plan.right_storage,
+      plan.result_storage, left_extents, right_extents, result->extents, plan.axes);
+}
+
 void verify_value_metadata(const ValueMetadata& metadata, const Program& program,
                            std::vector<Diagnostic>& diagnostics, const SourceLocation location,
                            const std::string_view stage) {
@@ -641,6 +659,18 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->sparse_elementwise.right_shape.valid() ||
         retired_attributes->sparse_elementwise.result_shape.valid() ||
         !retired_attributes->sparse_elementwise.axes.empty() ||
+        retired_attributes->sparse_logical.valid() ||
+        retired_attributes->sparse_logical.storage_policy !=
+            semantic::SparseLogicalStoragePolicy::none ||
+        retired_attributes->sparse_logical.shape_source !=
+            semantic::BroadcastShapeSource::static_extents ||
+        retired_attributes->sparse_logical.left_storage != ArrayStorageFormat::none ||
+        retired_attributes->sparse_logical.right_storage != ArrayStorageFormat::none ||
+        retired_attributes->sparse_logical.result_storage != ArrayStorageFormat::none ||
+        retired_attributes->sparse_logical.left_shape.valid() ||
+        retired_attributes->sparse_logical.right_shape.valid() ||
+        retired_attributes->sparse_logical.result_shape.valid() ||
+        !retired_attributes->sparse_logical.axes.empty() ||
         retired_attributes->matrix_operation.valid() ||
         retired_attributes->matrix_operation.solve != semantic::MatrixSolveKind::none ||
         retired_attributes->matrix_operation.numeric_domain !=
@@ -970,6 +1000,59 @@ void verify_expression(const Expression& expression, const Program& program,
              sparse_elementwise.result_shape.valid() || !sparse_elementwise.axes.empty()) {
     add_error(diagnostics, expression.location, stage,
               "inactive expression sparse element-wise attributes retain semantic state");
+  }
+  const auto& sparse_logical = expression_attributes->sparse_logical;
+  if (sparse_logical.valid()) {
+    const bool unary = sparse_logical.operation == semantic::SparseLogicalOperation::logical_not;
+    const auto expected_operation = [&] {
+      if (expression.kind == ExpressionKind::unary &&
+          expression_attributes->unary_operation == UnaryOperator::logical_not) {
+        return semantic::SparseLogicalOperation::logical_not;
+      }
+      if (expression.kind != ExpressionKind::binary) {
+        return semantic::SparseLogicalOperation::none;
+      }
+      if (expression_attributes->operation == BinaryOperator::elementwise_logical_and) {
+        return semantic::SparseLogicalOperation::logical_and;
+      }
+      if (expression_attributes->operation == BinaryOperator::elementwise_logical_or) {
+        return semantic::SparseLogicalOperation::logical_or;
+      }
+      return semantic::SparseLogicalOperation::none;
+    }();
+    const auto* left =
+        !expression.children.empty() ? mir::expression(program, expression.children[0]) : nullptr;
+    const auto* right = expression.children.size() == 2U
+                            ? mir::expression(program, expression.children[1])
+                            : nullptr;
+    const auto* result_type = type_data(program, expression.type_id);
+    if (sparse_logical.operation != expected_operation ||
+        expression.children.size() != (unary ? 1U : 2U) || left == nullptr ||
+        (!unary && right == nullptr) || expression_attributes->broadcast.valid ||
+        expression_attributes->logical_evaluation !=
+            semantic::LogicalEvaluation::eager_elementwise ||
+        result_type == nullptr || result_type->kind != TypeKind::sequence ||
+        result_type->element_type != ValueType::boolean ||
+        result_type->element_numeric_type != logical_numeric_type ||
+        sparse_logical.left_storage != array_storage(program, left->type_id) ||
+        sparse_logical.right_storage != (right == nullptr
+                                             ? ArrayStorageFormat::none
+                                             : array_storage(program, right->type_id)) ||
+        sparse_logical.result_storage != array_storage(program, expression.type_id) ||
+        !valid_sparse_logical_shapes(program, sparse_logical, expression.shape_id)) {
+      add_error(diagnostics, expression.location, stage,
+                "expression sparse logical attributes have an invalid operator, broadcast, "
+                "storage, or result contract");
+    }
+  } else if (sparse_logical.storage_policy != semantic::SparseLogicalStoragePolicy::none ||
+             sparse_logical.shape_source != semantic::BroadcastShapeSource::static_extents ||
+             sparse_logical.left_storage != ArrayStorageFormat::none ||
+             sparse_logical.right_storage != ArrayStorageFormat::none ||
+             sparse_logical.result_storage != ArrayStorageFormat::none ||
+             sparse_logical.left_shape.valid() || sparse_logical.right_shape.valid() ||
+             sparse_logical.result_shape.valid() || !sparse_logical.axes.empty()) {
+    add_error(diagnostics, expression.location, stage,
+              "inactive expression sparse logical attributes retain semantic state");
   }
   const auto& matrix = expression_attributes->matrix_operation;
   const auto expected_matrix =
