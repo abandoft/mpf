@@ -526,7 +526,10 @@ class Renderer final {
         return;
       case cpp::lir::CallForm::matlab_sparse:
         if (!expression.plan.runtime_shape_arguments.empty()) {
-          output_ << "mpf_runtime::sparse_from_dense(";
+          output_ << (expression.sparse_construction.value_domain ==
+                              semantic::SparseValueDomain::logical
+                          ? "mpf_runtime::sparse_logical_from_dense("
+                          : "mpf_runtime::sparse_from_dense(");
           emit_expression(expression.children[1]);
           for (const auto& shape : expression.plan.runtime_shape_arguments) {
             output_ << ", ";
@@ -535,7 +538,10 @@ class Renderer final {
           output_ << ')';
           return;
         }
-        output_ << "mpf_runtime::sparse(";
+        output_ << (expression.sparse_construction.duplicate_policy ==
+                            semantic::SparseDuplicatePolicy::logical_any
+                        ? "mpf_runtime::sparse_logical_any("
+                        : "mpf_runtime::sparse(");
         for (std::size_t index = 1U; index < expression.children.size(); ++index) {
           if (index != 1U) output_ << ", ";
           emit_expression(expression.children[index]);

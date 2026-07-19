@@ -31,7 +31,7 @@ template <typename T> void validate_sparse_csc(
       if (row >= matrix.rows || (has_previous && row <= previous) || !std::isfinite(value) ||
           value == 0.0)
         throw std::invalid_argument("MPF Matlab " + name +
-                                    " is not canonical finite-real CSC");
+                                    " is not canonical finite-real/logical CSC");
       previous = row; has_previous = true;
     }
   }
@@ -56,12 +56,15 @@ struct sparse_triplet_entry {
   double value{};
 };
 template <typename Argument, typename Values>
-const auto& sparse_triplet_value_at(const Values& values, const std::size_t index) {
-  if constexpr (is_vector<std::decay_t<Argument>>::value) return values.at(index);
-  else return values.front();
+double sparse_triplet_value_at(const Values& values, const std::size_t index) {
+  if constexpr (is_vector<std::decay_t<Argument>>::value)
+    return static_cast<double>(values.at(index));
+  else
+    return static_cast<double>(values.front());
 }
-template <typename RowArgument, typename ColumnArgument, typename ValueArgument>
-sparse_matrix<double> sparse_from_triplets(
+template <typename Output, bool LogicalAny, typename RowArgument, typename ColumnArgument,
+          typename ValueArgument>
+sparse_matrix<Output> sparse_from_triplets_impl(
     const RowArgument& row_argument, const ColumnArgument& column_argument,
     const ValueArgument& value_argument, const std::optional<std::size_t> explicit_rows = {},
     const std::optional<std::size_t> explicit_columns = {},
@@ -85,12 +88,9 @@ sparse_matrix<double> sparse_from_triplets(
   entries.reserve(count);
   std::size_t inferred_rows = 0U; std::size_t inferred_columns = 0U;
   for (std::size_t index = 0; index < count; ++index) {
-    const auto row_numeric = static_cast<double>(
-        sparse_triplet_value_at<RowArgument>(row_values, index));
-    const auto column_numeric = static_cast<double>(
-        sparse_triplet_value_at<ColumnArgument>(column_values, index));
-    const auto stored_numeric = static_cast<double>(
-        sparse_triplet_value_at<ValueArgument>(stored_values, index));
+    const auto row_numeric = sparse_triplet_value_at<RowArgument>(row_values, index);
+    const auto column_numeric = sparse_triplet_value_at<ColumnArgument>(column_values, index);
+    const auto stored_numeric = sparse_triplet_value_at<ValueArgument>(stored_values, index);
     if (!std::isfinite(row_numeric) || std::trunc(row_numeric) != row_numeric ||
         row_numeric <= 0.0 || row_numeric > 9007199254740991.0 ||
         !std::isfinite(column_numeric) || std::trunc(column_numeric) != column_numeric ||
@@ -119,7 +119,7 @@ sparse_matrix<double> sparse_from_triplets(
     return left.column < right.column ||
            (left.column == right.column && left.row < right.row);
   });
-  sparse_matrix<double> result;
+  sparse_matrix<Output> result;
   result.rows = rows; result.columns = columns;
   const auto capacity = std::max(count, reserve_hint.value_or(count));
   result.row_indices.reserve(capacity); result.values.reserve(capacity);
@@ -127,14 +127,58 @@ sparse_matrix<double> sparse_from_triplets(
   std::size_t entry = 0U;
   for (std::size_t column = 0; column < columns; ++column) {
     while (entry < entries.size() && entries[entry].column == column) {
-      const auto row = entries[entry].row; double sum = 0.0;
+      const auto row = entries[entry].row; double sum = 0.0; bool any = false;
       while (entry < entries.size() && entries[entry].column == column &&
-             entries[entry].row == row)
-        sum += entries[entry++].value;
-      if (!std::isfinite(sum))
-        throw std::invalid_argument(
-            "MPF Matlab sparse duplicate accumulation is not finite");
-      if (sum != 0.0) { result.row_indices.push_back(row); result.values.push_back(sum); }
+             entries[entry].row == row) {
+        const auto stored = entries[entry++].value;
+        if constexpr (LogicalAny) any = any || stored != 0.0;
+        else sum += stored;
+      }
+      if constexpr (!LogicalAny) {
+        if (!std::isfinite(sum))
+          throw std::invalid_argument(
+              "MPF Matlab sparse duplicate accumulation is not finite");
+      }
+      const auto keep = LogicalAny ? any : sum != 0.0;
+      if (keep) {
+        result.row_indices.push_back(row);
+        result.values.push_back(static_cast<Output>(LogicalAny ? any : sum));
+      }
+    }
+    result.column_pointers.push_back(result.values.size());
+  }
+  validate_sparse_csc(result);
+  return result;
+}
+template <typename RowArgument, typename ColumnArgument, typename ValueArgument>
+sparse_matrix<double> sparse_from_triplets(
+    const RowArgument& row_argument, const ColumnArgument& column_argument,
+    const ValueArgument& value_argument, const std::optional<std::size_t> explicit_rows = {},
+    const std::optional<std::size_t> explicit_columns = {},
+    const std::optional<std::size_t> reserve_hint = {}) {
+  return sparse_from_triplets_impl<double, false>(row_argument, column_argument, value_argument,
+                                                   explicit_rows, explicit_columns, reserve_hint);
+}
+template <typename RowArgument, typename ColumnArgument, typename ValueArgument>
+sparse_matrix<bool> sparse_logical_from_triplets(
+    const RowArgument& row_argument, const ColumnArgument& column_argument,
+    const ValueArgument& value_argument, const std::optional<std::size_t> explicit_rows = {},
+    const std::optional<std::size_t> explicit_columns = {},
+    const std::optional<std::size_t> reserve_hint = {}) {
+  return sparse_from_triplets_impl<bool, true>(row_argument, column_argument, value_argument,
+                                                explicit_rows, explicit_columns, reserve_hint);
+}
+template <typename Output, typename T> sparse_matrix<Output> sparse_from_matrix_impl(
+    const std::vector<std::vector<T>>& values) {
+  const auto dense = matlab_dense_matrix(values, "sparse input");
+  sparse_matrix<Output> result;
+  result.rows = dense.size(); result.columns = dense.front().size();
+  result.column_pointers.push_back(0U);
+  for (std::size_t column = 0; column < result.columns; ++column) {
+    for (std::size_t row = 0; row < result.rows; ++row) {
+      if (dense[row][column] == 0.0) continue;
+      result.row_indices.push_back(row);
+      result.values.push_back(static_cast<Output>(dense[row][column]));
     }
     result.column_pointers.push_back(result.values.size());
   }
@@ -143,27 +187,23 @@ sparse_matrix<double> sparse_from_triplets(
 }
 template <typename T> sparse_matrix<double> sparse(
     const std::vector<std::vector<T>>& values) {
-  const auto dense = matlab_dense_matrix(values, "sparse input");
-  sparse_matrix<double> result;
-  result.rows = dense.size(); result.columns = dense.front().size();
-  result.column_pointers.push_back(0U);
-  for (std::size_t column = 0; column < result.columns; ++column) {
-    for (std::size_t row = 0; row < result.rows; ++row) {
-      if (dense[row][column] == 0.0) continue;
-      result.row_indices.push_back(row); result.values.push_back(dense[row][column]);
-    }
-    result.column_pointers.push_back(result.values.size());
-  }
-  return result;
+  return sparse_from_matrix_impl<double>(values);
 }
 template <typename T> sparse_matrix<double> sparse(const std::vector<T>& values) {
   return sparse(std::vector<std::vector<T>>{values});
 }
+template <typename T> sparse_matrix<bool> sparse_logical(
+    const std::vector<std::vector<T>>& values) {
+  return sparse_from_matrix_impl<bool>(values);
+}
+template <typename T> sparse_matrix<bool> sparse_logical(const std::vector<T>& values) {
+  return sparse_logical(std::vector<std::vector<T>>{values});
+}
 template <typename T> sparse_matrix<T> sparse(const sparse_matrix<T>& matrix) {
   validate_sparse_csc(matrix); return matrix;
 }
-template <typename Values>
-sparse_matrix<double> sparse_from_dense(
+template <typename Output, typename Values>
+sparse_matrix<Output> sparse_from_dense_impl(
     const Values& values, const std::array<std::size_t, 2U>& planned_shape) {
   if (planned_shape[0] > 9007199254740991ULL || planned_shape[1] > 9007199254740991ULL ||
       (planned_shape[0] != 0U &&
@@ -178,7 +218,7 @@ sparse_matrix<double> sparse_from_dense(
        actual_shape != std::vector<std::size_t>(planned_shape.begin(), planned_shape.end())))
     throw std::invalid_argument(
         "MPF Matlab sparse input disagrees with its static shape contract");
-  sparse_matrix<double> result;
+  sparse_matrix<Output> result;
   result.rows = planned_shape[0]; result.columns = planned_shape[1];
   result.column_pointers.reserve(result.columns + 1U);
   result.column_pointers.push_back(0U);
@@ -187,12 +227,25 @@ sparse_matrix<double> sparse_from_dense(
       const auto numeric = static_cast<double>(flattened[row + column * result.rows]);
       if (!std::isfinite(numeric))
         throw std::invalid_argument("MPF Matlab sparse input requires finite real values");
-      if (numeric != 0.0) { result.row_indices.push_back(row); result.values.push_back(numeric); }
+      if (numeric != 0.0) {
+        result.row_indices.push_back(row);
+        result.values.push_back(static_cast<Output>(numeric));
+      }
     }
     result.column_pointers.push_back(result.values.size());
   }
   validate_sparse_csc(result);
   return result;
+}
+template <typename Values>
+sparse_matrix<double> sparse_from_dense(
+    const Values& values, const std::array<std::size_t, 2U>& planned_shape) {
+  return sparse_from_dense_impl<double>(values, planned_shape);
+}
+template <typename Values>
+sparse_matrix<bool> sparse_logical_from_dense(
+    const Values& values, const std::array<std::size_t, 2U>& planned_shape) {
+  return sparse_from_dense_impl<bool>(values, planned_shape);
 }
 template <typename T>
 sparse_matrix<T> sparse_from_dense(
@@ -202,6 +255,10 @@ sparse_matrix<T> sparse_from_dense(
     throw std::invalid_argument(
         "MPF Matlab sparse input disagrees with its static shape contract");
   return matrix;
+}
+inline sparse_matrix<bool> sparse_logical_from_dense(
+    const sparse_matrix<bool>& matrix, const std::array<std::size_t, 2U>& planned_shape) {
+  return sparse_from_dense(matrix, planned_shape);
 }
 template <typename Rows, typename Columns>
 sparse_matrix<double> sparse(const Rows& rows_value, const Columns& columns_value) {
@@ -216,6 +273,11 @@ template <typename Row, typename Column, typename Value>
 sparse_matrix<double> sparse(const Row& rows, const Column& columns, const Value& values) {
   return sparse_from_triplets(rows, columns, values);
 }
+template <typename Row, typename Column, typename Value>
+sparse_matrix<bool> sparse_logical_any(const Row& rows, const Column& columns,
+                                       const Value& values) {
+  return sparse_logical_from_triplets(rows, columns, values);
+}
 template <typename Row, typename Column, typename Value, typename Rows, typename Columns>
 sparse_matrix<double> sparse(const Row& row_values, const Column& column_values,
                              const Value& values, const Rows& rows_value,
@@ -223,6 +285,15 @@ sparse_matrix<double> sparse(const Row& row_values, const Column& column_values,
   return sparse_from_triplets(row_values, column_values, values,
                               sparse_dimension(rows_value, "row extent", true),
                               sparse_dimension(columns_value, "column extent", true));
+}
+template <typename Row, typename Column, typename Value, typename Rows, typename Columns>
+sparse_matrix<bool> sparse_logical_any(
+    const Row& row_values, const Column& column_values, const Value& values,
+    const Rows& rows_value, const Columns& columns_value) {
+  return sparse_logical_from_triplets(
+      row_values, column_values, values,
+      sparse_dimension(rows_value, "row extent", true),
+      sparse_dimension(columns_value, "column extent", true));
 }
 template <typename Row, typename Column, typename Value, typename Rows, typename Columns,
           typename Reserve>
@@ -234,14 +305,25 @@ sparse_matrix<double> sparse(const Row& row_values, const Column& column_values,
                               sparse_dimension(columns_value, "column extent", true),
                               sparse_dimension(reserve_value, "nzmax", true));
 }
-template <typename T> std::vector<std::vector<double>> full(const sparse_matrix<T>& value) {
+template <typename Row, typename Column, typename Value, typename Rows, typename Columns,
+          typename Reserve>
+sparse_matrix<bool> sparse_logical_any(
+    const Row& row_values, const Column& column_values, const Value& values,
+    const Rows& rows_value, const Columns& columns_value, const Reserve& reserve_value) {
+  return sparse_logical_from_triplets(
+      row_values, column_values, values,
+      sparse_dimension(rows_value, "row extent", true),
+      sparse_dimension(columns_value, "column extent", true),
+      sparse_dimension(reserve_value, "nzmax", true));
+}
+template <typename T> std::vector<std::vector<T>> full(const sparse_matrix<T>& value) {
   validate_sparse_csc(value, "full input");
   const auto& matrix = value;
-  std::vector<std::vector<double>> result(matrix.rows, std::vector<double>(matrix.columns));
+  std::vector<std::vector<T>> result(matrix.rows, std::vector<T>(matrix.columns));
   for (std::size_t column = 0; column < matrix.columns; ++column)
     for (auto index = matrix.column_pointers[column];
          index < matrix.column_pointers[column + 1U]; ++index)
-      result[matrix.row_indices[index]][column] = static_cast<double>(matrix.values[index]);
+      result[matrix.row_indices[index]][column] = matrix.values[index];
   return result;
 }
 template <typename Value, typename Scalar>
@@ -715,10 +797,10 @@ template <typename T> std::size_t nnz(const T& value) {
     return numeric != 0.0 ? 1U : 0U;
   }
 }
-template <typename T> sparse_matrix<double> sparse_transpose(const sparse_matrix<T>& value) {
+template <typename T> sparse_matrix<T> sparse_transpose(const sparse_matrix<T>& value) {
   validate_sparse_csc(value, "transpose operand");
   const auto& matrix = value;
-  sparse_matrix<double> result;
+  sparse_matrix<T> result;
   result.rows = matrix.columns; result.columns = matrix.rows;
   result.column_pointers.assign(result.columns + 1U, 0U);
   for (const auto row : matrix.row_indices) ++result.column_pointers[row + 1U];
@@ -731,7 +813,7 @@ template <typename T> sparse_matrix<double> sparse_transpose(const sparse_matrix
          index < matrix.column_pointers[column + 1U]; ++index) {
       const auto target = next[matrix.row_indices[index]]++;
       result.row_indices[target] = column;
-      result.values[target] = static_cast<double>(matrix.values[index]);
+      result.values[target] = matrix.values[index];
     }
   return result;
 }
@@ -750,7 +832,7 @@ std::size_t sparse_reshape_shape_count(const std::array<std::size_t, Rank>& shap
   return count;
 }
 template <typename T, std::size_t InputRank, std::size_t RequestedRank, std::size_t ResultRank>
-sparse_matrix<double> sparse_reshape(
+sparse_matrix<T> sparse_reshape(
     const sparse_matrix<T>& value, const std::array<std::size_t, InputRank>& input_shape,
     const std::array<std::size_t, RequestedRank>& requested_shape,
     const std::array<std::size_t, ResultRank>& result_shape) {
@@ -775,7 +857,7 @@ sparse_matrix<double> sparse_reshape(
   if (result_shape[0] != rows || result_shape[1] != columns)
     throw std::invalid_argument(
         "MPF Matlab sparse reshape result plan does not match requested dimensions");
-  sparse_matrix<double> result;
+  sparse_matrix<T> result;
   result.rows = rows;
   result.columns = columns;
   result.column_pointers.assign(columns + 1U, 0U);
@@ -788,7 +870,7 @@ sparse_matrix<double> sparse_reshape(
       const auto linear = value.row_indices[index] + column * value.rows;
       const auto reshaped_column = linear / rows;
       result.row_indices[output] = linear % rows;
-      result.values[output] = static_cast<double>(value.values[index]);
+      result.values[output] = value.values[index];
       ++result.column_pointers[reshaped_column + 1U];
       ++output;
     }
@@ -798,17 +880,17 @@ sparse_matrix<double> sparse_reshape(
   validate_sparse_csc(result, "reshape result");
   return result;
 }
-template <typename T> double sparse_value_at(const sparse_matrix<T>& matrix,
-                                             const std::size_t row,
-                                             const std::size_t column) {
+template <typename T> T sparse_value_at(const sparse_matrix<T>& matrix,
+                                        const std::size_t row,
+                                        const std::size_t column) {
   const auto first = matrix.row_indices.begin() +
                      static_cast<std::ptrdiff_t>(matrix.column_pointers[column]);
   const auto last = matrix.row_indices.begin() +
                     static_cast<std::ptrdiff_t>(matrix.column_pointers[column + 1U]);
   const auto found = std::lower_bound(first, last, row);
-  if (found == last || *found != row) return 0.0;
+  if (found == last || *found != row) return T{};
   const auto offset = static_cast<std::size_t>(found - matrix.row_indices.begin());
-  return static_cast<double>(matrix.values[offset]);
+  return matrix.values[offset];
 }
 inline std::size_t sparse_element_count(const std::size_t rows, const std::size_t columns) {
   if (rows != 0U && columns > std::numeric_limits<std::size_t>::max() / rows)
@@ -848,7 +930,7 @@ inline bool sparse_is_full_slice(const slice_selector& selector) {
   return !selector.start.has_value() && !selector.stop.has_value() &&
          !selector.step.has_value() && selector.inclusive;
 }
-template <typename T, typename Selector> double sparse_linear_element(
+template <typename T, typename Selector> T sparse_linear_element(
     const sparse_matrix<T>& value, const Selector& selector, const std::size_t base = 1U) {
   validate_sparse_csc(value, "linear index operand");
   const auto size = sparse_element_count(value.rows, value.columns);
@@ -864,10 +946,10 @@ template <typename T, typename Selector> double sparse_linear_element(
   return sparse_value_at(value, linear % value.rows, linear / value.rows);
 }
 template <typename T, typename RowSelector, typename ColumnSelector>
-double sparse_subscript_element(const sparse_matrix<T>& value,
-                                const RowSelector& row_selector,
-                                const ColumnSelector& column_selector,
-                                const std::size_t base = 1U) {
+T sparse_subscript_element(const sparse_matrix<T>& value,
+                           const RowSelector& row_selector,
+                           const ColumnSelector& column_selector,
+                           const std::size_t base = 1U) {
   validate_sparse_csc(value, "subscript operand");
   if (value.rows == 0U || value.columns == 0U)
     throw std::out_of_range(
@@ -880,7 +962,7 @@ double sparse_subscript_element(const sparse_matrix<T>& value,
     throw std::invalid_argument("MPF Matlab sparse scalar subscript selected multiple elements");
   return sparse_value_at(value, rows.front(), columns.front());
 }
-template <typename T, typename Selector> sparse_matrix<double> sparse_linear_selection(
+template <typename T, typename Selector> sparse_matrix<T> sparse_linear_selection(
     const sparse_matrix<T>& value, const Selector& selector,
     const std::optional<std::size_t> planned_rows,
     const std::optional<std::size_t> planned_columns, const std::size_t base = 1U) {
@@ -891,7 +973,7 @@ template <typename T, typename Selector> sparse_matrix<double> sparse_linear_sel
     const auto [rows, columns] = sparse_linear_result_shape(planned_rows, planned_columns, size);
     if (rows != size || columns != 1U)
       throw std::invalid_argument("MPF Matlab sparse full-colon result shape is inconsistent");
-    sparse_matrix<double> result;
+    sparse_matrix<T> result;
     result.rows = rows; result.columns = columns;
     result.column_pointers = {0U, value.values.size()};
     result.row_indices.reserve(value.row_indices.size());
@@ -901,7 +983,7 @@ template <typename T, typename Selector> sparse_matrix<double> sparse_linear_sel
       for (auto stored = value.column_pointers[column];
            stored < value.column_pointers[column + 1U]; ++stored) {
         result.row_indices.push_back(offset + value.row_indices[stored]);
-        result.values.push_back(static_cast<double>(value.values[stored]));
+        result.values.push_back(value.values[stored]);
       }
     }
     validate_sparse_csc(result, "full-colon selection result");
@@ -910,14 +992,14 @@ template <typename T, typename Selector> sparse_matrix<double> sparse_linear_sel
   const auto indices = selector_indices(size, resolved, base, false);
   const auto [rows, columns] = sparse_linear_result_shape(planned_rows, planned_columns,
                                                           indices.size());
-  sparse_matrix<double> result;
+  sparse_matrix<T> result;
   result.rows = rows; result.columns = columns; result.column_pointers.push_back(0U);
   result.row_indices.reserve(indices.size()); result.values.reserve(indices.size());
   for (std::size_t column = 0U; column < columns; ++column) {
     for (std::size_t row = 0U; row < rows; ++row) {
       const auto linear = indices[row + column * rows];
       const auto stored = sparse_value_at(value, linear % value.rows, linear / value.rows);
-      if (stored != 0.0) { result.row_indices.push_back(row); result.values.push_back(stored); }
+      if (stored != T{}) { result.row_indices.push_back(row); result.values.push_back(stored); }
     }
     result.column_pointers.push_back(result.values.size());
   }
@@ -925,7 +1007,7 @@ template <typename T, typename Selector> sparse_matrix<double> sparse_linear_sel
   return result;
 }
 template <typename T, typename RowSelector, typename ColumnSelector>
-sparse_matrix<double> sparse_submatrix_selection(
+sparse_matrix<T> sparse_submatrix_selection(
     const sparse_matrix<T>& value, const RowSelector& row_selector,
     const ColumnSelector& column_selector, const std::optional<std::size_t> planned_rows,
     const std::optional<std::size_t> planned_columns, const std::size_t base = 1U) {
@@ -941,7 +1023,7 @@ sparse_matrix<double> sparse_submatrix_selection(
   for (std::size_t output_row = 0U; output_row < selected_rows.size(); ++output_row)
     row_map.emplace_back(selected_rows[output_row], output_row);
   std::sort(row_map.begin(), row_map.end());
-  sparse_matrix<double> result;
+  sparse_matrix<T> result;
   result.rows = rows; result.columns = columns; result.column_pointers.push_back(0U);
   const auto capacity = sparse_element_count(rows, columns);
   const auto sparse_capacity = std::min(capacity, value.values.size());
@@ -951,13 +1033,13 @@ sparse_matrix<double> sparse_submatrix_selection(
     auto selected = row_map.begin();
     auto stored = value.column_pointers[source_column];
     const auto stored_end = value.column_pointers[source_column + 1U];
-    std::vector<std::pair<std::size_t, double>> entries;
+    std::vector<std::pair<std::size_t, T>> entries;
     while (selected != row_map.end() && stored < stored_end) {
       const auto selected_row = selected->first;
       const auto stored_row = value.row_indices[stored];
       if (selected_row < stored_row) { ++selected; continue; }
       if (stored_row < selected_row) { ++stored; continue; }
-      const auto stored_value = static_cast<double>(value.values[stored++]);
+      const auto stored_value = static_cast<T>(value.values[stored++]);
       while (selected != row_map.end() && selected->first == selected_row) {
         entries.emplace_back(selected->second, stored_value);
         ++selected;
