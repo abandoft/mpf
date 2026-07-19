@@ -336,6 +336,25 @@ if(TARGET mpfc)
     matlab-sparse-scalar-overflow tests/fixtures/matlab_sparse_scalar_overflow.m
     "sparse scalar product produced a nonfinite value" matlab)
   mpf_add_generated_runtime_failure_test(
+    matlab-sparse-elementwise-nonfinite
+    tests/fixtures/matlab_sparse_elementwise_nonfinite.m
+    "finite real or logical" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-sparse-elementwise-overflow
+    tests/fixtures/matlab_sparse_elementwise_overflow.m
+    "sparse element-wise multiplication produced a nonfinite value" matlab)
+  mpf_add_generated_plan_rejection_test(
+    matlab-sparse-elementwise-plan tests/fixtures/matlab_sparse_elementwise_plan.m
+    "sparse element-wise multiplication shape mismatch" matlab
+    JAVASCRIPT_SEARCH
+      "__mpf_sparse_times_dense(A, D, [1, 3], [2, 3], [2, 3])"
+    JAVASCRIPT_REPLACEMENT
+      "__mpf_sparse_times_dense(A, D, [1, 3], [2, 3], [1, 3])"
+    CPP_SEARCH
+      "mpf_runtime::sparse_times_dense(A, D, std::array<std::size_t, 2>{1, 3}, std::array<std::size_t, 2>{2, 3}, std::array<std::size_t, 2>{2, 3})"
+    CPP_REPLACEMENT
+      "mpf_runtime::sparse_times_dense(A, D, std::array<std::size_t, 2>{1, 3}, std::array<std::size_t, 2>{2, 3}, std::array<std::size_t, 2>{1, 3})")
+  mpf_add_generated_runtime_failure_test(
     python-true-division-by-zero tests/fixtures/python_true_division_by_zero.py
     "division by zero" python)
   mpf_add_generated_runtime_failure_test(
