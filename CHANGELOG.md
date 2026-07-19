@@ -1,3 +1,19 @@
+## 0.6.4
+
+- Matlab sparse matrices can now be reshaped with either a size vector or a comma-separated dimension list.
+- Comma-separated reshape dimensions accept one `[]` placeholder and infer its extent from the source element count.
+- Sparse reshape requests with more than two dimensions follow Matlab behavior by preserving the first extent and folding the remaining extents into the second.
+- Reshaped sparse matrices preserve Matlab column-major linear order and remain canonical CSC values.
+- Generated JavaScript and C++17 remap CSC entries directly in O(nnz + output columns), without sorting entries or materializing a dense matrix.
+- JavaScript and C++17 use independent sparse-reshape runtimes and do not consume artifacts from the other backend.
+- A typed `SparseReshapePlan` carries syntax form, inference identity, storage, and input/requested/result shapes through semantic analysis, MIR, and both target LIRs.
+- Semantic, MIR, JavaScript LIR, and `cpp` LIR verifiers reject corrupted sparse-reshape syntax, inference, shape, storage, and inactive-state facts.
+- Generated runtimes validate canonical CSC input and all serialized shape plans before producing a result.
+- Invalid element counts, multiple inferred dimensions, zero extents, and unsupported dynamic, empty, or complex sparse sources fail closed with stable diagnostics.
+- Dense Matlab reshape also accepts one inferred dimension in the comma-separated form when the source element count is statically known.
+- Sparse-reshape calls retain their original source locations in JavaScript and C++17 source maps.
+- Added an executable sparse-reshape example plus dual-target differential, generated-plan rejection, fuzz, architecture, and performance coverage.
+
 ## 0.6.3
 
 - Matlab sparse matrices now support indexed assignment through one linear selector or two row/column selectors.

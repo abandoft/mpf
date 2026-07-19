@@ -1,3 +1,19 @@
+## 0.6.4
+
+- Matlab 稀疏矩阵现可使用 size vector 或逗号分隔的维度列表执行 `reshape`。
+- 逗号分隔的 reshape 维度可包含一个 `[]` 占位符，并根据源元素总数推断该维度。
+- 当 sparse reshape 请求超过二维时，按 Matlab 行为保留首维，并将其余维度乘入第二维。
+- reshape 后的稀疏矩阵保持 Matlab 列主序线性顺序，并继续使用 canonical CSC 表示。
+- 生成的 JavaScript 与 C++17 以 O(nnz + 输出列数) 直接重映射 CSC 条目，无需排序或物化稠密矩阵。
+- JavaScript 与 C++17 使用彼此独立的 sparse-reshape runtime，不消费另一后端的任何产物。
+- 新增类型化 `SparseReshapePlan`，使语法形式、推断 identity、storage 及输入/请求/结果 shape 贯穿语义分析、MIR 与双目标 LIR。
+- Semantic、MIR、JavaScript LIR 与 `cpp` LIR verifier 会拒绝损坏的 sparse-reshape 语法、推断、shape、storage 和 inactive-state fact。
+- 生成 runtime 会在产生结果前验证 canonical CSC 输入和全部已序列化 shape plan。
+- 元素数量不匹配、多个推断维度、零 extent，以及不支持的动态、空或 complex sparse source 会以稳定诊断失败关闭。
+- 当源元素总数静态已知时，dense Matlab reshape 也可在逗号分隔形式中使用一个推断维度。
+- JavaScript 与 C++17 source map 会保留 sparse-reshape 调用的原始源码位置。
+- 新增可执行 sparse-reshape 示例，并补齐双目标差分、生成计划篡改拒错、fuzz、架构和性能覆盖。
+
 ## 0.6.3
 
 - Matlab 稀疏矩阵现支持通过一个线性 selector 或两个行/列 selector 进行索引赋值。
