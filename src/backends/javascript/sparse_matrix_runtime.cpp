@@ -619,6 +619,9 @@ function __mpf_sparse_linear_element(value, selector) {
   if (!Number.isSafeInteger(size)) {
     throw new RangeError('MPF Matlab sparse linear index extent exceeds safe integer limits');
   }
+  if (size === 0) {
+    throw new RangeError('MPF Matlab sparse linear index is out of bounds for an empty matrix');
+  }
   const indices = __mpf_selector_indices(size, __mpf_resolve_extent(selector, size), 1, false);
   if (indices.length !== 1) {
     throw new RangeError('MPF Matlab sparse scalar linear index selected multiple elements');
@@ -628,6 +631,9 @@ function __mpf_sparse_linear_element(value, selector) {
 }
 function __mpf_sparse_subscript_element(value, rowSelector, columnSelector) {
   const matrix = __mpf_validate_sparse_csc(value, 'subscript operand');
+  if (matrix.rows === 0 || matrix.columns === 0) {
+    throw new RangeError('MPF Matlab sparse subscript is out of bounds for an empty matrix');
+  }
   const rows = __mpf_selector_indices(
     matrix.rows, __mpf_resolve_extent(rowSelector, matrix.rows), 1, false);
   const columns = __mpf_selector_indices(
@@ -788,6 +794,9 @@ function __mpf_sparse_assign(value, selectors, replacement, base, linear, scalar
     const required = __mpf_growth_extent(size, resolved, base);
     if (matrix.rows === 1) columns = required;
     else if (matrix.columns === 1) rows = required;
+    else if (matrix.rows === 0) {
+      rows = 1; columns = Math.max(matrix.columns, required);
+    }
     else columns = Math.max(matrix.columns, Math.ceil(required / matrix.rows));
     const grownSize = rows * columns;
     if (!Number.isSafeInteger(grownSize)) {
