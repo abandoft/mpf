@@ -3347,14 +3347,14 @@ ValueType Analyzer::analyze_reshape(Expression& expression) {
   }
   if (!matlab || source_facts.element_type != ValueType::real ||
       source_facts.element_numeric_type != real_numeric_type || source_facts.shape.size() != 2U ||
-      !source_size.has_value() || source_facts.shape[0] == 0U || source_facts.shape[1] == 0U) {
+      !source_size.has_value()) {
     diagnose(expression.location.line, "MPF2054",
-             "sparse RESHAPE requires a nonempty statically shaped real Matlab CSC matrix");
+             "sparse RESHAPE requires a statically shaped real Matlab CSC matrix");
     return facts.inferred_type = ValueType::unknown;
   }
   std::size_t folded_columns = 1U;
   for (std::size_t axis = 1U; axis < dimensions.size(); ++axis) {
-    if (dimensions[axis] == 0U ||
+    if (dimensions[axis] != 0U &&
         folded_columns > std::numeric_limits<std::size_t>::max() / dimensions[axis]) {
       diagnose(expression.location.line, "MPF2027",
                "sparse RESHAPE result exceeds target size limits");
