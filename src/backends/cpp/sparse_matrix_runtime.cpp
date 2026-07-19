@@ -791,6 +791,9 @@ template <typename T, typename Selector> double sparse_linear_element(
     const sparse_matrix<T>& value, const Selector& selector, const std::size_t base = 1U) {
   validate_sparse_csc(value, "linear index operand");
   const auto size = sparse_element_count(value.rows, value.columns);
+  if (size == 0U)
+    throw std::out_of_range(
+        "MPF Matlab sparse linear index is out of bounds for an empty matrix");
   const auto resolved = resolve_selector_extent(selector, size);
   const auto indices = selector_indices(size, resolved, base, false);
   if (indices.size() != 1U)
@@ -805,6 +808,9 @@ double sparse_subscript_element(const sparse_matrix<T>& value,
                                 const ColumnSelector& column_selector,
                                 const std::size_t base = 1U) {
   validate_sparse_csc(value, "subscript operand");
+  if (value.rows == 0U || value.columns == 0U)
+    throw std::out_of_range(
+        "MPF Matlab sparse subscript is out of bounds for an empty matrix");
   const auto rows = selector_indices(
       value.rows, resolve_selector_extent(row_selector, value.rows), base, false);
   const auto columns = selector_indices(
@@ -1044,6 +1050,9 @@ void sparse_assign_linear(
   auto rows = value.rows; auto columns = value.columns;
   if (value.rows == 1U) columns = required;
   else if (value.columns == 1U) rows = required;
+  else if (value.rows == 0U) {
+    rows = 1U; columns = std::max(value.columns, required);
+  }
   else columns = std::max(value.columns, (required + value.rows - 1U) / value.rows);
   const auto indices = selector_indices(sparse_element_count(rows, columns), resolved, base, false);
   const auto selection_shape = !planned_selection_rows.has_value() &&
