@@ -895,6 +895,20 @@ class Builder final {
         result_attributes.sparse_index.source_storage = semantic_facts->sparse_index.source_storage;
         result_attributes.sparse_index.result_storage = semantic_facts->sparse_index.result_storage;
       }
+      if (semantic_facts->sparse_reshape.valid()) {
+        result_attributes.sparse_reshape.kind = semantic_facts->sparse_reshape.kind;
+        result_attributes.sparse_reshape.dimension_form =
+            semantic_facts->sparse_reshape.dimension_form;
+        result_attributes.sparse_reshape.inference = semantic_facts->sparse_reshape.inference;
+        result_attributes.sparse_reshape.inferred_axis =
+            semantic_facts->sparse_reshape.inferred_axis;
+        result_attributes.sparse_reshape.source_storage =
+            semantic_facts->sparse_reshape.source_storage;
+        result_attributes.sparse_reshape.result_storage =
+            semantic_facts->sparse_reshape.result_storage;
+        result_attributes.sparse_reshape.requested_shape =
+            intern_shape(semantic_facts->sparse_reshape.requested_shape, false);
+      }
       result_attributes.binding = semantic_facts->binding;
       result_attributes.intrinsic = semantic_facts->intrinsic;
       result_attributes.tuple_shapes.reserve(semantic_facts->tuple_shapes.size());
@@ -1051,6 +1065,13 @@ class Builder final {
       result_attributes.sparse_index.input_shape =
           source_expression == nullptr ? ShapeId{} : source_expression->shape_id;
       result_attributes.sparse_index.result_shape = result.shape_id;
+    }
+    if (result_attributes.sparse_reshape.valid()) {
+      const auto* source_expression =
+          result.children.size() < 2U ? nullptr : mir::expression(program_, result.children[1]);
+      result_attributes.sparse_reshape.input_shape =
+          source_expression == nullptr ? ShapeId{} : source_expression->shape_id;
+      result_attributes.sparse_reshape.result_shape = result.shape_id;
     }
     if (result_attributes.lazy_cfg) {
       std::vector<ControlEdge> control_edges;

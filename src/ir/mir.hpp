@@ -361,6 +361,20 @@ struct SparseIndexPlan {
   [[nodiscard]] bool valid() const noexcept { return kind != semantic::SparseIndexKind::none; }
 };
 
+struct SparseReshapePlan {
+  semantic::SparseReshapeKind kind{semantic::SparseReshapeKind::none};
+  semantic::SparseReshapeDimensionForm dimension_form{semantic::SparseReshapeDimensionForm::none};
+  semantic::SparseReshapeInference inference{semantic::SparseReshapeInference::none};
+  std::size_t inferred_axis{0U};
+  ArrayStorageFormat source_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat result_storage{ArrayStorageFormat::none};
+  ShapeId input_shape{};
+  ShapeId requested_shape{};
+  ShapeId result_shape{};
+
+  [[nodiscard]] bool valid() const noexcept { return kind != semantic::SparseReshapeKind::none; }
+};
+
 struct ExpressionAttributes {
   MirExpressionId origin{};
   std::string spelling;
@@ -375,6 +389,7 @@ struct ExpressionAttributes {
   ReductionPlan reduction;
   SparseConstructionPlan sparse_construction;
   SparseIndexPlan sparse_index;
+  SparseReshapePlan sparse_reshape;
   BindingKind binding{BindingKind::unresolved};
   IntrinsicId intrinsic{IntrinsicId::none};
   std::vector<ShapeId> tuple_shapes;

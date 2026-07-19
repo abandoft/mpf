@@ -489,6 +489,15 @@ std::string dump_mir(const mir::Program& program) {
                << attributes->sparse_index.input_shape.value() << " result=!s"
                << attributes->sparse_index.result_shape.value();
       }
+      if (attributes->sparse_reshape.valid()) {
+        output << " sparse-reshape=" << enum_value(attributes->sparse_reshape.kind)
+               << " form=" << enum_value(attributes->sparse_reshape.dimension_form)
+               << " inference=" << enum_value(attributes->sparse_reshape.inference)
+               << " axis=" << attributes->sparse_reshape.inferred_axis << " input=!s"
+               << attributes->sparse_reshape.input_shape.value() << " requested=!s"
+               << attributes->sparse_reshape.requested_shape.value() << " result=!s"
+               << attributes->sparse_reshape.result_shape.value();
+      }
     }
     output << '\n';
   }
