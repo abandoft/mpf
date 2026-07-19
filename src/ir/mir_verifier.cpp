@@ -1188,17 +1188,20 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
                                                 : semantic::SparseMutationKind::subscript_assignment);
           const auto* generic_input = shape(program, mutation.input_shape);
           const auto* generic_result = shape(program, mutation.result_shape);
+          const auto* target_selection =
+              shape(program, target_attributes->sparse_index.result_shape);
           const auto replacement_storage =
               deletion ? ArrayStorageFormat::none : array_storage(program, replacement->type_id);
           const auto* replacement_value_shape = shape(program, replacement->shape_id);
           if (sparse_input == nullptr || sparse_selection == nullptr ||
               sparse_replacement == nullptr || sparse_result == nullptr ||
-              generic_input == nullptr || generic_result == nullptr ||
-              sparse.kind != expected_kind || sparse.input_shape != mutation.input_shape ||
-              sparse.result_shape != mutation.result_shape ||
-              sparse.selection_shape != target_attributes->sparse_index.result_shape ||
+              generic_input == nullptr || generic_result == nullptr || target_selection == nullptr ||
+              sparse.kind != expected_kind || sparse_input->extents != generic_input->extents ||
+              sparse_result->extents != generic_result->extents ||
+              sparse_selection->extents != target_selection->extents ||
               sparse.replacement_storage != replacement_storage ||
-              (!deletion && sparse.replacement_shape != replacement->shape_id) ||
+              (!deletion && replacement_value_shape != nullptr &&
+               sparse_replacement->extents != replacement_value_shape->extents) ||
               (deletion && !sparse_replacement->extents.empty()) ||
               (replacement_value_shape == nullptr && !deletion) ||
               !semantic::valid_sparse_mutation_contract(

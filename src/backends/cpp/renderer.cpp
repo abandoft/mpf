@@ -1210,7 +1210,56 @@ class Renderer final {
       case cpp::lir::StatementForm::indexed_element_assignment:
       case cpp::lir::StatementForm::indexed_section_assignment:
         indentation();
-        if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow) {
+        if (statement.plan.sparse_mutation.valid()) {
+          const auto& sparse = statement.plan.sparse_mutation;
+          const auto deletion = semantic::sparse_mutation_is_deletion(sparse.kind);
+          if (deletion) {
+            output_ << "mpf_runtime::sparse_erase_indexed(";
+            emit_expression(statement.target_expression.children[0]);
+            output_ << ", ";
+            emit_selector_tuple(statement.target_expression);
+            output_ << ", " << statement.target_expression.plan.index_base << ", "
+                    << (semantic::sparse_mutation_is_linear(sparse.kind) ? "true" : "false")
+                    << ", " << statement.plan.indexed_mutation.axis << ", ";
+            if (known_static_shape(sparse.result_shape))
+              emit_shape_vector(sparse.result_shape);
+            else
+              output_ << "std::vector<std::size_t>{}";
+            output_ << ')';
+          } else {
+            const auto linear = semantic::sparse_mutation_is_linear(sparse.kind);
+            output_ << (linear ? "mpf_runtime::sparse_assign_linear("
+                               : "mpf_runtime::sparse_assign_subscripts(");
+            emit_expression(statement.target_expression.children[0]);
+            output_ << ", ";
+            emit_selector(statement.target_expression, 1U);
+            if (!linear) {
+              output_ << ", ";
+              emit_selector(statement.target_expression, 2U);
+            }
+            output_ << ", ";
+            emit_expression(statement.expression);
+            output_ << ", " << statement.target_expression.plan.index_base << ", "
+                    << (sparse.replacement == semantic::SparseReplacementKind::scalar_expansion
+                            ? "true"
+                            : "false")
+                    << ", ";
+            if (sparse.selection_shape.empty()) {
+              output_ << "std::nullopt, std::nullopt";
+            } else {
+              emit_sparse_result_extent(sparse.selection_shape[0]);
+              output_ << ", ";
+              emit_sparse_result_extent(sparse.selection_shape[1]);
+            }
+            output_ << ", ";
+            if (known_static_shape(sparse.result_shape))
+              emit_shape_vector(sparse.result_shape);
+            else
+              output_ << "std::vector<std::size_t>{}";
+            output_ << ')';
+          }
+        } else if (statement.plan.indexed_mutation.kind ==
+                   semantic::IndexedMutationKind::grow) {
           output_ << (statement.plan.indexed_mutation.linear
                           ? "mpf_runtime::assign_growing_linear_column_major("
                           : "mpf_runtime::assign_growing_section_nd(");

@@ -879,7 +879,43 @@ class Renderer final {
       case javascript::lir::StatementForm::indexed_element_assignment:
       case javascript::lir::StatementForm::indexed_section_assignment:
         indentation();
-        if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow ||
+        if (statement.plan.sparse_mutation.valid()) {
+          const auto deletion = semantic::sparse_mutation_is_deletion(
+              statement.plan.sparse_mutation.kind);
+          output_ << (deletion ? "__mpf_sparse_erase(" : "__mpf_sparse_assign(");
+          emit_expression(statement.target_expression.children[0]);
+          output_ << ", [";
+          for (std::size_t index = 1; index < statement.target_expression.children.size();
+               ++index) {
+            if (index != 1U) output_ << ", ";
+            emit_selector_descriptor(statement.target_expression, index);
+          }
+          output_ << "], ";
+          if (!deletion) {
+            emit_expression(statement.expression);
+            output_ << ", ";
+          }
+          output_ << statement.target_expression.plan.index_base << ", "
+                  << (semantic::sparse_mutation_is_linear(
+                          statement.plan.sparse_mutation.kind)
+                          ? "true"
+                          : "false")
+                  << ", ";
+          if (deletion) {
+            output_ << statement.plan.indexed_mutation.axis << ", ";
+          } else {
+            output_ << (statement.plan.sparse_mutation.replacement ==
+                                semantic::SparseReplacementKind::scalar_expansion
+                            ? "true"
+                            : "false")
+                    << ", ";
+            emit_sparse_result_shape(statement.plan.sparse_mutation.selection_shape);
+            output_ << ", ";
+          }
+          emit_optional_shape(statement.plan.sparse_mutation.result_shape);
+          output_ << ");\n";
+        } else if (statement.plan.indexed_mutation.kind ==
+                       semantic::IndexedMutationKind::grow ||
             statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::erase) {
           output_ << (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow
                           ? "__mpf_grow("
