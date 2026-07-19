@@ -768,6 +768,45 @@ TEST_CASE("Matlab sparse reshape preserves CSC order and target isolation") {
   }
 }
 
+TEST_CASE("Matlab sparse reshape preserves zero extents and folded shapes") {
+  const std::string source =
+      "zero_rows = sparse(0, 6);\n"
+      "zero_columns = sparse(6, 0);\n"
+      "inferred = reshape(zero_rows, [], 3);\n"
+      "folded = reshape(zero_rows, 0, 2, 3);\n"
+      "column_empty = reshape(zero_columns, 3, 0);\n"
+      "vector_form = reshape(sparse([], [], []), [0 4]);\n"
+      "disp(issparse(inferred), issparse(folded), issparse(column_empty), "
+      "issparse(vector_form), nnz(inferred), nnz(folded), nnz(column_empty), "
+      "nnz(vector_form), length(full(inferred)), length(full(folded)), "
+      "length(full(column_empty)), length(full(vector_form)))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_sparse_reshape(zero_rows, [0, 6], [0, 3], [0, 3])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_reshape(zero_rows, [0, 6], [0, 2, 3], [0, 6])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_reshape(zero_columns, [6, 0], [3, 0], [3, 0])") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_reshape(zero_rows, "
+                        "std::array<std::size_t, 2>{0, 6}, "
+                        "std::array<std::size_t, 3>{0, 2, 3}, "
+                        "std::array<std::size_t, 2>{0, 6})") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_reshape(zero_columns, "
+                        "std::array<std::size_t, 2>{6, 0}, "
+                        "std::array<std::size_t, 2>{3, 0}, "
+                        "std::array<std::size_t, 2>{3, 0})") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 7U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
 TEST_CASE("Matlab reshape rejects invalid inferred and sparse dimensions") {
   const std::vector<std::string> invalid{"A = sparse([1 0; 0 1]);\nB = reshape(A, [], []);\n",
                                          "A = sparse([1 0; 0 1]);\nB = reshape(A, [], 3);\n",
