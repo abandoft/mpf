@@ -39,9 +39,15 @@ function __mpf_make_sparse_csc(rows, columns, columnPointers, rowIndices, values
     rows, columns, columnPointers, rowIndices, values, [__mpf_sparse_csc_tag]: true
   });
 }
-function __mpf_sparse_dense_rank2(value, name) {
+function __mpf_sparse_dense_rank2(value, name, plannedShape = undefined) {
   const shape = __mpf_matlab_runtime_shape(value, name);
   if (shape.length !== 2) throw new RangeError(`MPF Matlab ${name} must be rank 2`);
+  if (plannedShape !== undefined &&
+      (!Array.isArray(plannedShape) || plannedShape.length !== 2 ||
+       plannedShape.some(extent => !Number.isSafeInteger(extent) || extent < 0) ||
+       shape[0] !== plannedShape[0] || shape[1] !== plannedShape[1])) {
+    throw new RangeError(`MPF Matlab ${name} disagrees with its static shape contract`);
+  }
   const flattened = __mpf_flatten_column_major(value);
   for (const item of flattened) {
     if (typeof item !== 'number' || !Number.isFinite(item)) {
@@ -398,11 +404,27 @@ function __mpf_sparse_product_dense_result(flattened, rows, columns) {
   }
   return __mpf_build_column_major(flattened, [rows, columns]);
 }
-function __mpf_sparse_sparse_mtimes(leftValue, rightValue) {
+function __mpf_sparse_product_plan(leftShape, rightShape, resultShape) {
+  for (const [shape, name] of [[leftShape, 'left'], [rightShape, 'right'],
+                               [resultShape, 'result']]) {
+    if (!Array.isArray(shape) || shape.length !== 2 ||
+        shape.some(extent => !Number.isSafeInteger(extent) || extent < 0)) {
+      throw new RangeError(`MPF Matlab sparse matrix product ${name} shape is invalid`);
+    }
+  }
+  if (leftShape[1] !== rightShape[0] || resultShape[0] !== leftShape[0] ||
+      resultShape[1] !== rightShape[1]) {
+    throw new RangeError('MPF Matlab sparse matrix product shape plans are inconsistent');
+  }
+}
+function __mpf_sparse_sparse_mtimes(leftValue, rightValue,
+                                    leftShape, rightShape, resultShape) {
+  __mpf_sparse_product_plan(leftShape, rightShape, resultShape);
   const left = __mpf_validate_sparse_csc(leftValue, 'left matrix product operand');
   const right = __mpf_validate_sparse_csc(rightValue, 'right matrix product operand');
-  if (left.columns !== right.rows) {
-    throw new RangeError('MPF Matlab sparse matrix multiplication shape mismatch');
+  if (left.rows !== leftShape[0] || left.columns !== leftShape[1] ||
+      right.rows !== rightShape[0] || right.columns !== rightShape[1]) {
+    throw new RangeError('MPF Matlab sparse matrix operands disagree with their shape plans');
   }
   const columnPointers = [0]; const rowIndices = []; const values = [];
   const marker = new Array(left.rows).fill(-1); const accumulator = new Array(left.rows).fill(0);
@@ -431,35 +453,42 @@ function __mpf_sparse_sparse_mtimes(leftValue, rightValue) {
     }
     columnPointers.push(values.length);
   }
-  return __mpf_make_sparse_csc(left.rows, right.columns, columnPointers, rowIndices, values);
+  return __mpf_make_sparse_csc(
+    resultShape[0], resultShape[1], columnPointers, rowIndices, values);
 }
-function __mpf_sparse_dense_mtimes(leftValue, rightValue) {
+function __mpf_sparse_dense_mtimes(leftValue, rightValue,
+                                   leftShape, rightShape, resultShape) {
+  __mpf_sparse_product_plan(leftShape, rightShape, resultShape);
   const left = __mpf_validate_sparse_csc(leftValue, 'left matrix product operand');
-  const right = __mpf_sparse_dense_rank2(rightValue, 'right matrix product operand');
-  if (left.columns !== right.shape[0]) {
-    throw new RangeError('MPF Matlab sparse-dense matrix multiplication shape mismatch');
+  const right = __mpf_sparse_dense_rank2(
+    rightValue, 'right matrix product operand', rightShape);
+  if (left.rows !== leftShape[0] || left.columns !== leftShape[1]) {
+    throw new RangeError('MPF Matlab left sparse matrix disagrees with its shape plan');
   }
-  const columns = right.shape[1];
-  const result = new Array(__mpf_sparse_product_size(left.rows, columns)).fill(0);
+  const columns = resultShape[1];
+  const result = new Array(__mpf_sparse_product_size(resultShape[0], columns)).fill(0);
   for (let column = 0; column < columns; ++column) {
     for (let inner = 0; inner < left.columns; ++inner) {
       const rightItem = right.flattened[inner + column * left.columns];
       if (rightItem === 0) continue;
       for (let index = left.columnPointers[inner]; index < left.columnPointers[inner + 1]; ++index) {
-        result[left.rowIndices[index] + column * left.rows] += left.values[index] * rightItem;
+        result[left.rowIndices[index] + column * resultShape[0]] += left.values[index] * rightItem;
       }
     }
   }
-  return __mpf_sparse_product_dense_result(result, left.rows, columns);
+  return __mpf_sparse_product_dense_result(result, resultShape[0], columns);
 }
-function __mpf_dense_sparse_mtimes(leftValue, rightValue) {
-  const left = __mpf_sparse_dense_rank2(leftValue, 'left matrix product operand');
+function __mpf_dense_sparse_mtimes(leftValue, rightValue,
+                                   leftShape, rightShape, resultShape) {
+  __mpf_sparse_product_plan(leftShape, rightShape, resultShape);
+  const left = __mpf_sparse_dense_rank2(
+    leftValue, 'left matrix product operand', leftShape);
   const right = __mpf_validate_sparse_csc(rightValue, 'right matrix product operand');
-  if (left.shape[1] !== right.rows) {
-    throw new RangeError('MPF Matlab dense-sparse matrix multiplication shape mismatch');
+  if (right.rows !== rightShape[0] || right.columns !== rightShape[1]) {
+    throw new RangeError('MPF Matlab right sparse matrix disagrees with its shape plan');
   }
-  const rows = left.shape[0];
-  const result = new Array(__mpf_sparse_product_size(rows, right.columns)).fill(0);
+  const rows = resultShape[0];
+  const result = new Array(__mpf_sparse_product_size(rows, resultShape[1])).fill(0);
   for (let column = 0; column < right.columns; ++column) {
     for (let index = right.columnPointers[column]; index < right.columnPointers[column + 1]; ++index) {
       const inner = right.rowIndices[index]; const rightItem = right.values[index];
@@ -468,7 +497,7 @@ function __mpf_dense_sparse_mtimes(leftValue, rightValue) {
       }
     }
   }
-  return __mpf_sparse_product_dense_result(result, rows, right.columns);
+  return __mpf_sparse_product_dense_result(result, rows, resultShape[1]);
 }
 function __mpf_nnz(value) {
   if (__mpf_issparse(value)) return __mpf_validate_sparse_csc(value).values.length;
