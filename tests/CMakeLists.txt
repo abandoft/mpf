@@ -260,6 +260,10 @@ if(TARGET mpfc)
     tests/fixtures/matlab_complex_matrix_invalid_exponent.m
     "complex matrix power requires a safe integer exponent" matlab)
   mpf_add_generated_runtime_failure_test(
+    matlab-sparse-triplet-out-of-bounds
+    tests/fixtures/matlab_sparse_triplet_out_of_bounds.m
+    "sparse triplet index exceeds the requested dimensions" matlab)
+  mpf_add_generated_runtime_failure_test(
     python-true-division-by-zero tests/fixtures/python_true_division_by_zero.py
     "division by zero" python)
   mpf_add_generated_runtime_failure_test(
