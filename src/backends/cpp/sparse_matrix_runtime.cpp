@@ -1184,7 +1184,7 @@ inline void validate_sparse_logical_plan(
       left_storage != expected_left_storage || right_storage != expected_right_storage ||
       result_storage != expected_result ||
       (expected_left_storage != 3 && expected_right_storage != 3))
-    throw std::invalid_argument("MPF Matlab sparse logical runtime plan is inconsistent");
+    throw std::invalid_argument("MPF Matlab sparse logical storage plan is inconsistent");
 }
 template <typename Left, typename Right, std::size_t LeftRank, std::size_t RightRank>
 sparse_matrix<bool> sparse_logical_sparse_binary(
