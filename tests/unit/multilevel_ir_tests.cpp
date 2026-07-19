@@ -1211,7 +1211,14 @@ TEST_CASE("Matlab sparse element-wise plans remain typed through every IR layer"
                               "L = 3 .* A;\n"
                               "SD = row .* D;\n"
                               "DS = D .* column;\n"
-                              "SS = row .* column;\n",
+                              "SS = row .* column;\n"
+                              "Z = sparse(0, 3);\n"
+                              "ZD = reshape([], 0, 3);\n"
+                              "DR = [10 20 30];\n"
+                              "ZS = Z .* 2;\n"
+                              "ZSD = Z .* DR;\n"
+                              "ZDS = ZD .* row;\n"
+                              "ZSS = Z .* row;\n",
                               "sparse_elementwise.m");
   auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
   REQUIRE(analysis.empty());
@@ -1238,6 +1245,10 @@ TEST_CASE("Matlab sparse element-wise plans remain typed through every IR layer"
   REQUIRE(has_plan(Storage::sparse_csc, Storage::dense, {2U, 3U}));
   REQUIRE(has_plan(Storage::dense, Storage::sparse_csc, {2U, 3U}));
   REQUIRE(has_plan(Storage::sparse_csc, Storage::sparse_csc, {2U, 3U}));
+  REQUIRE(has_plan(Storage::sparse_csc, Storage::none, {0U, 3U}));
+  REQUIRE(has_plan(Storage::sparse_csc, Storage::dense, {0U, 3U}));
+  REQUIRE(has_plan(Storage::dense, Storage::sparse_csc, {0U, 3U}));
+  REQUIRE(has_plan(Storage::sparse_csc, Storage::sparse_csc, {0U, 3U}));
 
   auto contradictory_hir = analysis.semantics;
   const auto corrupt_hir =
@@ -1286,6 +1297,9 @@ TEST_CASE("Matlab sparse element-wise plans remain typed through every IR layer"
             std::string::npos);
     REQUIRE(target_dump.find("sparse-elementwise 1 storage-policy 1 storage 3,3->3") !=
             std::string::npos);
+    REQUIRE(target_dump.find("storage 3,2->3 [0,3],[1,3]->[0,3]") != std::string::npos);
+    REQUIRE(target_dump.find("storage 2,3->3 [0,3],[1,3]->[0,3]") != std::string::npos);
+    REQUIRE(target_dump.find("storage 3,3->3 [0,3],[1,3]->[0,3]") != std::string::npos);
   }
 }
 

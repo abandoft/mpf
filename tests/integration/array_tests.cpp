@@ -547,9 +547,57 @@ TEST_CASE("Matlab sparse element-wise products preserve CSC storage and broadcas
   }
 }
 
+TEST_CASE("Matlab sparse element-wise products preserve zero-extent broadcasts") {
+  const std::string source =
+      "zero_rows = sparse(0, 3);\n"
+      "zero_columns = sparse(3, 0);\n"
+      "row = sparse([1 1], [1 3], [2 4], 1, 3);\n"
+      "column = sparse([1 3], [1 1], [5 6], 3, 1);\n"
+      "dense_row = [10 20 30];\n"
+      "dense_column = [10; 20; 30];\n"
+      "dense_zero_rows = reshape([], 0, 3);\n"
+      "dense_zero_columns = reshape([], 3, 0);\n"
+      "scalar_right = zero_rows .* 2;\n"
+      "scalar_left = 2 .* zero_columns;\n"
+      "sparse_dense_rows = zero_rows .* dense_row;\n"
+      "dense_sparse_columns = dense_column .* zero_columns;\n"
+      "dense_sparse_rows = dense_zero_rows .* row;\n"
+      "sparse_dense_columns = column .* dense_zero_columns;\n"
+      "sparse_sparse_rows = zero_rows .* row;\n"
+      "sparse_sparse_columns = column .* zero_columns;\n"
+      "disp(issparse(scalar_right), issparse(scalar_left), issparse(sparse_dense_rows), "
+      "issparse(dense_sparse_columns), issparse(dense_sparse_rows), "
+      "issparse(sparse_dense_columns), issparse(sparse_sparse_rows), "
+      "issparse(sparse_sparse_columns), nnz(scalar_right), nnz(sparse_dense_rows), "
+      "nnz(sparse_sparse_columns), length(full(scalar_right)), length(full(scalar_left)), "
+      "length(full(dense_sparse_rows)), length(full(sparse_dense_columns)))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find(
+              "__mpf_sparse_times_dense(zero_rows, dense_row, [0, 3], [1, 3], [0, 3])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_dense_times_sparse(dense_zero_rows, row, "
+                               "[0, 3], [1, 3], [0, 3])") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_times_sparse(zero_rows, row, "
+                               "[0, 3], [1, 3], [0, 3])") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_times_dense(zero_rows, dense_row,") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::dense_times_sparse(dense_zero_rows, row,") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_times_sparse(zero_rows, row,") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 17U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
 TEST_CASE("Matlab sparse element-wise products fail closed outside the typed slice") {
   const std::vector<std::string> rejected{"A = sparse([1 0; 0 1]);\nB = A .* [1i 0; 0 1];\n",
-                                          "A = sparse(0, 2);\nB = A .* [1 2];\n",
                                           "A = sparse([1 0; 0 1]);\nB = A .* [1 2 3];\n"};
   for (const auto& source : rejected) {
     for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
