@@ -433,14 +433,49 @@ TEST_CASE("Matlab sparse matrix products preserve storage and target isolation")
   }
 }
 
+TEST_CASE("Matlab sparse scalar matrix products preserve canonical CSC storage") {
+  const std::string source =
+      "A = sparse([1 0 -2; 0 3 0]);\n"
+      "factor = 4;\n"
+      "right_scaled = A * factor;\n"
+      "left_scaled = factor * A;\n"
+      "zero_scaled = A * 0;\n"
+      "right_full = full(right_scaled);\n"
+      "left_full = full(left_scaled);\n"
+      "disp(right_full(1,1), right_full(1,3), left_full(2,2), "
+      "issparse(right_scaled), issparse(left_scaled), issparse(zero_scaled), "
+      "nnz(right_scaled), nnz(zero_scaled))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("function __mpf_sparse_scale_right(") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_sparse_scale_left(") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_scale_right(A, factor)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_scale_left(factor, A)") != std::string::npos);
+  REQUIRE(javascript.code.find("mpf_runtime::sparse_scale_right") == std::string::npos);
+  REQUIRE(cpp.code.find("sparse_matrix<double> sparse_scale_right(") != std::string::npos);
+  REQUIRE(cpp.code.find("sparse_matrix<double> sparse_scale_left(") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_scale_right(A, factor)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_scale_left(factor, A)") != std::string::npos);
+  REQUIRE(cpp.code.find("__mpf_sparse_scale_right") == std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 8U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
 TEST_CASE("Matlab sparse matrix products fail closed beyond the finite real rank-two slice") {
   struct RejectedProduct {
     std::string source;
     std::string diagnostic;
   };
   const std::vector<RejectedProduct> rejected{
-      {"A = sparse([1 0; 0 1]);\nB = A * 2;\n", "MPF2054"},
-      {"A = sparse([1 0; 0 1]);\nB = 2 * A;\n", "MPF2054"},
+      {"A = sparse([1 0; 0 1]);\nB = A * 2i;\n", "MPF2054"},
+      {"A = sparse([1 0; 0 1]);\nB = 2i * A;\n", "MPF2054"},
       {"A = sparse([1 0; 0 1]);\nB = [1 2 3];\nC = A * B;\n", "MPF2046"},
       {"A = sparse([1 0; 0 1]);\nB = [1i 0; 0 1];\nC = A * B;\n", "MPF2054"}};
   for (const auto& test : rejected) {
