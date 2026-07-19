@@ -468,6 +468,71 @@ TEST_CASE("Matlab sparse scalar matrix products preserve canonical CSC storage")
   }
 }
 
+TEST_CASE("Matlab sparse element-wise products preserve CSC storage and broadcast") {
+  const std::string source =
+      "A = sparse([1 0 2; 0 3 0]);\n"
+      "D = [10 20 30; 40 50 60];\n"
+      "row = sparse([1 1], [1 3], [2 4], 1, 3);\n"
+      "column = sparse([1 2], [1 1], [5 6], 2, 1);\n"
+      "right_scalar = A .* 2;\n"
+      "left_scalar = 3 .* A;\n"
+      "sparse_dense = A .* D;\n"
+      "dense_sparse = D .* A;\n"
+      "sparse_sparse = A .* A;\n"
+      "row_dense = row .* D;\n"
+      "dense_column = D .* column;\n"
+      "outer_sparse = row .* column;\n"
+      "zero_sparse = A .* 0;\n"
+      "disp(issparse(right_scalar), issparse(sparse_dense), issparse(dense_sparse), "
+      "issparse(outer_sparse), nnz(zero_sparse), full(row_dense)(2,3), "
+      "full(dense_column)(2,2), full(outer_sparse)(2,3))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  for (const auto helper : {"__mpf_sparse_times_scalar_right",
+                            "__mpf_sparse_times_scalar_left", "__mpf_sparse_times_dense",
+                            "__mpf_dense_times_sparse", "__mpf_sparse_times_sparse"}) {
+    REQUIRE(javascript.code.find(std::string("function ") + helper + '(') != std::string::npos);
+    REQUIRE(cpp.code.find(helper) == std::string::npos);
+  }
+  REQUIRE(javascript.code.find("__mpf_sparse_times_scalar_right(A, 2, [2, 3], [], [2, 3])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_times_dense(row, D, [1, 3], [2, 3], [2, 3])") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find(
+              "__mpf_sparse_times_sparse(row, column, [1, 3], [2, 1], [2, 3])") !=
+          std::string::npos);
+  for (const auto helper : {"sparse_times_scalar_right", "sparse_times_scalar_left",
+                            "sparse_times_dense", "dense_times_sparse",
+                            "sparse_times_sparse"}) {
+    REQUIRE(cpp.code.find(std::string("mpf_runtime::") + helper) != std::string::npos);
+    REQUIRE(cpp.code.find(std::string("__mpf_") + helper) == std::string::npos);
+  }
+  REQUIRE(cpp.code.find("std::array<std::size_t, 0>{}") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 14U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
+TEST_CASE("Matlab sparse element-wise products fail closed outside the typed slice") {
+  const std::vector<std::string> rejected{
+      "A = sparse([1 0; 0 1]);\nB = A .* [1i 0; 0 1];\n",
+      "A = sparse(0, 2);\nB = A .* [1 2];\n",
+      "A = sparse([1 0; 0 1]);\nB = A .* [1 2 3];\n"};
+  for (const auto& source : rejected) {
+    for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+      const auto result = transpile_array(source, mpf::SourceLanguage::matlab, target);
+      REQUIRE(!result.success());
+      REQUIRE(result.diagnostics.front().code == "MPF2054");
+    }
+  }
+}
+
 TEST_CASE("Matlab sparse matrix products fail closed beyond the finite real rank-two slice") {
   struct RejectedProduct {
     std::string source;
