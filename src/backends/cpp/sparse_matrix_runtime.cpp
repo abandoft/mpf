@@ -36,6 +36,111 @@ template <typename T> void validate_sparse_csc(
     }
   }
 }
+template <typename T> std::size_t sparse_dimension(const T& value, const std::string& name,
+                                                   const bool allow_zero = false) {
+  static_assert(std::is_arithmetic_v<std::decay_t<T>>,
+                "MPF Matlab sparse dimensions must be numeric scalars");
+  const auto numeric = static_cast<long double>(value);
+  if (!std::isfinite(numeric) || std::trunc(numeric) != numeric ||
+      (allow_zero ? numeric < 0.0L : numeric <= 0.0L) ||
+      numeric > static_cast<long double>(std::numeric_limits<std::size_t>::max()) ||
+      numeric > 9007199254740991.0L)
+    throw std::invalid_argument("MPF Matlab " + name + " must be a " +
+                                (allow_zero ? "nonnegative" : "positive") +
+                                " safe integer");
+  return static_cast<std::size_t>(numeric);
+}
+struct sparse_triplet_entry {
+  std::size_t row{};
+  std::size_t column{};
+  double value{};
+};
+template <typename Argument, typename Values>
+const auto& sparse_triplet_value_at(const Values& values, const std::size_t index) {
+  if constexpr (is_vector<std::decay_t<Argument>>::value) return values.at(index);
+  else return values.front();
+}
+template <typename RowArgument, typename ColumnArgument, typename ValueArgument>
+sparse_matrix<double> sparse_from_triplets(
+    const RowArgument& row_argument, const ColumnArgument& column_argument,
+    const ValueArgument& value_argument, const std::optional<std::size_t> explicit_rows = {},
+    const std::optional<std::size_t> explicit_columns = {},
+    const std::optional<std::size_t> reserve_hint = {}) {
+  const auto row_values = flatten_selector_column_major(row_argument);
+  const auto column_values = flatten_selector_column_major(column_argument);
+  const auto stored_values = flatten_selector_column_major(value_argument);
+  std::optional<std::size_t> sequence_count;
+  const auto accept_count = [&](const bool sequence, const std::size_t count) {
+    if (!sequence) return;
+    if (sequence_count.has_value() && *sequence_count != count)
+      throw std::invalid_argument(
+          "MPF Matlab nonscalar sparse triplets must have equal element counts");
+    sequence_count = count;
+  };
+  accept_count(is_vector<std::decay_t<RowArgument>>::value, row_values.size());
+  accept_count(is_vector<std::decay_t<ColumnArgument>>::value, column_values.size());
+  accept_count(is_vector<std::decay_t<ValueArgument>>::value, stored_values.size());
+  const auto count = sequence_count.value_or(1U);
+  std::vector<sparse_triplet_entry> entries;
+  entries.reserve(count);
+  std::size_t inferred_rows = 0U; std::size_t inferred_columns = 0U;
+  for (std::size_t index = 0; index < count; ++index) {
+    const auto row_numeric = static_cast<double>(
+        sparse_triplet_value_at<RowArgument>(row_values, index));
+    const auto column_numeric = static_cast<double>(
+        sparse_triplet_value_at<ColumnArgument>(column_values, index));
+    const auto stored_numeric = static_cast<double>(
+        sparse_triplet_value_at<ValueArgument>(stored_values, index));
+    if (!std::isfinite(row_numeric) || std::trunc(row_numeric) != row_numeric ||
+        row_numeric <= 0.0 || row_numeric > 9007199254740991.0 ||
+        !std::isfinite(column_numeric) || std::trunc(column_numeric) != column_numeric ||
+        column_numeric <= 0.0 || column_numeric > 9007199254740991.0)
+      throw std::invalid_argument(
+          "MPF Matlab sparse triplet indices must be positive safe integers");
+    if (!std::isfinite(stored_numeric))
+      throw std::invalid_argument("MPF Matlab sparse stored values must be finite real values");
+    const auto row = static_cast<std::size_t>(row_numeric);
+    const auto column = static_cast<std::size_t>(column_numeric);
+    inferred_rows = std::max(inferred_rows, row);
+    inferred_columns = std::max(inferred_columns, column);
+    entries.push_back({row - 1U, column - 1U, stored_numeric});
+  }
+  const auto rows = explicit_rows.has_value()
+                        ? *explicit_rows
+                        : sparse_dimension(inferred_rows, "inferred row extent");
+  const auto columns = explicit_columns.has_value()
+                           ? *explicit_columns
+                           : sparse_dimension(inferred_columns, "inferred column extent");
+  for (const auto& entry : entries)
+    if (entry.row >= rows || entry.column >= columns)
+      throw std::invalid_argument(
+          "MPF Matlab sparse triplet index exceeds the requested dimensions");
+  std::stable_sort(entries.begin(), entries.end(), [](const auto& left, const auto& right) {
+    return left.column < right.column ||
+           (left.column == right.column && left.row < right.row);
+  });
+  sparse_matrix<double> result;
+  result.rows = rows; result.columns = columns;
+  const auto capacity = std::max(count, reserve_hint.value_or(count));
+  result.row_indices.reserve(capacity); result.values.reserve(capacity);
+  result.column_pointers.reserve(columns + 1U); result.column_pointers.push_back(0U);
+  std::size_t entry = 0U;
+  for (std::size_t column = 0; column < columns; ++column) {
+    while (entry < entries.size() && entries[entry].column == column) {
+      const auto row = entries[entry].row; double sum = 0.0;
+      while (entry < entries.size() && entries[entry].column == column &&
+             entries[entry].row == row)
+        sum += entries[entry++].value;
+      if (!std::isfinite(sum))
+        throw std::invalid_argument(
+            "MPF Matlab sparse duplicate accumulation is not finite");
+      if (sum != 0.0) { result.row_indices.push_back(row); result.values.push_back(sum); }
+    }
+    result.column_pointers.push_back(result.values.size());
+  }
+  validate_sparse_csc(result);
+  return result;
+}
 template <typename T> sparse_matrix<double> sparse(
     const std::vector<std::vector<T>>& values) {
   const auto dense = matlab_dense_matrix(values, "sparse input");
@@ -56,6 +161,37 @@ template <typename T> sparse_matrix<double> sparse(const std::vector<T>& values)
 }
 template <typename T> sparse_matrix<T> sparse(const sparse_matrix<T>& matrix) {
   validate_sparse_csc(matrix); return matrix;
+}
+template <typename Rows, typename Columns>
+sparse_matrix<double> sparse(const Rows& rows_value, const Columns& columns_value) {
+  const auto rows = sparse_dimension(rows_value, "row extent");
+  const auto columns = sparse_dimension(columns_value, "column extent");
+  sparse_matrix<double> result;
+  result.rows = rows; result.columns = columns;
+  result.column_pointers.assign(columns + 1U, 0U);
+  return result;
+}
+template <typename Row, typename Column, typename Value>
+sparse_matrix<double> sparse(const Row& rows, const Column& columns, const Value& values) {
+  return sparse_from_triplets(rows, columns, values);
+}
+template <typename Row, typename Column, typename Value, typename Rows, typename Columns>
+sparse_matrix<double> sparse(const Row& row_values, const Column& column_values,
+                             const Value& values, const Rows& rows_value,
+                             const Columns& columns_value) {
+  return sparse_from_triplets(row_values, column_values, values,
+                              sparse_dimension(rows_value, "row extent"),
+                              sparse_dimension(columns_value, "column extent"));
+}
+template <typename Row, typename Column, typename Value, typename Rows, typename Columns,
+          typename Reserve>
+sparse_matrix<double> sparse(const Row& row_values, const Column& column_values,
+                             const Value& values, const Rows& rows_value,
+                             const Columns& columns_value, const Reserve& reserve_value) {
+  return sparse_from_triplets(row_values, column_values, values,
+                              sparse_dimension(rows_value, "row extent"),
+                              sparse_dimension(columns_value, "column extent"),
+                              sparse_dimension(reserve_value, "nzmax", true));
 }
 template <typename T> std::vector<std::vector<double>> full(const sparse_matrix<T>& value) {
   validate_sparse_csc(value, "full input");
