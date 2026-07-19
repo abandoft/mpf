@@ -1395,7 +1395,8 @@ inline std::vector<std::vector<double>> sparse_row_lu_apply_transpose(
   }
   return values;
 }
-template <typename T> double sparse_one_norm(const sparse_matrix<T>& matrix) {
+)MPF";
+  output << R"MPF(template <typename T> double sparse_one_norm(const sparse_matrix<T>& matrix) {
   double maximum = 0.0;
   for (std::size_t column = 0; column < matrix.columns; ++column) {
     double sum = 0.0;
@@ -1436,6 +1437,48 @@ double sparse_rcond(const Matrix& matrix, const Factor& factor, Apply apply,
   const auto product = norm * inverse_norm;
   return product > 0.0 && std::isfinite(product) ? std::min(1.0, 1.0 / product) : 0.0;
 }
+inline void validate_sparse_solve_shape(const std::array<std::size_t, 2U>& shape,
+                                        const std::string& name) {
+  if (shape[0] == std::numeric_limits<std::size_t>::max() ||
+      shape[1] == std::numeric_limits<std::size_t>::max() ||
+      (shape[0] != 0U && shape[1] > std::numeric_limits<std::size_t>::max() / shape[0]))
+    throw std::length_error("MPF Matlab sparse solve " + name + " shape is invalid");
+}
+inline void validate_sparse_mldivide_plan(
+    const std::array<std::size_t, 2U>& left_shape,
+    const std::array<std::size_t, 2U>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  validate_sparse_solve_shape(left_shape, "left");
+  validate_sparse_solve_shape(right_shape, "right");
+  validate_sparse_solve_shape(result_shape, "result");
+  if (left_shape[0] != left_shape[1] || left_shape[0] != right_shape[0] ||
+      result_shape[0] != left_shape[1] || result_shape[1] != right_shape[1])
+    throw std::invalid_argument("MPF Matlab sparse left-division shape plans are inconsistent");
+}
+template <typename Dense>
+std::vector<std::vector<double>> sparse_solve_dense_input(
+    const Dense& value, const std::array<std::size_t, 2U>& shape,
+    const std::string& name) {
+  validate_sparse_solve_shape(shape, name);
+  std::vector<std::size_t> actual_shape;
+  selector_shape(value, actual_shape);
+  const auto flattened = flatten_selector_column_major(value);
+  const auto expected = shape[0] * shape[1];
+  if (flattened.size() != expected ||
+      (expected != 0U &&
+       actual_shape != std::vector<std::size_t>(shape.begin(), shape.end())))
+    throw std::invalid_argument("MPF Matlab " + name +
+                                " disagrees with its static shape contract");
+  std::vector<std::vector<double>> result(shape[0], std::vector<double>(shape[1]));
+  for (std::size_t column = 0U; column < shape[1]; ++column)
+    for (std::size_t row = 0U; row < shape[0]; ++row) {
+      const auto numeric = static_cast<double>(flattened[row + column * shape[0]]);
+      if (!std::isfinite(numeric))
+        throw std::invalid_argument("MPF Matlab " + name + " requires finite real values");
+      result[row][column] = numeric;
+    }
+  return result;
+}
 template <typename T> std::vector<std::vector<double>> sparse_square_solve_dense(
     const sparse_matrix<T>& coefficients,
     const std::vector<std::vector<double>>& right_hand_side) {
@@ -1467,30 +1510,106 @@ template <typename T> std::vector<std::vector<double>> sparse_square_solve_dense
       }));
   return sparse_row_lu_apply(factor, right_hand_side);
 }
-template <typename Coefficient, typename Right>
+template <typename Coefficient, typename Dense>
 std::vector<std::vector<double>> matlab_mldivide_sparse_real_square(
     const sparse_matrix<Coefficient>& coefficients,
-    const std::vector<std::vector<Right>>& right_hand_side) {
-  return sparse_square_solve_dense(coefficients,
-      matlab_dense_matrix(right_hand_side, "right-hand side"));
+    const Dense& right_hand_side,
+    const std::array<std::size_t, 2U>& left_shape,
+    const std::array<std::size_t, 2U>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  validate_sparse_mldivide_plan(left_shape, right_shape, result_shape);
+  validate_sparse_csc(coefficients, "sparse coefficient matrix");
+  if (coefficients.rows != left_shape[0] || coefficients.columns != left_shape[1])
+    throw std::invalid_argument(
+        "MPF Matlab sparse coefficient disagrees with its shape plan");
+  const auto right = sparse_solve_dense_input(right_hand_side, right_shape, "right-hand side");
+  if (result_shape[0] == 0U || result_shape[1] == 0U)
+    return std::vector<std::vector<double>>(result_shape[0],
+                                            std::vector<double>(result_shape[1]));
+  return sparse_square_solve_dense(coefficients, right);
 }
 template <typename Coefficient, typename Right>
 sparse_matrix<double> matlab_mldivide_sparse_real_square(
-    const sparse_matrix<Coefficient>& coefficients, const sparse_matrix<Right>& right_hand_side) {
-  return sparse(sparse_square_solve_dense(coefficients, full(right_hand_side)));
+    const sparse_matrix<Coefficient>& coefficients, const sparse_matrix<Right>& right_hand_side,
+    const std::array<std::size_t, 2U>& left_shape,
+    const std::array<std::size_t, 2U>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  validate_sparse_mldivide_plan(left_shape, right_shape, result_shape);
+  validate_sparse_csc(coefficients, "sparse coefficient matrix");
+  validate_sparse_csc(right_hand_side, "right-hand side");
+  if (coefficients.rows != left_shape[0] || coefficients.columns != left_shape[1])
+    throw std::invalid_argument(
+        "MPF Matlab sparse coefficient disagrees with its shape plan");
+  if (right_hand_side.rows != right_shape[0] || right_hand_side.columns != right_shape[1])
+    throw std::invalid_argument(
+        "MPF Matlab sparse right-hand side disagrees with its shape plan");
+  if (result_shape[0] == 0U || result_shape[1] == 0U) {
+    sparse_matrix<double> result;
+    result.rows = result_shape[0]; result.columns = result_shape[1];
+    result.column_pointers.assign(result.columns + 1U, 0U);
+    return result;
+  }
+  return sparse_from_dense(
+      matlab_mldivide_sparse_real_square(
+          coefficients, full(right_hand_side), left_shape, right_shape, result_shape),
+      result_shape);
 }
-template <typename Left, typename Coefficient>
+template <typename Dense, typename Coefficient>
 std::vector<std::vector<double>> matlab_mrdivide_sparse_real_square(
-    const std::vector<std::vector<Left>>& left, const sparse_matrix<Coefficient>& coefficients) {
+    const Dense& left, const sparse_matrix<Coefficient>& coefficients,
+    const std::array<std::size_t, 2U>& left_shape,
+    const std::array<std::size_t, 2U>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  validate_sparse_solve_shape(left_shape, "left");
+  validate_sparse_solve_shape(right_shape, "right");
+  validate_sparse_solve_shape(result_shape, "result");
+  if (right_shape[0] != right_shape[1] || left_shape[1] != right_shape[1] ||
+      result_shape[0] != left_shape[0] || result_shape[1] != right_shape[0])
+    throw std::invalid_argument("MPF Matlab sparse right-division shape plans are inconsistent");
+  validate_sparse_csc(coefficients, "sparse coefficient matrix");
+  if (coefficients.rows != right_shape[0] || coefficients.columns != right_shape[1])
+    throw std::invalid_argument(
+        "MPF Matlab sparse coefficient disagrees with its shape plan");
+  const auto dense_left = sparse_solve_dense_input(left, left_shape, "left operand");
+  if (result_shape[0] == 0U || result_shape[1] == 0U)
+    return std::vector<std::vector<double>>(result_shape[0],
+                                            std::vector<double>(result_shape[1]));
   return matlab_matrix_transpose(matlab_mldivide_sparse_real_square(
-      sparse_transpose(coefficients),
-      matlab_matrix_transpose(matlab_dense_matrix(left, "left operand"))));
+      sparse_transpose(coefficients), matlab_matrix_transpose(dense_left),
+      std::array<std::size_t, 2U>{right_shape[1], right_shape[0]},
+      std::array<std::size_t, 2U>{left_shape[1], left_shape[0]},
+      std::array<std::size_t, 2U>{result_shape[1], result_shape[0]}));
 }
 template <typename Left, typename Coefficient>
 sparse_matrix<double> matlab_mrdivide_sparse_real_square(
-    const sparse_matrix<Left>& left, const sparse_matrix<Coefficient>& coefficients) {
+    const sparse_matrix<Left>& left, const sparse_matrix<Coefficient>& coefficients,
+    const std::array<std::size_t, 2U>& left_shape,
+    const std::array<std::size_t, 2U>& right_shape,
+    const std::array<std::size_t, 2U>& result_shape) {
+  validate_sparse_solve_shape(left_shape, "left");
+  validate_sparse_solve_shape(right_shape, "right");
+  validate_sparse_solve_shape(result_shape, "result");
+  if (right_shape[0] != right_shape[1] || left_shape[1] != right_shape[1] ||
+      result_shape[0] != left_shape[0] || result_shape[1] != right_shape[0])
+    throw std::invalid_argument("MPF Matlab sparse right-division shape plans are inconsistent");
+  validate_sparse_csc(left, "left operand");
+  validate_sparse_csc(coefficients, "sparse coefficient matrix");
+  if (left.rows != left_shape[0] || left.columns != left_shape[1])
+    throw std::invalid_argument("MPF Matlab sparse left operand disagrees with its shape plan");
+  if (coefficients.rows != right_shape[0] || coefficients.columns != right_shape[1])
+    throw std::invalid_argument(
+        "MPF Matlab sparse coefficient disagrees with its shape plan");
+  if (result_shape[0] == 0U || result_shape[1] == 0U) {
+    sparse_matrix<double> result;
+    result.rows = result_shape[0]; result.columns = result_shape[1];
+    result.column_pointers.assign(result.columns + 1U, 0U);
+    return result;
+  }
   return sparse_transpose(matlab_mldivide_sparse_real_square(
-      sparse_transpose(coefficients), sparse_transpose(left)));
+      sparse_transpose(coefficients), sparse_transpose(left),
+      std::array<std::size_t, 2U>{right_shape[1], right_shape[0]},
+      std::array<std::size_t, 2U>{left_shape[1], left_shape[0]},
+      std::array<std::size_t, 2U>{result_shape[1], result_shape[0]}));
 }
 )MPF";
 }
