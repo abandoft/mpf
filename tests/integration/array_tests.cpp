@@ -745,7 +745,7 @@ TEST_CASE("Matlab sparse constructors and transpose preserve canonical CSC plans
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
   REQUIRE(javascript.code.find("function __mpf_sparse_from_triplets") != std::string::npos);
-  REQUIRE(javascript.code.find("__mpf_sparse(3, 4)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse(1, 0, 3, 4)") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_sparse_transpose(cancelled)") != std::string::npos);
   REQUIRE(javascript.code.find("std::stable_sort") == std::string::npos);
   REQUIRE(cpp.code.find("sparse_from_triplets") != std::string::npos);
@@ -778,10 +778,10 @@ TEST_CASE("Matlab zero-extent sparse constructors preserve their planned shape")
   const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
-  REQUIRE(javascript.code.find("__mpf_sparse_from_dense(__mpf_empty_array([0, 0]), [0, 0])") !=
+  REQUIRE(javascript.code.find("__mpf_sparse_from_dense(__mpf_empty_array([0, 0]), [0, 0], 1)") !=
           std::string::npos);
-  REQUIRE(javascript.code.find("__mpf_sparse(0, 3)") != std::string::npos);
-  REQUIRE(javascript.code.find("__mpf_sparse(__mpf_empty_array([0, 0]), "
+  REQUIRE(javascript.code.find("__mpf_sparse(1, 0, 0, 3)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse(1, 1, __mpf_empty_array([0, 0]), "
                                "__mpf_empty_array([0, 0]), __mpf_empty_array([0, 0]))") !=
           std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::sparse_from_dense(") != std::string::npos);
@@ -789,6 +789,41 @@ TEST_CASE("Matlab zero-extent sparse constructors preserve their planned shape")
   REQUIRE(cpp.code.find("mpf_runtime::sparse(0, 3)") != std::string::npos);
   for (const auto* result : {&javascript, &cpp}) {
     for (std::size_t line = 1U; line <= 8U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
+TEST_CASE("Matlab logical sparse CSC values preserve class and lifecycle plans") {
+  const std::string source =
+      "dense = sparse([true false; false true]);\n"
+      "duplicates = sparse([1 1 2 2], [1 1 2 2], [false true false true], 2, 2);\n"
+      "transposed = dense.';\n"
+      "selected = duplicates([2 1], [2 1]);\n"
+      "reshaped = reshape(selected, [1 4]);\n"
+      "duplicates(1, 2) = true;\n"
+      "duplicates(2, 2) = false;\n"
+      "dense_full = full(dense);\n"
+      "result_full = full(reshaped);\n"
+      "disp(issparse(dense), issparse(duplicates), nnz(transposed), nnz(duplicates), "
+      "dense_full(1, 1), result_full(1, 1), result_full(1, 4))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_sparse_from_dense(") != std::string::npos);
+  REQUIRE(javascript.code.find(", [2, 2], 2)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse(2, 2, ") != std::string::npos);
+  REQUIRE(javascript.code.find("valueDomain") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_logical_from_dense(") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_logical_any(") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_transpose(dense)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_reshape(selected,") != std::string::npos);
+  REQUIRE(cpp.code.find("sparse_matrix<bool>") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 10U; ++line) {
       REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
                           [line](const auto& segment) { return segment.original_line == line; }));
     }
@@ -827,10 +862,10 @@ TEST_CASE("Matlab sparse CSC indexing preserves storage shape and target isolati
   REQUIRE(javascript.code.find("__mpf_sparse_submatrix_selection(A,") != std::string::npos);
   REQUIRE(javascript.code.find(", [null, 1])") != std::string::npos);
   REQUIRE(javascript.code.find("mpf_runtime::sparse_") == std::string::npos);
-  REQUIRE(cpp.code.find("double sparse_linear_element(") != std::string::npos);
-  REQUIRE(cpp.code.find("double sparse_subscript_element(") != std::string::npos);
-  REQUIRE(cpp.code.find("sparse_matrix<double> sparse_linear_selection(") != std::string::npos);
-  REQUIRE(cpp.code.find("sparse_matrix<double> sparse_submatrix_selection(") != std::string::npos);
+  REQUIRE(cpp.code.find("T sparse_linear_element(") != std::string::npos);
+  REQUIRE(cpp.code.find("T sparse_subscript_element(") != std::string::npos);
+  REQUIRE(cpp.code.find("sparse_matrix<T> sparse_linear_selection(") != std::string::npos);
+  REQUIRE(cpp.code.find("sparse_matrix<T> sparse_submatrix_selection(") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::sparse_linear_element(A,") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::sparse_submatrix_selection(A,") != std::string::npos);
   REQUIRE(cpp.code.find("std::nullopt, std::optional<std::size_t>{1}") != std::string::npos);
@@ -1016,7 +1051,7 @@ TEST_CASE("Matlab sparse reshape preserves CSC order and target isolation") {
   REQUIRE(javascript.code.find("__mpf_sparse_reshape(A, [2, 3], [1, 2, 3], [1, 6])") !=
           std::string::npos);
   REQUIRE(javascript.code.find("mpf_runtime::sparse_reshape") == std::string::npos);
-  REQUIRE(cpp.code.find("sparse_matrix<double> sparse_reshape(") != std::string::npos);
+  REQUIRE(cpp.code.find("sparse_matrix<T> sparse_reshape(") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::sparse_reshape(A, std::array<std::size_t, 2>{2, 3}, "
                         "std::array<std::size_t, 2>{6, 1}, "
                         "std::array<std::size_t, 2>{6, 1})") != std::string::npos);
