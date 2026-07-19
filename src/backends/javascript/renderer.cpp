@@ -286,12 +286,14 @@ class Renderer final {
             output_ << ", ";
             emit_shape(shape);
           }
+          output_ << ", " << static_cast<int>(expression.sparse_construction.value_domain);
           output_ << ')';
           return;
         }
-        output_ << "__mpf_sparse(";
+        output_ << "__mpf_sparse(" << static_cast<int>(expression.sparse_construction.value_domain)
+                << ", " << static_cast<int>(expression.sparse_construction.duplicate_policy);
         for (std::size_t index = 1U; index < expression.children.size(); ++index) {
-          if (index != 1U) output_ << ", ";
+          output_ << ", ";
           emit_expression(expression.children[index]);
         }
         output_ << ')';
