@@ -1126,6 +1126,28 @@ class Renderer final {
         }
         output_ << "\n";
         break;
+      case javascript::lir::StatementForm::try_catch:
+        indentation();
+        output_ << "try {\n";
+        ++indent_;
+        emit_scope_declarations(statement.body_scope);
+        emit_statements(statement.body);
+        --indent_;
+        mark({statement.exception_handler_line, 1}, statement.origin);
+        indentation();
+        output_ << "} catch (__mpf_caught) {\n";
+        ++indent_;
+        emit_scope_declarations(statement.alternative_scope);
+        if (statement.plan.has_exception_binding) {
+          indentation();
+          emit_variable_name(statement.symbol_id, statement.name, statement.plan.target_access);
+          output_ << " = __mpf_capture_exception(__mpf_caught);\n";
+        }
+        emit_statements(statement.alternative);
+        --indent_;
+        indentation();
+        output_ << "}\n";
+        break;
       case javascript::lir::StatementForm::selection: emit_select_case(statement); break;
       case javascript::lir::StatementForm::case_clause: break;
       case javascript::lir::StatementForm::while_loop: {
@@ -1360,6 +1382,13 @@ class Renderer final {
     const auto position = output_.tellp();
     if (position < 0) return;
     markers_.push_back({static_cast<std::size_t>(position), segment->source, segment->origin});
+  }
+
+  void mark(const SourceLocation source, const HirNodeId origin) {
+    if (source.line == 0U) return;
+    const auto position = output_.tellp();
+    if (position < 0) return;
+    markers_.push_back({static_cast<std::size_t>(position), source, origin});
   }
 
   const std::string& temporary(const LirNodeId node, const javascript::lir::TemporaryRole role,

@@ -48,10 +48,40 @@ class RuntimeEmitter final {
         emit_javascript_sparse_reduction_runtime(output_);
         break;
       case javascript::lir::RuntimeFragment::scalar_division: emit_scalar_division_runtime(); break;
+      case javascript::lir::RuntimeFragment::exception_handling: emit_exception_runtime(); break;
     }
   }
 
  private:
+  void emit_exception_runtime() {
+    output_ << "function __mpf_capture_exception(value) {\n"
+               "  const object = value !== null && (typeof value === 'object' || "
+               "typeof value === 'function') ? value : null;\n"
+               "  const message = object !== null && typeof object.message === 'string' "
+               "? object.message : String(value);\n"
+               "  const identifier = object !== null && typeof object.identifier === 'string' "
+               "? object.identifier : (object !== null && typeof object.name === 'string' "
+               "&& object.name.length !== 0 ? `MPF:${object.name}` : 'MPF:RuntimeError');\n"
+               "  const stack = object !== null && typeof object.stack === 'string' "
+               "? object.stack : '';\n"
+               "  return Object.freeze({ identifier, message, stack, cause: Object.freeze([]), "
+               "__mpf_original: value });\n"
+               "}\n"
+               "function __mpf_matlab_error(identifierOrMessage, maybeMessage) {\n"
+               "  const identifier = maybeMessage === undefined ? 'MATLAB:error' : "
+               "String(identifierOrMessage);\n"
+               "  const message = maybeMessage === undefined ? String(identifierOrMessage) : "
+               "String(maybeMessage);\n"
+               "  const error = new Error(message);\n"
+               "  error.identifier = identifier;\n"
+               "  throw error;\n"
+               "}\n"
+               "function __mpf_matlab_rethrow(exception) {\n"
+               "  throw exception !== null && typeof exception === 'object' && "
+               "'__mpf_original' in exception ? exception.__mpf_original : exception;\n"
+               "}\n\n";
+  }
+
   void emit_complex_runtime() {
     output_
         << "const __mpf_complex_tag = Symbol('mpf.complex');\n"

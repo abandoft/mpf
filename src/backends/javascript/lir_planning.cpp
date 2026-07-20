@@ -60,6 +60,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::scalar_division)) {
     result.push_back(lir::RuntimeFragment::scalar_division);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::exception_handling)) {
+    result.push_back(lir::RuntimeFragment::exception_handling);
+  }
   return result;
 }
 
@@ -290,6 +293,17 @@ void collect_scope_names(const std::vector<lir::Statement>& statements,
         add_scope_name(
             index < statement.target_symbols.size() ? statement.target_symbols[index] : SymbolId{},
             statement.target_names[index], excluded_symbols, excluded_names, symbols, names);
+      }
+    } else if (statement.kind == StatementKind::try_statement) {
+      if (!lexical_blocks) {
+        if (!statement.name.empty()) {
+          add_scope_name(statement.symbol_id, statement.name, excluded_symbols, excluded_names,
+                         symbols, names);
+        }
+        collect_scope_names(statement.body, excluded_symbols, excluded_names, false, symbols,
+                            names);
+        collect_scope_names(statement.alternative, excluded_symbols, excluded_names, false, symbols,
+                            names);
       }
     } else if (statement.kind == StatementKind::if_statement ||
                statement.kind == StatementKind::while_loop) {

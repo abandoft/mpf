@@ -1710,6 +1710,14 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
                                                       : lir::ConditionForm::direct;
       result.has_alternative = !statement.alternative.empty();
       break;
+    case StatementKind::try_statement:
+      result.form = lir::StatementForm::try_catch;
+      result.has_alternative = statement.has_exception_handler;
+      result.has_exception_binding = !statement.name.empty();
+      if (result.has_exception_binding) {
+        result.target_access = variable_access(context, statement.name);
+      }
+      break;
     case StatementKind::select_case:
       result.form = lir::StatementForm::selection;
       result.character_selector =
@@ -1787,6 +1795,7 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
       left.assignment_value != right.assignment_value ||
       left.mutation_ownership != right.mutation_ownership ||
       left.target_access != right.target_access || left.has_alternative != right.has_alternative ||
+      left.has_exception_binding != right.has_exception_binding ||
       left.range_has_step != right.range_has_step ||
       left.retain_loop_value != right.retain_loop_value ||
       left.inclusive_stop != right.inclusive_stop ||
@@ -1909,10 +1918,19 @@ void verify_statements(const std::vector<lir::Statement>& statements,
       add_error(diagnostics, {statement.line, 1},
                 "JavaScript LIR implicit-result contract is inconsistent");
     }
+    const bool exception_assignment =
+        statement.kind == StatementKind::try_statement && !statement.name.empty();
     if (statement.previous_assigned && statement.kind != StatementKind::assignment &&
-        !statement.implicit_result_has_value) {
+        !statement.implicit_result_has_value && !exception_assignment) {
       add_error(diagnostics, {statement.line, 1},
                 "JavaScript LIR previous-assignment contract is inconsistent");
+    }
+    if ((statement.plan.form == lir::StatementForm::try_catch) !=
+            (statement.exception_handler_line != 0U) ||
+        (statement.plan.form == lir::StatementForm::try_catch &&
+         source_language != SourceLanguage::matlab)) {
+      add_error(diagnostics, {statement.line, 1},
+                "JavaScript LIR exception-handler source contract is inconsistent");
     }
     if (statement.kind == StatementKind::indexed_assignment) {
       if (!semantic::valid_indexed_mutation_shapes(statement.indexed_mutation,
