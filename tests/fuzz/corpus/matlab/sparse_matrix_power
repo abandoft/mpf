@@ -1,0 +1,6 @@
+A = sparse([1 1; 0 1]);
+L = sparse([true false; false true]);
+P = A ^ 7;
+I = A ^ 0;
+Q = L ^ 2;
+disp(nnz(P), nnz(I), nnz(Q))
