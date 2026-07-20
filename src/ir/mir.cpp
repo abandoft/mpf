@@ -844,6 +844,8 @@ class Builder final {
         result_attributes.sparse_arithmetic.operation = semantic_facts->sparse_arithmetic.operation;
         result_attributes.sparse_arithmetic.storage_policy =
             semantic_facts->sparse_arithmetic.storage_policy;
+        result_attributes.sparse_arithmetic.value_domain =
+            semantic_facts->sparse_arithmetic.value_domain;
         result_attributes.sparse_arithmetic.shape_source =
             semantic_facts->sparse_arithmetic.shape_source;
         result_attributes.sparse_arithmetic.left_storage =

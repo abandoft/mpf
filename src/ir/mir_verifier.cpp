@@ -501,8 +501,9 @@ bool valid_sparse_arithmetic_shapes(const Program& program, const SparseArithmet
     return false;
   }
   return semantic::valid_sparse_arithmetic_contract(
-      plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage, plan.right_storage,
-      plan.result_storage, left_extents, right_extents, result->extents, plan.axes);
+      plan.operation, plan.storage_policy, plan.value_domain, plan.shape_source, plan.left_storage,
+      plan.right_storage, plan.result_storage, left_extents, right_extents, result->extents,
+      plan.axes);
 }
 
 bool valid_sparse_logical_shapes(const Program& program, const SparseLogicalPlan& plan,
@@ -673,6 +674,7 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->sparse_arithmetic.valid() ||
         retired_attributes->sparse_arithmetic.storage_policy !=
             semantic::SparseArithmeticStoragePolicy::none ||
+        retired_attributes->sparse_arithmetic.value_domain != semantic::SparseValueDomain::none ||
         retired_attributes->sparse_arithmetic.shape_source !=
             semantic::BroadcastShapeSource::static_extents ||
         retired_attributes->sparse_arithmetic.left_storage != ArrayStorageFormat::none ||
@@ -1025,12 +1027,19 @@ void verify_expression(const Expression& expression, const Program& program,
                             ? mir::expression(program, expression.children[1])
                             : nullptr;
     const auto* result_type = type_data(program, expression.type_id);
+    const auto expected_value_domain =
+        result_type != nullptr &&
+                result_type->element_numeric_type.complexity == NumericComplexity::complex
+            ? semantic::SparseValueDomain::finite_complex
+            : semantic::SparseValueDomain::finite_real;
     if (expression_attributes->array_operation != semantic::ArrayOperation::matlab ||
         expression.kind != ExpressionKind::binary || expression.children.size() != 2U ||
         sparse_arithmetic.operation != expected_operation ||
         expression_attributes->broadcast.valid || left == nullptr || right == nullptr ||
         result_type == nullptr || result_type->kind != TypeKind::sequence ||
-        result_type->element_numeric_type != real_numeric_type ||
+        (result_type->element_numeric_type != real_numeric_type &&
+         result_type->element_numeric_type != complex_numeric_type) ||
+        sparse_arithmetic.value_domain != expected_value_domain ||
         sparse_arithmetic.left_storage != array_storage(program, left->type_id) ||
         sparse_arithmetic.right_storage != array_storage(program, right->type_id) ||
         sparse_arithmetic.result_storage != array_storage(program, expression.type_id) ||
@@ -1040,6 +1049,7 @@ void verify_expression(const Expression& expression, const Program& program,
                 "storage, numeric, or result contract");
     }
   } else if (sparse_arithmetic.storage_policy != semantic::SparseArithmeticStoragePolicy::none ||
+             sparse_arithmetic.value_domain != semantic::SparseValueDomain::none ||
              sparse_arithmetic.shape_source != semantic::BroadcastShapeSource::static_extents ||
              sparse_arithmetic.left_storage != ArrayStorageFormat::none ||
              sparse_arithmetic.right_storage != ArrayStorageFormat::none ||
