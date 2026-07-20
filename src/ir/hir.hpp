@@ -60,6 +60,8 @@ struct Statement {
   bool has_target_pattern{false};
   std::vector<CaseSelector> case_selectors;
   bool default_case{false};
+  bool has_exception_handler{false};
+  std::size_t exception_handler_line{0};
   std::vector<Statement> body;
   std::vector<Statement> alternative;
 };

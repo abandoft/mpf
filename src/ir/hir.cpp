@@ -80,6 +80,12 @@ void verify_statements(const std::vector<Statement>& statements, const std::size
       add_error(diagnostics, {statement.line, 1}, stage,
                 "implicit result is not a normalized Matlab ans call");
     }
+    if ((statement.kind == StatementKind::try_statement) != statement.has_exception_handler ||
+        (statement.kind == StatementKind::try_statement) !=
+            (statement.exception_handler_line != 0U)) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "try statement and exception-handler presence are inconsistent");
+    }
     const auto verify_optional = [&](const Expression& expression, const bool present,
                                      const char* name) {
       if (present && !expression.valid()) {

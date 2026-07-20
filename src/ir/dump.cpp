@@ -33,6 +33,7 @@ void dump_hir_statements(std::ostringstream& output, const std::vector<hir::Stat
     output << std::string(depth * 2U, ' ') << "stmt %h" << statement.id.value()
            << " kind=" << enum_value(statement.kind) << " name=" << std::quoted(statement.name)
            << " line=" << statement.line
+           << " exception-handler-line=" << statement.exception_handler_line
            << " implicit-result=" << enum_value(statement.implicit_result) << '\n';
     dump_hir_expression(output, statement.expression, depth + 1U);
     dump_hir_expression(output, statement.secondary_expression, depth + 1U);
@@ -149,7 +150,7 @@ void dump_memory_accesses(std::ostringstream& output,
 
 std::string dump_hir(const hir::Program& program) {
   std::ostringstream output;
-  output << "hir-v2 language=" << enum_value(program.language) << " nodes=" << program.node_count
+  output << "hir-v3 language=" << enum_value(program.language) << " nodes=" << program.node_count
          << " revision=" << program.revision << '\n';
   output << "semantics truthiness=" << enum_value(program.semantics.truthiness)
          << " logical-result=" << enum_value(program.semantics.logical_result)
@@ -171,7 +172,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v30 hir-nodes=" << table.hir_node_count
+  output << "semantic-v31 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -441,7 +442,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v36 language=" << enum_value(program.source_language)
+  output << "mir-v37 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -656,7 +657,8 @@ std::string dump_mir(const mir::Program& program) {
     dump_ids(output, statement.body, "%mstmt");
     output << " alternative=";
     dump_ids(output, statement.alternative, "%mstmt");
-    output << " origin=%h" << statement.origin.value();
+    output << " origin=%h" << statement.origin.value()
+           << " exception-handler-line=" << statement.exception_handler_line;
     if (attributes != nullptr) {
       output << " procedure-call=" << attributes->procedure_call
              << " implicit-result=" << enum_value(attributes->implicit_result)
@@ -756,7 +758,7 @@ std::string dump_mir(const mir::Program& program) {
         output << "%v" << value.value.value() << ":!t" << value.type.value() << ":!s"
                << value.shape.value() << ":!m" << value.storage.value();
       }
-      output << "]\n";
+      output << "] exception-handler=^b" << block.exception_handler.value() << "\n";
       for (const auto instruction_id : block.instructions) {
         if (!instruction_id.valid() || instruction_id.value() >= program.instructions.size()) {
           output << "    invalid-instruction !i" << instruction_id.value() << '\n';
@@ -797,6 +799,14 @@ std::string dump_mir(const mir::Program& program) {
       output << ']';
       output << '\n';
     }
+  }
+  for (const auto& region : program.exception_regions) {
+    output << "exception-region owner=%m" << region.owner.value() << " entry=^b"
+           << region.protected_entry.value() << " protected=";
+    dump_ids(output, region.protected_blocks, "^b");
+    output << " handler=^b" << region.handler.value() << " continuation=^b"
+           << region.continuation.value() << " symbol=$s" << region.exception_symbol.value()
+           << '\n';
   }
   for (const auto& call : program.calls) {
     output << "call !i" << call.instruction.value() << " caller=@f" << call.caller.value()

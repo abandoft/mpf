@@ -138,7 +138,8 @@ class Builder final {
         case StatementKind::function:
         case StatementKind::declaration: return NameRole::declaration;
         case StatementKind::assignment:
-        case StatementKind::multi_assignment: return NameRole::assignment;
+        case StatementKind::multi_assignment:
+        case StatementKind::try_statement: return NameRole::assignment;
         case StatementKind::range_loop:
         case StatementKind::for_loop: return NameRole::loop_variable;
         case StatementKind::indexed_assignment:
@@ -309,6 +310,9 @@ class Builder final {
       result.case_selectors.push_back(lower_selector(std::move(selector)));
     }
     result.default_case = source.default_case;
+    result.has_exception_handler = source.has_exception_handler;
+    result.exception_handler_line = source.exception_handler_line;
+    result_attributes.has_exception_handler = source.has_exception_handler;
 
     if (result.kind == StatementKind::function) {
       initialize_function_signature(result, semantic_facts);
@@ -399,6 +403,83 @@ class Builder final {
       exit_incoming.push_back({condition_exit, condition_versions});
       current_block_ = for_exit;
       storage_values_ = merge_storage_versions(for_exit, exit_incoming, for_entry_versions);
+    } else if (source.kind == StatementKind::try_statement) {
+      const auto entry_versions = storage_values_;
+      const auto protected_begin = current_function().blocks.size();
+      const auto protected_entry = make_function_block();
+      const auto handler_block = make_function_block();
+      const auto merge_block = make_function_block();
+      set_branch(protected_entry, source.id);
+
+      current_block_ = protected_entry;
+      lower_statement_list(std::move(source.body), result.body);
+      if (current_block().terminator.kind == TerminatorKind::none) {
+        set_branch(merge_block, source.id);
+      }
+      std::vector<ControlEdge> incoming;
+      if (std::find(current_block().terminator.successors.begin(),
+                    current_block().terminator.successors.end(),
+                    merge_block) != current_block().terminator.successors.end()) {
+        incoming.push_back({current_block_, storage_values_});
+      }
+
+      ExceptionRegion region;
+      region.owner = result.id;
+      region.protected_entry = protected_entry;
+      region.handler = handler_block;
+      region.continuation = merge_block;
+      region.exception_symbol = result.symbol_id;
+      for (std::size_t index = protected_begin; index < current_function().blocks.size(); ++index) {
+        const auto block_id = current_function().blocks[index];
+        if (block_id == handler_block || block_id == merge_block) continue;
+        auto& block = program_.blocks[block_id.value()];
+        if (!block.exception_handler.valid()) {
+          block.exception_handler = handler_block;
+          region.protected_blocks.push_back(block_id);
+        }
+      }
+
+      storage_values_ = entry_versions;
+      current_block_ = handler_block;
+      if (!result.name.empty() && result.instruction.valid()) {
+        const auto& owner_instruction = program_.instructions[result.instruction.value()];
+        if (owner_instruction.storage.valid()) {
+          Instruction capture;
+          capture.id = instruction_ids_.next();
+          capture.opcode = Opcode::catch_exception;
+          capture.origin = result.origin;
+          capture.location = {result.line, 1};
+          capture.result = value_ids_.next();
+          capture.type = intern_type(ValueType::exception, ValueType::unknown, no_numeric_type,
+                                     no_numeric_type, ArrayStorageFormat::none);
+          capture.shape = intern_shape({}, false);
+          capture.storage = owner_instruction.storage;
+          storage_values_[capture.storage] = capture.result;
+          append_instruction(
+              std::move(capture),
+              {make_memory_access(owner_instruction.storage, full_region(owner_instruction.storage),
+                                  MemoryAccessMode::write)});
+        }
+      }
+      lower_statement_list(std::move(source.alternative), result.alternative);
+      if (current_block().terminator.kind == TerminatorKind::none) {
+        set_branch(merge_block, source.id);
+      }
+      if (std::find(current_block().terminator.successors.begin(),
+                    current_block().terminator.successors.end(),
+                    merge_block) != current_block().terminator.successors.end()) {
+        incoming.push_back({current_block_, storage_values_});
+      }
+      program_.exception_regions.push_back(std::move(region));
+
+      current_block_ = merge_block;
+      if (incoming.empty()) {
+        current_block().terminator.kind = TerminatorKind::unreachable;
+        current_block().terminator.origin = source.id;
+        storage_values_ = entry_versions;
+      } else {
+        storage_values_ = merge_storage_versions(merge_block, incoming, entry_versions);
+      }
     } else if (source.kind == StatementKind::if_statement) {
       const auto entry_versions = storage_values_;
       const auto then_block = make_function_block();
@@ -1408,6 +1489,7 @@ class Builder final {
     append_operand(statement.target_expression);
     if ((statement.kind == StatementKind::declaration ||
          statement.kind == StatementKind::assignment ||
+         statement.kind == StatementKind::try_statement ||
          statement.kind == StatementKind::range_loop || statement.kind == StatementKind::for_loop ||
          attributes.implicit_result_has_value) &&
         !statement.name.empty()) {

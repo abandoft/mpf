@@ -88,7 +88,8 @@ enum class Opcode {
   selection,
   loop,
   function,
-  control
+  control,
+  catch_exception
 };
 
 enum class TerminatorKind { none, branch, conditional_branch, return_value, unreachable };
@@ -179,6 +180,16 @@ struct BasicBlock {
   std::vector<BlockArgument> arguments;
   std::vector<InstructionId> instructions;
   Terminator terminator;
+  BlockId exception_handler{};
+};
+
+struct ExceptionRegion {
+  MirStatementId owner{};
+  BlockId protected_entry{};
+  std::vector<BlockId> protected_blocks;
+  BlockId handler{};
+  BlockId continuation{};
+  SymbolId exception_symbol{};
 };
 
 struct Function {
@@ -271,6 +282,8 @@ struct Statement {
   bool has_target_pattern{false};
   std::vector<CaseSelector> case_selectors;
   bool default_case{false};
+  bool has_exception_handler{false};
+  std::size_t exception_handler_line{0};
   std::vector<MirStatementId> body;
   std::vector<MirStatementId> alternative;
 };
@@ -507,6 +520,7 @@ struct StatementAttributes {
   bool previous_assigned{false};
   bool inclusive_stop{false};
   bool retain_last_loop_value{true};
+  bool has_exception_handler{false};
   TypeId previous_type{};
   AssignmentPattern target_pattern;
   std::vector<TargetAttributes> targets;
@@ -569,6 +583,7 @@ struct Program {
   std::vector<BasicBlock> blocks;
   std::vector<Function> functions;
   std::vector<CallSite> calls;
+  std::vector<ExceptionRegion> exception_regions;
   std::size_t hir_node_count{0};
   std::uint64_t revision{0};
 };

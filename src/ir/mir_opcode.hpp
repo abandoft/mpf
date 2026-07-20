@@ -50,7 +50,8 @@ namespace mpf::detail::mir {
     case StatementKind::for_loop: return Opcode::store;
     case StatementKind::function: return Opcode::function;
     case StatementKind::break_statement:
-    case StatementKind::continue_statement: return Opcode::control;
+    case StatementKind::continue_statement:
+    case StatementKind::try_statement: return Opcode::control;
   }
   return Opcode::invalid;
 }
