@@ -49,6 +49,10 @@ mpf_add_differential_case(
   matlab-sparse-matrix-product matlab examples/matlab/sparse_matrix_product.m
   "16 15 16 15 1 0 0 2")
 mpf_add_differential_case(
+  matlab-complex-sparse-matrix-product matlab
+  examples/matlab/complex_sparse_matrix_product.m
+  "-4 2 11 12 -4 15 -1 -3 6 7 2 15 6 5 17 6 11 12 -4 15 0 0 4 4 4 0 0 0 1 1 1 0 0 1 1 1")
+mpf_add_differential_case(
   matlab-sparse-matrix-power matlab examples/matlab/sparse_matrix_power.m
   "3 16 81 1 1 1 1 1 1 1 1 1 3 2 2 0 0")
 mpf_add_differential_case(
