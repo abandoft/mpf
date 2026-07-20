@@ -508,6 +508,25 @@ std::string dump_mir(const mir::Program& program) {
         }
         output << ']';
       }
+      if (attributes->sparse_arithmetic.valid()) {
+        output << " sparse-arithmetic=" << enum_value(attributes->sparse_arithmetic.operation)
+               << " storage-policy=" << enum_value(attributes->sparse_arithmetic.storage_policy)
+               << " storage=" << enum_value(attributes->sparse_arithmetic.left_storage) << ','
+               << enum_value(attributes->sparse_arithmetic.right_storage) << "->"
+               << enum_value(attributes->sparse_arithmetic.result_storage) << ' ';
+        if (attributes->sparse_arithmetic.left_shape.valid()) {
+          output << "!s" << attributes->sparse_arithmetic.left_shape.value();
+        } else {
+          output << "scalar";
+        }
+        output << ',';
+        if (attributes->sparse_arithmetic.right_shape.valid()) {
+          output << "!s" << attributes->sparse_arithmetic.right_shape.value();
+        } else {
+          output << "scalar";
+        }
+        output << "->!s" << attributes->sparse_arithmetic.result_shape.value();
+      }
       if (attributes->sparse_elementwise.valid()) {
         output << " sparse-elementwise=" << enum_value(attributes->sparse_elementwise.operation)
                << " storage-policy=" << enum_value(attributes->sparse_elementwise.storage_policy)

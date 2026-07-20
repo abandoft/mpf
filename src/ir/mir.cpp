@@ -840,6 +840,31 @@ class Builder final {
             intern_shape(semantic_facts->broadcast.result_shape, false);
         result_attributes.broadcast.axes = semantic_facts->broadcast.axes;
       }
+      if (semantic_facts->sparse_arithmetic.valid()) {
+        result_attributes.sparse_arithmetic.operation =
+            semantic_facts->sparse_arithmetic.operation;
+        result_attributes.sparse_arithmetic.storage_policy =
+            semantic_facts->sparse_arithmetic.storage_policy;
+        result_attributes.sparse_arithmetic.shape_source =
+            semantic_facts->sparse_arithmetic.shape_source;
+        result_attributes.sparse_arithmetic.left_storage =
+            semantic_facts->sparse_arithmetic.left_storage;
+        result_attributes.sparse_arithmetic.right_storage =
+            semantic_facts->sparse_arithmetic.right_storage;
+        result_attributes.sparse_arithmetic.result_storage =
+            semantic_facts->sparse_arithmetic.result_storage;
+        if (!semantic_facts->sparse_arithmetic.left_shape.empty()) {
+          result_attributes.sparse_arithmetic.left_shape =
+              intern_shape(semantic_facts->sparse_arithmetic.left_shape, false);
+        }
+        if (!semantic_facts->sparse_arithmetic.right_shape.empty()) {
+          result_attributes.sparse_arithmetic.right_shape =
+              intern_shape(semantic_facts->sparse_arithmetic.right_shape, false);
+        }
+        result_attributes.sparse_arithmetic.result_shape =
+            intern_shape(semantic_facts->sparse_arithmetic.result_shape, false);
+        result_attributes.sparse_arithmetic.axes = semantic_facts->sparse_arithmetic.axes;
+      }
       if (semantic_facts->sparse_elementwise.valid()) {
         result_attributes.sparse_elementwise.operation =
             semantic_facts->sparse_elementwise.operation;

@@ -96,6 +96,15 @@ std::vector<Diagnostic> canonicalize_shapes(Program& program, OptimizationStatis
       remap_shape(attributes.broadcast.right_shape, remap);
       remap_shape(attributes.broadcast.result_shape, remap);
     }
+    if (attributes.sparse_arithmetic.valid()) {
+      if (attributes.sparse_arithmetic.left_shape.valid()) {
+        remap_shape(attributes.sparse_arithmetic.left_shape, remap);
+      }
+      if (attributes.sparse_arithmetic.right_shape.valid()) {
+        remap_shape(attributes.sparse_arithmetic.right_shape, remap);
+      }
+      remap_shape(attributes.sparse_arithmetic.result_shape, remap);
+    }
     if (attributes.sparse_elementwise.valid()) {
       if (attributes.sparse_elementwise.left_shape.valid()) {
         remap_shape(attributes.sparse_elementwise.left_shape, remap);
@@ -104,6 +113,15 @@ std::vector<Diagnostic> canonicalize_shapes(Program& program, OptimizationStatis
         remap_shape(attributes.sparse_elementwise.right_shape, remap);
       }
       remap_shape(attributes.sparse_elementwise.result_shape, remap);
+    }
+    if (attributes.sparse_logical.valid()) {
+      if (attributes.sparse_logical.left_shape.valid()) {
+        remap_shape(attributes.sparse_logical.left_shape, remap);
+      }
+      if (attributes.sparse_logical.right_shape.valid()) {
+        remap_shape(attributes.sparse_logical.right_shape, remap);
+      }
+      remap_shape(attributes.sparse_logical.result_shape, remap);
     }
     if (attributes.matrix_operation.valid()) {
       remap_shape(attributes.matrix_operation.left_shape, remap);
@@ -118,6 +136,22 @@ std::vector<Diagnostic> canonicalize_shapes(Program& program, OptimizationStatis
     if (attributes.sparse_index.valid()) {
       remap_shape(attributes.sparse_index.input_shape, remap);
       remap_shape(attributes.sparse_index.result_shape, remap);
+    }
+    if (attributes.sparse_reshape.valid()) {
+      remap_shape(attributes.sparse_reshape.input_shape, remap);
+      remap_shape(attributes.sparse_reshape.requested_shape, remap);
+      remap_shape(attributes.sparse_reshape.result_shape, remap);
+    }
+    if (attributes.reduction.valid()) {
+      if (attributes.reduction.input_shape.valid()) {
+        remap_shape(attributes.reduction.input_shape, remap);
+      }
+      if (attributes.reduction.result_shape.valid()) {
+        remap_shape(attributes.reduction.result_shape, remap);
+      }
+      if (attributes.reduction.output_shape.valid()) {
+        remap_shape(attributes.reduction.output_shape, remap);
+      }
     }
     for (auto& shape : attributes.tuple_shapes) remap_shape(shape, remap);
     for (auto& metadata : attributes.sequence_elements) remap_value_metadata(metadata, remap);
@@ -390,6 +424,7 @@ bool fold_expression(Program& program, const MirExpressionId id, OptimizationSta
   facts->logical_evaluation = semantic::LogicalEvaluation::none;
   facts->array_operation = semantic::ArrayOperation::native;
   facts->broadcast = {};
+  facts->sparse_arithmetic = {};
   facts->sparse_elementwise = {};
   facts->sparse_logical = {};
   facts->matrix_operation = {};

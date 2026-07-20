@@ -1441,6 +1441,34 @@ TEST_CASE("Matlab Analyzer assigns sparse arithmetic storage without dense broad
   REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, corrupted,
                                               "sparse-arithmetic-storage-corruption")
                .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-arithmetic-plan").empty());
+  const auto dump = mpf::detail::dump_mir(mir.program);
+  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=1 storage=3,3->3") !=
+          std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=1 storage=3,3->3") !=
+          std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=2 storage=3,2->2") !=
+          std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=2 storage=2,3->2") !=
+          std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=2 storage=3,0->2") !=
+          std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=2 storage=0,3->2") !=
+          std::string::npos);
+
+  auto corrupted_mir = mir.program;
+  const auto mir_arithmetic = std::find_if(
+      corrupted_mir.attributes.expressions.begin(),
+      corrupted_mir.attributes.expressions.end(), [](const auto& attributes) {
+        return attributes.sparse_arithmetic.storage_policy == Policy::materialize_dense;
+      });
+  REQUIRE(mir_arithmetic != corrupted_mir.attributes.expressions.end());
+  mir_arithmetic->sparse_arithmetic.storage_policy = Policy::preserve_sparse;
+  REQUIRE(!mpf::detail::mir::verify(corrupted_mir, "sparse-arithmetic-policy-corruption").empty());
 }
 
 TEST_CASE("Matlab sparse logical storage policy is explicit and shape checked") {

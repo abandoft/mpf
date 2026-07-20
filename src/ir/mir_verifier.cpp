@@ -482,6 +482,25 @@ bool valid_sparse_elementwise_shapes(const Program& program, const SparseElement
       plan.result_storage, left_extents, right_extents, result->extents, plan.axes);
 }
 
+bool valid_sparse_arithmetic_shapes(const Program& program, const SparseArithmeticPlan& plan,
+                                    const ShapeId expression_shape) noexcept {
+  const auto* left = shape(program, plan.left_shape);
+  const auto* right = shape(program, plan.right_shape);
+  const auto* result = shape(program, plan.result_shape);
+  const std::vector<std::size_t> scalar_shape;
+  const auto& left_extents = left == nullptr ? scalar_shape : left->extents;
+  const auto& right_extents = right == nullptr ? scalar_shape : right->extents;
+  if ((plan.left_storage == ArrayStorageFormat::none) != !plan.left_shape.valid() ||
+      (plan.right_storage == ArrayStorageFormat::none) != !plan.right_shape.valid() ||
+      result == nullptr || plan.result_shape != expression_shape) {
+    return false;
+  }
+  return semantic::valid_sparse_arithmetic_contract(
+      plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage,
+      plan.right_storage, plan.result_storage, left_extents, right_extents, result->extents,
+      plan.axes);
+}
+
 bool valid_sparse_logical_shapes(const Program& program, const SparseLogicalPlan& plan,
                                  const ShapeId expression_shape) noexcept {
   const auto* left = shape(program, plan.left_shape);
@@ -647,6 +666,18 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->broadcast.valid ||
         retired_attributes->broadcast.shape_source !=
             semantic::BroadcastShapeSource::static_extents ||
+        retired_attributes->sparse_arithmetic.valid() ||
+        retired_attributes->sparse_arithmetic.storage_policy !=
+            semantic::SparseArithmeticStoragePolicy::none ||
+        retired_attributes->sparse_arithmetic.shape_source !=
+            semantic::BroadcastShapeSource::static_extents ||
+        retired_attributes->sparse_arithmetic.left_storage != ArrayStorageFormat::none ||
+        retired_attributes->sparse_arithmetic.right_storage != ArrayStorageFormat::none ||
+        retired_attributes->sparse_arithmetic.result_storage != ArrayStorageFormat::none ||
+        retired_attributes->sparse_arithmetic.left_shape.valid() ||
+        retired_attributes->sparse_arithmetic.right_shape.valid() ||
+        retired_attributes->sparse_arithmetic.result_shape.valid() ||
+        !retired_attributes->sparse_arithmetic.axes.empty() ||
         retired_attributes->sparse_elementwise.valid() ||
         retired_attributes->sparse_elementwise.storage_policy !=
             semantic::SparseElementwiseStoragePolicy::none ||
@@ -973,6 +1004,45 @@ void verify_expression(const Expression& expression, const Program& program,
              semantic::BroadcastShapeSource::static_extents) {
     add_error(diagnostics, expression.location, stage,
               "inactive expression broadcast attributes retain a runtime shape source");
+  }
+  const auto& sparse_arithmetic = expression_attributes->sparse_arithmetic;
+  if (sparse_arithmetic.valid()) {
+    const auto expected_operation = expression_attributes->operation == BinaryOperator::add
+                                        ? semantic::SparseArithmeticOperation::add
+                                    : expression_attributes->operation == BinaryOperator::subtract
+                                        ? semantic::SparseArithmeticOperation::subtract
+                                        : semantic::SparseArithmeticOperation::none;
+    const auto* left = expression.children.size() == 2U
+                           ? mir::expression(program, expression.children[0])
+                           : nullptr;
+    const auto* right = expression.children.size() == 2U
+                            ? mir::expression(program, expression.children[1])
+                            : nullptr;
+    const auto* result_type = type_data(program, expression.type_id);
+    if (expression_attributes->array_operation != semantic::ArrayOperation::matlab ||
+        expression.kind != ExpressionKind::binary || expression.children.size() != 2U ||
+        sparse_arithmetic.operation != expected_operation ||
+        expression_attributes->broadcast.valid || left == nullptr || right == nullptr ||
+        result_type == nullptr || result_type->kind != TypeKind::sequence ||
+        result_type->element_numeric_type != real_numeric_type ||
+        sparse_arithmetic.left_storage != array_storage(program, left->type_id) ||
+        sparse_arithmetic.right_storage != array_storage(program, right->type_id) ||
+        sparse_arithmetic.result_storage != array_storage(program, expression.type_id) ||
+        !valid_sparse_arithmetic_shapes(program, sparse_arithmetic, expression.shape_id)) {
+      add_error(diagnostics, expression.location, stage,
+                "expression sparse arithmetic attributes have an invalid operator, broadcast, "
+                "storage, numeric, or result contract");
+    }
+  } else if (sparse_arithmetic.storage_policy !=
+                 semantic::SparseArithmeticStoragePolicy::none ||
+             sparse_arithmetic.shape_source != semantic::BroadcastShapeSource::static_extents ||
+             sparse_arithmetic.left_storage != ArrayStorageFormat::none ||
+             sparse_arithmetic.right_storage != ArrayStorageFormat::none ||
+             sparse_arithmetic.result_storage != ArrayStorageFormat::none ||
+             sparse_arithmetic.left_shape.valid() || sparse_arithmetic.right_shape.valid() ||
+             sparse_arithmetic.result_shape.valid() || !sparse_arithmetic.axes.empty()) {
+    add_error(diagnostics, expression.location, stage,
+              "inactive expression sparse arithmetic attributes retain semantic state");
   }
   const auto& sparse_elementwise = expression_attributes->sparse_elementwise;
   if (sparse_elementwise.valid()) {
