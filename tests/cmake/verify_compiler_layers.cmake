@@ -696,6 +696,7 @@ file(READ "${SOURCE_DIR}/src/ir/semantics.hpp" sparse_arithmetic_semantic_contra
 foreach(required_sparse_arithmetic_semantic IN ITEMS
     "SparseArithmeticOperation"
     "SparseArithmeticStoragePolicy"
+    "SparseValueDomain"
     "sparse_arithmetic_result_storage"
     "sparse_arithmetic_storage_policy"
     "valid_sparse_arithmetic_contract")
@@ -714,7 +715,8 @@ foreach(sparse_arithmetic_ir IN ITEMS
   file(READ "${SOURCE_DIR}/${sparse_arithmetic_ir}" sparse_arithmetic_ir_contract)
   if(NOT sparse_arithmetic_ir_contract MATCHES "SparseArithmeticPlan" OR
      NOT sparse_arithmetic_ir_contract MATCHES "sparse_arithmetic" OR
-     NOT sparse_arithmetic_ir_contract MATCHES "SparseArithmeticStoragePolicy")
+     NOT sparse_arithmetic_ir_contract MATCHES "SparseArithmeticStoragePolicy" OR
+     NOT sparse_arithmetic_ir_contract MATCHES "SparseValueDomain value_domain")
     message(FATAL_ERROR
       "IR layer does not own a typed sparse arithmetic plan: ${sparse_arithmetic_ir}")
   endif()
@@ -725,6 +727,8 @@ if(NOT sparse_arithmetic_lir_builder_contract MATCHES
      "sparse_arithmetic\.operation = attributes\.sparse_arithmetic\.operation" OR
    NOT sparse_arithmetic_lir_builder_contract MATCHES
      "sparse_arithmetic\.storage_policy = attributes\.sparse_arithmetic\.storage_policy" OR
+   NOT sparse_arithmetic_lir_builder_contract MATCHES
+     "sparse_arithmetic\.value_domain = attributes\.sparse_arithmetic\.value_domain" OR
    NOT sparse_arithmetic_lir_builder_contract MATCHES
      "sparse_arithmetic\.result_storage = attributes\.sparse_arithmetic\.result_storage" OR
    NOT sparse_arithmetic_lir_builder_contract MATCHES
@@ -738,10 +742,14 @@ file(READ "${SOURCE_DIR}/src/ir/mir.cpp" sparse_arithmetic_mir_lowering_contract
 file(READ "${SOURCE_DIR}/src/ir/mir_verifier.cpp" sparse_arithmetic_mir_verifier_contract)
 if(NOT sparse_arithmetic_analyzer_contract MATCHES "facts\.sparse_arithmetic =" OR
    NOT sparse_arithmetic_analyzer_contract MATCHES "sparse_arithmetic_result_storage" OR
+   NOT sparse_arithmetic_analyzer_contract MATCHES "SparseValueDomain::finite_complex" OR
    NOT sparse_arithmetic_analyzer_contract MATCHES "valid_sparse_arithmetic_contract" OR
    NOT sparse_arithmetic_mir_lowering_contract MATCHES "sparse_arithmetic\.operation" OR
+   NOT sparse_arithmetic_mir_lowering_contract MATCHES "sparse_arithmetic\.value_domain" OR
    NOT sparse_arithmetic_mir_lowering_contract MATCHES "sparse_arithmetic\.result_shape" OR
    NOT sparse_arithmetic_mir_verifier_contract MATCHES "valid_sparse_arithmetic_shapes" OR
+   NOT sparse_arithmetic_mir_verifier_contract MATCHES
+     "sparse_arithmetic\.value_domain" OR
    NOT sparse_arithmetic_mir_verifier_contract MATCHES "valid_sparse_arithmetic_contract")
   message(FATAL_ERROR
     "Analyzer and MIR do not independently own sparse arithmetic storage and shape plans")
@@ -756,7 +764,9 @@ foreach(sparse_arithmetic_representation IN ITEMS
      NOT sparse_arithmetic_representation_contract MATCHES "sparse_add" OR
      NOT sparse_arithmetic_representation_contract MATCHES "sparse_subtract" OR
      NOT sparse_arithmetic_representation_contract MATCHES "runtime_shape_arguments" OR
-     NOT sparse_arithmetic_representation_contract MATCHES "runtime_integer_arguments")
+     NOT sparse_arithmetic_representation_contract MATCHES "runtime_integer_arguments" OR
+     NOT sparse_arithmetic_representation_contract MATCHES
+       "sparse_arithmetic\.value_domain")
     message(FATAL_ERROR
       "target representation does not own sparse arithmetic helper and ABI selection: "
       "${sparse_arithmetic_representation}")
@@ -1069,6 +1079,9 @@ foreach(sparse_arithmetic_runtime IN ITEMS
        "sparse_arithmetic_(preserve|materialize)" OR
      NOT sparse_arithmetic_runtime_contract MATCHES
        "sparse arithmetic storage plan is invalid" OR
+     NOT sparse_arithmetic_runtime_contract MATCHES
+       "sparse arithmetic value-domain plan is invalid" OR
+     NOT sparse_arithmetic_runtime_contract MATCHES "value(_d|D)omain" OR
      NOT sparse_arithmetic_runtime_contract MATCHES
        "sparse arithmetic produced a nonfinite value")
     message(FATAL_ERROR
