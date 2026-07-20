@@ -1,3 +1,18 @@
+## 0.7.4
+
+- Matlab command syntax 现可调用受支持的本地函数和内建函数，并将每个 command 参数作为字符向量传入。
+- 多参数 command 会保留单引号分组内的空格，并解析分组中的双写单引号。
+- 双引号字符会作为 command text 的一部分保留，空白仍按照 Matlab 规则分隔 command 参数。
+- 运算符空格现可区分 `name +value`、`name ./path` 等 command text 与 `name + value`、`name ./ path` 等表达式形式。
+- command form 调用返回的值会写入 Matlab 隐式变量 `ans`。
+- 调用无输出函数的 command 会正常执行，但不会覆盖已有的 `ans` 值。
+- 确定赋值分析现会跨分支跟踪 `ans`，并在无法保证任何产值 command 已执行时诊断读取。
+- 以 command form 调用 Matlab 多输出函数时，会将第一个输出保存到 `ans`。
+- 生成的 JavaScript 和 C++17 现支持对字符向量调用 `length` 与 `numel`。
+- C++17 后端会在发射前拒绝重赋值或控制流路径中不兼容、无法证明兼容的 `ans` 声明类型，不再生成无法编译的赋值。
+- 未知 command callee 与未闭合的引号 command 参数现会给出聚焦的源码诊断并失败关闭。
+- 两个目标的 source map 都会保留产值和无输出 command 调用的原始位置。
+
 ## 0.7.3
 
 - Matlab 函数现可使用裸 `return` 在正常结尾前提前退出。

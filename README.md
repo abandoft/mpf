@@ -29,7 +29,7 @@ A modern, high-performance multilingual transpilation framework. MPF converts su
 | Fortran | `.f`, `.for`, `.ftn`, `.f77`, `.f90`, and others | Free/fixed form, functions/subroutines, `INTENT`/`OPTIONAL`, arrays and sections, and `SELECT CASE` |
 | TypeScript | `.ts`, `.mts`, `.cts` | Typed scalars and arrays, functions, block scope, conditionals, `while`, and standard C-style `for` loops |
 
-Matlab function and script `return` are supported; function exits preserve declared single or multiple outputs. Command syntax currently covers the one-character-vector forms of `disp` and `display`. Other command forms, `try/catch`, and `arguments` blocks remain outside the supported subset.
+Matlab function and script `return` are supported; function exits preserve declared single or multiple outputs. Command syntax accepts one or more character-vector arguments for supported local functions and built-ins, preserves Matlab quoting and operator-spacing rules, and stores value-producing results in `ans`; `disp` and `display` retain their one-argument requirement. Bare no-argument commands, qualified/package commands, external path resolution, `try/catch`, and `arguments` blocks remain outside the supported subset.
 
 Language names are limited to `matlab`, `python`, `fortran`, and `typescript`; output targets are limited to `javascript` and `cpp`. `cpp` is the target name, and the current generated language standard is C++17.
 
@@ -126,7 +126,7 @@ cmake --install build/release --prefix build/stage
 Find the exact current version in another project:
 
 ```cmake
-find_package(mpf 0.7.3 EXACT CONFIG REQUIRED COMPONENTS core cpp)
+find_package(mpf 0.7.4 EXACT CONFIG REQUIRED COMPONENTS core cpp)
 target_link_libraries(my_application PRIVATE mpf::mpf)
 ```
 
@@ -154,7 +154,7 @@ int main() {
 }
 ```
 
-The installed package provides the `core`, `javascript`, and `cpp` components; the `mpf::core`, `mpf::backend-javascript`, and `mpf::backend-cpp` targets; and the unified `mpf::mpf` entry point. See [`examples/embedding`](examples/embedding) for a complete integration example; configure it with `-DMPF_REQUIRED_VERSION=0.7.3` so the consumer keeps exact-version matching.
+The installed package provides the `core`, `javascript`, and `cpp` components; the `mpf::core`, `mpf::backend-javascript`, and `mpf::backend-cpp` targets; and the unified `mpf::mpf` entry point. See [`examples/embedding`](examples/embedding) for a complete integration example; configure it with `-DMPF_REQUIRED_VERSION=0.7.4` so the consumer keeps exact-version matching.
 
 MPF 0.x installs static libraries deliberately. A supported shared-library ABI will require an explicit symbol-export, allocator/ownership, and version-negotiation contract; setting `BUILD_SHARED_LIBS` does not silently expose the current internal C++ ABI.
 

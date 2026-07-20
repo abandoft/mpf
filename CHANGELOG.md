@@ -1,3 +1,18 @@
+## 0.7.4
+
+- Matlab command syntax can now call supported local functions and built-ins, passing each command argument as a character vector.
+- Multi-argument commands preserve spaces grouped by single quotes and decode doubled apostrophes inside those groups.
+- Double-quote characters remain part of command text, while whitespace continues to delimit command arguments according to Matlab rules.
+- Operator spacing now distinguishes command text such as `name +value` and `name ./path` from expression forms such as `name + value` and `name ./ path`.
+- Values returned by command-form calls are assigned to Matlab's implicit `ans` variable.
+- Commands that call functions without outputs execute without replacing an existing `ans` value.
+- Definite-assignment analysis now tracks `ans` across branches and diagnoses reads when no value-producing command is guaranteed to run.
+- Command calls to multi-output Matlab functions store the first output in `ans`.
+- `length` and `numel` now accept character-vector values in generated JavaScript and C++17.
+- The C++17 backend now rejects incompatible or unprovable `ans` declaration types across reassignment and control-flow paths before emitting uncompilable assignments.
+- Unknown command callees and unterminated quoted command arguments now fail with focused source diagnostics.
+- Source maps retain every value-producing and output-free command call in both generated targets.
+
 ## 0.7.3
 
 - Matlab functions can now use bare `return` to exit before normal fallthrough.

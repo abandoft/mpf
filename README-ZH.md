@@ -29,7 +29,7 @@
 | Fortran | `.f`、`.for`、`.ftn`、`.f77`、`.f90` 等 | free/fixed form、function/subroutine、`INTENT`/`OPTIONAL`、数组与 section、`SELECT CASE` |
 | TypeScript | `.ts`、`.mts`、`.cts` | 类型化标量和数组、函数、块作用域、条件、`while`、标准 C 风格 `for` |
 
-Matlab 已支持函数与脚本 `return`，函数提前退出会保持声明的单个或多个输出。command syntax 当前覆盖 `disp`/`display` 的单 character-vector 形式；其他 command form、`try/catch` 与 `arguments` block 仍不在受支持子集内。
+Matlab 已支持函数与脚本 `return`，函数提前退出会保持声明的单个或多个输出。command syntax 现可用一个或多个 character-vector 参数调用受支持的本地函数和内建函数，保留 Matlab 引号及运算符空格规则，并把产值结果写入 `ans`；`disp`/`display` 仍要求恰好一个参数。裸无参数 command、限定名/package command、外部 path 解析、`try/catch` 与 `arguments` block 仍不在受支持子集内。
 
 语言名称只接受 `matlab`、`python`、`fortran` 和 `typescript`；输出目标只接受 `javascript` 和 `cpp`。`cpp` 是目标名称，当前生成标准为 C++17。
 
@@ -126,7 +126,7 @@ cmake --install build/release --prefix build/stage
 在项目中查找当前精确版本：
 
 ```cmake
-find_package(mpf 0.7.3 EXACT CONFIG REQUIRED COMPONENTS core cpp)
+find_package(mpf 0.7.4 EXACT CONFIG REQUIRED COMPONENTS core cpp)
 target_link_libraries(my_application PRIVATE mpf::mpf)
 ```
 
@@ -154,7 +154,7 @@ int main() {
 }
 ```
 
-安装包提供 `core`、`javascript` 和 `cpp` component，以及 `mpf::core`、`mpf::backend-javascript`、`mpf::backend-cpp` 和统一入口 `mpf::mpf`。完整集成示例见 [`examples/embedding`](examples/embedding)；配置时传入 `-DMPF_REQUIRED_VERSION=0.7.3`，以保持精确版本匹配。
+安装包提供 `core`、`javascript` 和 `cpp` component，以及 `mpf::core`、`mpf::backend-javascript`、`mpf::backend-cpp` 和统一入口 `mpf::mpf`。完整集成示例见 [`examples/embedding`](examples/embedding)；配置时传入 `-DMPF_REQUIRED_VERSION=0.7.4`，以保持精确版本匹配。
 
 MPF 0.x 有意只安装静态库。共享库需要先明确符号导出、allocator/所有权和版本协商契约；设置 `BUILD_SHARED_LIBS` 不会把当前内部 C++ ABI 意外暴露为受支持的动态库接口。
 
