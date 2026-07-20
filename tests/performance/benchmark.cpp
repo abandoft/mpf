@@ -856,6 +856,51 @@ std::string matlab_sparse_assignment_workload(const std::size_t width, const std
   return source;
 }
 
+std::string matlab_complex_sparse_workload(const std::size_t width, const std::size_t rounds) {
+  std::string source = "matrix = sparse([";
+  source.reserve(width * width * 8U + rounds * 320U + 1024U);
+  for (std::size_t row = 0U; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0U; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      if (row == column) {
+        source.append(std::to_string(row + 1U))
+            .append("+")
+            .append(std::to_string(column + 2U))
+            .append("i");
+      } else {
+        source += "0";
+      }
+    }
+  }
+  source += "]);\n";
+  source += "triplets = sparse([1 1 2 3], [1 1 2 3], [1+2i 3-2i 4i 5-6i], ";
+  source.append(std::to_string(width)).append(", ").append(std::to_string(width)).append(");\n");
+  const auto width_text = std::to_string(width);
+  for (std::size_t round = 0U; round < rounds; ++round) {
+    source += "plain = matrix.';\n";
+    source += "hermitian = matrix';\n";
+    source.append("selected = matrix([")
+        .append(width_text)
+        .append(" 1 2 3], [")
+        .append(width_text)
+        .append(" 1 2 3]);\n");
+    source += "reshaped = reshape(selected, [1 16]);\n";
+    source.append("matrix(1, 2) = ")
+        .append(std::to_string(round + 1U))
+        .append("-")
+        .append(std::to_string(round + 2U))
+        .append("i;\n");
+    source += "matrix(2, 2) = 0;\n";
+    source += "copied = sparse(matrix);\n";
+  }
+  source += "materialized = full(matrix);\n";
+  source +=
+      "disp(nnz(copied) + nnz(triplets) + nnz(plain) + nnz(hermitian) + nnz(reshaped) + "
+      "real(materialized(1, 2)) + imag(materialized(1, 2)))\n";
+  return source;
+}
+
 std::string matlab_rank_aware_solve_workload(const std::size_t rounds) {
   std::string source =
       "rank_deficient_tall = [1 2; 2 4; 3 6; 4 8];\n"
@@ -1054,6 +1099,8 @@ int main() {
       {"matlab-sparse-reshape", matlab_sparse_reshape_workload(24, 24),
        mpf::SourceLanguage::matlab},
       {"matlab-sparse-assignment", matlab_sparse_assignment_workload(24, 24),
+       mpf::SourceLanguage::matlab},
+      {"matlab-complex-sparse", matlab_complex_sparse_workload(24, 24),
        mpf::SourceLanguage::matlab},
       {"matlab-rank-aware-solve", matlab_rank_aware_solve_workload(24),
        mpf::SourceLanguage::matlab},
