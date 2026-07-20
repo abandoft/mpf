@@ -4014,7 +4014,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v28") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v30") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -4025,7 +4025,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v34") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v36") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -5494,9 +5494,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v43") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v45") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v43") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v45") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -5735,6 +5735,136 @@ TEST_CASE("Matlab return output identities remain explicit through MIR and targe
   REQUIRE(std::any_of(diagnostics.begin(), diagnostics.end(), [](const auto& diagnostic) {
     return diagnostic.message.find("return symbol contract") != std::string::npos;
   }));
+}
+
+TEST_CASE("Matlab command implicit results remain typed through semantic MIR and target LIR") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "identity hello\n"
+                              "identity world\n"
+                              "function out = identity(value)\n"
+                              "  out = value;\n"
+                              "end\n",
+                              "command_contract.m");
+  const auto command_id = lowered.program.statements.front().id;
+  const auto reassignment_id = lowered.program.statements[1].id;
+  REQUIRE(lowered.program.statements.front().implicit_result ==
+          mpf::detail::semantic::ImplicitResultPolicy::matlab_ans_if_value);
+  REQUIRE(lowered.program.statements.front().name == "ans");
+  REQUIRE(lowered.program.statements.front().expression.kind == mpf::detail::ExpressionKind::call);
+
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  const auto* command_facts = analysis.semantics.statement(command_id);
+  const auto* reassignment_facts = analysis.semantics.statement(reassignment_id);
+  const auto* ans_definition = analysis.names.use(command_id, mpf::detail::NameRole::assignment);
+  const auto* ans_reassignment =
+      analysis.names.use(reassignment_id, mpf::detail::NameRole::assignment);
+  REQUIRE(command_facts != nullptr);
+  REQUIRE(reassignment_facts != nullptr);
+  REQUIRE(command_facts->implicit_result_has_value);
+  REQUIRE(reassignment_facts->implicit_result_has_value);
+  REQUIRE(!command_facts->previous_assigned);
+  REQUIRE(reassignment_facts->previous_assigned);
+  REQUIRE(ans_definition != nullptr);
+  REQUIRE(ans_reassignment != nullptr);
+  REQUIRE(ans_definition->symbol.valid());
+  REQUIRE(ans_reassignment->symbol == ans_definition->symbol);
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  const auto command = std::find_if(
+      mir.program.statements.begin(), mir.program.statements.end(), [&mir](const auto& statement) {
+        const auto* attributes = mpf::detail::mir::attributes(
+            static_cast<const mpf::detail::mir::Program&>(mir.program), statement.id);
+        return attributes != nullptr &&
+               attributes->implicit_result != mpf::detail::semantic::ImplicitResultPolicy::none;
+      });
+  REQUIRE(command != mir.program.statements.end());
+  auto* command_attributes = mpf::detail::mir::attributes(mir.program, command->id);
+  REQUIRE(command_attributes != nullptr);
+  REQUIRE(command_attributes->implicit_result ==
+          mpf::detail::semantic::ImplicitResultPolicy::matlab_ans_if_value);
+  REQUIRE(command_attributes->implicit_result_has_value);
+  REQUIRE(!command_attributes->previous_assigned);
+  REQUIRE(command->symbol_id == ans_definition->symbol);
+  REQUIRE(mir.program.instructions[command->instruction.value()].opcode ==
+          mpf::detail::mir::Opcode::store);
+  REQUIRE(mpf::detail::mir::verify(mir.program, "matlab-command-result").empty());
+  command_attributes->implicit_result = mpf::detail::semantic::ImplicitResultPolicy::none;
+  REQUIRE(!mpf::detail::mir::verify(mir.program, "corrupt-command-result").empty());
+  command_attributes->implicit_result =
+      mpf::detail::semantic::ImplicitResultPolicy::matlab_ans_if_value;
+
+  const auto reassignment = std::find_if(
+      mir.program.statements.begin(), mir.program.statements.end(),
+      [reassignment_id](const auto& statement) { return statement.origin == reassignment_id; });
+  REQUIRE(reassignment != mir.program.statements.end());
+  const auto* reassignment_attributes = mpf::detail::mir::attributes(
+      static_cast<const mpf::detail::mir::Program&>(mir.program), reassignment->id);
+  REQUIRE(reassignment_attributes != nullptr);
+  REQUIRE(reassignment_attributes->implicit_result_has_value);
+  REQUIRE(reassignment_attributes->previous_assigned);
+  REQUIRE(reassignment->symbol_id == ans_definition->symbol);
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto lowered_javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto lowered_cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(lowered_javascript.diagnostics.empty());
+  REQUIRE(lowered_cpp.diagnostics.empty());
+  REQUIRE(lowered_javascript.artifact != nullptr);
+  REQUIRE(lowered_cpp.artifact != nullptr);
+  REQUIRE(lowered_javascript.artifact->debug_dump().find("previous-assigned 1") !=
+          std::string::npos);
+  REQUIRE(lowered_cpp.artifact->debug_dump().find("previous-assigned 1") != std::string::npos);
+
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.source_language = mpf::SourceLanguage::matlab;
+  javascript.statements.resize(1);
+  auto& javascript_command = javascript.statements.front();
+  javascript_command.kind = mpf::detail::StatementKind::expression;
+  javascript_command.name = "ans";
+  javascript_command.symbol_id = mpf::detail::SymbolId{1};
+  javascript_command.implicit_result =
+      mpf::detail::semantic::ImplicitResultPolicy::matlab_ans_if_value;
+  javascript_command.implicit_result_has_value = true;
+  javascript_command.expression.kind = mpf::detail::ExpressionKind::call;
+  javascript_command.expression.inferred_type = mpf::detail::ValueType::string;
+  javascript_command.expression.procedure_has_result = true;
+  javascript_command.expression.children.resize(1);
+  javascript_command.expression.children.front().kind = mpf::detail::ExpressionKind::identifier;
+  javascript_command.expression.children.front().value = "identity";
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  REQUIRE(javascript_command.plan.form ==
+          mpf::detail::javascript::lir::StatementForm::implicit_result_value);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript_command.plan.form =
+      mpf::detail::javascript::lir::StatementForm::implicit_result_discard;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.source_language = mpf::SourceLanguage::matlab;
+  cpp.statements.resize(1);
+  auto& cpp_command = cpp.statements.front();
+  cpp_command.kind = mpf::detail::StatementKind::expression;
+  cpp_command.name = "ans";
+  cpp_command.implicit_result = mpf::detail::semantic::ImplicitResultPolicy::matlab_ans_if_value;
+  cpp_command.expression.kind = mpf::detail::ExpressionKind::call;
+  cpp_command.expression.children.resize(1);
+  cpp_command.expression.children.front().kind = mpf::detail::ExpressionKind::identifier;
+  cpp_command.expression.children.front().value = "sink";
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  REQUIRE(cpp_command.plan.form == mpf::detail::cpp::lir::StatementForm::implicit_result_discard);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp_command.implicit_result_has_value = true;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
 }
 
 TEST_CASE("JavaScript module plan owns Matlab script return topology and label allocation") {
