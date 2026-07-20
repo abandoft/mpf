@@ -533,6 +533,8 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT index_extent_contract MATCHES "SparseLogicalOperation" OR
    NOT index_extent_contract MATCHES "SparseLogicalStoragePolicy" OR
    NOT index_extent_contract MATCHES "valid_sparse_logical_contract" OR
+   NOT index_extent_contract MATCHES "ReductionStoragePolicy" OR
+   NOT index_extent_contract MATCHES "valid_logical_reduction_storage_contract" OR
    NOT index_extent_contract MATCHES "SparseConstructionKind" OR
    NOT index_extent_contract MATCHES "triplets_reserved" OR
    NOT index_extent_contract MATCHES "SparseValueDomain" OR
@@ -553,6 +555,8 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT hir_extent_contract MATCHES "sparse_elementwise" OR
    NOT hir_extent_contract MATCHES "SparseLogicalPlan" OR
    NOT hir_extent_contract MATCHES "sparse_logical" OR
+   NOT hir_extent_contract MATCHES "ReductionPlan" OR
+   NOT hir_extent_contract MATCHES "ReductionStoragePolicy storage_policy" OR
    NOT hir_extent_contract MATCHES "SparseConstructionPlan" OR
    NOT hir_extent_contract MATCHES "sparse_construction" OR
    NOT hir_extent_contract MATCHES "SparseValueDomain value_domain" OR
@@ -570,6 +574,8 @@ if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT mir_extent_contract MATCHES "sparse_elementwise" OR
    NOT mir_extent_contract MATCHES "SparseLogicalPlan" OR
    NOT mir_extent_contract MATCHES "sparse_logical" OR
+   NOT mir_extent_contract MATCHES "ReductionPlan" OR
+   NOT mir_extent_contract MATCHES "ReductionStoragePolicy storage_policy" OR
    NOT mir_extent_contract MATCHES "SparseConstructionPlan" OR
    NOT mir_extent_contract MATCHES "sparse_construction" OR
    NOT mir_extent_contract MATCHES "SparseValueDomain value_domain" OR
@@ -604,6 +610,12 @@ if(NOT condition_lir_builder_contract MATCHES
    NOT condition_lir_builder_contract MATCHES
      "sparse_logical\.storage_policy = attributes\.sparse_logical\.storage_policy" OR
    NOT condition_lir_builder_contract MATCHES
+     "reduction\.storage_policy = attributes\.reduction\.storage_policy" OR
+   NOT condition_lir_builder_contract MATCHES
+     "reduction\.input_storage = attributes\.reduction\.input_storage" OR
+   NOT condition_lir_builder_contract MATCHES
+     "reduction\.result_storage = attributes\.reduction\.result_storage" OR
+   NOT condition_lir_builder_contract MATCHES
      "sparse_construction\.kind = attributes\.sparse_construction\.kind" OR
    NOT condition_lir_builder_contract MATCHES
      "sparse_construction\.triplet_element_counts" OR
@@ -637,6 +649,8 @@ foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir
      NOT condition_target_lir_contract MATCHES "SparseLogicalPlan" OR
      NOT condition_target_lir_contract MATCHES
        "SparseLogicalStoragePolicy storage_policy" OR
+     NOT condition_target_lir_contract MATCHES "ReductionPlan" OR
+     NOT condition_target_lir_contract MATCHES "ReductionStoragePolicy storage_policy" OR
      NOT condition_target_lir_contract MATCHES "SparseConstructionPlan" OR
      NOT condition_target_lir_contract MATCHES "SparseConstructionKind kind" OR
      NOT condition_target_lir_contract MATCHES "SparseValueDomain value_domain" OR
@@ -650,6 +664,21 @@ foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir
     message(FATAL_ERROR "target LIR does not own matrix policies: ${target_lir}")
   endif()
 endforeach()
+file(READ "${SOURCE_DIR}/src/semantic/expression_analyzer.cpp" reduction_analyzer_contract)
+file(READ "${SOURCE_DIR}/src/ir/mir.cpp" reduction_mir_lowering_contract)
+file(READ "${SOURCE_DIR}/src/ir/mir_verifier.cpp" reduction_mir_verifier_contract)
+if(NOT reduction_analyzer_contract MATCHES "facts\.reduction\.storage_policy" OR
+   NOT reduction_analyzer_contract MATCHES "facts\.reduction\.input_storage" OR
+   NOT reduction_analyzer_contract MATCHES "facts\.reduction\.result_storage" OR
+   NOT reduction_mir_lowering_contract MATCHES "reduction\.storage_policy" OR
+   NOT reduction_mir_lowering_contract MATCHES "reduction\.result_storage" OR
+   NOT reduction_mir_verifier_contract MATCHES
+     "valid_logical_reduction_storage_contract" OR
+   NOT reduction_mir_verifier_contract MATCHES
+     "reduction\.result_storage != array_storage")
+  message(FATAL_ERROR
+    "Analyzer and MIR do not independently own logical reduction storage plans")
+endif()
 file(READ "${SOURCE_DIR}/src/semantic/expression_analyzer.cpp" sparse_logical_analyzer_contract)
 file(READ "${SOURCE_DIR}/src/ir/mir.cpp" sparse_logical_mir_lowering_contract)
 file(READ "${SOURCE_DIR}/src/ir/mir_verifier.cpp" sparse_logical_mir_verifier_contract)
@@ -783,8 +812,11 @@ foreach(sparse_matrix_runtime IN ITEMS
      NOT sparse_matrix_runtime_contract MATCHES "sparse_logical_not" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_logical_and" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_logical_or" OR
+     NOT sparse_matrix_runtime_contract MATCHES "sparse_logical_reduce" OR
      NOT sparse_matrix_runtime_contract MATCHES
        "sparse logical storage plan is inconsistent" OR
+     NOT sparse_matrix_runtime_contract MATCHES
+       "sparse logical reduction storage plan is invalid" OR
      NOT sparse_matrix_runtime_contract MATCHES
        "sparse element-wise multiplication produced a nonfinite value" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_sparse_mtimes" OR
@@ -831,6 +863,9 @@ foreach(sparse_representation IN ITEMS
      NOT sparse_representation_contract MATCHES "sparse_logical_not" OR
      NOT sparse_representation_contract MATCHES "sparse_logical_and" OR
      NOT sparse_representation_contract MATCHES "sparse_logical_or" OR
+     NOT sparse_representation_contract MATCHES
+       "valid_logical_reduction_storage_contract" OR
+     NOT sparse_representation_contract MATCHES "sparse_logical_reduce" OR
      NOT sparse_representation_contract MATCHES "runtime_integer_arguments" OR
      NOT sparse_representation_contract MATCHES "sparse_sparse_mtimes" OR
      NOT sparse_representation_contract MATCHES "sparse_dense_mtimes" OR
@@ -853,6 +888,9 @@ foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/
   mpf_assert_file_excludes("${renderer}"
     "SparseLogical(Operation|StoragePolicy)|valid_sparse_logical_contract|sparse_logical_result_storage"
     "target renderer recovered sparse logical semantics from source plans")
+  mpf_assert_file_excludes("${renderer}"
+    "Reduction(StoragePolicy|AxisPolicy|ShapeSource)|valid_logical_reduction|(plan|expression)\.reduction|reduction\.(operation|axis|shape|storage|scalar)"
+    "target renderer recovered logical reduction semantics from source plans")
   file(READ "${SOURCE_DIR}/${renderer}" renderer_contract)
   if(NOT renderer_contract MATCHES "runtime_shape_arguments" OR
      NOT renderer_contract MATCHES "runtime_integer_arguments")
