@@ -141,6 +141,7 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     };
     output << " sparse-arithmetic " << static_cast<int>(expression.sparse_arithmetic.operation)
            << " storage-policy " << static_cast<int>(expression.sparse_arithmetic.storage_policy)
+           << " value-domain " << static_cast<int>(expression.sparse_arithmetic.value_domain)
            << " storage " << static_cast<int>(expression.sparse_arithmetic.left_storage) << ','
            << static_cast<int>(expression.sparse_arithmetic.right_storage) << "->"
            << static_cast<int>(expression.sparse_arithmetic.result_storage) << ' ';
@@ -424,7 +425,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v40 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v41 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

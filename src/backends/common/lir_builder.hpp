@@ -117,6 +117,7 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
   if (attributes.sparse_arithmetic.valid()) {
     result.sparse_arithmetic.operation = attributes.sparse_arithmetic.operation;
     result.sparse_arithmetic.storage_policy = attributes.sparse_arithmetic.storage_policy;
+    result.sparse_arithmetic.value_domain = attributes.sparse_arithmetic.value_domain;
     result.sparse_arithmetic.shape_source = attributes.sparse_arithmetic.shape_source;
     result.sparse_arithmetic.left_storage = attributes.sparse_arithmetic.left_storage;
     result.sparse_arithmetic.right_storage = attributes.sparse_arithmetic.right_storage;
