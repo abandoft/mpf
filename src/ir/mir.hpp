@@ -369,6 +369,9 @@ struct ReductionPlan {
   ShapeId output_shape{};
   std::vector<std::size_t> axes;
   bool scalar_result{false};
+  semantic::ReductionStoragePolicy storage_policy{semantic::ReductionStoragePolicy::none};
+  ArrayStorageFormat input_storage{ArrayStorageFormat::none};
+  ArrayStorageFormat result_storage{ArrayStorageFormat::none};
 
   [[nodiscard]] bool valid() const noexcept {
     return operation != semantic::ReductionOperation::none;

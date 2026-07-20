@@ -6,6 +6,7 @@
 #include <limits>
 
 #include "compiler/array_storage.hpp"
+#include "compiler/expression_ast.hpp"
 #include "compiler/numeric_type.hpp"
 #include "mpf/transpiler.hpp"
 
@@ -31,6 +32,33 @@ enum class ReductionAxisPolicy : std::uint8_t {
   all_dimensions
 };
 enum class ReductionShapeSource : std::uint8_t { static_extents, runtime_operand };
+enum class ReductionStoragePolicy : std::uint8_t {
+  none,
+  dense,
+  preserve_sparse,
+  scalar_full
+};
+
+[[nodiscard]] constexpr bool valid_logical_reduction_storage_contract(
+    const ReductionStoragePolicy policy, const ArrayStorageFormat input_storage,
+    const ArrayStorageFormat result_storage, const bool scalar_result) noexcept {
+  switch (policy) {
+    case ReductionStoragePolicy::none: return false;
+    case ReductionStoragePolicy::dense:
+      return !scalar_result && input_storage == ArrayStorageFormat::dense &&
+             result_storage == ArrayStorageFormat::dense;
+    case ReductionStoragePolicy::preserve_sparse:
+      return !scalar_result && input_storage == ArrayStorageFormat::sparse_csc &&
+             result_storage == ArrayStorageFormat::sparse_csc;
+    case ReductionStoragePolicy::scalar_full:
+      return scalar_result && result_storage == ArrayStorageFormat::none &&
+             (input_storage == ArrayStorageFormat::none ||
+              input_storage == ArrayStorageFormat::unknown ||
+              input_storage == ArrayStorageFormat::dense ||
+              input_storage == ArrayStorageFormat::sparse_csc);
+  }
+  return false;
+}
 
 template <typename Extents, typename Axes>
 [[nodiscard]] bool valid_logical_reduction_contract(const ReductionOperation operation,
