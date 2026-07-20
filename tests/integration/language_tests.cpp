@@ -468,6 +468,185 @@ TEST_CASE("Matlab disp and display command forms preserve character-vector input
   REQUIRE(operand.diagnostics.front().message.find("cannot have operands") != std::string::npos);
 }
 
+TEST_CASE("Matlab general command syntax owns ans and void-call behavior") {
+  const std::string source =
+      "identity hello\n"
+      "disp(ans)\n"
+      "combine 'two words' tail\n"
+      "disp(ans)\n"
+      "identity +token\n"
+      "disp(ans)\n"
+      "identity \"quoted\"\n"
+      "disp(ans)\n"
+      "identity 'it''s here'\n"
+      "disp(ans)\n"
+      "sink ignored\n"
+      "disp(ans)\n"
+      "function out = identity(value)\n"
+      "  out = value;\n"
+      "end\n"
+      "function out = combine(first, second)\n"
+      "  disp(first)\n"
+      "  out = second;\n"
+      "end\n"
+      "function sink(value)\n"
+      "  disp(value)\n"
+      "end\n";
+  const auto javascript = transpile(source, mpf::SourceLanguage::matlab);
+  const auto cpp = transpile(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("let ans;") != std::string::npos);
+  REQUIRE(javascript.code.find("ans = identity(\"hello\");") != std::string::npos);
+  REQUIRE(javascript.code.find("ans = combine(\"two words\", \"tail\");") != std::string::npos);
+  REQUIRE(javascript.code.find("ans = identity(\"+token\");") != std::string::npos);
+  REQUIRE(javascript.code.find("ans = identity(\"\\\"quoted\\\"\");") != std::string::npos);
+  REQUIRE(javascript.code.find("ans = identity(\"it's here\");") != std::string::npos);
+  REQUIRE(javascript.code.find("sink(\"ignored\");") != std::string::npos);
+  REQUIRE(javascript.code.find("ans = sink") == std::string::npos);
+  REQUIRE(cpp.code.find("ans = identity(std::string{\"hello\"});") != std::string::npos);
+  REQUIRE(cpp.code.find("ans = combine(std::string{\"two words\"}, std::string{\"tail\"});") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("sink(std::string{\"ignored\"});") != std::string::npos);
+  REQUIRE(cpp.code.find("ans = sink") == std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (const auto line : {1U, 3U, 5U, 7U, 9U, 11U}) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+
+  const auto javascript_builtin =
+      transpile("length hello\ndisp(ans)\n", mpf::SourceLanguage::matlab);
+  const auto cpp_builtin =
+      transpile("length hello\ndisp(ans)\n", mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript_builtin.success());
+  REQUIRE(cpp_builtin.success());
+  REQUIRE(javascript_builtin.code.find("ans = __mpf_length(\"hello\");") != std::string::npos);
+  REQUIRE(cpp_builtin.code.find(
+              "ans = static_cast<std::int64_t>(mpf_runtime::length(std::string{\"hello\"}));") !=
+          std::string::npos);
+
+  const auto javascript_numel = transpile("numel hello\ndisp(ans)\n", mpf::SourceLanguage::matlab);
+  const auto cpp_numel =
+      transpile("numel hello\ndisp(ans)\n", mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript_numel.success());
+  REQUIRE(cpp_numel.success());
+  REQUIRE(javascript_numel.code.find("ans = __mpf_numel(\"hello\");") != std::string::npos);
+  REQUIRE(cpp_numel.code.find(
+              "ans = static_cast<std::int64_t>(mpf_runtime::numel(std::string{\"hello\"}));") !=
+          std::string::npos);
+
+  const auto undefined_ans = transpile(
+      "sink ignored\ndisp(ans)\n"
+      "function sink(value)\n"
+      "  disp(value)\n"
+      "end\n",
+      mpf::SourceLanguage::matlab);
+  REQUIRE(!undefined_ans.success());
+  REQUIRE(std::any_of(undefined_ans.diagnostics.begin(), undefined_ans.diagnostics.end(),
+                      [](const auto& diagnostic) {
+                        return diagnostic.message.find("definitely assigned") != std::string::npos;
+                      }));
+
+  const std::string branch_source =
+      "if 1\n"
+      "  identity yes\n"
+      "else\n"
+      "  identity no\n"
+      "end\n"
+      "disp(ans)\n"
+      "function out = identity(value)\n"
+      "  out = value;\n"
+      "end\n";
+  const auto javascript_branch = transpile(branch_source, mpf::SourceLanguage::matlab);
+  const auto cpp_branch =
+      transpile(branch_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript_branch.success());
+  REQUIRE(cpp_branch.success());
+  REQUIRE(javascript_branch.code.find("let ans;\nif (__mpf_matlab_truthy(1))") !=
+          std::string::npos);
+  REQUIRE(cpp_branch.code.find("std::decay_t<decltype(identity(std::string{\"yes\"}))> ans{};\n"
+                               "    if (mpf_runtime::matlab_truthy(1))") != std::string::npos);
+
+  const std::string incompatible_branch =
+      "if 1\n"
+      "  length hello\n"
+      "else\n"
+      "  text hello\n"
+      "end\n"
+      "disp(ans)\n"
+      "function out = text(value)\n"
+      "  out = 'hello';\n"
+      "end\n";
+  REQUIRE(transpile(incompatible_branch, mpf::SourceLanguage::matlab).success());
+  const auto incompatible_branch_cpp =
+      transpile(incompatible_branch, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(!incompatible_branch_cpp.success());
+  REQUIRE(incompatible_branch_cpp.code.empty());
+  REQUIRE(std::any_of(incompatible_branch_cpp.diagnostics.begin(),
+                      incompatible_branch_cpp.diagnostics.end(), [](const auto& diagnostic) {
+                        return diagnostic.code == "MPF2007" &&
+                               diagnostic.message.find("control-flow paths") != std::string::npos;
+                      }));
+
+  const auto partial_branch = transpile(
+      "if 1\n"
+      "  identity yes\n"
+      "end\n"
+      "disp(ans)\n"
+      "function out = identity(value)\n"
+      "  out = value;\n"
+      "end\n",
+      mpf::SourceLanguage::matlab);
+  REQUIRE(!partial_branch.success());
+  REQUIRE(std::any_of(partial_branch.diagnostics.begin(), partial_branch.diagnostics.end(),
+                      [](const auto& diagnostic) {
+                        return diagnostic.message.find("definitely assigned") != std::string::npos;
+                      }));
+
+  const std::string changing_type =
+      "identity hello\n"
+      "count hello\n"
+      "function out = identity(value)\n"
+      "  out = value;\n"
+      "end\n"
+      "function out = count(value)\n"
+      "  out = length(value);\n"
+      "end\n";
+  REQUIRE(transpile(changing_type, mpf::SourceLanguage::matlab).success());
+  const auto changing_type_cpp =
+      transpile(changing_type, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(!changing_type_cpp.success());
+  REQUIRE(changing_type_cpp.code.empty());
+  REQUIRE(std::any_of(changing_type_cpp.diagnostics.begin(), changing_type_cpp.diagnostics.end(),
+                      [](const auto& diagnostic) { return diagnostic.code == "MPF2007"; }));
+
+  const std::string multi_output =
+      "pair token\n"
+      "function [first, second] = pair(value)\n"
+      "  first = value;\n"
+      "  second = length(value);\n"
+      "end\n";
+  const auto javascript_multi = transpile(multi_output, mpf::SourceLanguage::matlab);
+  const auto cpp_multi =
+      transpile(multi_output, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript_multi.success());
+  REQUIRE(cpp_multi.success());
+  REQUIRE(javascript_multi.code.find("ans = (pair(\"token\"))[0];") != std::string::npos);
+  REQUIRE(cpp_multi.code.find("ans = std::get<0>(pair(std::string{\"token\"}));") !=
+          std::string::npos);
+
+  const auto unknown_command = transpile("missing command\n", mpf::SourceLanguage::matlab);
+  REQUIRE(!unknown_command.success());
+  REQUIRE(unknown_command.code.empty());
+  REQUIRE(std::any_of(unknown_command.diagnostics.begin(), unknown_command.diagnostics.end(),
+                      [](const auto& diagnostic) {
+                        return diagnostic.message.find("undefined identifier 'missing'") !=
+                               std::string::npos;
+                      }));
+}
+
 TEST_CASE("Matlab tokenized parser handles multi-output signatures and expression boundaries") {
   const std::string source =
       "function [sum_value product_value] = pair(left, right)\n"
