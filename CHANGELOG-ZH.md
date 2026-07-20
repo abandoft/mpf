@@ -1,3 +1,19 @@
+## 0.7.0
+
+- Matlab `sparse(A)` 现可将静态 shape 的 binary64 complex rank-2 值保持为 canonical CSC 存储。
+- 推断 shape、显式 shape 与 `nzmax` 三类 R2024 sparse triplet 构造形式现均支持 complex value。
+- 重复 complex triplet 会按实部和虚部分量累加，exact-zero 抵消结果不会保留为存储项。
+- 对已有 complex sparse matrix 再调用 `sparse(A)` 会保持其 shape、数值和稀疏表示。
+- 稀疏普通转置 `.'` 不执行共轭，稀疏共轭转置 `'` 会正确取反虚部。
+- scalar、linear 与 Cartesian submatrix indexing 会保持 complex value，并在非标量结果上保持 CSC 存储。
+- sparse reshape 会保持 complex value 和 Matlab 列主序，无需物化 dense source matrix。
+- complex indexed assignment 可更新或扩展 canonical CSC；写入 exact zero 会删除对应 entry。
+- `full`、`issparse` 与 `nnz` 现可对受支持的 complex sparse matrix 保持预期的数值和存储行为。
+- 生成的 JavaScript 使用显式 complex sparse value domain；生成的 C++17 使用 `sparse_matrix<std::complex<double>>`。
+- 仅当程序中实际存在 complex CSC value 时，才会装载目标专属 complex sparse runtime fragment。
+- 生成 runtime 会以稳定错误拒绝非有限 complex entry 和非有限重复项累加结果。
+- 生成的 JavaScript 在修改有别名的 dense/sparse array 或函数参数时，现可保持 Matlab value semantics。
+
 ## 0.6.9
 
 - Matlab `sparse(A)` 现可接受静态 shape 的 logical rank-2 数组，并产生类型化 logical CSC 矩阵。

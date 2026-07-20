@@ -1,3 +1,19 @@
+## 0.7.0
+
+- Matlab `sparse(A)` now preserves statically shaped binary64 complex rank-two values in canonical CSC storage.
+- Complex values are supported by inferred, explicitly sized, and `nzmax` R2024 sparse triplet constructors.
+- Duplicate complex triplets are accumulated component-wise, and exact-zero cancellation removes the stored entry.
+- Converting an existing complex sparse matrix with `sparse(A)` preserves its shape, values, and sparse representation.
+- Ordinary sparse transpose (`.'`) preserves complex values without conjugation, while conjugating transpose (`'`) negates imaginary components.
+- Scalar, linear, and Cartesian submatrix indexing preserve complex values and CSC storage where the result remains nonscalar.
+- Sparse reshape preserves complex values and Matlab column-major order without materializing a dense source matrix.
+- Indexed complex assignment can update or grow canonical CSC storage, and assigning exact zero removes the corresponding entry.
+- `full`, `issparse`, and `nnz` now operate on supported complex sparse matrices with the expected value and storage behavior.
+- Generated JavaScript uses an explicit complex sparse value domain; generated C++17 uses `sparse_matrix<std::complex<double>>`.
+- The target-owned complex sparse runtime fragment is emitted only when the program contains an actual complex CSC value.
+- Generated runtimes reject nonfinite complex entries and nonfinite duplicate accumulation with stable errors.
+- JavaScript output now preserves Matlab value semantics when an aliased dense or sparse array is mutated, including function parameters.
+
 ## 0.6.9
 
 - Matlab `sparse(A)` now accepts statically shaped logical rank-two arrays and produces typed logical CSC matrices.
