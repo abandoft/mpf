@@ -1092,6 +1092,18 @@ class Renderer final {
         emit_expression(statement.expression);
         output_ << ";\n";
         break;
+      case javascript::lir::StatementForm::implicit_result_value:
+        indentation();
+        emit_variable_name(statement.symbol_id, statement.name, statement.plan.target_access);
+        output_ << " = ";
+        emit_expression(statement.expression);
+        output_ << ";\n";
+        break;
+      case javascript::lir::StatementForm::implicit_result_discard:
+        indentation();
+        emit_expression(statement.expression);
+        output_ << ";\n";
+        break;
       case javascript::lir::StatementForm::conditional:
         indentation();
         output_ << "if (";

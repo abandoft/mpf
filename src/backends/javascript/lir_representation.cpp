@@ -1693,8 +1693,15 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
     case StatementKind::break_statement: result.form = lir::StatementForm::break_loop; break;
     case StatementKind::continue_statement: result.form = lir::StatementForm::continue_loop; break;
     case StatementKind::expression:
-      result.form = statement.expression.valid() ? lir::StatementForm::expression
-                                                 : lir::StatementForm::discard;
+      if (statement.implicit_result != semantic::ImplicitResultPolicy::none) {
+        result.form = statement.implicit_result_has_value
+                          ? lir::StatementForm::implicit_result_value
+                          : lir::StatementForm::implicit_result_discard;
+        result.target_access = variable_access(context, statement.name);
+      } else {
+        result.form = statement.expression.valid() ? lir::StatementForm::expression
+                                                   : lir::StatementForm::discard;
+      }
       break;
     case StatementKind::if_statement:
       result.form = lir::StatementForm::conditional;
@@ -1886,6 +1893,26 @@ void verify_statements(const std::vector<lir::Statement>& statements,
     for (const auto& selector : statement.case_selectors) {
       verify_expression(selector.lower, emission, expression_context, source_language, diagnostics);
       verify_expression(selector.upper, emission, expression_context, source_language, diagnostics);
+    }
+    const bool implicit_result_active =
+        statement.implicit_result != semantic::ImplicitResultPolicy::none;
+    const bool expected_implicit_value = statement.expression.procedure_has_result ||
+                                         statement.expression.inferred_type != ValueType::unknown;
+    if ((!implicit_result_active && statement.implicit_result_has_value) ||
+        (implicit_result_active &&
+         (source_language != SourceLanguage::matlab ||
+          statement.implicit_result != semantic::ImplicitResultPolicy::matlab_ans_if_value ||
+          statement.kind != StatementKind::expression || statement.name != "ans" ||
+          statement.expression.kind != ExpressionKind::call ||
+          statement.implicit_result_has_value != expected_implicit_value ||
+          (statement.implicit_result_has_value != statement.symbol_id.valid())))) {
+      add_error(diagnostics, {statement.line, 1},
+                "JavaScript LIR implicit-result contract is inconsistent");
+    }
+    if (statement.previous_assigned && statement.kind != StatementKind::assignment &&
+        !statement.implicit_result_has_value) {
+      add_error(diagnostics, {statement.line, 1},
+                "JavaScript LIR previous-assignment contract is inconsistent");
     }
     if (statement.kind == StatementKind::indexed_assignment) {
       if (!semantic::valid_indexed_mutation_shapes(statement.indexed_mutation,

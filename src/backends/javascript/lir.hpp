@@ -422,6 +422,8 @@ enum class StatementForm : std::uint8_t {
   break_loop,
   continue_loop,
   expression,
+  implicit_result_value,
+  implicit_result_discard,
   conditional,
   selection,
   case_clause,
@@ -571,6 +573,9 @@ struct Statement {
   Expression expression;
   bool has_expression{false};
   bool procedure_call{false};
+  semantic::ImplicitResultPolicy implicit_result{semantic::ImplicitResultPolicy::none};
+  bool implicit_result_has_value{false};
+  bool previous_assigned{false};
   Expression secondary_expression;
   bool has_secondary_expression{false};
   Expression tertiary_expression;

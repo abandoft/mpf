@@ -280,7 +280,9 @@ void collect_scope_names(const std::vector<lir::Statement>& statements,
                          std::map<SymbolId, std::string>& symbols, std::set<std::string>& names) {
   for (const auto& statement : statements) {
     if (statement.kind == StatementKind::declaration ||
-        (!lexical_blocks && statement.kind == StatementKind::assignment)) {
+        (!lexical_blocks && (statement.kind == StatementKind::assignment ||
+                             (statement.implicit_result != semantic::ImplicitResultPolicy::none &&
+                              statement.implicit_result_has_value)))) {
       add_scope_name(statement.symbol_id, statement.name, excluded_symbols, excluded_names, symbols,
                      names);
     } else if (!lexical_blocks && statement.kind == StatementKind::multi_assignment) {
