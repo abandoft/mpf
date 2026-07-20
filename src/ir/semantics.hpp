@@ -143,6 +143,10 @@ enum class BroadcastAxis : std::uint8_t { match, expand_left, expand_right, runt
 enum class BroadcastShapeSource : std::uint8_t { static_extents, runtime_operands };
 enum class ArrayOperation : std::uint8_t { native, matlab };
 
+// Sparse value class is an explicit cross-layer contract.  Empty CSC values cannot reveal their
+// numeric class, and target renderers must never infer it from runtime contents.
+enum class SparseValueDomain : std::uint8_t { none, finite_real, finite_complex, logical };
+
 // Matlab addition and subtraction are element-wise operations even without a dot prefix. Sparse
 // storage propagation differs from `.*`: two sparse operands preserve CSC, while any full/scalar
 // operand materializes a full result. Keep operation, storage policy, and compatible-size shape in
@@ -181,12 +185,14 @@ enum class SparseArithmeticStoragePolicy : std::uint8_t {
 template <typename Shape, typename Axes>
 [[nodiscard]] bool valid_sparse_arithmetic_contract(
     const SparseArithmeticOperation operation, const SparseArithmeticStoragePolicy policy,
-    const BroadcastShapeSource shape_source, const ArrayStorageFormat left_storage,
-    const ArrayStorageFormat right_storage, const ArrayStorageFormat result_storage,
-    const Shape& left_shape, const Shape& right_shape, const Shape& result_shape,
-    const Axes& axes) noexcept {
+    const SparseValueDomain value_domain, const BroadcastShapeSource shape_source,
+    const ArrayStorageFormat left_storage, const ArrayStorageFormat right_storage,
+    const ArrayStorageFormat result_storage, const Shape& left_shape, const Shape& right_shape,
+    const Shape& result_shape, const Axes& axes) noexcept {
   if ((operation != SparseArithmeticOperation::add &&
        operation != SparseArithmeticOperation::subtract) ||
+      (value_domain != SparseValueDomain::finite_real &&
+       value_domain != SparseValueDomain::finite_complex) ||
       shape_source != BroadcastShapeSource::static_extents ||
       result_storage != sparse_arithmetic_result_storage(left_storage, right_storage) ||
       policy != sparse_arithmetic_storage_policy(left_storage, right_storage) ||
@@ -513,7 +519,6 @@ enum class SparseConstructionKind : std::uint8_t {
 // Sparse storage alone does not identify the Matlab value class: an empty CSC matrix can be
 // either double or logical.  Keep the value domain and duplicate-triplet rule explicit so no
 // later stage attempts to infer either property from stored values.
-enum class SparseValueDomain : std::uint8_t { none, finite_real, finite_complex, logical };
 enum class SparseDuplicatePolicy : std::uint8_t { none, sum, logical_any };
 
 [[nodiscard]] constexpr bool valid_sparse_stored_value_type(

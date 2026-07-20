@@ -1244,10 +1244,11 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
     if (sparse_arithmetic) {
       auto& facts = semantic(semantics_, expression);
       const auto numeric_domain = matlab_matrix_numeric_domain(left_facts, right_facts);
-      if (!numeric_domain.has_value() || *numeric_domain != semantic::MatrixNumericDomain::real ||
-          !matlab_sparse_value(left_facts) || !matlab_sparse_value(right_facts)) {
+      if (!numeric_domain.has_value() || !matlab_sparse_value(left_facts) ||
+          !matlab_sparse_value(right_facts)) {
         diagnose(expression.location.line, "MPF2054",
-                 "sparse addition and subtraction require resolved real or logical operands");
+                 "sparse addition and subtraction require resolved real, logical, or complex "
+                 "numeric operands");
         return facts.inferred_type = ValueType::unknown;
       }
       const auto broadcast =
@@ -1271,9 +1272,13 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                         : semantic::SparseArithmeticOperation::subtract;
       const auto result_storage = semantic::sparse_arithmetic_result_storage(
           left_facts.array_storage, right_facts.array_storage);
+      const auto value_domain = *numeric_domain == semantic::MatrixNumericDomain::complex
+                                    ? semantic::SparseValueDomain::finite_complex
+                                    : semantic::SparseValueDomain::finite_real;
       hir::SparseArithmeticPlan plan{sparse_operation,
                                      semantic::sparse_arithmetic_storage_policy(
                                          left_facts.array_storage, right_facts.array_storage),
+                                     value_domain,
                                      semantic::BroadcastShapeSource::static_extents,
                                      left_facts.array_storage,
                                      right_facts.array_storage,
@@ -1283,9 +1288,9 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                      broadcast->result_shape,
                                      broadcast->axes};
       if (!semantic::valid_sparse_arithmetic_contract(
-              plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage,
-              plan.right_storage, plan.result_storage, plan.left_shape, plan.right_shape,
-              plan.result_shape, plan.axes)) {
+              plan.operation, plan.storage_policy, plan.value_domain, plan.shape_source,
+              plan.left_storage, plan.right_storage, plan.result_storage, plan.left_shape,
+              plan.right_shape, plan.result_shape, plan.axes)) {
         diagnose(expression.location.line, "MPF2054",
                  "sparse addition or subtraction operands violate the planned CSC/full storage "
                  "contract");

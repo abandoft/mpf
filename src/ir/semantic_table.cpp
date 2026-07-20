@@ -692,11 +692,17 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
     };
     const auto left_rank = left == nullptr ? 0U : left->shape.size();
     const auto right_rank = right == nullptr ? 0U : right->shape.size();
+    const auto expected_value_domain =
+        facts->element_numeric_type.complexity == NumericComplexity::complex
+            ? semantic::SparseValueDomain::finite_complex
+            : semantic::SparseValueDomain::finite_real;
     if (facts->array_operation != semantic::ArrayOperation::matlab ||
         expression.kind != ExpressionKind::binary || expression.children.size() != 2U ||
         sparse_arithmetic.operation != expected_operation || facts->broadcast.valid ||
         left == nullptr || right == nullptr || facts->inferred_type != ValueType::list ||
-        facts->element_numeric_type != real_numeric_type ||
+        (facts->element_numeric_type != real_numeric_type &&
+         facts->element_numeric_type != complex_numeric_type) ||
+        sparse_arithmetic.value_domain != expected_value_domain ||
         sparse_arithmetic.left_storage != left->array_storage ||
         sparse_arithmetic.right_storage != right->array_storage ||
         sparse_arithmetic.result_storage != facts->array_storage ||
@@ -705,15 +711,17 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
         sparse_arithmetic.result_shape != facts->shape ||
         !semantic::valid_sparse_arithmetic_contract(
             sparse_arithmetic.operation, sparse_arithmetic.storage_policy,
-            sparse_arithmetic.shape_source, sparse_arithmetic.left_storage,
-            sparse_arithmetic.right_storage, sparse_arithmetic.result_storage,
-            sparse_arithmetic.left_shape, sparse_arithmetic.right_shape,
-            sparse_arithmetic.result_shape, sparse_arithmetic.axes)) {
+            sparse_arithmetic.value_domain, sparse_arithmetic.shape_source,
+            sparse_arithmetic.left_storage, sparse_arithmetic.right_storage,
+            sparse_arithmetic.result_storage, sparse_arithmetic.left_shape,
+            sparse_arithmetic.right_shape, sparse_arithmetic.result_shape,
+            sparse_arithmetic.axes)) {
       add_error(diagnostics, expression.location, stage,
                 "sparse arithmetic plan has an invalid operator, broadcast, storage, numeric, "
                 "or result contract");
     }
   } else if (sparse_arithmetic.storage_policy != semantic::SparseArithmeticStoragePolicy::none ||
+             sparse_arithmetic.value_domain != semantic::SparseValueDomain::none ||
              sparse_arithmetic.shape_source != semantic::BroadcastShapeSource::static_extents ||
              sparse_arithmetic.left_storage != ArrayStorageFormat::none ||
              sparse_arithmetic.right_storage != ArrayStorageFormat::none ||
