@@ -1551,6 +1551,47 @@ if(NOT cpp_lir_contract MATCHES "return_outputs" OR
    NOT cpp_lir_contract MATCHES "return_program")
   message(FATAL_ERROR "cpp LIR does not own function-output and program return forms")
 endif()
+
+file(READ "${SOURCE_DIR}/src/frontends/matlab/command_syntax.hpp" matlab_command_contract)
+file(READ "${SOURCE_DIR}/src/frontends/matlab/command_syntax.cpp" matlab_command_implementation)
+if(NOT matlab_command_contract MATCHES "MatlabCommandSyntax" OR
+   NOT matlab_command_contract MATCHES "MatlabCommandArgumentForm" OR
+   NOT matlab_command_contract MATCHES "scan_matlab_command_syntax" OR
+   NOT matlab_command_implementation MATCHES "potential_operator_length" OR
+   NOT matlab_command_implementation MATCHES "single_quoted")
+  message(FATAL_ERROR "Matlab frontend does not own an independent command-syntax scanner")
+endif()
+foreach(command_ir IN ITEMS
+    src/frontends/common/ast.hpp
+    src/ir/hir.hpp
+    src/ir/mir.hpp
+    src/backends/javascript/lir.hpp
+    src/backends/cpp/lir.hpp)
+  file(READ "${SOURCE_DIR}/${command_ir}" command_ir_contract)
+  if(NOT command_ir_contract MATCHES "ImplicitResultPolicy")
+    message(FATAL_ERROR "command implicit-result identity is missing from ${command_ir}")
+  endif()
+endforeach()
+foreach(command_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir.hpp)
+  file(READ "${SOURCE_DIR}/${command_lir}" command_lir_contract)
+  if(NOT command_lir_contract MATCHES "implicit_result_value" OR
+     NOT command_lir_contract MATCHES "implicit_result_discard" OR
+     NOT command_lir_contract MATCHES "previous_assigned")
+    message(FATAL_ERROR "target LIR does not own command value/discard and assignment state")
+  endif()
+endforeach()
+file(READ "${SOURCE_DIR}/src/backends/cpp/validator.cpp" cpp_command_validator)
+if(NOT cpp_command_validator MATCHES "AssignmentTypeProbes" OR
+   NOT cpp_command_validator MATCHES "cpp_declaration_probes_compatible" OR
+   NOT cpp_command_validator MATCHES "across control-flow paths")
+  message(FATAL_ERROR
+    "cpp capability validation does not reject incompatible command-result declarations across paths")
+endif()
+foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
+  mpf_assert_file_excludes("${renderer}"
+    "statement\\.implicit_result|implicit_result_has_value|previous_assigned"
+    "target renderer recovered Matlab command-result semantics from raw analysis facts")
+endforeach()
 if(NOT javascript_lir_contract MATCHES "ComparisonPlan" OR
    NOT javascript_lir_contract MATCHES "binary_comparison" OR
    NOT javascript_lir_contract MATCHES "not_membership" OR
