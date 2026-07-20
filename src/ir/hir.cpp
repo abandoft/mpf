@@ -73,6 +73,13 @@ void verify_statements(const std::vector<Statement>& statements, const std::size
       continue;
     }
     seen[id] = true;
+    if (statement.implicit_result != semantic::ImplicitResultPolicy::none &&
+        (statement.implicit_result != semantic::ImplicitResultPolicy::matlab_ans_if_value ||
+         statement.kind != StatementKind::expression || statement.name != "ans" ||
+         !statement.has_expression || statement.expression.kind != ExpressionKind::call)) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "implicit result is not a normalized Matlab ans call");
+    }
     const auto verify_optional = [&](const Expression& expression, const bool present,
                                      const char* name) {
       if (present && !expression.valid()) {

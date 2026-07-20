@@ -12,6 +12,7 @@
 #include "compiler/statement_kind.hpp"
 #include "ir/hir_lowering.hpp"
 #include "ir/ids.hpp"
+#include "ir/semantics.hpp"
 
 namespace mpf::detail {
 
@@ -80,6 +81,7 @@ struct ArenaStatement {
   AstNodeId expression{};
   bool has_expression{false};
   bool procedure_call{false};
+  semantic::ImplicitResultPolicy implicit_result{semantic::ImplicitResultPolicy::none};
   AstNodeId secondary_expression{};
   bool has_secondary_expression{false};
   AstNodeId tertiary_expression{};

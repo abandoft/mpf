@@ -148,6 +148,7 @@ class HirLowerer final {
     result.expression = expression(node.expression);
     result.has_expression = node.has_expression;
     result.procedure_call = node.procedure_call;
+    result.implicit_result = node.implicit_result;
     result.secondary_expression = expression(node.secondary_expression);
     result.has_secondary_expression = node.has_secondary_expression;
     result.tertiary_expression = expression(node.tertiary_expression);
@@ -307,6 +308,11 @@ std::vector<Diagnostic> verify_typed_ast(const ArenaProgram<Tag>& ast,
       add_error({node.line, 1},
                 "Matlab output-return AST node cannot also carry a value expression");
     }
+    if (node.implicit_result != semantic::ImplicitResultPolicy::none &&
+        (expected != SourceLanguage::matlab || node.kind != StatementKind::expression ||
+         node.name != "ans" || !node.has_expression)) {
+      add_error({node.line, 1}, "frontend AST implicit result must be a Matlab ans call statement");
+    }
     const auto optional = [&](const AstNodeId value, const bool present, const char* name) {
       if (present != value.valid()) {
         add_error({node.line, 1}, std::string(name) + " presence flag is inconsistent");
@@ -314,6 +320,15 @@ std::vector<Diagnostic> verify_typed_ast(const ArenaProgram<Tag>& ast,
       if (value.valid()) self(self, value, AstNodeKind::expression);
     };
     optional(node.expression, node.has_expression, "primary expression");
+    if (node.implicit_result != semantic::ImplicitResultPolicy::none && node.expression.valid()) {
+      const auto expression_index = static_cast<std::size_t>(node.expression.value());
+      if (expression_index >= ast.records.size() ||
+          ast.records[expression_index].kind != AstNodeKind::expression ||
+          ast.records[expression_index].index >= ast.expressions.size() ||
+          ast.expressions[ast.records[expression_index].index].kind != ExpressionKind::call) {
+        add_error({node.line, 1}, "frontend AST implicit result does not own a call expression");
+      }
+    }
     optional(node.secondary_expression, node.has_secondary_expression, "secondary expression");
     optional(node.tertiary_expression, node.has_tertiary_expression, "tertiary expression");
     optional(node.target_expression, node.has_target_expression, "target expression");

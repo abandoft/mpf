@@ -135,6 +135,11 @@ enum class TopLevelStorage { module, entry_function };
 enum class ExportPolicy { all_top_level, explicit_only };
 enum class ScopeModel { function, lexical_blocks };
 
+// Some source-language call statements conditionally publish a result into a workspace binding.
+// This is semantic state, not command-syntax spelling: frontends normalize the call expression
+// before HIR and targets decide independently whether to serialize an assignment or a discard.
+enum class ImplicitResultPolicy : std::uint8_t { none, matlab_ans_if_value };
+
 // Per-axis lowering contract for Matlab compatible-size array operations. Matlab aligns
 // dimensions from the first axis and treats missing trailing dimensions as singleton axes.
 enum class BroadcastAxis : std::uint8_t { match, expand_left, expand_right, runtime };

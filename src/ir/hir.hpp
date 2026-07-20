@@ -43,6 +43,7 @@ struct Statement {
   Expression expression;
   bool has_expression{false};
   bool procedure_call{false};
+  semantic::ImplicitResultPolicy implicit_result{semantic::ImplicitResultPolicy::none};
   Expression secondary_expression;
   bool has_secondary_expression{false};
   Expression tertiary_expression;

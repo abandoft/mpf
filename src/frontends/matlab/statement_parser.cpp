@@ -416,43 +416,46 @@ class Parser final {
     return closing == count - 1;
   }
 
-  std::size_t command_argument_count(const MatlabStatementLine& line) const {
-    const auto count = token_count(line);
-    if (count <= 1) return 0;
-    std::size_t arguments = 1;
-    for (std::size_t token = 2; token < count; ++token) {
-      const auto gap_begin = line.tokens[token - 1].end;
-      const auto gap_end = line.tokens[token].begin;
-      const auto gap = std::string_view(line.source.text).substr(gap_begin, gap_end - gap_begin);
-      if (std::any_of(gap.begin(), gap.end(),
-                      [](const unsigned char character) { return std::isspace(character) != 0; })) {
-        ++arguments;
-      }
+  std::string command_call_expression(const MatlabCommandSyntax& command) const {
+    std::string result = command.callee + '(';
+    for (std::size_t index = 0; index < command.arguments.size(); ++index) {
+      if (index != 0U) result.push_back(',');
+      result += quoted_character_vector(command.arguments[index].value);
     }
-    return arguments;
+    result.push_back(')');
+    return result;
   }
 
-  bool parse_display_command(std::vector<AstNodeId>& statements, const MatlabStatementLine& line) {
+  bool parse_command_statement(std::vector<AstNodeId>& statements,
+                               const MatlabStatementLine& line) {
     const auto count = token_count(line);
-    if (count == 0 || line.tokens[0].kind != Kind::identifier) return false;
-    const auto name = lower(line.tokens[0].text);
-    if (name != "disp" && name != "display") return false;
-    if (count >= 2 && line.tokens[1].kind == Kind::left_parenthesis) return false;
-    if (command_argument_count(line) != 1U) {
+    if (count == 0 || line.tokens[0].kind != Kind::identifier || !line.command.has_value()) {
+      return false;
+    }
+    if (!line.command->terminated) {
+      ++index_;
+      return true;
+    }
+    const auto name = lower(line.command->callee);
+    if ((name == "disp" || name == "display") && line.command->arguments.size() != 1U) {
       frontend::unsupported(
           diagnostics_, line.source.number,
           "Matlab command-form disp/display requires exactly one character-vector input");
       ++index_;
       return true;
     }
-    const auto raw = token_slice(line, 1, count);
-    const bool single_quoted = count == 2 && line.tokens[1].kind == Kind::string_literal &&
-                               raw.size() >= 2U && raw.front() == '\'' && raw.back() == '\'';
     Statement statement;
-    statement.kind = StatementKind::print;
     statement.line = line.source.number;
-    const auto expression = single_quoted ? raw : quoted_character_vector(raw);
-    append_expression(statement, expression, line.source.number);
+    if (name == "disp" || name == "display") {
+      statement.kind = StatementKind::print;
+      append_expression(statement, quoted_character_vector(line.command->arguments.front().value),
+                        line.source.number);
+    } else {
+      statement.kind = StatementKind::expression;
+      statement.name = "ans";
+      statement.implicit_result = semantic::ImplicitResultPolicy::matlab_ans_if_value;
+      append_expression(statement, command_call_expression(*line.command), line.source.number);
+    }
     statements.push_back(store(std::move(statement)));
     ++index_;
     return true;
@@ -488,7 +491,7 @@ class Parser final {
       ++index_;
       return;
     }
-    if (parse_display_command(statements, line)) return;
+    if (parse_command_statement(statements, line)) return;
     std::size_t display_closing = count;
     if (is_display_call(line, display_closing)) {
       Statement statement;
