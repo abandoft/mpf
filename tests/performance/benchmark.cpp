@@ -580,6 +580,36 @@ std::string matlab_sparse_arithmetic_workload(const std::size_t width, const std
   return source;
 }
 
+std::string matlab_sparse_power_workload(const std::size_t width, const std::size_t rounds) {
+  std::string source = "base = sparse([";
+  for (std::size_t row = 0U; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0U; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += row == column ? "1" : (column == row + 1U ? "1" : "0");
+    }
+  }
+  source += "]);\nlogical_base = sparse([";
+  for (std::size_t row = 0U; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0U; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += row == column ? "true" : "false";
+    }
+  }
+  source += "]);\n";
+  for (std::size_t round = 0U; round < rounds; ++round) {
+    source += "squared = base ^ 2;\n";
+    source += "cubed = base ^ 3;\n";
+    source += "identity = base ^ 0;\n";
+    source += "logical_power = logical_base ^ 2;\n";
+    source += "base = squared;\n";
+  }
+  source +=
+      "disp(nnz(squared) + nnz(cubed) + nnz(identity) + nnz(logical_power))\n";
+  return source;
+}
+
 std::string matlab_logical_sparse_workload(const std::size_t width, const std::size_t rounds) {
   const auto width_text = std::to_string(width);
   const auto element_count = std::to_string(width * width);
@@ -1013,6 +1043,8 @@ int main() {
       {"matlab-sparse-elementwise", matlab_sparse_elementwise_workload(24, 24),
        mpf::SourceLanguage::matlab},
       {"matlab-sparse-arithmetic", matlab_sparse_arithmetic_workload(24, 24),
+       mpf::SourceLanguage::matlab},
+      {"matlab-sparse-power", matlab_sparse_power_workload(24, 24),
        mpf::SourceLanguage::matlab},
       {"matlab-logical-sparse", matlab_logical_sparse_workload(24, 24),
        mpf::SourceLanguage::matlab},
