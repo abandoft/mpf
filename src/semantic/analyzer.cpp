@@ -1139,7 +1139,7 @@ bool Analyzer::analyze_statement(Statement& statement) {
     }
     case StatementKind::return_statement:
       if (statement.has_expression) analyze_expression(statement.expression);
-      if (function_depth_ == 0) {
+      if (function_depth_ == 0 && program_.language != SourceLanguage::matlab) {
         diagnose(statement.line, "MPF2012", "return statement is only valid inside a function");
       }
       return true;

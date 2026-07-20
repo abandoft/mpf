@@ -45,8 +45,11 @@ class FlowAnalyzer final {
                           const bool entry_reachable) {
     bool terminated = false;
     for (const auto& statement : statements) {
-      const auto reachable = entry_reachable && !terminated;
-      if (entry_reachable && terminated) {
+      const bool hoisted_matlab_function = program_.language == SourceLanguage::matlab &&
+                                           function_depth_ == 0U &&
+                                           statement.kind == StatementKind::function;
+      const auto reachable = entry_reachable && (!terminated || hoisted_matlab_function);
+      if (entry_reachable && terminated && !hoisted_matlab_function) {
         result_.diagnostics.push_back(
             {DiagnosticSeverity::warning,
              "MPF2101",

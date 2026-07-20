@@ -144,6 +144,7 @@ class NameAnalyzer final {
             }
           }
           break;
+        case StatementKind::return_statement: break;
         case StatementKind::range_loop: {
           auto loop_scope = scope;
           auto body_scope = scope;
@@ -183,7 +184,6 @@ class NameAnalyzer final {
         }
         case StatementKind::indexed_assignment:
         case StatementKind::print:
-        case StatementKind::return_statement:
         case StatementKind::break_statement:
         case StatementKind::continue_statement:
         case StatementKind::expression: break;
@@ -294,6 +294,12 @@ class NameAnalyzer final {
                              NameRole::assignment, index);
           }
           break;
+        case StatementKind::return_statement:
+          for (std::size_t index = 0; index < statement.return_names.size(); ++index) {
+            add_definition(statement.id, scope, statement.return_names[index], NameRole::result,
+                           index);
+          }
+          break;
         case StatementKind::range_loop: {
           bind_statement_expressions(statement, scope);
           const auto loop_scope =
@@ -320,7 +326,6 @@ class NameAnalyzer final {
         }
         case StatementKind::indexed_assignment:
         case StatementKind::print:
-        case StatementKind::return_statement:
         case StatementKind::break_statement:
         case StatementKind::continue_statement:
         case StatementKind::expression:
@@ -523,7 +528,6 @@ void verify_statements(const hir::Program& program, const std::vector<hir::State
       case StatementKind::function:
       case StatementKind::indexed_assignment:
       case StatementKind::print:
-      case StatementKind::return_statement:
       case StatementKind::break_statement:
       case StatementKind::continue_statement:
       case StatementKind::expression:
@@ -531,6 +535,12 @@ void verify_statements(const hir::Program& program, const std::vector<hir::State
       case StatementKind::select_case:
       case StatementKind::case_clause:
       case StatementKind::while_loop: break;
+      case StatementKind::return_statement:
+        for (std::size_t index = 0; index < statement.return_names.size(); ++index) {
+          require_definition(statement, scope, names, NameRole::result, index, true, stage,
+                             diagnostics);
+        }
+        break;
     }
     verify_statement_expressions(statement, scope, names, resident, stage, diagnostics);
     const bool scoped_control =
