@@ -52,6 +52,9 @@ mpf_add_differential_case(
   matlab-sparse-matrix-power matlab examples/matlab/sparse_matrix_power.m
   "3 16 81 1 1 1 1 1 1 1 1 1 3 2 2 0 0")
 mpf_add_differential_case(
+  matlab-complex-sparse-storage matlab examples/matlab/complex_sparse_storage.m
+  "2 2 2 1 1 1 2 4 -4 4 4 -4 -4 4 5 -6 3 7 8")
+mpf_add_differential_case(
   matlab-sparse-scalar-product matlab examples/matlab/sparse_scalar_product.m
   "4 -8 12 -0.5 1 -1.5 1 1 1 3 0")
 mpf_add_differential_case(
@@ -149,7 +152,8 @@ mpf_add_differential_case(
 mpf_add_differential_case(
   matlab-generalized-indexing matlab examples/matlab/generalized_indexing.m "40 20 20 0 9 10 90 7")
 mpf_add_differential_case(
-  matlab-shape-mutation matlab examples/matlab/shape_mutation.m "0 9 8 6 30 6 9 3 0 9 7 30")
+  matlab-shape-mutation matlab examples/matlab/shape_mutation.m
+  "0 9 8 6 30 6 9 3 1 99 0 9 7 30 2 5 9")
 mpf_add_differential_case(
   matlab-empty-arrays matlab examples/matlab/empty_arrays.m "0 0 3 7 5 0 5 0 5 0 5 0 4 9")
 

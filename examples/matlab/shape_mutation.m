@@ -17,12 +17,19 @@ cube = reshape([1 2 3 4 5 6 7 8], 2, 2, 2);
 cube(3, 2, 2) = 9;
 cube(:, 1, :) = [];
 
+original = [1 2; 3 4];
+detached = original;
+detached(1, 1) = 99;
+
 disp(row(4), row(5), matrix(3, 3), linear(1, 4), removed(2), columns(2, 2), ...
-     cube(3, 1, 2), cube(1, 1, 1))
+     cube(3, 1, 2), cube(1, 1, 1), original(1, 1), detached(1, 1))
 
 dynamic_grown = grow_at([1 2 3], 5);
 dynamic_trimmed = erase_at([10 20 30 40], 2);
-disp(dynamic_grown(4), dynamic_grown(5), dynamic_grown(6), dynamic_trimmed(2))
+function_input = [4 5];
+function_output = grow_at(function_input, 4);
+disp(dynamic_grown(4), dynamic_grown(5), dynamic_grown(6), dynamic_trimmed(2), ...
+     length(function_input), length(function_output), function_output(4))
 
 function output = grow_at(values, position)
 values(position) = 9;

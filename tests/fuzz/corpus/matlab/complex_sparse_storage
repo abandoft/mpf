@@ -1,0 +1,11 @@
+A = sparse([1+2i 0; 0 3-4i]);
+B = sparse([1 1 2], [1 1 2], [1+2i 3-2i -4i], 2, 2);
+P = B.';
+H = B';
+I = B([2 1], [2 1]);
+R = reshape(I, [1 4]);
+B(1, 2) = 5-6i;
+B(2, 2) = 0;
+FP = full(P);
+FH = full(H);
+disp(nnz(A), nnz(B), real(FP(1, 1)), imag(FH(2, 2)), nnz(R))
