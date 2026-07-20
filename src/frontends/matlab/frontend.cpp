@@ -62,20 +62,22 @@ int probe_matlab(const std::string_view source) noexcept {
 
 constexpr std::string_view extensions[]{".m"};
 constexpr SourceIntrinsicBinding intrinsic_bindings[]{
-    {"all", IntrinsicId::logical_all},          {"any", IntrinsicId::logical_any},
-    {"complex", IntrinsicId::complex_value},    {"conj", IntrinsicId::conjugate},
-    {"full", IntrinsicId::matlab_full},         {"i", IntrinsicId::imaginary_unit},
-    {"imag", IntrinsicId::imaginary_part},      {"issparse", IntrinsicId::matlab_is_sparse},
-    {"j", IntrinsicId::imaginary_unit},         {"length", IntrinsicId::matlab_length},
-    {"nnz", IntrinsicId::matlab_nonzero_count}, {"numel", IntrinsicId::element_count},
-    {"real", IntrinsicId::real_part},           {"reshape", IntrinsicId::reshape},
+    {"all", IntrinsicId::logical_all},           {"any", IntrinsicId::logical_any},
+    {"complex", IntrinsicId::complex_value},     {"conj", IntrinsicId::conjugate},
+    {"error", IntrinsicId::matlab_error},        {"full", IntrinsicId::matlab_full},
+    {"i", IntrinsicId::imaginary_unit},          {"imag", IntrinsicId::imaginary_part},
+    {"issparse", IntrinsicId::matlab_is_sparse}, {"j", IntrinsicId::imaginary_unit},
+    {"length", IntrinsicId::matlab_length},      {"nnz", IntrinsicId::matlab_nonzero_count},
+    {"numel", IntrinsicId::element_count},       {"real", IntrinsicId::real_part},
+    {"reshape", IntrinsicId::reshape},           {"rethrow", IntrinsicId::matlab_rethrow},
     {"sparse", IntrinsicId::matlab_sparse}};
 constexpr FrontendFeatureSet features{
     static_cast<std::uint64_t>(FrontendFeature::language_versioning) |
     static_cast<std::uint64_t>(FrontendFeature::structured_control_flow) |
     static_cast<std::uint64_t>(FrontendFeature::functions) |
     static_cast<std::uint64_t>(FrontendFeature::multiple_results) |
-    static_cast<std::uint64_t>(FrontendFeature::array_sections)};
+    static_cast<std::uint64_t>(FrontendFeature::array_sections) |
+    static_cast<std::uint64_t>(FrontendFeature::exception_handling)};
 
 }  // namespace
 
@@ -87,7 +89,7 @@ const FrontendDescriptor& matlab_frontend() noexcept {
                                              "matlab",
                                              {extensions, std::size(extensions)},
                                              {"Matlab-2024-versioned-subset",
-                                              "mpf.matlab.ast.v3",
+                                              "mpf.matlab.ast.v4",
                                               {1, 0},
                                               {2024, 2},
                                               features,

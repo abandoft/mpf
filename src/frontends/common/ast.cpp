@@ -169,6 +169,8 @@ class HirLowerer final {
     result.case_selectors.reserve(node.case_selectors.size());
     for (auto& value : node.case_selectors) result.case_selectors.push_back(selector(value));
     result.default_case = node.default_case;
+    result.has_exception_handler = node.has_exception_handler;
+    result.exception_handler_line = node.exception_handler_line;
     result.body.reserve(node.body.size());
     for (const auto value : node.body) result.body.push_back(statement(value));
     result.alternative.reserve(node.alternative.size());
@@ -312,6 +314,14 @@ std::vector<Diagnostic> verify_typed_ast(const ArenaProgram<Tag>& ast,
         (expected != SourceLanguage::matlab || node.kind != StatementKind::expression ||
          node.name != "ans" || !node.has_expression)) {
       add_error({node.line, 1}, "frontend AST implicit result must be a Matlab ans call statement");
+    }
+    if (node.kind == StatementKind::try_statement) {
+      if (expected != SourceLanguage::matlab || !node.has_exception_handler ||
+          node.exception_handler_line == 0U) {
+        add_error({node.line, 1}, "frontend AST try statement must own a Matlab exception handler");
+      }
+    } else if (node.has_exception_handler || node.exception_handler_line != 0U) {
+      add_error({node.line, 1}, "only a try statement may own an exception handler");
     }
     const auto optional = [&](const AstNodeId value, const bool present, const char* name) {
       if (present != value.valid()) {

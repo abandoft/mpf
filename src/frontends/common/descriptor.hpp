@@ -12,7 +12,7 @@
 
 namespace mpf::detail {
 
-inline constexpr std::uint32_t frontend_descriptor_api_version = 6;
+inline constexpr std::uint32_t frontend_descriptor_api_version = 7;
 
 enum class FrontendFeature : std::uint64_t {
   language_versioning = 1ULL << 0U,
@@ -22,7 +22,8 @@ enum class FrontendFeature : std::uint64_t {
   multiple_results = 1ULL << 4U,
   array_sections = 1ULL << 5U,
   fixed_source_form = 1ULL << 6U,
-  parameter_intent = 1ULL << 7U
+  parameter_intent = 1ULL << 7U,
+  exception_handling = 1ULL << 8U
 };
 
 class FrontendFeatureSet final {

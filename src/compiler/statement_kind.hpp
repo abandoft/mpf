@@ -13,6 +13,7 @@ enum class StatementKind {
   continue_statement,
   expression,
   if_statement,
+  try_statement,
   select_case,
   case_clause,
   while_loop,

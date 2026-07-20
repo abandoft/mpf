@@ -152,7 +152,7 @@ class Parser final {
   bool is_terminator(const MatlabStatementLine& line) const noexcept {
     return starts_with(line, Kind::keyword_end) || starts_with(line, Kind::keyword_else) ||
            starts_with(line, Kind::keyword_elseif) || starts_with(line, Kind::keyword_case) ||
-           starts_with(line, Kind::keyword_otherwise);
+           starts_with(line, Kind::keyword_otherwise) || starts_with(line, Kind::keyword_catch);
   }
 
   void expect_end(const std::size_t owner_line, const std::string_view owner) {
@@ -304,6 +304,39 @@ class Parser final {
     ++index_;
     statement.body = parse_block();
     expect_end(line_number, "while loop");
+    return statement;
+  }
+
+  Statement parse_try() {
+    const auto line_number = lines_[index_].source.number;
+    Statement statement;
+    statement.kind = StatementKind::try_statement;
+    statement.line = line_number;
+    if (!exact_keyword(lines_[index_], Kind::keyword_try)) {
+      frontend::unsupported(diagnostics_, line_number, "malformed Matlab try statement");
+    }
+    ++index_;
+    statement.body = parse_block();
+    if (index_ >= lines_.size() || !starts_with(lines_[index_], Kind::keyword_catch)) {
+      frontend::unsupported(diagnostics_, line_number,
+                            "Matlab try statement requires exactly one catch clause");
+      expect_end(line_number, "try statement");
+      return statement;
+    }
+
+    const auto& catch_line = lines_[index_];
+    const auto catch_count = token_count(catch_line);
+    statement.has_exception_handler = true;
+    statement.exception_handler_line = catch_line.source.number;
+    if (catch_count == 2U && catch_line.tokens[1].kind == Kind::identifier) {
+      statement.name = catch_line.tokens[1].text;
+    } else if (catch_count != 1U) {
+      frontend::unsupported(diagnostics_, catch_line.source.number,
+                            "Matlab catch clause accepts at most one exception identifier");
+    }
+    ++index_;
+    statement.alternative = parse_block();
+    expect_end(line_number, "try statement");
     return statement;
   }
 
@@ -550,10 +583,9 @@ class Parser final {
       return;
     }
 
-    if (first == Kind::unsupported_keyword || first == Kind::keyword_try ||
-        first == Kind::keyword_catch || first == Kind::keyword_arguments ||
-        first == Kind::keyword_function || first == Kind::keyword_if ||
-        first == Kind::keyword_while || first == Kind::keyword_for ||
+    if (first == Kind::unsupported_keyword || first == Kind::keyword_catch ||
+        first == Kind::keyword_arguments || first == Kind::keyword_function ||
+        first == Kind::keyword_if || first == Kind::keyword_while || first == Kind::keyword_for ||
         first == Kind::keyword_switch) {
       frontend::unsupported(diagnostics_, line.source.number,
                             "unsupported Matlab statement in the current language subset: " +
@@ -578,6 +610,7 @@ class Parser final {
       switch (first) {
         case Kind::keyword_function: statements.push_back(store(parse_function())); break;
         case Kind::keyword_if: statements.push_back(store(parse_if())); break;
+        case Kind::keyword_try: statements.push_back(store(parse_try())); break;
         case Kind::keyword_while: statements.push_back(store(parse_while())); break;
         case Kind::keyword_for: statements.push_back(store(parse_for())); break;
         case Kind::keyword_switch: statements.push_back(store(parse_switch())); break;

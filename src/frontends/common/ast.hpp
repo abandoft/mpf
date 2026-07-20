@@ -126,6 +126,8 @@ struct ArenaStatement {
   std::vector<ValueType> target_previous_element_types;
   std::vector<ArenaCaseSelector<LanguageTag>> case_selectors;
   bool default_case{false};
+  bool has_exception_handler{false};
+  std::size_t exception_handler_line{0};
   std::vector<AstNodeId> body;
   std::vector<AstNodeId> alternative;
 };
