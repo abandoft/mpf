@@ -35,6 +35,8 @@ mpf_add_differential_case(
 mpf_add_differential_case(matlab-multi-output matlab examples/matlab/multi_output.m "97")
 mpf_add_differential_case(matlab-function-graph matlab examples/matlab/function_graph.m "61")
 mpf_add_differential_case(matlab-switch-case matlab examples/matlab/switch_case.m "42")
+mpf_add_differential_case(
+  matlab-try-catch matlab examples/matlab/try_catch.m "MPF:Expected nested 42")
 mpf_add_differential_case(matlab-operators matlab examples/matlab/operators.m "101")
 mpf_add_differential_case(matlab-matrix-solve matlab examples/matlab/matrix_solve.m "35.4")
 mpf_add_differential_case(
