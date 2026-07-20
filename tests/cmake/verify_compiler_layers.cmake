@@ -793,6 +793,96 @@ foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/
     "SparseArithmetic(Operation|StoragePolicy)|valid_sparse_arithmetic_contract|sparse_arithmetic"
     "target renderer recovered sparse arithmetic semantics from source plans")
 endforeach()
+file(READ "${SOURCE_DIR}/src/ir/semantics.hpp" sparse_power_semantic_contract)
+foreach(required_sparse_power_semantic IN ITEMS
+    "MatrixExponentPolicy"
+    "sparse_csc_power"
+    "matrix_exponent_policy"
+    "valid_matrix_power_storage_contract")
+  if(NOT sparse_power_semantic_contract MATCHES "${required_sparse_power_semantic}")
+    message(FATAL_ERROR
+      "sparse matrix power semantic contract is missing: ${required_sparse_power_semantic}")
+  endif()
+endforeach()
+foreach(sparse_power_ir IN ITEMS
+    src/ir/semantic_facts.hpp
+    src/ir/mir.hpp
+    src/backends/javascript/lir.hpp
+    src/backends/cpp/lir.hpp)
+  file(READ "${SOURCE_DIR}/${sparse_power_ir}" sparse_power_ir_contract)
+  if(NOT sparse_power_ir_contract MATCHES "MatrixOperationPlan" OR
+     NOT sparse_power_ir_contract MATCHES "MatrixExponentPolicy" OR
+     NOT sparse_power_ir_contract MATCHES "exponent_policy")
+    message(FATAL_ERROR
+      "IR layer does not own the typed matrix exponent policy: ${sparse_power_ir}")
+  endif()
+endforeach()
+file(READ "${SOURCE_DIR}/src/backends/common/lir_builder.hpp"
+     sparse_power_lir_builder_contract)
+if(NOT sparse_power_lir_builder_contract MATCHES
+     "matrix_operation\.exponent_policy = attributes\.matrix_operation\.exponent_policy")
+  message(FATAL_ERROR "target LIR builder does not propagate the matrix exponent policy")
+endif()
+file(READ "${SOURCE_DIR}/src/semantic/expression_analyzer.cpp" sparse_power_analyzer_contract)
+file(READ "${SOURCE_DIR}/src/ir/mir.cpp" sparse_power_mir_lowering_contract)
+file(READ "${SOURCE_DIR}/src/ir/mir_verifier.cpp" sparse_power_mir_verifier_contract)
+if(NOT sparse_power_analyzer_contract MATCHES "sparse matrix power requires" OR
+   NOT sparse_power_analyzer_contract MATCHES "valid_matrix_power_storage_contract" OR
+   NOT sparse_power_analyzer_contract MATCHES "matrix_exponent_policy" OR
+   NOT sparse_power_mir_lowering_contract MATCHES "matrix_operation\.exponent_policy" OR
+   NOT sparse_power_mir_verifier_contract MATCHES "valid_matrix_power_storage_contract" OR
+   NOT sparse_power_mir_verifier_contract MATCHES "matrix_exponent_policy")
+  message(FATAL_ERROR
+    "Analyzer and MIR do not independently own sparse matrix power storage and exponent plans")
+endif()
+foreach(sparse_power_representation IN ITEMS
+    src/backends/javascript/lir_representation.cpp
+    src/backends/cpp/lir_representation.cpp)
+  file(READ "${SOURCE_DIR}/${sparse_power_representation}"
+       sparse_power_representation_contract)
+  if(NOT sparse_power_representation_contract MATCHES "sparse_mpower" OR
+     NOT sparse_power_representation_contract MATCHES "valid_matrix_power_storage_contract" OR
+     NOT sparse_power_representation_contract MATCHES "matrix_exponent_policy" OR
+     NOT sparse_power_representation_contract MATCHES "runtime_shape_arguments" OR
+     NOT sparse_power_representation_contract MATCHES "runtime_integer_arguments")
+    message(FATAL_ERROR
+      "target representation does not own sparse matrix power helper and ABI selection: "
+      "${sparse_power_representation}")
+  endif()
+endforeach()
+foreach(sparse_power_planning IN ITEMS
+    src/backends/javascript/lir_planning.cpp
+    src/backends/cpp/lir_planning.cpp)
+  file(READ "${SOURCE_DIR}/${sparse_power_planning}" sparse_power_planning_contract)
+  if(NOT sparse_power_planning_contract MATCHES "RuntimeFeature::sparse_power" OR
+     NOT sparse_power_planning_contract MATCHES "RuntimeFragment::sparse_power" OR
+     NOT sparse_power_planning_contract MATCHES
+       "sparse-power runtime requires sparse-matrix support")
+    message(FATAL_ERROR
+      "target resource planner does not own the sparse-power fragment dependency: "
+      "${sparse_power_planning}")
+  endif()
+  string(FIND "${sparse_power_planning_contract}"
+    "RuntimeFragment::sparse_matrices" sparse_power_base_fragment_index)
+  string(FIND "${sparse_power_planning_contract}"
+    "RuntimeFragment::sparse_power" sparse_power_fragment_index)
+  if(sparse_power_base_fragment_index EQUAL -1 OR sparse_power_fragment_index EQUAL -1 OR
+     sparse_power_fragment_index LESS sparse_power_base_fragment_index)
+    message(FATAL_ERROR
+      "sparse-power fragment is planned before its sparse-matrix dependency: "
+      "${sparse_power_planning}")
+  endif()
+endforeach()
+foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
+  mpf_assert_file_excludes("${renderer}"
+    "MatrixExponentPolicy|sparse_csc_power|valid_matrix_power_storage_contract|sparse_mpower"
+    "target renderer recovered sparse matrix power semantics from source plans")
+endforeach()
+file(READ "${SOURCE_DIR}/src/backends/common/lir_dump.hpp" target_lir_dump_contract)
+if(NOT target_lir_dump_contract MATCHES "runtime_integer_arguments" OR
+   NOT target_lir_dump_contract MATCHES "runtime-integer-arguments")
+  message(FATAL_ERROR "deterministic target LIR dump omits runtime integer ABI arguments")
+endif()
 foreach(representation IN ITEMS
     src/backends/javascript/lir_representation.cpp
     src/backends/cpp/lir_representation.cpp)
@@ -995,6 +1085,65 @@ foreach(sparse_matrix_runtime IN ITEMS
   mpf_assert_file_excludes("${sparse_matrix_runtime}"
     "sparse_arithmetic|sparse_(add|subtract)|sparse arithmetic storage plan"
     "target sparse-matrix base runtime absorbed the optional sparse-arithmetic fragment")
+  mpf_assert_file_excludes("${sparse_matrix_runtime}"
+    "sparse_power|sparse_mpower|sparse matrix power plan"
+    "target sparse-matrix base runtime absorbed the optional sparse-power fragment")
+endforeach()
+foreach(sparse_power_runtime IN ITEMS
+    src/backends/javascript/sparse_power_runtime.cpp
+    src/backends/cpp/sparse_power_runtime.cpp)
+  if(NOT EXISTS "${SOURCE_DIR}/${sparse_power_runtime}")
+    message(FATAL_ERROR "target sparse-power runtime is missing: ${sparse_power_runtime}")
+  endif()
+  file(READ "${SOURCE_DIR}/${sparse_power_runtime}" sparse_power_runtime_contract)
+  if(NOT sparse_power_runtime_contract MATCHES
+       "emit_(javascript|cpp)_sparse_power_runtime" OR
+     NOT sparse_power_runtime_contract MATCHES "sparse_mpower" OR
+     NOT sparse_power_runtime_contract MATCHES "sparse_power_identity" OR
+     NOT sparse_power_runtime_contract MATCHES "sparse_power_exponent" OR
+     NOT sparse_power_runtime_contract MATCHES "sparse_sparse_mtimes" OR
+     NOT sparse_power_runtime_contract MATCHES
+       "sparse matrix power plan is inconsistent" OR
+     NOT sparse_power_runtime_contract MATCHES
+       "nonnegative safe integer exponent")
+    message(FATAL_ERROR
+      "target sparse-power fragment does not own exponent, identity, plan and repeated-square "
+      "kernels: ${sparse_power_runtime}")
+  endif()
+  mpf_assert_file_excludes("${sparse_power_runtime}"
+    "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
+    "target sparse-power runtime depends on compiler state")
+endforeach()
+foreach(sparse_power_runtime_catalog IN ITEMS
+    src/backends/javascript/runtime.cpp
+    src/backends/cpp/runtime.cpp)
+  file(READ "${SOURCE_DIR}/${sparse_power_runtime_catalog}"
+       sparse_power_runtime_catalog_contract)
+  if(NOT sparse_power_runtime_catalog_contract MATCHES "RuntimeFragment::sparse_power" OR
+     NOT sparse_power_runtime_catalog_contract MATCHES
+       "emit_(javascript|cpp)_sparse_power_runtime")
+    message(FATAL_ERROR
+      "target runtime catalog does not serialize the sparse-power fragment: "
+      "${sparse_power_runtime_catalog}")
+  endif()
+  string(FIND "${sparse_power_runtime_catalog_contract}"
+    "emit_javascript_sparse_matrix_runtime" javascript_sparse_power_base_emit_index)
+  string(FIND "${sparse_power_runtime_catalog_contract}"
+    "emit_javascript_sparse_power_runtime" javascript_sparse_power_emit_index)
+  string(FIND "${sparse_power_runtime_catalog_contract}"
+    "emit_cpp_sparse_matrix_runtime" cpp_sparse_power_base_emit_index)
+  string(FIND "${sparse_power_runtime_catalog_contract}"
+    "emit_cpp_sparse_power_runtime" cpp_sparse_power_emit_index)
+  if((javascript_sparse_power_emit_index GREATER -1 AND
+      (javascript_sparse_power_base_emit_index EQUAL -1 OR
+       javascript_sparse_power_emit_index LESS javascript_sparse_power_base_emit_index)) OR
+     (cpp_sparse_power_emit_index GREATER -1 AND
+      (cpp_sparse_power_base_emit_index EQUAL -1 OR
+       cpp_sparse_power_emit_index LESS cpp_sparse_power_base_emit_index)))
+    message(FATAL_ERROR
+      "target runtime emits sparse power before its sparse-matrix dependency: "
+      "${sparse_power_runtime_catalog}")
+  endif()
 endforeach()
 foreach(sparse_arithmetic_runtime_catalog IN ITEMS
     src/backends/javascript/runtime.cpp
