@@ -268,6 +268,11 @@ FunctionGraph build_function_graph(const Program& program, const Function& funct
       if (target == absent) continue;
       graph.successors[index].push_back(target);
     }
+    const auto handler = program.blocks[graph.blocks[index].value()].exception_handler;
+    if (valid_index(handler, program.blocks)) {
+      const auto target = graph.local_index[handler.value()];
+      if (target != absent) graph.successors[index].push_back(target);
+    }
     std::sort(graph.successors[index].begin(), graph.successors[index].end());
     graph.successors[index].erase(
         std::unique(graph.successors[index].begin(), graph.successors[index].end()),

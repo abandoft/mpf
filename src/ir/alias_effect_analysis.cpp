@@ -61,6 +61,8 @@ Effect intrinsic_effects(const IntrinsicId intrinsic) noexcept {
     case IntrinsicId::reshape:
     case IntrinsicId::matlab_sparse:
     case IntrinsicId::matlab_full: return Effect::allocate | Effect::may_fail;
+    case IntrinsicId::matlab_error:
+    case IntrinsicId::matlab_rethrow: return Effect::may_fail | Effect::control;
     case IntrinsicId::count: break;
   }
   return Effect::read | Effect::write | Effect::may_fail | Effect::external_unknown;
@@ -85,6 +87,7 @@ Effect minimum_effects(const Instruction& instruction) noexcept {
     case Opcode::selection:
     case Opcode::loop:
     case Opcode::control: return Effect::control;
+    case Opcode::catch_exception: return Effect::write | Effect::control;
     case Opcode::call:
       return instruction.callee.valid() ? Effect::none : intrinsic_effects(instruction.intrinsic);
     case Opcode::index:

@@ -1544,6 +1544,14 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
       add_error(diagnostics, {statement.line, 1}, stage,
                 "for loop has an incomplete initializer/condition/update contract");
     }
+    if ((statement.kind == StatementKind::try_statement) != statement.has_exception_handler ||
+        (statement.kind == StatementKind::try_statement) !=
+            (statement.exception_handler_line != 0U) ||
+        (statement.kind == StatementKind::try_statement &&
+         program.source_language != SourceLanguage::matlab)) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "exception-handler state belongs only to a complete Matlab try statement");
+    }
     const auto* statement_attributes = attributes(program, statement.id);
     if (statement_attributes == nullptr || statement_attributes->origin != statement.id) {
       add_error(diagnostics, {statement.line, 1}, stage,
@@ -1569,8 +1577,10 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
         add_error(diagnostics, {statement.line, 1}, stage,
                   "implicit-result MIR attributes disagree with the Matlab call/store");
       }
+      const bool exception_assignment =
+          statement.kind == StatementKind::try_statement && !statement.name.empty();
       if (statement_attributes->previous_assigned && statement.kind != StatementKind::assignment &&
-          !statement_attributes->implicit_result_has_value) {
+          !statement_attributes->implicit_result_has_value && !exception_assignment) {
         add_error(diagnostics, {statement.line, 1}, stage,
                   "previous-assignment MIR state belongs to no value assignment");
       }
@@ -1959,6 +1969,17 @@ void verify_cfg(const Program& program, std::vector<Diagnostic>& diagnostics,
         add_error(diagnostics, {1, 1}, stage, "control-flow edge crosses a function boundary");
       }
     }
+    if (block.exception_handler.valid()) {
+      if (!valid_index(block.exception_handler, program.blocks)) {
+        add_error(diagnostics, {1, 1}, stage,
+                  "basic block references an invalid exception handler");
+      } else if (block_owners[index].valid() &&
+                 block_owners[block.exception_handler.value()].valid() &&
+                 block_owners[index] != block_owners[block.exception_handler.value()]) {
+        add_error(diagnostics, {1, 1}, stage,
+                  "exceptional control-flow edge crosses a function boundary");
+      }
+    }
     if (block.terminator.successor_arguments.size() == block.terminator.successors.size()) {
       for (std::size_t edge = 0; edge < block.terminator.successors.size(); ++edge) {
         const auto successor = block.terminator.successors[edge];
@@ -1969,6 +1990,80 @@ void verify_cfg(const Program& program, std::vector<Diagnostic>& diagnostics,
                     "control-flow edge argument arity does not match successor block arguments");
         }
       }
+    }
+  }
+
+  std::vector<std::size_t> statement_regions(program.statements.size(), 0U);
+  std::vector<std::size_t> protected_regions(program.blocks.size(), 0U);
+  for (const auto& region : program.exception_regions) {
+    const auto* owner = statement(program, region.owner);
+    const bool valid_blocks = valid_index(region.protected_entry, program.blocks) &&
+                              valid_index(region.handler, program.blocks) &&
+                              valid_index(region.continuation, program.blocks);
+    if (owner == nullptr || owner->kind != StatementKind::try_statement ||
+        !owner->has_exception_handler || owner->symbol_id != region.exception_symbol ||
+        !valid_blocks || region.protected_blocks.empty() || region.handler == region.continuation ||
+        std::find(region.protected_blocks.begin(), region.protected_blocks.end(),
+                  region.protected_entry) == region.protected_blocks.end() ||
+        std::find(region.protected_blocks.begin(), region.protected_blocks.end(), region.handler) !=
+            region.protected_blocks.end() ||
+        std::find(region.protected_blocks.begin(), region.protected_blocks.end(),
+                  region.continuation) != region.protected_blocks.end()) {
+      add_error(diagnostics, {1, 1}, stage,
+                "exception region has an invalid owner or structural block contract");
+      continue;
+    }
+    ++statement_regions[region.owner.value()];
+    const auto function = block_owners[region.handler.value()];
+    if (!function.valid() || block_owners[region.protected_entry.value()] != function ||
+        block_owners[region.continuation.value()] != function) {
+      add_error(diagnostics, {owner->line, 1}, stage,
+                "exception region crosses a function boundary");
+    }
+    for (const auto protected_block : region.protected_blocks) {
+      if (!valid_index(protected_block, program.blocks)) {
+        add_error(diagnostics, {owner->line, 1}, stage,
+                  "exception region references an invalid protected block");
+        continue;
+      }
+      ++protected_regions[protected_block.value()];
+      if (block_owners[protected_block.value()] != function ||
+          program.blocks[protected_block.value()].exception_handler != region.handler) {
+        add_error(diagnostics, {owner->line, 1}, stage,
+                  "protected block disagrees with its exception region");
+      }
+    }
+    const auto& handler = program.blocks[region.handler.value()];
+    const auto first_instruction =
+        handler.instructions.empty() ||
+                !valid_index(handler.instructions.front(), program.instructions)
+            ? nullptr
+            : &program.instructions[handler.instructions.front().value()];
+    const bool has_binding = !owner->name.empty();
+    if (has_binding != region.exception_symbol.valid() ||
+        (has_binding &&
+         (first_instruction == nullptr || first_instruction->opcode != Opcode::catch_exception ||
+          !valid_index(first_instruction->storage, program.storages) ||
+          program.storages[first_instruction->storage.value()].symbol !=
+              region.exception_symbol)) ||
+        (!has_binding && first_instruction != nullptr &&
+         first_instruction->opcode == Opcode::catch_exception)) {
+      add_error(diagnostics, {owner->line, 1}, stage,
+                "exception handler disagrees with its catch binding");
+    }
+  }
+  for (std::size_t index = 1; index < program.statements.size(); ++index) {
+    const auto expected = program.statements[index].kind == StatementKind::try_statement ? 1U : 0U;
+    if (statement_regions[index] != expected) {
+      add_error(diagnostics, {program.statements[index].line, 1}, stage,
+                "try statement and exception-region ownership disagree");
+    }
+  }
+  for (std::size_t index = 1; index < program.blocks.size(); ++index) {
+    const auto expected = program.blocks[index].exception_handler.valid() ? 1U : 0U;
+    if (protected_regions[index] != expected) {
+      add_error(diagnostics, {1, 1}, stage,
+                "exception-handler edge has missing or duplicate region ownership");
     }
   }
 
@@ -2086,6 +2181,9 @@ void verify_cfg(const Program& program, std::vector<Diagnostic>& diagnostics,
         const auto found = positions.find(successor);
         if (found != positions.end()) predecessors[found->second].push_back(index);
       }
+      const auto handler = program.blocks[block_id.value()].exception_handler;
+      const auto found = positions.find(handler);
+      if (found != positions.end()) predecessors[found->second].push_back(index);
     }
 
     std::vector<std::vector<bool>> dominators(function.blocks.size(),
@@ -2607,7 +2705,8 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
                   "memory-reading instruction has no read-access attribute");
       }
       if ((instruction.opcode == Opcode::store || instruction.opcode == Opcode::store_indexed ||
-           instruction.opcode == Opcode::writeback) &&
+           instruction.opcode == Opcode::writeback ||
+           instruction.opcode == Opcode::catch_exception) &&
           !has_access(false, true)) {
         add_error(diagnostics, instruction.location, stage,
                   "memory-writing instruction has no write-access attribute");
@@ -2666,6 +2765,14 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
          !valid_index(instruction.shape, program.shapes))) {
       add_error(diagnostics, instruction.location, stage,
                 "store operation has invalid storage, operands, result, type, or shape");
+    }
+    if (instruction.opcode == Opcode::catch_exception &&
+        (!instruction.storage.valid() || !instruction.operands.empty() ||
+         !instruction.result.valid() || !valid_index(instruction.type, program.types) ||
+         value_type(program, instruction.type) != ValueType::exception ||
+         !valid_index(instruction.shape, program.shapes))) {
+      add_error(diagnostics, instruction.location, stage,
+                "catch-exception operation has invalid storage, operands, result, type, or shape");
     }
     if (instruction.opcode != Opcode::copy && instruction.opcode != Opcode::writeback &&
         instruction.transfer != ArgumentTransfer::value) {
