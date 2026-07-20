@@ -1341,6 +1341,31 @@ class Renderer final {
         }
         output_ << ";\n";
         break;
+      case cpp::lir::StatementForm::return_outputs:
+        indentation();
+        if (statement.plan.return_names.size() == 1U) {
+          output_ << "return "
+                  << mangler_->name(statement.return_symbols.empty()
+                                        ? SymbolId{}
+                                        : statement.return_symbols.front(),
+                                    statement.plan.return_names.front())
+                  << ";\n";
+        } else {
+          output_ << "return std::make_tuple(";
+          for (std::size_t index = 0; index < statement.plan.return_names.size(); ++index) {
+            if (index != 0U) output_ << ", ";
+            output_ << mangler_->name(index < statement.return_symbols.size()
+                                          ? statement.return_symbols[index]
+                                          : SymbolId{},
+                                      statement.plan.return_names[index]);
+          }
+          output_ << ");\n";
+        }
+        break;
+      case cpp::lir::StatementForm::return_program:
+        indentation();
+        output_ << "return 0;\n";
+        break;
       case cpp::lir::StatementForm::break_loop:
         indentation();
         if (!loop_completion_flags_.empty() && !loop_completion_flags_.back().empty()) {

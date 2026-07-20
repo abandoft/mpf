@@ -1787,7 +1787,7 @@ std::vector<lir::AssignmentLeafPlan> assignment_leaves(const AssignmentPattern& 
 
 lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
                                            const lir::EmissionPlan& emission,
-                                           const AccessContext& context) {
+                                           const AccessContext& context, const bool in_function) {
   lir::StatementPlan result;
   result.valid = true;
   switch (statement.kind) {
@@ -1841,8 +1841,16 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
                         : lir::StatementForm::print_value;
       break;
     case StatementKind::return_statement:
-      result.form = statement.has_expression ? lir::StatementForm::return_value
-                                             : lir::StatementForm::return_void;
+      if (statement.has_expression) {
+        result.form = lir::StatementForm::return_value;
+      } else if (!statement.return_names.empty()) {
+        result.form = lir::StatementForm::return_outputs;
+        result.return_names = statement.return_names;
+      } else if (!in_function) {
+        result.form = lir::StatementForm::return_program;
+      } else {
+        result.form = lir::StatementForm::return_void;
+      }
       break;
     case StatementKind::break_statement: result.form = lir::StatementForm::break_loop; break;
     case StatementKind::continue_statement: result.form = lir::StatementForm::continue_loop; break;
@@ -1979,8 +1987,10 @@ AccessContext function_context(const lir::Statement& statement) {
 }
 
 void plan_statements(std::vector<lir::Statement>& statements, const lir::EmissionPlan& emission,
-                     const AccessContext& context, const SourceLanguage source_language) {
+                     const AccessContext& context, const SourceLanguage source_language,
+                     const bool in_function = false) {
   for (auto& statement : statements) {
+    const bool nested_in_function = in_function || statement.kind == StatementKind::function;
     const auto nested_context =
         statement.kind == StatementKind::function ? function_context(statement) : context;
     const auto& expression_context =
@@ -1996,16 +2006,19 @@ void plan_statements(std::vector<lir::Statement>& statements, const lir::Emissio
       plan_expression(selector.lower, emission, expression_context, source_language);
       plan_expression(selector.upper, emission, expression_context, source_language);
     }
-    statement.plan = expected_statement_plan(statement, emission, context);
-    plan_statements(statement.body, emission, nested_context, source_language);
-    plan_statements(statement.alternative, emission, nested_context, source_language);
+    statement.plan = expected_statement_plan(statement, emission, context, in_function);
+    plan_statements(statement.body, emission, nested_context, source_language, nested_in_function);
+    plan_statements(statement.alternative, emission, nested_context, source_language,
+                    nested_in_function);
   }
 }
 
 void verify_statements(const std::vector<lir::Statement>& statements,
                        const lir::EmissionPlan& emission, const AccessContext& context,
-                       const SourceLanguage source_language, std::vector<Diagnostic>& diagnostics) {
+                       const SourceLanguage source_language, std::vector<Diagnostic>& diagnostics,
+                       const bool in_function = false) {
   for (const auto& statement : statements) {
+    const bool nested_in_function = in_function || statement.kind == StatementKind::function;
     const auto nested_context =
         statement.kind == StatementKind::function ? function_context(statement) : context;
     const auto& expression_context =
@@ -2095,13 +2108,14 @@ void verify_statements(const std::vector<lir::Statement>& statements,
                 "cpp LIR non-indexed statement carries a mutation contract");
     }
     if (!same_statement_plan(statement.plan,
-                             expected_statement_plan(statement, emission, context))) {
+                             expected_statement_plan(statement, emission, context, in_function))) {
       add_error(diagnostics, {statement.line, 1},
                 "cpp LIR statement representation plan is inconsistent");
     }
-    verify_statements(statement.body, emission, nested_context, source_language, diagnostics);
-    verify_statements(statement.alternative, emission, nested_context, source_language,
-                      diagnostics);
+    verify_statements(statement.body, emission, nested_context, source_language, diagnostics,
+                      nested_in_function);
+    verify_statements(statement.alternative, emission, nested_context, source_language, diagnostics,
+                      nested_in_function);
   }
 }
 

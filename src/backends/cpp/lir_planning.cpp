@@ -751,13 +751,24 @@ void verify_scope(const lir::ScopePlan& scope, const lir::ScopePlan& expected,
 void verify_statement_resources(const lir::SemanticProgram& program,
                                 const std::vector<lir::Statement>& statements,
                                 std::vector<std::size_t>& expected, std::set<std::string>& names,
-                                std::vector<Diagnostic>& diagnostics) {
+                                std::vector<Diagnostic>& diagnostics,
+                                const bool in_function = false) {
   for (const auto& statement : statements) {
     if (statement.parameter_symbols.size() != statement.parameters.size() ||
         statement.return_symbols.size() != statement.return_names.size() ||
         statement.target_symbols.size() != statement.target_names.size()) {
       add_error(diagnostics, {statement.line, 1},
                 "cpp LIR symbol identity arrays have inconsistent arity");
+    }
+    const bool output_return = statement.kind == StatementKind::return_statement &&
+                               !statement.has_expression && !statement.return_names.empty();
+    if ((!statement.return_names.empty() && statement.kind != StatementKind::function &&
+         !output_return) ||
+        (output_return && (program.source_language != SourceLanguage::matlab || !in_function)) ||
+        (!statement.return_names.empty() &&
+         std::any_of(statement.return_symbols.begin(), statement.return_symbols.end(),
+                     [](const SymbolId symbol) { return !symbol.valid(); }))) {
+      add_error(diagnostics, {statement.line, 1}, "cpp LIR return symbol contract is inconsistent");
     }
     if (statement.kind == StatementKind::function) {
       if (!statement.function_abi.valid) {
@@ -840,8 +851,11 @@ void verify_statement_resources(const lir::SemanticProgram& program,
       verify_expression_resources(program, selector.lower, expected, names, diagnostics);
       verify_expression_resources(program, selector.upper, expected, names, diagnostics);
     }
-    verify_statement_resources(program, statement.body, expected, names, diagnostics);
-    verify_statement_resources(program, statement.alternative, expected, names, diagnostics);
+    const bool nested_in_function = in_function || statement.kind == StatementKind::function;
+    verify_statement_resources(program, statement.body, expected, names, diagnostics,
+                               nested_in_function);
+    verify_statement_resources(program, statement.alternative, expected, names, diagnostics,
+                               nested_in_function);
   }
 }
 

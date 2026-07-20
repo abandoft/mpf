@@ -456,6 +456,8 @@ enum class StatementForm : std::uint8_t {
   print_tuple,
   return_void,
   return_value,
+  return_outputs,
+  return_program,
   break_loop,
   continue_loop,
   expression,
