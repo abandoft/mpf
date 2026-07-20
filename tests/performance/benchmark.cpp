@@ -444,6 +444,49 @@ std::string matlab_sparse_multiply_workload(const std::size_t width, const std::
   return source;
 }
 
+std::string matlab_complex_sparse_multiply_workload(const std::size_t width,
+                                                    const std::size_t rounds) {
+  const auto append_matrix = [&](std::string& source, const std::string_view name,
+                                 const std::size_t row_factor, const std::size_t column_factor,
+                                 const std::size_t modulus, const bool complex) {
+    source.append(name).append(" = sparse([");
+    for (std::size_t row = 0U; row < width; ++row) {
+      if (row != 0U) source += "; ";
+      for (std::size_t column = 0U; column < width; ++column) {
+        if (column != 0U) source += ' ';
+        if (row != column && (row_factor * row + column_factor * column) % modulus != 0U) {
+          source += '0';
+          continue;
+        }
+        source += std::to_string(row + column + 1U);
+        if (complex) {
+          source += '+';
+          source += std::to_string((3U * row + 5U * column) % 11U + 1U);
+          source += 'i';
+        }
+      }
+    }
+    source += "]);\n";
+  };
+  std::string source;
+  append_matrix(source, "complex_left", 1U, 3U, 13U, true);
+  append_matrix(source, "complex_right", 2U, 1U, 17U, true);
+  append_matrix(source, "real_left", 1U, 3U, 13U, false);
+  append_matrix(source, "real_right", 2U, 1U, 17U, false);
+  for (std::size_t round = 0U; round < rounds; ++round) {
+    source += "complex_product = complex_left * complex_right;\n";
+    source += "complex_real_product = complex_left * real_right;\n";
+    source += "real_complex_product = real_left * complex_right;\n";
+    source += "sparse_dense_product = complex_left * full(complex_right);\n";
+    source += "dense_sparse_product = full(complex_left) * complex_right;\n";
+  }
+  source +=
+      "disp(nnz(complex_product) + nnz(complex_real_product) + "
+      "nnz(real_complex_product) + real(sparse_dense_product(1, 1)) + "
+      "imag(dense_sparse_product(1, 1)))\n";
+  return source;
+}
+
 std::string matlab_sparse_scale_workload(const std::size_t width, const std::size_t rounds) {
   std::string source = "matrix = sparse([";
   for (std::size_t row = 0U; row < width; ++row) {
@@ -1131,6 +1174,8 @@ int main() {
       {"matlab-matrix-solve", matlab_matrix_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-solve", matlab_sparse_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-multiply", matlab_sparse_multiply_workload(24, 24),
+       mpf::SourceLanguage::matlab},
+      {"matlab-complex-sparse-multiply", matlab_complex_sparse_multiply_workload(24, 24),
        mpf::SourceLanguage::matlab},
       {"matlab-sparse-scale", matlab_sparse_scale_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-elementwise", matlab_sparse_elementwise_workload(24, 24),

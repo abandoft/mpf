@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "projectVersion": "0.7.1",
+  "projectVersion": "0.7.2",
   "maxLatencyNanoseconds": 1000000000,
   "minThroughputBytesPerSecond": 10000,
   "maxPeakArenaBytes": 67108864,
@@ -14,6 +14,12 @@
       "minThroughputBytesPerSecond": 25000,
       "maxPeakArenaBytes": 8388608,
       "maxGeneratedBytes": 262144
+    },
+    "matlab-complex-sparse-multiply": {
+      "maxLatencyNanoseconds": 250000000,
+      "minThroughputBytesPerSecond": 25000,
+      "maxPeakArenaBytes": 8388608,
+      "maxGeneratedBytes": 524288
     },
     "matlab-sparse-scale": {
       "maxLatencyNanoseconds": 250000000,
