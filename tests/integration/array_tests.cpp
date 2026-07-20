@@ -710,15 +710,19 @@ TEST_CASE("Matlab sparse addition and subtraction preserve planned storage per t
   REQUIRE(cpp_sparse_base != std::string::npos);
   REQUIRE(cpp_arithmetic != std::string::npos);
   REQUIRE(cpp_sparse_base < cpp_arithmetic);
-  REQUIRE(javascript.code.find("__mpf_sparse_add(A, B, [2, 2], [2, 2], [2, 2], 1, 1, 3, 3, 3)") !=
-          std::string::npos);
-  REQUIRE(javascript.code.find("__mpf_sparse_subtract(10, A, [], [2, 2], [2, 2], 2, 2, 0, 3, 2)") !=
-          std::string::npos);
+  REQUIRE(
+      javascript.code.find("__mpf_sparse_add(A, B, [2, 2], [2, 2], [2, 2], 1, 1, 3, 3, 3, 1)") !=
+      std::string::npos);
+  REQUIRE(
+      javascript.code.find("__mpf_sparse_subtract(10, A, [], [2, 2], [2, 2], 2, 2, 0, 3, 2, 1)") !=
+      std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::sparse_add(A, B, ") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::sparse_subtract(") != std::string::npos);
   REQUIRE(cpp.code.find("std::array<std::size_t, 0>{}") != std::string::npos);
   REQUIRE(cpp.code.find("__mpf_sparse_add") == std::string::npos);
   REQUIRE(javascript.code.find("mpf_runtime::sparse_add") == std::string::npos);
+  REQUIRE(javascript.code.find("const __mpf_complex_tag") == std::string::npos);
+  REQUIRE(cpp.code.find("struct is_complex") == std::string::npos);
   for (const auto* result : {&javascript, &cpp}) {
     for (std::size_t line = 5U; line <= 14U; ++line) {
       REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
@@ -739,10 +743,51 @@ TEST_CASE("Matlab sparse addition and subtraction preserve planned storage per t
   REQUIRE(sparse_only_cpp.code.find("validate_sparse_arithmetic_plan") == std::string::npos);
 }
 
+TEST_CASE("Matlab complex sparse arithmetic preserves planned value domains per target") {
+  const std::string source =
+      "A = sparse([1+2i 0; 0 3-4i]);\n"
+      "B = sparse([1 0; 0 2]);\n"
+      "L = sparse([true false; false true]);\n"
+      "empty = A([], :);\n"
+      "sparse_sum = A + B;\n"
+      "mixed_dense = A + [10 20; 30 40];\n"
+      "left_scalar = (2-1i) - A;\n"
+      "mixed_logical = A + L;\n"
+      "empty_sum = empty + empty;\n"
+      "disp(nnz(sparse_sum), real(mixed_dense(1,1)), imag(left_scalar(2,2)), "
+      "nnz(mixed_logical), nnz(empty_sum))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(
+      javascript.code.find("__mpf_sparse_add(A, B, [2, 2], [2, 2], [2, 2], 1, 1, 3, 3, 3, 2)") !=
+      std::string::npos);
+  REQUIRE(
+      javascript.code.find("__mpf_sparse_add(A, L, [2, 2], [2, 2], [2, 2], 1, 1, 3, 3, 3, 2)") !=
+      std::string::npos);
+  REQUIRE(javascript.code.find(
+              "__mpf_sparse_add(empty, empty, [0, 2], [0, 2], [0, 2], 1, 1, 3, 3, 3, 2)") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_complex_add") <
+          javascript.code.find("function __mpf_sparse_arithmetic_plan"));
+  REQUIRE(javascript.code.find("valueDomain === __mpf_sparse_value_finite_complex") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_add(A, B, ") != std::string::npos);
+  REQUIRE(cpp.code.find("sparse_matrix<std::complex<double>>") != std::string::npos);
+  REQUIRE(cpp.code.find("using sparse_arithmetic_result_t") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 5U; line <= 9U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
 TEST_CASE("Matlab sparse arithmetic fails closed outside the typed rank-two contract") {
   const std::vector<std::string> rejected{
       "A = sparse([1 0; 0 1]);\nB = A + [1 2 3];\n",
-      "A = sparse([1 0; 0 1]);\nB = A - [1i 0; 0 1];\n",
       "A = sparse([1 0; 0 1]);\nB = A + reshape([1 2 3 4], 2, 1, 2);\n"};
   for (const auto& source : rejected) {
     for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
