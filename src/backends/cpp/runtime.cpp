@@ -4,6 +4,7 @@
 #include <ostream>
 
 #include "complex_matrix_runtime.hpp"
+#include "complex_sparse_runtime.hpp"
 #include "matrix_runtime.hpp"
 #include "sparse_arithmetic_runtime.hpp"
 #include "sparse_matrix_runtime.hpp"
@@ -43,6 +44,9 @@ class RuntimeEmitter final {
     const bool include_sparse_reductions =
         std::find(fragments.begin(), fragments.end(),
                   cpp::lir::RuntimeFragment::sparse_reductions) != fragments.end();
+    const bool include_complex_sparse =
+        std::find(fragments.begin(), fragments.end(), cpp::lir::RuntimeFragment::complex_sparse) !=
+        fragments.end();
     output_ << "namespace " << runtime_namespace << " {\n";
     output_
         << "template <typename T> class optional_argument {\n"
@@ -1972,6 +1976,7 @@ class RuntimeEmitter final {
     }
     if (include_complex_matrices) emit_cpp_complex_matrix_runtime(output_);
     if (include_sparse_matrices) emit_cpp_sparse_matrix_runtime(output_);
+    if (include_complex_sparse) emit_cpp_complex_sparse_runtime(output_);
     if (include_sparse_power) emit_cpp_sparse_power_runtime(output_);
     if (include_sparse_arithmetic) emit_cpp_sparse_arithmetic_runtime(output_);
     if (include_sparse_reductions) emit_cpp_sparse_reduction_runtime(output_);

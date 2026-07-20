@@ -12,6 +12,19 @@ void emit_cpp_sparse_matrix_runtime(std::ostream& output) {
   std::vector<std::size_t> row_indices;
   std::vector<T> values;
 };
+template <typename T> bool sparse_value_finite(const T& value) {
+  if constexpr (std::is_arithmetic_v<T>)
+    return std::isfinite(static_cast<double>(value));
+  else
+    return std::isfinite(value.real()) && std::isfinite(value.imag());
+}
+template <typename T> bool sparse_value_nonzero(const T& value) { return value != T{}; }
+template <typename Output, typename Input> Output sparse_stored_cast(const Input& value) {
+  const Output result = static_cast<Output>(value);
+  if (!sparse_value_finite(result))
+    throw std::invalid_argument("MPF Matlab sparse stored values must be finite");
+  return result;
+}
 template <typename T> void validate_sparse_csc(
     const sparse_matrix<T>& matrix, const std::string& name = "sparse matrix") {
   if (matrix.column_pointers.size() != matrix.columns + 1U ||
@@ -27,11 +40,10 @@ template <typename T> void validate_sparse_csc(
     std::size_t previous = 0U; bool has_previous = false;
     for (auto index = begin; index < end; ++index) {
       const auto row = matrix.row_indices[index];
-      const auto value = static_cast<double>(matrix.values[index]);
-      if (row >= matrix.rows || (has_previous && row <= previous) || !std::isfinite(value) ||
-          value == 0.0)
-        throw std::invalid_argument("MPF Matlab " + name +
-                                    " is not canonical finite-real/logical CSC");
+      const T value = matrix.values[index];
+      if (row >= matrix.rows || (has_previous && row <= previous) ||
+          !sparse_value_finite(value) || !sparse_value_nonzero(value))
+        throw std::invalid_argument("MPF Matlab " + name + " is not canonical CSC");
       previous = row; has_previous = true;
     }
   }
@@ -50,17 +62,17 @@ template <typename T> std::size_t sparse_dimension(const T& value, const std::st
                                 " safe integer");
   return static_cast<std::size_t>(numeric);
 }
-struct sparse_triplet_entry {
+template <typename T> struct sparse_triplet_entry {
   std::size_t row{};
   std::size_t column{};
-  double value{};
+  T value{};
 };
-template <typename Argument, typename Values>
-double sparse_triplet_value_at(const Values& values, const std::size_t index) {
+template <typename Output, typename Argument, typename Values>
+Output sparse_triplet_value_at(const Values& values, const std::size_t index) {
   if constexpr (is_vector<std::decay_t<Argument>>::value)
-    return static_cast<double>(values.at(index));
+    return sparse_stored_cast<Output>(values.at(index));
   else
-    return static_cast<double>(values.front());
+    return sparse_stored_cast<Output>(values.front());
 }
 template <typename Output, bool LogicalAny, typename RowArgument, typename ColumnArgument,
           typename ValueArgument>
@@ -84,21 +96,21 @@ sparse_matrix<Output> sparse_from_triplets_impl(
   accept_count(is_vector<std::decay_t<ColumnArgument>>::value, column_values.size());
   accept_count(is_vector<std::decay_t<ValueArgument>>::value, stored_values.size());
   const auto count = sequence_count.value_or(1U);
-  std::vector<sparse_triplet_entry> entries;
+  std::vector<sparse_triplet_entry<Output>> entries;
   entries.reserve(count);
   std::size_t inferred_rows = 0U; std::size_t inferred_columns = 0U;
   for (std::size_t index = 0; index < count; ++index) {
-    const auto row_numeric = sparse_triplet_value_at<RowArgument>(row_values, index);
-    const auto column_numeric = sparse_triplet_value_at<ColumnArgument>(column_values, index);
-    const auto stored_numeric = sparse_triplet_value_at<ValueArgument>(stored_values, index);
+    const auto row_numeric = sparse_triplet_value_at<double, RowArgument>(row_values, index);
+    const auto column_numeric =
+        sparse_triplet_value_at<double, ColumnArgument>(column_values, index);
+    const auto stored_numeric =
+        sparse_triplet_value_at<Output, ValueArgument>(stored_values, index);
     if (!std::isfinite(row_numeric) || std::trunc(row_numeric) != row_numeric ||
         row_numeric <= 0.0 || row_numeric > 9007199254740991.0 ||
         !std::isfinite(column_numeric) || std::trunc(column_numeric) != column_numeric ||
         column_numeric <= 0.0 || column_numeric > 9007199254740991.0)
       throw std::invalid_argument(
           "MPF Matlab sparse triplet indices must be positive safe integers");
-    if (!std::isfinite(stored_numeric))
-      throw std::invalid_argument("MPF Matlab sparse stored values must be finite real values");
     const auto row = static_cast<std::size_t>(row_numeric);
     const auto column = static_cast<std::size_t>(column_numeric);
     inferred_rows = std::max(inferred_rows, row);
@@ -127,22 +139,23 @@ sparse_matrix<Output> sparse_from_triplets_impl(
   std::size_t entry = 0U;
   for (std::size_t column = 0; column < columns; ++column) {
     while (entry < entries.size() && entries[entry].column == column) {
-      const auto row = entries[entry].row; double sum = 0.0; bool any = false;
+      const auto row = entries[entry].row; Output sum{}; bool any = false;
       while (entry < entries.size() && entries[entry].column == column &&
              entries[entry].row == row) {
         const auto stored = entries[entry++].value;
-        if constexpr (LogicalAny) any = any || stored != 0.0;
+        if constexpr (LogicalAny) any = any || sparse_value_nonzero(stored);
         else sum += stored;
       }
       if constexpr (!LogicalAny) {
-        if (!std::isfinite(sum))
+        if (!sparse_value_finite(sum))
           throw std::invalid_argument(
               "MPF Matlab sparse duplicate accumulation is not finite");
       }
-      const auto keep = LogicalAny ? any : sum != 0.0;
+      const auto keep = LogicalAny ? any : sparse_value_nonzero(sum);
       if (keep) {
         result.row_indices.push_back(row);
-        result.values.push_back(static_cast<Output>(LogicalAny ? any : sum));
+        if constexpr (LogicalAny) result.values.push_back(static_cast<Output>(any));
+        else result.values.push_back(sum);
       }
     }
     result.column_pointers.push_back(result.values.size());
@@ -176,9 +189,10 @@ template <typename Output, typename T> sparse_matrix<Output> sparse_from_matrix_
   result.column_pointers.push_back(0U);
   for (std::size_t column = 0; column < result.columns; ++column) {
     for (std::size_t row = 0; row < result.rows; ++row) {
-      if (dense[row][column] == 0.0) continue;
+      const auto stored = sparse_stored_cast<Output>(dense[row][column]);
+      if (!sparse_value_nonzero(stored)) continue;
       result.row_indices.push_back(row);
-      result.values.push_back(static_cast<Output>(dense[row][column]));
+      result.values.push_back(stored);
     }
     result.column_pointers.push_back(result.values.size());
   }
@@ -224,12 +238,11 @@ sparse_matrix<Output> sparse_from_dense_impl(
   result.column_pointers.push_back(0U);
   for (std::size_t column = 0U; column < result.columns; ++column) {
     for (std::size_t row = 0U; row < result.rows; ++row) {
-      const auto numeric = static_cast<double>(flattened[row + column * result.rows]);
-      if (!std::isfinite(numeric))
-        throw std::invalid_argument("MPF Matlab sparse input requires finite real values");
-      if (numeric != 0.0) {
+      const auto stored =
+          sparse_stored_cast<Output>(flattened[row + column * result.rows]);
+      if (sparse_value_nonzero(stored)) {
         result.row_indices.push_back(row);
-        result.values.push_back(static_cast<Output>(numeric));
+        result.values.push_back(stored);
       }
     }
     result.column_pointers.push_back(result.values.size());
@@ -793,12 +806,9 @@ template <typename T> std::size_t nnz(const T& value) {
     }
     return count;
   } else {
-    static_assert(std::is_arithmetic_v<std::decay_t<T>>,
-                  "MPF Matlab nnz requires real or logical values");
-    const auto numeric = static_cast<double>(value);
-    if (!std::isfinite(numeric))
-      throw std::invalid_argument("MPF Matlab nnz requires finite real values");
-    return numeric != 0.0 ? 1U : 0U;
+    if (!sparse_value_finite(value))
+      throw std::invalid_argument("MPF Matlab nnz requires finite values");
+    return sparse_value_nonzero(value) ? 1U : 0U;
   }
 }
 template <typename T> sparse_matrix<T> sparse_transpose(const sparse_matrix<T>& value) {
@@ -1003,7 +1013,9 @@ template <typename T, typename Selector> sparse_matrix<T> sparse_linear_selectio
     for (std::size_t row = 0U; row < rows; ++row) {
       const auto linear = indices[row + column * rows];
       const auto stored = sparse_value_at(value, linear % value.rows, linear / value.rows);
-      if (stored != T{}) { result.row_indices.push_back(row); result.values.push_back(stored); }
+      if (sparse_value_nonzero(stored)) {
+        result.row_indices.push_back(row); result.values.push_back(stored);
+      }
     }
     result.column_pointers.push_back(result.values.size());
   }
@@ -1049,7 +1061,8 @@ sparse_matrix<T> sparse_submatrix_selection(
         ++selected;
       }
     }
-    std::sort(entries.begin(), entries.end());
+    std::sort(entries.begin(), entries.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
     for (const auto& [row, stored_value] : entries) {
       result.row_indices.push_back(row); result.values.push_back(stored_value);
     }
@@ -1296,37 +1309,39 @@ auto sparse_logical_or(
     return result;
   }
 }
-struct sparse_replacement_payload {
+template <typename T> struct sparse_replacement_payload {
   std::vector<std::size_t> shape;
-  std::vector<double> values;
+  std::vector<T> values;
 };
-template <typename Replacement> sparse_replacement_payload sparse_replacement_values(
+template <typename Output, typename Replacement>
+sparse_replacement_payload<Output> sparse_replacement_values(
     const Replacement& replacement) {
-  sparse_replacement_payload result;
+  sparse_replacement_payload<Output> result;
+  const auto checked_value = [](const auto& value) -> Output {
+    if (!sparse_value_finite(value))
+      throw std::invalid_argument(
+          "MPF Matlab sparse assignment requires finite numeric or logical values");
+    return sparse_stored_cast<Output>(value);
+  };
   if constexpr (is_sparse_matrix<std::decay_t<Replacement>>::value) {
     validate_sparse_csc(replacement, "assignment replacement");
     const auto size = sparse_element_count(replacement.rows, replacement.columns);
     result.shape = {replacement.rows, replacement.columns};
-    result.values.assign(size, 0.0);
+    result.values.assign(size, Output{});
     for (std::size_t column = 0U; column < replacement.columns; ++column)
       for (auto stored = replacement.column_pointers[column];
            stored < replacement.column_pointers[column + 1U]; ++stored)
         result.values[replacement.row_indices[stored] + column * replacement.rows] =
-            static_cast<double>(replacement.values[stored]);
+            checked_value(replacement.values[stored]);
   } else if constexpr (is_vector<std::decay_t<Replacement>>::value) {
     selector_shape(replacement, result.shape);
     const auto flattened = flatten_selector_column_major(replacement);
     result.values.reserve(flattened.size());
-    for (const auto& value : flattened) result.values.push_back(static_cast<double>(value));
+    for (const auto& value : flattened)
+      result.values.push_back(checked_value(value));
   } else {
-    static_assert(std::is_arithmetic_v<std::decay_t<Replacement>>,
-                  "MPF Matlab sparse assignment replacement must be real numeric");
-    result.values.push_back(static_cast<double>(replacement));
+    result.values.push_back(checked_value(replacement));
   }
-  for (const auto value : result.values)
-    if (!std::isfinite(value))
-      throw std::invalid_argument(
-          "MPF Matlab sparse assignment requires finite real or logical values");
   return result;
 }
 inline std::vector<std::size_t> sparse_nonsingleton_shape(
@@ -1336,10 +1351,11 @@ inline std::vector<std::size_t> sparse_nonsingleton_shape(
     if (extent != 1U) result.push_back(extent);
   return result;
 }
-template <typename Replacement> sparse_replacement_payload sparse_assignment_payload(
+template <typename Output, typename Replacement>
+sparse_replacement_payload<Output> sparse_assignment_payload(
     const Replacement& replacement, const bool scalar_expansion,
     const std::vector<std::size_t>& selection_shape, const std::size_t count) {
-  auto result = sparse_replacement_values(replacement);
+  auto result = sparse_replacement_values<Output>(replacement);
   if (scalar_expansion) {
     if (result.values.size() != 1U)
       throw std::invalid_argument(
@@ -1351,11 +1367,11 @@ template <typename Replacement> sparse_replacement_payload sparse_assignment_pay
     throw std::invalid_argument("MPF Matlab sparse assignment replacement shape mismatch");
   return result;
 }
-struct sparse_update {
+template <typename T> struct sparse_update {
   std::size_t row{};
   std::size_t column{};
   std::size_t sequence{};
-  double value{};
+  T value{};
 };
 inline void verify_sparse_mutation_result_shape(
     const std::vector<std::size_t>& planned, const std::size_t rows,
@@ -1366,13 +1382,13 @@ inline void verify_sparse_mutation_result_shape(
 }
 template <typename T> void sparse_apply_updates(
     sparse_matrix<T>& value, const std::size_t rows, const std::size_t columns,
-    std::vector<sparse_update> updates) {
+    std::vector<sparse_update<T>> updates) {
   std::sort(updates.begin(), updates.end(), [](const auto& left, const auto& right) {
     if (left.column != right.column) return left.column < right.column;
     if (left.row != right.row) return left.row < right.row;
     return left.sequence < right.sequence;
   });
-  std::vector<sparse_update> collapsed;
+  std::vector<sparse_update<T>> collapsed;
   collapsed.reserve(updates.size());
   for (const auto& update : updates) {
     if (!collapsed.empty() && collapsed.back().row == update.row &&
@@ -1401,15 +1417,15 @@ template <typename T> void sparse_apply_updates(
         result.row_indices.push_back(stored_row);
         result.values.push_back(value.values[stored++]);
       } else if (changed_row < stored_row) {
-        if (changed->value != 0.0) {
+        if (sparse_value_nonzero(changed->value)) {
           result.row_indices.push_back(changed_row);
-          result.values.push_back(static_cast<T>(changed->value));
+          result.values.push_back(changed->value);
         }
         ++changed;
       } else {
-        if (changed->value != 0.0) {
+        if (sparse_value_nonzero(changed->value)) {
           result.row_indices.push_back(changed_row);
-          result.values.push_back(static_cast<T>(changed->value));
+          result.values.push_back(changed->value);
         }
         ++stored; ++changed;
       }
@@ -1445,10 +1461,10 @@ void sparse_assign_linear(
                                          planned_selection_rows, planned_selection_columns,
                                          indices.size());
   verify_sparse_mutation_result_shape(planned_result_shape, rows, columns, "assignment");
-  const auto payload = sparse_assignment_payload(
+  const auto payload = sparse_assignment_payload<T>(
       replacement, scalar_expansion, {selection_shape.first, selection_shape.second},
       indices.size());
-  std::vector<sparse_update> updates; updates.reserve(indices.size());
+  std::vector<sparse_update<T>> updates; updates.reserve(indices.size());
   for (std::size_t sequence = 0U; sequence < indices.size(); ++sequence) {
     const auto index = indices[sequence];
     updates.push_back({index % rows, index / rows, sequence,
@@ -1479,9 +1495,9 @@ void sparse_assign_subscripts(
                                           selected_rows.size(), selected_columns.size());
   verify_sparse_mutation_result_shape(planned_result_shape, rows, columns, "assignment");
   const auto count = sparse_element_count(selected_rows.size(), selected_columns.size());
-  const auto payload = sparse_assignment_payload(
+  const auto payload = sparse_assignment_payload<T>(
       replacement, scalar_expansion, {selection_shape.first, selection_shape.second}, count);
-  std::vector<sparse_update> updates; updates.reserve(count); std::size_t sequence = 0U;
+  std::vector<sparse_update<T>> updates; updates.reserve(count); std::size_t sequence = 0U;
   for (const auto column : selected_columns)
     for (const auto row : selected_rows) {
       updates.push_back(
