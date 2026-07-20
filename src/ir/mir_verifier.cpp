@@ -438,8 +438,6 @@ bool valid_matrix_shapes(const Program& program, const MatrixOperationPlan& plan
       return plan.solve == semantic::MatrixSolveKind::none && static_rank_two(right) &&
              semantic::valid_matrix_multiply_storage_contract(
                  plan.storage_policy, plan.left_storage, plan.right_storage, plan.result_storage) &&
-             (plan.storage_policy != semantic::MatrixStoragePolicy::sparse_csc_multiply ||
-              plan.numeric_domain == semantic::MatrixNumericDomain::real) &&
              left->extents[1] == right->extents[0] && result->extents[0] == left->extents[0] &&
              result->extents[1] == right->extents[1];
     case semantic::MatrixOperation::left_divide:

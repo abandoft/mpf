@@ -1482,13 +1482,6 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
           semantic::MatrixOperation::multiply, left_facts.array_storage, right_facts.array_storage);
       const auto result_storage = semantic::matrix_multiply_result_storage(
           left_facts.array_storage, right_facts.array_storage);
-      if (storage_policy == semantic::MatrixStoragePolicy::sparse_csc_multiply) {
-        if (*numeric_domain != semantic::MatrixNumericDomain::real) {
-          diagnose(expression.location.line, "MPF2054",
-                   "sparse matrix multiplication currently requires finite real operands");
-          return facts.inferred_type = ValueType::unknown;
-        }
-      }
       if (storage_policy == semantic::MatrixStoragePolicy::none ||
           result_storage == ArrayStorageFormat::none) {
         diagnose(expression.location.line, "MPF2046",
