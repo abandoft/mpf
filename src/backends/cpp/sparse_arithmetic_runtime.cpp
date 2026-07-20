@@ -6,13 +6,39 @@ namespace mpf::detail {
 
 void emit_cpp_sparse_arithmetic_runtime(std::ostream& output) {
   output << R"MPF(template <typename Value>
-double sparse_arithmetic_number(const Value& value, const std::string& name) {
-  static_assert(std::is_arithmetic_v<std::decay_t<Value>>,
-                "MPF Matlab sparse arithmetic values must be arithmetic");
-  const auto result = static_cast<double>(value);
-  if (!std::isfinite(result))
-    throw std::invalid_argument("MPF Matlab " + name +
-                                " must contain finite real or logical values");
+auto sparse_arithmetic_value(const Value& value, const std::string& name) {
+  if constexpr (std::is_convertible_v<Value, double>) {
+    const auto result = static_cast<double>(value);
+    if (!std::isfinite(result))
+      throw std::invalid_argument("MPF Matlab " + name +
+                                  " must contain finite numeric values");
+    return result;
+  } else {
+    if (!sparse_value_finite(value))
+      throw std::invalid_argument("MPF Matlab " + name +
+                                  " must contain finite numeric values");
+    return value;
+  }
+}
+template <typename T> struct sparse_arithmetic_scalar { using type = scalar_type_t<T>; };
+template <typename T> struct sparse_arithmetic_scalar<sparse_matrix<T>> { using type = T; };
+template <typename T>
+using sparse_arithmetic_scalar_t = typename sparse_arithmetic_scalar<std::decay_t<T>>::type;
+template <typename Left, typename Right>
+using sparse_arithmetic_result_t = decltype(
+    sparse_arithmetic_value(std::declval<sparse_arithmetic_scalar_t<Left>>(),
+                            std::declval<const std::string&>()) +
+    sparse_arithmetic_value(std::declval<sparse_arithmetic_scalar_t<Right>>(),
+                            std::declval<const std::string&>()));
+template <typename Output, typename Value>
+Output sparse_arithmetic_cast(const Value& value, const std::string& name) {
+  return static_cast<Output>(sparse_arithmetic_value(value, name));
+}
+template <bool Subtract, typename Left, typename Right>
+auto sparse_arithmetic_apply(const Left& left, const Right& right) {
+  const auto result = Subtract ? left - right : left + right;
+  if (!sparse_value_finite(result))
+    throw std::overflow_error("MPF Matlab sparse arithmetic produced a nonfinite value");
   return result;
 }
 template <typename Value>
@@ -31,16 +57,17 @@ void validate_sparse_arithmetic_plan(
     const std::array<std::size_t, 2U>& result_shape,
     const std::int64_t operation, const std::int64_t policy,
     const std::int64_t left_storage, const std::int64_t right_storage,
-    const std::int64_t result_storage, const std::int64_t expected_operation) {
+    const std::int64_t result_storage, const std::int64_t value_domain,
+    const std::int64_t expected_operation) {
   constexpr bool left_sparse = is_sparse_matrix<std::decay_t<Left>>::value;
   constexpr bool right_sparse = is_sparse_matrix<std::decay_t<Right>>::value;
   constexpr bool left_dense = is_vector<std::decay_t<Left>>::value;
   constexpr bool right_dense = is_vector<std::decay_t<Right>>::value;
   static_assert(left_sparse || right_sparse,
                 "MPF sparse arithmetic requires at least one sparse operand");
-  static_assert(left_sparse || left_dense || std::is_arithmetic_v<std::decay_t<Left>>,
+  static_assert(left_sparse || left_dense || LeftRank == 0U,
                 "MPF sparse arithmetic left operand is unsupported");
-  static_assert(right_sparse || right_dense || std::is_arithmetic_v<std::decay_t<Right>>,
+  static_assert(right_sparse || right_dense || RightRank == 0U,
                 "MPF sparse arithmetic right operand is unsupported");
   static_assert((left_sparse || left_dense) ? LeftRank == 2U : LeftRank == 0U,
                 "MPF sparse arithmetic left shape rank is invalid");
@@ -50,10 +77,15 @@ void validate_sparse_arithmetic_plan(
   constexpr std::int64_t expected_right_storage = right_sparse ? 3 : right_dense ? 2 : 0;
   constexpr std::int64_t expected_result_storage = left_sparse && right_sparse ? 3 : 2;
   constexpr std::int64_t expected_policy = left_sparse && right_sparse ? 1 : 2;
+  using Result = sparse_arithmetic_result_t<Left, Right>;
+  constexpr std::int64_t expected_value_domain =
+      std::is_convertible_v<Result, double> ? 1 : 2;
   if (operation != expected_operation || policy != expected_policy ||
       left_storage != expected_left_storage || right_storage != expected_right_storage ||
       result_storage != expected_result_storage)
     throw std::invalid_argument("MPF Matlab sparse arithmetic storage plan is invalid");
+  if (value_domain != expected_value_domain)
+    throw std::invalid_argument("MPF Matlab sparse arithmetic value-domain plan is invalid");
   for (std::size_t axis = 0U; axis < 2U; ++axis) {
     const auto left = [&] {
       if constexpr (LeftRank == 0U) return std::size_t{1U};
@@ -69,11 +101,12 @@ void validate_sparse_arithmetic_plan(
   }
   static_cast<void>(shape_size(result_shape));
 }
-inline void sparse_arithmetic_emit(sparse_matrix<double>& result, const std::size_t row,
-                                   const double value) {
-  if (!std::isfinite(value))
+template <typename Value>
+void sparse_arithmetic_emit(sparse_matrix<Value>& result, const std::size_t row,
+                            const Value& value) {
+  if (!sparse_value_finite(value))
     throw std::overflow_error("MPF Matlab sparse arithmetic produced a nonfinite value");
-  if (value != 0.0) {
+  if (sparse_value_nonzero(value)) {
     result.row_indices.push_back(row);
     result.values.push_back(value);
   }
@@ -82,32 +115,37 @@ template <bool Subtract, typename Left, typename Right>
 void sparse_arithmetic_sparse_column(
     const sparse_matrix<Left>& left, const sparse_matrix<Right>& right,
     const std::size_t left_column, const std::size_t right_column,
-    sparse_matrix<double>& result) {
+    sparse_matrix<sparse_arithmetic_result_t<sparse_matrix<Left>, sparse_matrix<Right>>>& result) {
+  using Output = sparse_arithmetic_result_t<sparse_matrix<Left>, sparse_matrix<Right>>;
   auto left_index = left.column_pointers[left_column];
   const auto left_end = left.column_pointers[left_column + 1U];
   auto right_index = right.column_pointers[right_column];
   const auto right_end = right.column_pointers[right_column + 1U];
   const bool left_broadcast = left.rows == 1U && result.rows != 1U;
   const bool right_broadcast = right.rows == 1U && result.rows != 1U;
-  const auto left_broadcast_value =
+  const Output left_broadcast_value =
       left_broadcast && left_index < left_end
-          ? static_cast<double>(left.values[left_index])
-          : 0.0;
-  const auto right_broadcast_value =
+          ? sparse_arithmetic_cast<Output>(left.values[left_index],
+                                           "left sparse arithmetic operand")
+          : Output{};
+  const Output right_broadcast_value =
       right_broadcast && right_index < right_end
-          ? static_cast<double>(right.values[right_index])
-          : 0.0;
-  if (left_broadcast_value != 0.0 || right_broadcast_value != 0.0) {
+          ? sparse_arithmetic_cast<Output>(right.values[right_index],
+                                           "right sparse arithmetic operand")
+          : Output{};
+  if (sparse_value_nonzero(left_broadcast_value) ||
+      sparse_value_nonzero(right_broadcast_value)) {
     for (std::size_t row = 0U; row < result.rows; ++row) {
       auto left_value = left_broadcast_value;
       auto right_value = right_broadcast_value;
       if (!left_broadcast && left_index < left_end && left.row_indices[left_index] == row)
-        left_value = static_cast<double>(left.values[left_index++]);
+        left_value = sparse_arithmetic_cast<Output>(
+            left.values[left_index++], "left sparse arithmetic operand");
       if (!right_broadcast && right_index < right_end && right.row_indices[right_index] == row)
-        right_value = static_cast<double>(right.values[right_index++]);
+        right_value = sparse_arithmetic_cast<Output>(
+            right.values[right_index++], "right sparse arithmetic operand");
       sparse_arithmetic_emit(result, row,
-                             Subtract ? left_value - right_value
-                                      : left_value + right_value);
+                             sparse_arithmetic_apply<Subtract>(left_value, right_value));
     }
     return;
   }
@@ -115,25 +153,28 @@ void sparse_arithmetic_sparse_column(
     const auto left_row = left_index < left_end ? left.row_indices[left_index] : result.rows;
     const auto right_row = right_index < right_end ? right.row_indices[right_index] : result.rows;
     const auto row = std::min(left_row, right_row);
-    const auto left_value = left_row == row
-                                ? static_cast<double>(left.values[left_index++])
-                                : 0.0;
-    const auto right_value = right_row == row
-                                 ? static_cast<double>(right.values[right_index++])
-                                 : 0.0;
+    const Output left_value =
+        left_row == row ? sparse_arithmetic_cast<Output>(
+                              left.values[left_index++], "left sparse arithmetic operand")
+                        : Output{};
+    const Output right_value =
+        right_row == row ? sparse_arithmetic_cast<Output>(
+                               right.values[right_index++], "right sparse arithmetic operand")
+                         : Output{};
     sparse_arithmetic_emit(result, row,
-                           Subtract ? left_value - right_value : left_value + right_value);
+                           sparse_arithmetic_apply<Subtract>(left_value, right_value));
   }
 }
 template <bool Subtract, typename Left, typename Right>
-sparse_matrix<double> sparse_arithmetic_preserve(
+auto sparse_arithmetic_preserve(
     const sparse_matrix<Left>& left, const sparse_matrix<Right>& right,
     const std::array<std::size_t, 2U>& left_shape,
     const std::array<std::size_t, 2U>& right_shape,
     const std::array<std::size_t, 2U>& result_shape) {
   validate_sparse_arithmetic_operand(left, left_shape, "left sparse arithmetic operand");
   validate_sparse_arithmetic_operand(right, right_shape, "right sparse arithmetic operand");
-  sparse_matrix<double> result;
+  using Output = sparse_arithmetic_result_t<sparse_matrix<Left>, sparse_matrix<Right>>;
+  sparse_matrix<Output> result;
   result.rows = result_shape[0]; result.columns = result_shape[1];
   result.column_pointers.reserve(result.columns + 1U);
   result.column_pointers.push_back(0U);
@@ -146,12 +187,12 @@ sparse_matrix<double> sparse_arithmetic_preserve(
   validate_sparse_csc(result, "sparse arithmetic result");
   return result;
 }
-template <typename Full, std::size_t Rank>
-std::vector<double> sparse_arithmetic_full_input(
+template <typename Output, typename Full, std::size_t Rank>
+std::vector<Output> sparse_arithmetic_full_input(
     const Full& value, const std::array<std::size_t, Rank>& shape,
     const std::string& name) {
   if constexpr (Rank == 0U) {
-    return {sparse_arithmetic_number(value, name)};
+    return {sparse_arithmetic_cast<Output>(value, name)};
   } else {
     static_assert(Rank == 2U && is_vector<std::decay_t<Full>>::value,
                   "MPF sparse arithmetic full operand must be scalar or rank two");
@@ -159,15 +200,16 @@ std::vector<double> sparse_arithmetic_full_input(
     if (flattened.size() != shape_size(shape))
       throw std::invalid_argument("MPF Matlab " + name +
                                   " disagrees with its static shape contract");
-    std::vector<double> result;
+    std::vector<Output> result;
     result.reserve(flattened.size());
-    for (const auto item : flattened) result.push_back(sparse_arithmetic_number(item, name));
+    for (const auto item : flattened)
+      result.push_back(sparse_arithmetic_cast<Output>(item, name));
     return result;
   }
 }
 template <bool Subtract, bool SparseLeft, typename SparseValue, typename Full,
           std::size_t FullRank>
-std::vector<std::vector<double>> sparse_arithmetic_materialize(
+auto sparse_arithmetic_materialize(
     const sparse_matrix<SparseValue>& sparse, const Full& full,
     const std::array<std::size_t, 2U>& sparse_shape,
     const std::array<std::size_t, FullRank>& full_shape,
@@ -175,11 +217,11 @@ std::vector<std::vector<double>> sparse_arithmetic_materialize(
   validate_sparse_arithmetic_operand(
       sparse, sparse_shape, SparseLeft ? "left sparse arithmetic operand"
                                        : "right sparse arithmetic operand");
-  const auto full_values = sparse_arithmetic_full_input(
+  using Output = sparse_arithmetic_result_t<sparse_matrix<SparseValue>, Full>;
+  const auto full_values = sparse_arithmetic_full_input<Output>(
       full, full_shape, SparseLeft ? "right full arithmetic operand"
                                    : "left full arithmetic operand");
-  auto result = make_nested<0U, 2U, double>(result_shape);
-  constexpr double full_sign = SparseLeft && Subtract ? -1.0 : 1.0;
+  auto result = make_nested<0U, 2U, Output>(result_shape);
   for (std::size_t column = 0U; column < result_shape[1]; ++column) {
     for (std::size_t row = 0U; row < result_shape[0]; ++row) {
       const auto full_value = [&] {
@@ -191,25 +233,29 @@ std::vector<std::vector<double>> sparse_arithmetic_materialize(
           return full_values[source_row + source_column * full_shape[0]];
         }
       }();
-      result[row][column] = full_sign * full_value;
+      if constexpr (SparseLeft && Subtract)
+        result[row][column] = sparse_arithmetic_apply<true>(Output{}, full_value);
+      else
+        result[row][column] = full_value;
     }
   }
-  constexpr double sparse_sign = SparseLeft || !Subtract ? 1.0 : -1.0;
   for (std::size_t column = 0U; column < result_shape[1]; ++column) {
     const auto source_column = sparse.columns == 1U ? 0U : column;
     for (auto index = sparse.column_pointers[source_column];
          index < sparse.column_pointers[source_column + 1U]; ++index) {
-      const auto stored = sparse_sign * static_cast<double>(sparse.values[index]);
+      const auto stored = sparse_arithmetic_cast<Output>(
+          sparse.values[index], SparseLeft ? "left sparse arithmetic operand"
+                                           : "right sparse arithmetic operand");
       const auto source_row = sparse.row_indices[index];
       const auto begin = sparse.rows == 1U && result_shape[0] != 1U ? 0U : source_row;
       const auto end = sparse.rows == 1U && result_shape[0] != 1U
                            ? result_shape[0]
                            : source_row + 1U;
       for (auto row = begin; row < end; ++row) {
-        const auto updated = result[row][column] + stored;
-        if (!std::isfinite(updated))
-          throw std::overflow_error("MPF Matlab sparse arithmetic produced a nonfinite value");
-        result[row][column] = updated;
+        if constexpr (!SparseLeft && Subtract)
+          result[row][column] = sparse_arithmetic_apply<true>(result[row][column], stored);
+        else
+          result[row][column] = sparse_arithmetic_apply<false>(result[row][column], stored);
       }
     }
   }
@@ -224,10 +270,11 @@ auto sparse_arithmetic(
     const std::array<std::size_t, 2U>& result_shape,
     const std::int64_t operation, const std::int64_t policy,
     const std::int64_t left_storage, const std::int64_t right_storage,
-    const std::int64_t result_storage, const std::int64_t expected_operation) {
+    const std::int64_t result_storage, const std::int64_t value_domain,
+    const std::int64_t expected_operation) {
   validate_sparse_arithmetic_plan<Left, Right>(
       left_shape, right_shape, result_shape, operation, policy,
-      left_storage, right_storage, result_storage, expected_operation);
+      left_storage, right_storage, result_storage, value_domain, expected_operation);
   constexpr bool left_sparse = is_sparse_matrix<std::decay_t<Left>>::value;
   constexpr bool right_sparse = is_sparse_matrix<std::decay_t<Right>>::value;
   if constexpr (left_sparse && right_sparse) {
@@ -249,10 +296,10 @@ auto sparse_add(
     const std::array<std::size_t, 2U>& result_shape,
     const std::int64_t operation, const std::int64_t policy,
     const std::int64_t left_storage, const std::int64_t right_storage,
-    const std::int64_t result_storage) {
+    const std::int64_t result_storage, const std::int64_t value_domain) {
   return sparse_arithmetic<false>(left, right, left_shape, right_shape, result_shape,
                                   operation, policy, left_storage, right_storage,
-                                  result_storage, 1);
+                                  result_storage, value_domain, 1);
 }
 template <typename Left, typename Right, std::size_t LeftRank, std::size_t RightRank>
 auto sparse_subtract(
@@ -262,10 +309,10 @@ auto sparse_subtract(
     const std::array<std::size_t, 2U>& result_shape,
     const std::int64_t operation, const std::int64_t policy,
     const std::int64_t left_storage, const std::int64_t right_storage,
-    const std::int64_t result_storage) {
+    const std::int64_t result_storage, const std::int64_t value_domain) {
   return sparse_arithmetic<true>(left, right, left_shape, right_shape, result_shape,
                                  operation, policy, left_storage, right_storage,
-                                 result_storage, 2);
+                                 result_storage, value_domain, 2);
 }
 )MPF";
 }
