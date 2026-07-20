@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -12,6 +13,8 @@ namespace mpf::detail {
 namespace {
 
 using FunctionReturnTypes = std::unordered_map<std::string, ValueType>;
+using AssignmentTypeProbes = std::unordered_map<SymbolId, const mir::Expression*>;
+using IncompatibleAssignments = std::unordered_set<SymbolId>;
 
 bool numeric(const ValueType type) noexcept {
   return type == ValueType::integer || type == ValueType::real || type == ValueType::unknown;
@@ -129,6 +132,50 @@ bool cpp_expression_types_compatible(const mir::Program& program, const mir::Exp
            left_attributes->tuple_shapes == right_attributes->tuple_shapes;
   }
   return false;
+}
+
+bool cpp_declaration_probes_compatible(const mir::Program& program, const mir::Expression& left,
+                                       const mir::Expression& right,
+                                       const FunctionReturnTypes& function_returns) {
+  if (left.id == right.id) return true;
+  if (left.kind == ExpressionKind::identifier && right.kind == ExpressionKind::identifier) {
+    if (left.symbol_id.valid() || right.symbol_id.valid()) return left.symbol_id == right.symbol_id;
+    const auto* left_attributes = mir::attributes(program, left.id);
+    const auto* right_attributes = mir::attributes(program, right.id);
+    return left_attributes != nullptr && right_attributes != nullptr &&
+           left_attributes->spelling == right_attributes->spelling;
+  }
+  const auto left_type = effective_type(program, left, function_returns);
+  const auto right_type = effective_type(program, right, function_returns);
+  if (left_type != ValueType::unknown || right_type != ValueType::unknown) {
+    return left_type != ValueType::unknown && right_type != ValueType::unknown &&
+           cpp_expression_types_compatible(program, left, right, function_returns);
+  }
+  if (left.kind != ExpressionKind::call || right.kind != ExpressionKind::call ||
+      left.children.size() != right.children.size() || left.children.empty()) {
+    return false;
+  }
+  const auto* left_callee = mir::expression(program, left.children.front());
+  const auto* right_callee = mir::expression(program, right.children.front());
+  if (left_callee == nullptr || right_callee == nullptr ||
+      !cpp_declaration_probes_compatible(program, *left_callee, *right_callee, function_returns)) {
+    return false;
+  }
+  for (std::size_t index = 1; index < left.children.size(); ++index) {
+    const auto* left_argument = mir::expression(program, left.children[index]);
+    const auto* right_argument = mir::expression(program, right.children[index]);
+    if (left_argument == nullptr || right_argument == nullptr ||
+        left_argument->type_id != right_argument->type_id) {
+      return false;
+    }
+    const auto* left_shape = mir::shape(program, left_argument->shape_id);
+    const auto* right_shape = mir::shape(program, right_argument->shape_id);
+    if ((left_shape == nullptr) != (right_shape == nullptr) ||
+        (left_shape != nullptr && left_shape->extents.size() != right_shape->extents.size())) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool compatible_value_types(const ValueType left, const ValueType right) noexcept {
@@ -346,6 +393,8 @@ void collect_assignment_leaves(const mir::AssignmentPattern& pattern,
 void validate_statements(const mir::Program& program, const std::vector<MirStatementId>& statements,
                          const semantic::Profile& semantics,
                          const FunctionReturnTypes& function_returns,
+                         AssignmentTypeProbes& assignment_type_probes,
+                         IncompatibleAssignments& incompatible_assignments,
                          std::vector<Diagnostic>& diagnostics) {
   for (const auto statement_id : statements) {
     const auto* statement = mir::statement(program, statement_id);
@@ -376,11 +425,30 @@ void validate_statements(const mir::Program& program, const std::vector<MirState
     }
 
     const auto* value = mir::expression(program, statement->expression);
-    if (statement->kind == StatementKind::assignment && value != nullptr) {
+    const bool implicit_result_assignment =
+        attributes->implicit_result != semantic::ImplicitResultPolicy::none &&
+        attributes->implicit_result_has_value;
+    if ((statement->kind == StatementKind::assignment || implicit_result_assignment) &&
+        value != nullptr) {
+      if (statement->symbol_id.valid()) {
+        const auto [probe, inserted] = assignment_type_probes.emplace(statement->symbol_id, value);
+        if (!inserted && !attributes->previous_assigned &&
+            !cpp_declaration_probes_compatible(program, *probe->second, *value, function_returns) &&
+            incompatible_assignments.insert(statement->symbol_id).second) {
+          add_error(diagnostics, statement->line, "MPF2007",
+                    "C++17 target cannot represent variable '" + statement->name +
+                        "' with incompatible types across control-flow paths");
+        }
+      }
       const auto current_type = mir::value_type(program, value->type_id);
       const auto previous_type = mir::value_type(program, attributes->previous_type);
-      if (previous_type != ValueType::unknown && current_type != ValueType::unknown &&
-          join_types(previous_type, current_type) == ValueType::unknown) {
+      const bool incompatible_known_types =
+          previous_type != ValueType::unknown && current_type != ValueType::unknown &&
+          join_types(previous_type, current_type) == ValueType::unknown;
+      const bool unresolved_previous_type_change =
+          implicit_result_assignment && attributes->previous_assigned &&
+          previous_type == ValueType::unknown && current_type != ValueType::unknown;
+      if (incompatible_known_types || unresolved_previous_type_change) {
         add_error(diagnostics, statement->line, "MPF2007",
                   "C++17 target cannot represent variable '" + statement->name +
                       "' changing from " + to_string(previous_type) + " to " +
@@ -485,8 +553,10 @@ void validate_statements(const mir::Program& program, const std::vector<MirState
       }
     }
 
-    validate_statements(program, statement->body, semantics, function_returns, diagnostics);
-    validate_statements(program, statement->alternative, semantics, function_returns, diagnostics);
+    validate_statements(program, statement->body, semantics, function_returns,
+                        assignment_type_probes, incompatible_assignments, diagnostics);
+    validate_statements(program, statement->alternative, semantics, function_returns,
+                        assignment_type_probes, incompatible_assignments, diagnostics);
   }
 }
 
@@ -550,7 +620,10 @@ std::vector<Diagnostic> validate_cpp_capabilities(const mir::Program& program,
       function_returns.insert_or_assign(function->name, return_type);
     }
   }
-  validate_statements(program, program.roots, program.semantics, function_returns, diagnostics);
+  AssignmentTypeProbes assignment_type_probes;
+  IncompatibleAssignments incompatible_assignments;
+  validate_statements(program, program.roots, program.semantics, function_returns,
+                      assignment_type_probes, incompatible_assignments, diagnostics);
   return diagnostics;
 }
 
