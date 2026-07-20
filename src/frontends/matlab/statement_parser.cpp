@@ -37,6 +37,18 @@ std::string lower(std::string value) {
   return value;
 }
 
+std::string quoted_character_vector(const std::string_view value) {
+  std::string result;
+  result.reserve(value.size() + 2U);
+  result.push_back('\'');
+  for (const char character : value) {
+    result.push_back(character);
+    if (character == '\'') result.push_back('\'');
+  }
+  result.push_back('\'');
+  return result;
+}
+
 bool is_opening(const Kind kind) noexcept {
   return kind == Kind::left_parenthesis || kind == Kind::left_bracket || kind == Kind::left_brace;
 }
@@ -233,7 +245,9 @@ class Parser final {
       frontend::unsupported(diagnostics_, line_number, "malformed Matlab function signature");
     }
     ++index_;
+    function_returns_.push_back(statement.return_names);
     statement.body = parse_block();
+    function_returns_.pop_back();
     expect_end(line_number, "function");
     return statement;
   }
@@ -402,10 +416,65 @@ class Parser final {
     return closing == count - 1;
   }
 
+  std::size_t command_argument_count(const MatlabStatementLine& line) const {
+    const auto count = token_count(line);
+    if (count <= 1) return 0;
+    std::size_t arguments = 1;
+    for (std::size_t token = 2; token < count; ++token) {
+      const auto gap_begin = line.tokens[token - 1].end;
+      const auto gap_end = line.tokens[token].begin;
+      const auto gap = std::string_view(line.source.text).substr(gap_begin, gap_end - gap_begin);
+      if (std::any_of(gap.begin(), gap.end(),
+                      [](const unsigned char character) { return std::isspace(character) != 0; })) {
+        ++arguments;
+      }
+    }
+    return arguments;
+  }
+
+  bool parse_display_command(std::vector<AstNodeId>& statements, const MatlabStatementLine& line) {
+    const auto count = token_count(line);
+    if (count == 0 || line.tokens[0].kind != Kind::identifier) return false;
+    const auto name = lower(line.tokens[0].text);
+    if (name != "disp" && name != "display") return false;
+    if (count >= 2 && line.tokens[1].kind == Kind::left_parenthesis) return false;
+    if (command_argument_count(line) != 1U) {
+      frontend::unsupported(
+          diagnostics_, line.source.number,
+          "Matlab command-form disp/display requires exactly one character-vector input");
+      ++index_;
+      return true;
+    }
+    const auto raw = token_slice(line, 1, count);
+    const bool single_quoted = count == 2 && line.tokens[1].kind == Kind::string_literal &&
+                               raw.size() >= 2U && raw.front() == '\'' && raw.back() == '\'';
+    Statement statement;
+    statement.kind = StatementKind::print;
+    statement.line = line.source.number;
+    const auto expression = single_quoted ? raw : quoted_character_vector(raw);
+    append_expression(statement, expression, line.source.number);
+    statements.push_back(store(std::move(statement)));
+    ++index_;
+    return true;
+  }
+
   void parse_simple_statement(std::vector<AstNodeId>& statements) {
     const auto& line = lines_[index_];
     const auto count = token_count(line);
     const auto first = count == 0 ? Kind::end : line.tokens[0].kind;
+    if (first == Kind::keyword_return) {
+      if (count != 1) {
+        frontend::unsupported(diagnostics_, line.source.number,
+                              "Matlab return statement cannot have operands");
+      }
+      Statement statement;
+      statement.kind = StatementKind::return_statement;
+      statement.line = line.source.number;
+      if (!function_returns_.empty()) statement.return_names = function_returns_.back();
+      statements.push_back(store(std::move(statement)));
+      ++index_;
+      return;
+    }
     if (first == Kind::keyword_break || first == Kind::keyword_continue) {
       if (count != 1) {
         frontend::unsupported(diagnostics_, line.source.number,
@@ -419,6 +488,7 @@ class Parser final {
       ++index_;
       return;
     }
+    if (parse_display_command(statements, line)) return;
     std::size_t display_closing = count;
     if (is_display_call(line, display_closing)) {
       Statement statement;
@@ -477,8 +547,10 @@ class Parser final {
       return;
     }
 
-    if (first == Kind::unsupported_keyword || first == Kind::keyword_function ||
-        first == Kind::keyword_if || first == Kind::keyword_while || first == Kind::keyword_for ||
+    if (first == Kind::unsupported_keyword || first == Kind::keyword_try ||
+        first == Kind::keyword_catch || first == Kind::keyword_arguments ||
+        first == Kind::keyword_function || first == Kind::keyword_if ||
+        first == Kind::keyword_while || first == Kind::keyword_for ||
         first == Kind::keyword_switch) {
       frontend::unsupported(diagnostics_, line.source.number,
                             "unsupported Matlab statement in the current language subset: " +
@@ -486,17 +558,6 @@ class Parser final {
       ++index_;
       return;
     }
-    if (count >= 1 && line.tokens[0].kind == Kind::identifier) {
-      const auto name = lower(line.tokens[0].text);
-      if ((name == "disp" || name == "display") &&
-          (count < 2 || line.tokens[1].kind != Kind::left_parenthesis)) {
-        frontend::unsupported(diagnostics_, line.source.number,
-                              "Matlab command-form display is not supported; use disp(...)");
-        ++index_;
-        return;
-      }
-    }
-
     Statement statement;
     statement.kind = StatementKind::expression;
     statement.line = line.source.number;
@@ -527,6 +588,7 @@ class Parser final {
   std::vector<Diagnostic> diagnostics_;
   [[maybe_unused]] LanguageVersion version_;
   std::size_t index_{0};
+  std::vector<std::vector<std::string>> function_returns_;
   FrontendAstBuilder<matlab::ast::LanguageTag> builder_;
 };
 

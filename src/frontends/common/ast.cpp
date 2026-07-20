@@ -296,6 +296,17 @@ std::vector<Diagnostic> verify_typed_ast(const ArenaProgram<Tag>& ast,
     if (node.exported && node.kind != StatementKind::function) {
       add_error({node.line, 1}, "only a function AST node may be explicitly exported");
     }
+    if (!node.return_names.empty() &&
+        (node.kind != StatementKind::function &&
+         (expected != SourceLanguage::matlab || node.kind != StatementKind::return_statement))) {
+      add_error({node.line, 1},
+                "frontend AST result bindings belong only to functions or Matlab bare returns");
+    }
+    if (node.kind == StatementKind::return_statement && !node.return_names.empty() &&
+        node.has_expression) {
+      add_error({node.line, 1},
+                "Matlab output-return AST node cannot also carry a value expression");
+    }
     const auto optional = [&](const AstNodeId value, const bool present, const char* name) {
       if (present != value.valid()) {
         add_error({node.line, 1}, std::string(name) + " presence flag is inconsistent");

@@ -38,11 +38,15 @@ MatlabStatementTokenKind keyword_kind(const std::string& word) {
       {"case", MatlabStatementTokenKind::keyword_case},
       {"otherwise", MatlabStatementTokenKind::keyword_otherwise},
       {"break", MatlabStatementTokenKind::keyword_break},
-      {"continue", MatlabStatementTokenKind::keyword_continue}};
+      {"continue", MatlabStatementTokenKind::keyword_continue},
+      {"return", MatlabStatementTokenKind::keyword_return},
+      {"try", MatlabStatementTokenKind::keyword_try},
+      {"catch", MatlabStatementTokenKind::keyword_catch},
+      {"arguments", MatlabStatementTokenKind::keyword_arguments}};
   static const std::unordered_map<std::string, bool> unsupported{
-      {"try", true},        {"catch", true},  {"classdef", true},    {"properties", true},
-      {"methods", true},    {"events", true}, {"enumeration", true}, {"global", true},
-      {"persistent", true}, {"parfor", true}, {"spmd", true},        {"arguments", true}};
+      {"classdef", true},   {"properties", true},  {"methods", true},
+      {"events", true},     {"enumeration", true}, {"global", true},
+      {"persistent", true}, {"parfor", true},      {"spmd", true}};
   const auto key = lower(word);
   const auto found = keywords.find(key);
   if (found != keywords.end()) return found->second;
@@ -113,7 +117,14 @@ MatlabStatementLine lex_line(SourceLine line, std::vector<Diagnostic>& diagnosti
     const bool case_character_vector =
         text[index] == '\'' && output.tokens.size() == 1 &&
         output.tokens.front().kind == MatlabStatementTokenKind::keyword_case;
-    if (text[index] == '\'' && !case_character_vector && !starts_character_vector(text, index)) {
+    const bool display_command_character_vector =
+        text[index] == '\'' && output.tokens.size() == 1 &&
+        output.tokens.front().kind == MatlabStatementTokenKind::identifier &&
+        (lower(output.tokens.front().text) == "disp" ||
+         lower(output.tokens.front().text) == "display") &&
+        output.tokens.front().end < index;
+    if (text[index] == '\'' && !case_character_vector && !display_command_character_vector &&
+        !starts_character_vector(text, index)) {
       ++index;
       append_token(output, MatlabStatementTokenKind::transpose, text, begin, index);
       continue;
@@ -213,6 +224,10 @@ const char* to_string(const MatlabStatementTokenKind kind) noexcept {
     case MatlabStatementTokenKind::keyword_otherwise: return "otherwise";
     case MatlabStatementTokenKind::keyword_break: return "break";
     case MatlabStatementTokenKind::keyword_continue: return "continue";
+    case MatlabStatementTokenKind::keyword_return: return "return";
+    case MatlabStatementTokenKind::keyword_try: return "try";
+    case MatlabStatementTokenKind::keyword_catch: return "catch";
+    case MatlabStatementTokenKind::keyword_arguments: return "arguments";
     case MatlabStatementTokenKind::unsupported_keyword: return "unsupported keyword";
     case MatlabStatementTokenKind::left_parenthesis: return "(";
     case MatlabStatementTokenKind::right_parenthesis: return ")";
