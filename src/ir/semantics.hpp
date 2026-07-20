@@ -365,8 +365,9 @@ template <typename Shape, typename Axes>
     if (storage != ArrayStorageFormat::dense && storage != ArrayStorageFormat::sparse_csc) {
       return false;
     }
-    constexpr auto dynamic_extent = std::numeric_limits<std::size_t>::max();
-    return shape.size() == 2U && shape[0] != dynamic_extent && shape[1] != dynamic_extent;
+    constexpr auto operand_dynamic_extent = std::numeric_limits<std::size_t>::max();
+    return shape.size() == 2U && shape[0] != operand_dynamic_extent &&
+           shape[1] != operand_dynamic_extent;
   };
   if (!valid_operand(left_storage, left_shape) || !valid_operand(right_storage, right_shape) ||
       std::any_of(result_shape.begin(), result_shape.end(),
