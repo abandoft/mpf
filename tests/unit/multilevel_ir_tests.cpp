@@ -1480,6 +1480,7 @@ TEST_CASE("Matlab sparse scalar products remain typed through every IR layer") {
 TEST_CASE("Matlab sparse arithmetic storage policy is explicit and shape checked") {
   using Operation = mpf::detail::semantic::SparseArithmeticOperation;
   using Policy = mpf::detail::semantic::SparseArithmeticStoragePolicy;
+  using Domain = mpf::detail::semantic::SparseValueDomain;
   using Source = mpf::detail::semantic::BroadcastShapeSource;
   using Axis = mpf::detail::semantic::BroadcastAxis;
   using Storage = mpf::detail::ArrayStorageFormat;
@@ -1488,25 +1489,26 @@ TEST_CASE("Matlab sparse arithmetic storage policy is explicit and shape checked
   const std::vector<Axis> expanded_left{Axis::expand_left, Axis::expand_left};
 
   REQUIRE(mpf::detail::semantic::valid_sparse_arithmetic_contract(
-      Operation::add, Policy::preserve_sparse, Source::static_extents, Storage::sparse_csc,
-      Storage::sparse_csc, Storage::sparse_csc, shape, shape, shape, matched));
+      Operation::add, Policy::preserve_sparse, Domain::finite_real, Source::static_extents,
+      Storage::sparse_csc, Storage::sparse_csc, Storage::sparse_csc, shape, shape, shape, matched));
   REQUIRE(mpf::detail::semantic::valid_sparse_arithmetic_contract(
-      Operation::subtract, Policy::materialize_dense, Source::static_extents, Storage::sparse_csc,
-      Storage::dense, Storage::dense, shape, shape, shape, matched));
+      Operation::subtract, Policy::materialize_dense, Domain::finite_complex,
+      Source::static_extents, Storage::sparse_csc, Storage::dense, Storage::dense, shape, shape,
+      shape, matched));
   REQUIRE(mpf::detail::semantic::valid_sparse_arithmetic_contract(
-      Operation::add, Policy::materialize_dense, Source::static_extents, Storage::none,
-      Storage::sparse_csc, Storage::dense, std::vector<std::size_t>{}, shape, shape,
+      Operation::add, Policy::materialize_dense, Domain::finite_real, Source::static_extents,
+      Storage::none, Storage::sparse_csc, Storage::dense, std::vector<std::size_t>{}, shape, shape,
       expanded_left));
 
   REQUIRE(!mpf::detail::semantic::valid_sparse_arithmetic_contract(
-      Operation::add, Policy::preserve_sparse, Source::static_extents, Storage::sparse_csc,
-      Storage::dense, Storage::sparse_csc, shape, shape, shape, matched));
+      Operation::add, Policy::preserve_sparse, Domain::finite_real, Source::static_extents,
+      Storage::sparse_csc, Storage::dense, Storage::sparse_csc, shape, shape, shape, matched));
   REQUIRE(!mpf::detail::semantic::valid_sparse_arithmetic_contract(
-      Operation::subtract, Policy::materialize_dense, Source::runtime_operands, Storage::sparse_csc,
-      Storage::dense, Storage::dense, shape, shape, shape, matched));
+      Operation::subtract, Policy::materialize_dense, Domain::finite_real, Source::runtime_operands,
+      Storage::sparse_csc, Storage::dense, Storage::dense, shape, shape, shape, matched));
   REQUIRE(!mpf::detail::semantic::valid_sparse_arithmetic_contract(
-      Operation::subtract, Policy::materialize_dense, Source::static_extents, Storage::sparse_csc,
-      Storage::dense, Storage::dense, shape, shape, shape,
+      Operation::subtract, Policy::materialize_dense, Domain::logical, Source::static_extents,
+      Storage::sparse_csc, Storage::dense, Storage::dense, shape, shape, shape,
       std::vector<Axis>{Axis::match, Axis::runtime}));
 }
 
@@ -1581,12 +1583,18 @@ TEST_CASE("Matlab Analyzer assigns sparse arithmetic storage without dense broad
   REQUIRE(mir.diagnostics.empty());
   REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-arithmetic-plan").empty());
   const auto dump = mpf::detail::dump_mir(mir.program);
-  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=1 storage=3,3->3") != std::string::npos);
-  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=1 storage=3,3->3") != std::string::npos);
-  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=2 storage=3,2->2") != std::string::npos);
-  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=2 storage=2,3->2") != std::string::npos);
-  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=2 storage=3,0->2") != std::string::npos);
-  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=2 storage=0,3->2") != std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=1 value-domain=1 storage=3,3->3") !=
+          std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=1 value-domain=1 storage=3,3->3") !=
+          std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=2 value-domain=1 storage=3,2->2") !=
+          std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=2 value-domain=1 storage=2,3->2") !=
+          std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=2 value-domain=1 storage=3,0->2") !=
+          std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=2 value-domain=1 storage=0,3->2") !=
+          std::string::npos);
 
   auto corrupted_mir = mir.program;
   const auto mir_arithmetic = std::find_if(
@@ -1597,6 +1605,65 @@ TEST_CASE("Matlab Analyzer assigns sparse arithmetic storage without dense broad
   REQUIRE(mir_arithmetic != corrupted_mir.attributes.expressions.end());
   mir_arithmetic->sparse_arithmetic.storage_policy = Policy::preserve_sparse;
   REQUIRE(!mpf::detail::mir::verify(corrupted_mir, "sparse-arithmetic-policy-corruption").empty());
+}
+
+TEST_CASE("Matlab complex sparse arithmetic value domains remain typed through every IR layer") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "A = sparse([1+2i 0; 0 3-4i]);\n"
+                              "B = sparse([1 0; 0 2]);\n"
+                              "C = A + B;\n"
+                              "D = A - [1 2; 3 4];\n",
+                              "complex_sparse_arithmetic.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  using Domain = mpf::detail::semantic::SparseValueDomain;
+  const auto arithmetic =
+      std::find_if(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                   [](const auto& facts) { return facts.sparse_arithmetic.valid(); });
+  REQUIRE(arithmetic != analysis.semantics.expressions.end());
+  REQUIRE(arithmetic->sparse_arithmetic.value_domain == Domain::finite_complex);
+  REQUIRE(arithmetic->element_numeric_type == mpf::detail::complex_numeric_type);
+  REQUIRE(std::count_if(analysis.semantics.expressions.begin(),
+                        analysis.semantics.expressions.end(), [](const auto& facts) {
+                          return facts.sparse_arithmetic.valid() &&
+                                 facts.sparse_arithmetic.value_domain == Domain::finite_complex;
+                        }) == 2);
+
+  auto corrupted_hir = analysis.semantics;
+  const auto corrupt_hir =
+      std::find_if(corrupted_hir.expressions.begin(), corrupted_hir.expressions.end(),
+                   [](const auto& facts) { return facts.sparse_arithmetic.valid(); });
+  REQUIRE(corrupt_hir != corrupted_hir.expressions.end());
+  corrupt_hir->sparse_arithmetic.value_domain = Domain::finite_real;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, corrupted_hir,
+                                              "complex-sparse-arithmetic-domain-corruption")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "complex-sparse-arithmetic").empty());
+  REQUIRE(mpf::detail::dump_mir(mir.program)
+              .find("sparse-arithmetic=1 storage-policy=1 value-domain=2") != std::string::npos);
+  auto corrupted_mir = mir.program;
+  const auto corrupt_mir = std::find_if(
+      corrupted_mir.attributes.expressions.begin(), corrupted_mir.attributes.expressions.end(),
+      [](const auto& attributes) { return attributes.sparse_arithmetic.valid(); });
+  REQUIRE(corrupt_mir != corrupted_mir.attributes.expressions.end());
+  corrupt_mir->sparse_arithmetic.value_domain = Domain::finite_real;
+  REQUIRE(!mpf::detail::mir::verify(corrupted_mir, "complex-sparse-arithmetic-domain-corruption")
+               .empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find(
+              "sparse-arithmetic 1 storage-policy 1 value-domain 2") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("sparse-arithmetic 1 storage-policy 1 value-domain 2") !=
+          std::string::npos);
 }
 
 TEST_CASE("Matlab sparse logical storage policy is explicit and shape checked") {
@@ -3871,7 +3938,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v27") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v28") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -3882,7 +3949,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v33") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v34") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -5351,9 +5418,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v40") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v41") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v40") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v41") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
