@@ -101,6 +101,10 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
       attributes.intrinsic == IntrinsicId::matlab_nonzero_count) {
     result.runtime.require(lir::RuntimeFeature::sparse_matrices);
   }
+  if (attributes.reduction.input_storage == ArrayStorageFormat::sparse_csc) {
+    result.runtime.require(lir::RuntimeFeature::sparse_matrices);
+    result.runtime.require(lir::RuntimeFeature::sparse_reductions);
+  }
   const auto active_numeric_type = mir::value_type(program, expression.type_id) == ValueType::list
                                        ? mir::element_numeric_type(program, expression.type_id)
                                        : mir::numeric_type(program, expression.type_id);

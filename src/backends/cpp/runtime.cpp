@@ -6,6 +6,7 @@
 #include "complex_matrix_runtime.hpp"
 #include "matrix_runtime.hpp"
 #include "sparse_matrix_runtime.hpp"
+#include "sparse_reduction_runtime.hpp"
 
 namespace mpf::detail {
 namespace {
@@ -31,6 +32,9 @@ class RuntimeEmitter final {
     const bool include_sparse_matrices =
         std::find(fragments.begin(), fragments.end(), cpp::lir::RuntimeFragment::sparse_matrices) !=
         fragments.end();
+    const bool include_sparse_reductions =
+        std::find(fragments.begin(), fragments.end(),
+                  cpp::lir::RuntimeFragment::sparse_reductions) != fragments.end();
     output_ << "namespace " << runtime_namespace << " {\n";
     output_
         << "template <typename T> class optional_argument {\n"
@@ -1960,6 +1964,7 @@ class RuntimeEmitter final {
     }
     if (include_complex_matrices) emit_cpp_complex_matrix_runtime(output_);
     if (include_sparse_matrices) emit_cpp_sparse_matrix_runtime(output_);
+    if (include_sparse_reductions) emit_cpp_sparse_reduction_runtime(output_);
     output_ << "}  // namespace " << runtime_namespace << "\n\n";
   }
 

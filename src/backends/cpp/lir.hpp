@@ -27,6 +27,7 @@ enum class RuntimeFeature : std::uint8_t {
   complex_numbers,
   complex_matrices,
   sparse_matrices,
+  sparse_reductions,
   count
 };
 
@@ -483,7 +484,8 @@ enum class RuntimeFragment : std::uint8_t {
   scalar_division,
   complex_numbers,
   complex_matrices,
-  sparse_matrices
+  sparse_matrices,
+  sparse_reductions
 };
 enum class EntryErrorPolicy : std::uint8_t { none, report_standard_exception };
 

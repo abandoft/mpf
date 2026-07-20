@@ -812,11 +812,8 @@ foreach(sparse_matrix_runtime IN ITEMS
      NOT sparse_matrix_runtime_contract MATCHES "sparse_logical_not" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_logical_and" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_logical_or" OR
-     NOT sparse_matrix_runtime_contract MATCHES "sparse_logical_reduce" OR
      NOT sparse_matrix_runtime_contract MATCHES
        "sparse logical storage plan is inconsistent" OR
-     NOT sparse_matrix_runtime_contract MATCHES
-       "sparse logical reduction storage plan is invalid" OR
      NOT sparse_matrix_runtime_contract MATCHES
        "sparse element-wise multiplication produced a nonfinite value" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_sparse_mtimes" OR
@@ -833,11 +830,36 @@ foreach(sparse_matrix_runtime IN ITEMS
      NOT sparse_matrix_runtime_contract MATCHES "mrdivide_sparse_real_square")
     message(FATAL_ERROR
       "target sparse-matrix runtime does not own canonical CSC construction/index/mutation, "
-      "sparse scale/element-wise/logical/product/square-solve, transpose, and condition kernels: ${sparse_matrix_runtime}")
+      "sparse scale/element-wise logical/product/square-solve, transpose, and condition "
+      "kernels: ${sparse_matrix_runtime}")
   endif()
   mpf_assert_file_excludes("${sparse_matrix_runtime}"
     "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
     "target sparse-matrix runtime depends on compiler state")
+  mpf_assert_file_excludes("${sparse_matrix_runtime}"
+    "sparse_logical_reduce|sparse logical reduction storage plan is invalid"
+    "target sparse-matrix base runtime absorbed the optional sparse-reduction fragment")
+endforeach()
+foreach(sparse_reduction_runtime IN ITEMS
+    src/backends/javascript/sparse_reduction_runtime.cpp
+    src/backends/cpp/sparse_reduction_runtime.cpp)
+  if(NOT EXISTS "${SOURCE_DIR}/${sparse_reduction_runtime}")
+    message(FATAL_ERROR
+      "target sparse-reduction runtime is missing: ${sparse_reduction_runtime}")
+  endif()
+  file(READ "${SOURCE_DIR}/${sparse_reduction_runtime}" sparse_reduction_runtime_contract)
+  if(NOT sparse_reduction_runtime_contract MATCHES "sparse_logical_reduce" OR
+     NOT sparse_reduction_runtime_contract MATCHES "validate_sparse_csc" OR
+     NOT sparse_reduction_runtime_contract MATCHES "sparse_logical_(rows|columns)" OR
+     NOT sparse_reduction_runtime_contract MATCHES
+       "sparse logical reduction storage plan is invalid")
+    message(FATAL_ERROR
+      "target sparse-reduction fragment does not own the CSC reduction kernels and storage "
+      "validation: ${sparse_reduction_runtime}")
+  endif()
+  mpf_assert_file_excludes("${sparse_reduction_runtime}"
+    "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
+    "target sparse-reduction runtime depends on compiler state")
 endforeach()
 foreach(sparse_representation IN ITEMS
     src/backends/javascript/lir_representation.cpp
