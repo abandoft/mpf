@@ -64,8 +64,10 @@ downloads the public Release rather than reusing runner-local files, checks its 
 state and exact asset set, and repeats archive, checksum, version, license, and GitHub attestation
 verification.
 
-Every external Action is pinned to a full commit SHA with a version comment; Dependabot owns
-the update path. CodeQL results from branch and pull-request runs are uploaded to code scanning.
+Every external Action is pinned to a full commit SHA with a version comment. Action updates are
+reviewed explicitly and committed through the normal mainline release workflow; no automated
+pull-request bot is enabled. CodeQL results from branch and pull-request runs are uploaded to
+code scanning.
 The tag-gate invocation reruns the same query suite but does not upload a duplicate tag SARIF;
 the local analysis must still complete successfully before packaging.
 
