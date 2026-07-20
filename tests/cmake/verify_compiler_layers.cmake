@@ -865,9 +865,10 @@ foreach(sparse_power_planning IN ITEMS
     src/backends/cpp/lir_planning.cpp)
   file(READ "${SOURCE_DIR}/${sparse_power_planning}" sparse_power_planning_contract)
   if(NOT sparse_power_planning_contract MATCHES "RuntimeFeature::sparse_power" OR
+     NOT sparse_power_planning_contract MATCHES "RuntimeFeature::sparse_product" OR
      NOT sparse_power_planning_contract MATCHES "RuntimeFragment::sparse_power" OR
      NOT sparse_power_planning_contract MATCHES
-       "sparse-power runtime requires sparse-matrix support")
+       "sparse-power runtime requires sparse-matrix and sparse-product")
     message(FATAL_ERROR
       "target resource planner does not own the sparse-power fragment dependency: "
       "${sparse_power_planning}")
@@ -875,11 +876,16 @@ foreach(sparse_power_planning IN ITEMS
   string(FIND "${sparse_power_planning_contract}"
     "RuntimeFragment::sparse_matrices" sparse_power_base_fragment_index)
   string(FIND "${sparse_power_planning_contract}"
+    "RuntimeFragment::sparse_product" sparse_power_product_fragment_index)
+  string(FIND "${sparse_power_planning_contract}"
     "RuntimeFragment::sparse_power" sparse_power_fragment_index)
-  if(sparse_power_base_fragment_index EQUAL -1 OR sparse_power_fragment_index EQUAL -1 OR
-     sparse_power_fragment_index LESS sparse_power_base_fragment_index)
+  if(sparse_power_base_fragment_index EQUAL -1 OR
+     sparse_power_product_fragment_index EQUAL -1 OR
+     sparse_power_fragment_index EQUAL -1 OR
+     sparse_power_product_fragment_index LESS sparse_power_base_fragment_index OR
+     sparse_power_fragment_index LESS sparse_power_product_fragment_index)
     message(FATAL_ERROR
-      "sparse-power fragment is planned before its sparse-matrix dependency: "
+      "sparse-power fragment is planned before a sparse runtime dependency: "
       "${sparse_power_planning}")
   endif()
 endforeach()
@@ -1017,11 +1023,6 @@ foreach(sparse_matrix_runtime IN ITEMS
        "sparse logical storage plan is inconsistent" OR
      NOT sparse_matrix_runtime_contract MATCHES
        "sparse element-wise multiplication produced a nonfinite value" OR
-     NOT sparse_matrix_runtime_contract MATCHES "sparse_sparse_mtimes" OR
-     NOT sparse_matrix_runtime_contract MATCHES "sparse_dense_mtimes" OR
-     NOT sparse_matrix_runtime_contract MATCHES "dense_sparse_mtimes" OR
-     NOT sparse_matrix_runtime_contract MATCHES
-       "sparse matrix product shape plans are inconsistent" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_tridiagonal_factor" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_row_lu_factor" OR
      NOT sparse_matrix_runtime_contract MATCHES "sparse_rcond" OR
@@ -1031,7 +1032,7 @@ foreach(sparse_matrix_runtime IN ITEMS
      NOT sparse_matrix_runtime_contract MATCHES "mrdivide_sparse_real_square")
     message(FATAL_ERROR
       "target sparse-matrix runtime does not own canonical CSC construction/index/mutation, "
-      "sparse scale/element-wise logical/product/square-solve, transpose, and condition "
+      "sparse scale/element-wise logical/square-solve, transpose, and condition "
       "kernels: ${sparse_matrix_runtime}")
   endif()
   mpf_assert_file_excludes("${sparse_matrix_runtime}"
@@ -1102,8 +1103,68 @@ foreach(sparse_matrix_runtime IN ITEMS
     "sparse_power|sparse_mpower|sparse matrix power plan"
     "target sparse-matrix base runtime absorbed the optional sparse-power fragment")
   mpf_assert_file_excludes("${sparse_matrix_runtime}"
+    "sparse_(product|sparse_mtimes|dense_mtimes)|dense_sparse_mtimes|sparse matrix product"
+    "target sparse-matrix base runtime absorbed the optional sparse-product fragment")
+  mpf_assert_file_excludes("${sparse_matrix_runtime}"
     "function __mpf_sparse_ctranspose|sparse_matrix<T> sparse_ctranspose"
     "target sparse-matrix base runtime absorbed the complex-sparse fragment")
+endforeach()
+foreach(sparse_product_runtime IN ITEMS
+    src/backends/javascript/sparse_product_runtime.cpp
+    src/backends/cpp/sparse_product_runtime.cpp)
+  if(NOT EXISTS "${SOURCE_DIR}/${sparse_product_runtime}")
+    message(FATAL_ERROR "target sparse-product runtime is missing: ${sparse_product_runtime}")
+  endif()
+  file(READ "${SOURCE_DIR}/${sparse_product_runtime}" sparse_product_runtime_contract)
+  if(NOT sparse_product_runtime_contract MATCHES
+       "emit_(javascript|cpp)_sparse_product_runtime" OR
+     NOT sparse_product_runtime_contract MATCHES "sparse_sparse_mtimes" OR
+     NOT sparse_product_runtime_contract MATCHES "sparse_dense_mtimes" OR
+     NOT sparse_product_runtime_contract MATCHES "dense_sparse_mtimes" OR
+     NOT sparse_product_runtime_contract MATCHES "sparse_product_accumulate" OR
+     NOT sparse_product_runtime_contract MATCHES
+       "sparse matrix product shape plans are inconsistent" OR
+     NOT sparse_product_runtime_contract MATCHES
+       "sparse matrix product numeric-domain plan is invalid")
+    message(FATAL_ERROR
+      "target sparse-product fragment does not own shape, numeric-domain and storage kernels: "
+      "${sparse_product_runtime}")
+  endif()
+  mpf_assert_file_excludes("${sparse_product_runtime}"
+    "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
+    "target sparse-product runtime depends on compiler state")
+endforeach()
+foreach(sparse_product_runtime_catalog IN ITEMS
+    src/backends/javascript/runtime.cpp
+    src/backends/cpp/runtime.cpp)
+  file(READ "${SOURCE_DIR}/${sparse_product_runtime_catalog}"
+       sparse_product_runtime_catalog_contract)
+  if(NOT sparse_product_runtime_catalog_contract MATCHES
+       "RuntimeFragment::sparse_product" OR
+     NOT sparse_product_runtime_catalog_contract MATCHES
+       "emit_(javascript|cpp)_sparse_product_runtime")
+    message(FATAL_ERROR
+      "target runtime catalog does not serialize the sparse-product fragment: "
+      "${sparse_product_runtime_catalog}")
+  endif()
+  string(FIND "${sparse_product_runtime_catalog_contract}"
+    "emit_javascript_sparse_matrix_runtime" javascript_sparse_product_base_emit_index)
+  string(FIND "${sparse_product_runtime_catalog_contract}"
+    "emit_javascript_sparse_product_runtime" javascript_sparse_product_emit_index)
+  string(FIND "${sparse_product_runtime_catalog_contract}"
+    "emit_cpp_sparse_matrix_runtime" cpp_sparse_product_base_emit_index)
+  string(FIND "${sparse_product_runtime_catalog_contract}"
+    "emit_cpp_sparse_product_runtime" cpp_sparse_product_emit_index)
+  if((javascript_sparse_product_emit_index GREATER -1 AND
+      (javascript_sparse_product_base_emit_index EQUAL -1 OR
+       javascript_sparse_product_emit_index LESS javascript_sparse_product_base_emit_index)) OR
+     (cpp_sparse_product_emit_index GREATER -1 AND
+      (cpp_sparse_product_base_emit_index EQUAL -1 OR
+       cpp_sparse_product_emit_index LESS cpp_sparse_product_base_emit_index)))
+    message(FATAL_ERROR
+      "target runtime emits sparse product before its sparse-matrix dependency: "
+      "${sparse_product_runtime_catalog}")
+  endif()
 endforeach()
 foreach(complex_sparse_runtime IN ITEMS
     src/backends/javascript/complex_sparse_runtime.cpp
@@ -1212,17 +1273,27 @@ foreach(sparse_power_runtime_catalog IN ITEMS
   string(FIND "${sparse_power_runtime_catalog_contract}"
     "emit_javascript_sparse_matrix_runtime" javascript_sparse_power_base_emit_index)
   string(FIND "${sparse_power_runtime_catalog_contract}"
+    "emit_javascript_sparse_product_runtime" javascript_sparse_power_product_emit_index)
+  string(FIND "${sparse_power_runtime_catalog_contract}"
     "emit_javascript_sparse_power_runtime" javascript_sparse_power_emit_index)
   string(FIND "${sparse_power_runtime_catalog_contract}"
     "emit_cpp_sparse_matrix_runtime" cpp_sparse_power_base_emit_index)
   string(FIND "${sparse_power_runtime_catalog_contract}"
+    "emit_cpp_sparse_product_runtime" cpp_sparse_power_product_emit_index)
+  string(FIND "${sparse_power_runtime_catalog_contract}"
     "emit_cpp_sparse_power_runtime" cpp_sparse_power_emit_index)
   if((javascript_sparse_power_emit_index GREATER -1 AND
       (javascript_sparse_power_base_emit_index EQUAL -1 OR
-       javascript_sparse_power_emit_index LESS javascript_sparse_power_base_emit_index)) OR
+       javascript_sparse_power_product_emit_index EQUAL -1 OR
+       javascript_sparse_power_product_emit_index LESS
+         javascript_sparse_power_base_emit_index OR
+       javascript_sparse_power_emit_index LESS
+         javascript_sparse_power_product_emit_index)) OR
      (cpp_sparse_power_emit_index GREATER -1 AND
       (cpp_sparse_power_base_emit_index EQUAL -1 OR
-       cpp_sparse_power_emit_index LESS cpp_sparse_power_base_emit_index)))
+       cpp_sparse_power_product_emit_index EQUAL -1 OR
+       cpp_sparse_power_product_emit_index LESS cpp_sparse_power_base_emit_index OR
+       cpp_sparse_power_emit_index LESS cpp_sparse_power_product_emit_index)))
     message(FATAL_ERROR
       "target runtime emits sparse power before its sparse-matrix dependency: "
       "${sparse_power_runtime_catalog}")
@@ -1291,10 +1362,26 @@ foreach(sparse_representation IN ITEMS
      NOT sparse_representation_contract MATCHES "sparse_sparse_mtimes" OR
      NOT sparse_representation_contract MATCHES "sparse_dense_mtimes" OR
      NOT sparse_representation_contract MATCHES "dense_sparse_mtimes" OR
+     NOT sparse_representation_contract MATCHES "matrix_operation.numeric_domain" OR
      NOT sparse_representation_contract MATCHES "runtime_shape_arguments")
     message(FATAL_ERROR
       "target representation does not verify sparse construction/index/mutation/scale/element-wise/logical/product plans or select sparse forms: "
       "${sparse_representation}")
+  endif()
+endforeach()
+foreach(complex_sparse_product_target IN ITEMS javascript cpp)
+  file(READ
+    "${SOURCE_DIR}/src/backends/${complex_sparse_product_target}/lowering.cpp"
+    complex_sparse_product_lowering_contract)
+  if(NOT complex_sparse_product_lowering_contract MATCHES
+       "MatrixNumericDomain::complex" OR
+     NOT complex_sparse_product_lowering_contract MATCHES "sparse_csc_multiply" OR
+     NOT complex_sparse_product_lowering_contract MATCHES
+       "RuntimeFeature::complex_numbers" OR
+     NOT complex_sparse_product_lowering_contract MATCHES
+       "RuntimeFeature::sparse_product")
+    message(FATAL_ERROR
+      "${complex_sparse_product_target} lowering does not own complex sparse-product runtime pruning")
   endif()
 endforeach()
 foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
@@ -1714,6 +1801,8 @@ foreach(target_directory IN ITEMS javascript cpp)
   foreach(optional_sparse_component IN ITEMS
       sparse_arithmetic_runtime.cpp
       sparse_arithmetic_runtime.hpp
+      sparse_product_runtime.cpp
+      sparse_product_runtime.hpp
       sparse_reduction_runtime.cpp
       sparse_reduction_runtime.hpp)
     if(NOT EXISTS
