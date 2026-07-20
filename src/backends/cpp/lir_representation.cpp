@@ -490,7 +490,6 @@ bool valid_sparse_arithmetic_plan(const lir::Expression& expression) noexcept {
          expression.array_operation == semantic::ArrayOperation::matlab &&
          expression.children.size() == 2U && plan.operation == expected_operation &&
          !expression.broadcast.valid && expression.inferred_type == ValueType::list &&
-         expression.element_type == ValueType::real &&
          expression.element_numeric_type == real_numeric_type &&
          plan.left_storage == expression.children[0].array_storage &&
          plan.right_storage == expression.children[1].array_storage &&
