@@ -1,0 +1,15 @@
+A = sparse([1 0 3; 0 0 4; 5 0 0]);
+logical_values = sparse([true false; true true]);
+column_any = any(A);
+column_all = all(logical_values);
+row_any = any(A, 2);
+row_all = all(logical_values, 2);
+total_any = any(A, 'all');
+total_all = all(logical_values, 'all');
+zero_rows_all = all(sparse([], [], [], 0, 3));
+zero_columns_any = any(sparse([], [], [], 3, 0), 2);
+empty_all = all(sparse([], [], [], 0, 0));
+unchanged = any(A, 3);
+disp(nnz(column_any), nnz(column_all), nnz(row_any), nnz(row_all), ...
+     total_any, total_all, nnz(zero_rows_all), nnz(zero_columns_any), ...
+     empty_all, nnz(unchanged))
