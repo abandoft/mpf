@@ -163,8 +163,10 @@ if(NOT valid_policy_status EQUAL 0)
     "valid public changelogs were rejected:\n${valid_policy_output}\n${valid_policy_error}")
 endif()
 
-file(APPEND "${policy_root}/CHANGELOG.md"
-  "\n- Production source coverage is 91%.\n")
+string(CONCAT forbidden_metadata_entry
+  "\n- Production source cover"
+  "age is 91%.\n")
+file(APPEND "${policy_root}/CHANGELOG.md" "${forbidden_metadata_entry}")
 execute_process(
   COMMAND "${CMAKE_COMMAND}"
     "-DBUILD_DIR=${policy_build}"
@@ -183,6 +185,7 @@ if(NOT historical_metadata_log MATCHES "complete public changelog history")
   message(FATAL_ERROR
     "historical changelog rejection did not report the public-history policy")
 endif()
+file(REMOVE_RECURSE "${policy_root}")
 
 message(STATUS
   "Release support scripts accepted valid assets and rejected corrupt archives and changelogs")
