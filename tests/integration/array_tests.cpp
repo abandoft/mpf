@@ -877,6 +877,42 @@ TEST_CASE("Matlab sparse logical operators preserve Matlab storage rules per tar
   }
 }
 
+TEST_CASE("Matlab sparse reductions load their runtime fragment on demand") {
+  const std::string reduction_source =
+      "A = sparse([1 0; 0 1]);\n"
+      "columns = all(A);\n"
+      "total = any(A, 'all');\n"
+      "disp(nnz(columns), total)\n";
+  const auto javascript = transpile_array(reduction_source, mpf::SourceLanguage::matlab,
+                                          mpf::TargetLanguage::javascript);
+  const auto cpp =
+      transpile_array(reduction_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  const auto javascript_sparse_base = javascript.code.find("function __mpf_validate_sparse_csc");
+  const auto javascript_reduction = javascript.code.find("function __mpf_sparse_logical_reduce");
+  const auto cpp_sparse_base = cpp.code.find("void validate_sparse_csc");
+  const auto cpp_reduction = cpp.code.find("auto sparse_logical_reduce(");
+  REQUIRE(javascript_sparse_base != std::string::npos);
+  REQUIRE(javascript_reduction != std::string::npos);
+  REQUIRE(javascript_sparse_base < javascript_reduction);
+  REQUIRE(cpp_sparse_base != std::string::npos);
+  REQUIRE(cpp_reduction != std::string::npos);
+  REQUIRE(cpp_sparse_base < cpp_reduction);
+
+  const std::string sparse_only_source =
+      "A = sparse([1 0; 0 1]);\n"
+      "disp(nnz(A))\n";
+  const auto sparse_only_javascript = transpile_array(
+      sparse_only_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto sparse_only_cpp =
+      transpile_array(sparse_only_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(sparse_only_javascript.success());
+  REQUIRE(sparse_only_cpp.success());
+  REQUIRE(sparse_only_javascript.code.find("__mpf_sparse_logical_reduce") == std::string::npos);
+  REQUIRE(sparse_only_cpp.code.find("sparse_logical_reduce") == std::string::npos);
+}
+
 TEST_CASE("Matlab sparse CSC indexing preserves storage shape and target isolation") {
   const std::string source =
       "A = sparse([1 0 2; 0 3 0; 4 0 5]);\n"
