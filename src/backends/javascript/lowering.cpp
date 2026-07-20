@@ -87,6 +87,13 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
           NumericComplexity::complex) {
     result.runtime.require(lir::RuntimeFeature::complex_numbers);
   }
+  if (mir::array_storage(program, expression.type_id) == ArrayStorageFormat::sparse_csc &&
+      mir::element_numeric_type(program, expression.type_id).complexity ==
+          NumericComplexity::complex) {
+    result.runtime.require(lir::RuntimeFeature::complex_numbers);
+    result.runtime.require(lir::RuntimeFeature::sparse_matrices);
+    result.runtime.require(lir::RuntimeFeature::complex_sparse);
+  }
   if (attributes.matrix_operation.numeric_domain ==
       ::mpf::detail::semantic::MatrixNumericDomain::complex) {
     result.runtime.require(lir::RuntimeFeature::complex_numbers);
@@ -244,6 +251,15 @@ void analyze_statements(const mir::Program& program, const std::vector<MirStatem
          statement.kind == StatementKind::while_loop) &&
         result.source_semantics.truthiness ==
             mpf::detail::semantic::Truthiness::matlab_all_nonzero) {
+      result.runtime.require(lir::RuntimeFeature::arrays);
+    }
+    const auto* assigned = mir::expression(program, statement.expression);
+    if (program.source_language == SourceLanguage::matlab && assigned != nullptr &&
+        (statement.kind == StatementKind::declaration ||
+         statement.kind == StatementKind::assignment) &&
+        assigned->kind == ExpressionKind::identifier &&
+        mir::value_type(program, assigned->type_id) == ValueType::list &&
+        mir::array_storage(program, assigned->type_id) != ArrayStorageFormat::sparse_csc) {
       result.runtime.require(lir::RuntimeFeature::arrays);
     }
     analyze_expression(program, statement.expression, result, diagnostics, calls);
@@ -516,6 +532,16 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
       calls[call.origin.value()] = &call;
   }
   analyze_statements(program, program.roots, semantic_program, result.diagnostics, calls);
+  if (program.source_language == SourceLanguage::matlab) {
+    for (const auto& function : program.functions) {
+      for (const auto type : function.parameter_types) {
+        if (mir::value_type(program, type) == ValueType::list &&
+            mir::array_storage(program, type) != ArrayStorageFormat::sparse_csc) {
+          semantic_program.runtime.require(lir::RuntimeFeature::arrays);
+        }
+      }
+    }
+  }
   auto semantic_diagnostics = verify_semantic(semantic_program);
   result.diagnostics.insert(result.diagnostics.end(),
                             std::make_move_iterator(semantic_diagnostics.begin()),
@@ -624,6 +650,21 @@ std::string lir::dump(const SemanticProgram& program) {
     }
   };
   dump_abis(dump_abis, program.statements);
+  output << "value-ownership\n";
+  const auto dump_value_ownership = [&](const auto& self,
+                                        const std::vector<Statement>& statements) -> void {
+    for (const auto& statement : statements) {
+      if (statement.plan.assignment_value != lir::AssignmentValueForm::direct ||
+          statement.plan.mutation_ownership != lir::MutationOwnership::in_place) {
+        output << "  %l" << statement.id.value()
+               << " assignment=" << static_cast<int>(statement.plan.assignment_value)
+               << " mutation=" << static_cast<int>(statement.plan.mutation_ownership) << '\n';
+      }
+      self(self, statement.body);
+      self(self, statement.alternative);
+    }
+  };
+  dump_value_ownership(dump_value_ownership, program.statements);
   output << "program-scope ";
   dump_scope(program.program_scope);
   output << "\n";

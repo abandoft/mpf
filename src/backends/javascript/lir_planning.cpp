@@ -3,6 +3,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "backends/common/identifier_mangler.hpp"
@@ -41,6 +42,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::sparse_matrices)) {
     result.push_back(lir::RuntimeFragment::sparse_matrices);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::complex_sparse)) {
+    result.push_back(lir::RuntimeFragment::complex_sparse);
+  }
   if (program.runtime.contains(lir::RuntimeFeature::sparse_power)) {
     result.push_back(lir::RuntimeFragment::sparse_power);
   }
@@ -72,6 +76,19 @@ std::vector<std::size_t> expected_body_order(const lir::SemanticProgram& program
   return result;
 }
 
+bool uses_array_copy(const std::vector<lir::Statement>& statements) {
+  for (const auto& statement : statements) {
+    if (statement.plan.assignment_value == lir::AssignmentValueForm::copy_array ||
+        std::find(statement.function_abi.parameters.begin(),
+                  statement.function_abi.parameters.end(),
+                  lir::ParameterPassing::value_copy) != statement.function_abi.parameters.end() ||
+        uses_array_copy(statement.body) || uses_array_copy(statement.alternative)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void plan_module(lir::SemanticProgram& program, const TranspileOptions& options) {
   program.module.valid = true;
   program.module.emit_banner = options.emit_source_banner;
@@ -100,6 +117,13 @@ void verify_module(const lir::SemanticProgram& program, std::vector<Diagnostic>&
       !program.runtime.contains(lir::RuntimeFeature::arrays)) {
     add_error(diagnostics, {1, 1}, "JavaScript sparse-matrix runtime requires the array fragment");
   }
+  if (program.runtime.contains(lir::RuntimeFeature::complex_sparse) &&
+      (!program.runtime.contains(lir::RuntimeFeature::complex_numbers) ||
+       !program.runtime.contains(lir::RuntimeFeature::sparse_matrices))) {
+    add_error(diagnostics, {1, 1},
+              "JavaScript complex-sparse runtime requires complex scalar and sparse-matrix "
+              "support");
+  }
   if (program.runtime.contains(lir::RuntimeFeature::sparse_reductions) &&
       !program.runtime.contains(lir::RuntimeFeature::sparse_matrices)) {
     add_error(diagnostics, {1, 1},
@@ -114,6 +138,11 @@ void verify_module(const lir::SemanticProgram& program, std::vector<Diagnostic>&
       !program.runtime.contains(lir::RuntimeFeature::sparse_matrices)) {
     add_error(diagnostics, {1, 1},
               "JavaScript sparse-power runtime requires sparse-matrix support");
+  }
+  if (uses_array_copy(program.statements) &&
+      !program.runtime.contains(lir::RuntimeFeature::arrays)) {
+    add_error(diagnostics, {1, 1},
+              "JavaScript array-copy ownership plans require the array runtime");
   }
 }
 
@@ -244,6 +273,28 @@ std::vector<IdentifierReference> expected_scope(
   return result;
 }
 
+bool same_parameter(const lir::Expression& expression, const SymbolId symbol,
+                    const std::string_view name) noexcept {
+  if (symbol.valid() && expression.symbol_id.valid()) return expression.symbol_id == symbol;
+  return expression.kind == ExpressionKind::identifier && expression.value == name;
+}
+
+bool parameter_is_index_mutated(const std::vector<lir::Statement>& statements,
+                                const SymbolId symbol, const std::string_view name) {
+  for (const auto& statement : statements) {
+    if (statement.kind == StatementKind::indexed_assignment &&
+        !statement.target_expression.children.empty() &&
+        same_parameter(statement.target_expression.children.front(), symbol, name)) {
+      return true;
+    }
+    if (parameter_is_index_mutated(statement.body, symbol, name) ||
+        parameter_is_index_mutated(statement.alternative, symbol, name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void plan_statement_resources(lir::SemanticProgram& program,
                               std::vector<lir::Statement>& statements, std::set<std::string>& used,
                               const bool top_level) {
@@ -258,10 +309,26 @@ void plan_statement_resources(lir::SemanticProgram& program,
         const auto intent = index < statement.parameter_intents.size()
                                 ? statement.parameter_intents[index]
                                 : ParameterIntent::none;
-        statement.function_abi.parameters.push_back(intent == ParameterIntent::out ||
-                                                            intent == ParameterIntent::inout
-                                                        ? lir::ParameterPassing::reference_box
-                                                        : lir::ParameterPassing::value);
+        const auto type = index < statement.parameter_types.size()
+                              ? statement.parameter_types[index]
+                              : ValueType::unknown;
+        const auto storage = index < statement.parameter_array_storage.size()
+                                 ? statement.parameter_array_storage[index]
+                                 : ArrayStorageFormat::unknown;
+        const bool copy_matlab_array =
+            program.source_language == SourceLanguage::matlab &&
+            storage != ArrayStorageFormat::sparse_csc &&
+            (type == ValueType::list ||
+             parameter_is_index_mutated(statement.body,
+                                        index < statement.parameter_symbols.size()
+                                            ? statement.parameter_symbols[index]
+                                            : SymbolId{},
+                                        statement.parameters[index]));
+        statement.function_abi.parameters.push_back(
+            intent == ParameterIntent::out || intent == ParameterIntent::inout
+                ? lir::ParameterPassing::reference_box
+            : copy_matlab_array ? lir::ParameterPassing::value_copy
+                                : lir::ParameterPassing::value);
       }
       statement.function_scope.valid = true;
       statement.function_scope.declarations =
@@ -430,10 +497,26 @@ void verify_statement_resources(const lir::SemanticProgram& program,
         const auto intent = index < statement.parameter_intents.size()
                                 ? statement.parameter_intents[index]
                                 : ParameterIntent::none;
+        const auto type = index < statement.parameter_types.size()
+                              ? statement.parameter_types[index]
+                              : ValueType::unknown;
+        const auto storage = index < statement.parameter_array_storage.size()
+                                 ? statement.parameter_array_storage[index]
+                                 : ArrayStorageFormat::unknown;
+        const bool copy_matlab_array =
+            program.source_language == SourceLanguage::matlab &&
+            storage != ArrayStorageFormat::sparse_csc &&
+            (type == ValueType::list ||
+             parameter_is_index_mutated(statement.body,
+                                        index < statement.parameter_symbols.size()
+                                            ? statement.parameter_symbols[index]
+                                            : SymbolId{},
+                                        statement.parameters[index]));
         const auto expected_passing =
             intent == ParameterIntent::out || intent == ParameterIntent::inout
                 ? lir::ParameterPassing::reference_box
-                : lir::ParameterPassing::value;
+            : copy_matlab_array ? lir::ParameterPassing::value_copy
+                                : lir::ParameterPassing::value;
         if (statement.function_abi.parameters[index] != expected_passing) {
           add_error(diagnostics, {statement.line, 1},
                     "JavaScript LIR parameter passing ABI is inconsistent");

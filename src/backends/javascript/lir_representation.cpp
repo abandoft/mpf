@@ -551,6 +551,9 @@ semantic::SparseValueDomain sparse_value_domain(const lir::Expression& expressio
       numeric_type.complexity == NumericComplexity::real) {
     return semantic::SparseValueDomain::finite_real;
   }
+  if (type == ValueType::real && numeric_type == complex_numeric_type) {
+    return semantic::SparseValueDomain::finite_complex;
+  }
   return semantic::SparseValueDomain::none;
 }
 
@@ -597,6 +600,11 @@ bool valid_sparse_construction(const lir::Expression& expression) noexcept {
     for (std::size_t index = 0U; valid && index < 3U; ++index) {
       const auto count = sparse_argument_count(expression.children[index + 1U]);
       valid = count.has_value() && *count == sparse.triplet_element_counts[index];
+      if (valid && index < 2U) {
+        const auto domain = sparse_value_domain(expression.children[index + 1U]);
+        valid = domain == semantic::SparseValueDomain::finite_real ||
+                domain == semantic::SparseValueDomain::logical;
+      }
     }
     const bool zero_extent = std::find(sparse.result_shape.begin(), sparse.result_shape.end(),
                                        0U) != sparse.result_shape.end();
@@ -838,7 +846,10 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
              expression.children.front().element_numeric_type.complexity ==
                  NumericComplexity::complex);
         result.token =
-            sparse_operand ? "__mpf_sparse_transpose"
+            sparse_operand && expression.unary_operation == UnaryOperator::conjugate_transpose &&
+                    complex_operand
+                ? "__mpf_sparse_ctranspose"
+            : sparse_operand ? "__mpf_sparse_transpose"
             : expression.unary_operation == UnaryOperator::conjugate_transpose && complex_operand
                 ? "__mpf_matlab_ctranspose"
                 : "__mpf_matlab_transpose";
@@ -1407,9 +1418,11 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
             expression.sparse_index.kind, expression.sparse_index.source_storage,
             expression.sparse_index.result_storage, expression.sparse_index.input_shape,
             expression.sparse_index.result_shape, expression.children.size() - 1U) ||
-        (scalar ? expression.inferred_type != source.element_type
+        (scalar ? expression.inferred_type != source.element_type ||
+                      expression.numeric_type != source.element_numeric_type
                 : expression.inferred_type != ValueType::list ||
-                      expression.element_type != source.element_type)) {
+                      expression.element_type != source.element_type ||
+                      expression.element_numeric_type != source.element_numeric_type)) {
       add_error(diagnostics, expression.location,
                 "JavaScript LIR sparse-index contract is inconsistent");
     }
@@ -1578,7 +1591,8 @@ std::vector<lir::AssignmentLeafPlan> assignment_leaves(const AssignmentPattern& 
 
 lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
                                            const lir::EmissionPlan& emission,
-                                           const AccessContext& context) {
+                                           const AccessContext& context,
+                                           const SourceLanguage source_language) {
   lir::StatementPlan result;
   result.valid = true;
   switch (statement.kind) {
@@ -1595,10 +1609,22 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
                                : statement.element_type == ValueType::string ? "\"\""
                                                                              : "0";
       }
+      if (source_language == SourceLanguage::matlab && statement.has_expression &&
+          statement.expression.kind == ExpressionKind::identifier &&
+          statement.expression.inferred_type == ValueType::list &&
+          statement.expression.array_storage != ArrayStorageFormat::sparse_csc) {
+        result.assignment_value = lir::AssignmentValueForm::copy_array;
+      }
       break;
     case StatementKind::assignment:
       result.form = lir::StatementForm::assignment;
       result.target_access = variable_access(context, statement.name);
+      if (source_language == SourceLanguage::matlab &&
+          statement.expression.kind == ExpressionKind::identifier &&
+          statement.expression.inferred_type == ValueType::list &&
+          statement.expression.array_storage != ArrayStorageFormat::sparse_csc) {
+        result.assignment_value = lir::AssignmentValueForm::copy_array;
+      }
       break;
     case StatementKind::multi_assignment:
       if (statement.has_target_pattern) {
@@ -1624,6 +1650,9 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
       result.mutation_input_shape = statement.mutation_input_shape;
       result.mutation_result_shape = statement.mutation_result_shape;
       result.sparse_mutation = statement.sparse_mutation;
+      if (result.sparse_mutation.valid()) {
+        result.mutation_ownership = lir::MutationOwnership::replace_with_result;
+      }
       if (statement.indexed_mutation.kind == semantic::IndexedMutationKind::grow) {
         result.array_default = statement.element_type == ValueType::boolean  ? "false"
                                : statement.element_type == ValueType::string ? "\"\""
@@ -1727,6 +1756,8 @@ bool same_assignment_leaf(const lir::AssignmentLeafPlan& left,
 
 bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPlan& right) noexcept {
   if (left.valid != right.valid || left.form != right.form || left.condition != right.condition ||
+      left.assignment_value != right.assignment_value ||
+      left.mutation_ownership != right.mutation_ownership ||
       left.target_access != right.target_access || left.has_alternative != right.has_alternative ||
       left.range_has_step != right.range_has_step ||
       left.retain_loop_value != right.retain_loop_value ||
@@ -1797,7 +1828,7 @@ void plan_statements(std::vector<lir::Statement>& statements, const lir::Emissio
       plan_expression(selector.lower, emission, expression_context, source_language);
       plan_expression(selector.upper, emission, expression_context, source_language);
     }
-    statement.plan = expected_statement_plan(statement, emission, context);
+    statement.plan = expected_statement_plan(statement, emission, context, source_language);
     plan_statements(statement.body, emission, nested_context, source_language);
     plan_statements(statement.alternative, emission, nested_context, source_language);
   }
@@ -1895,8 +1926,8 @@ void verify_statements(const std::vector<lir::Statement>& statements,
       add_error(diagnostics, {statement.line, 1},
                 "JavaScript LIR non-indexed statement carries a mutation contract");
     }
-    if (!same_statement_plan(statement.plan,
-                             expected_statement_plan(statement, emission, context))) {
+    if (!same_statement_plan(statement.plan, expected_statement_plan(statement, emission, context,
+                                                                     source_language))) {
       add_error(diagnostics, {statement.line, 1},
                 "JavaScript LIR statement representation plan is inconsistent");
     }

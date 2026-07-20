@@ -25,6 +25,7 @@ enum class RuntimeFeature : std::uint8_t {
   complex_numbers,
   complex_matrices,
   sparse_matrices,
+  complex_sparse,
   sparse_power,
   sparse_arithmetic,
   sparse_reductions,
@@ -59,7 +60,7 @@ struct EmissionPlan {
   ModuleFormat module{ModuleFormat::strict_script};
 };
 
-enum class ParameterPassing : std::uint8_t { value, reference_box };
+enum class ParameterPassing : std::uint8_t { value, value_copy, reference_box };
 
 struct FunctionAbi {
   bool valid{false};
@@ -396,6 +397,10 @@ struct ExpressionPlan {
 
 enum class ConditionForm : std::uint8_t { direct, runtime_truthy, matlab_all_nonzero };
 
+enum class AssignmentValueForm : std::uint8_t { direct, copy_array };
+
+enum class MutationOwnership : std::uint8_t { in_place, replace_with_result };
+
 enum class StatementForm : std::uint8_t {
   discard,
   declaration_initializer,
@@ -436,6 +441,8 @@ struct StatementPlan {
   bool valid{false};
   StatementForm form{StatementForm::discard};
   ConditionForm condition{ConditionForm::direct};
+  AssignmentValueForm assignment_value{AssignmentValueForm::direct};
+  MutationOwnership mutation_ownership{MutationOwnership::in_place};
   VariableAccess target_access{VariableAccess::direct};
   bool has_alternative{false};
   bool range_has_step{false};
@@ -467,7 +474,8 @@ enum class RuntimeFragment : std::uint8_t {
   sparse_power,
   sparse_arithmetic,
   sparse_reductions,
-  scalar_division
+  scalar_division,
+  complex_sparse
 };
 
 struct ModulePlan {
