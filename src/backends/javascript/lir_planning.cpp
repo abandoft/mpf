@@ -41,6 +41,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::sparse_matrices)) {
     result.push_back(lir::RuntimeFragment::sparse_matrices);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::sparse_arithmetic)) {
+    result.push_back(lir::RuntimeFragment::sparse_arithmetic);
+  }
   if (program.runtime.contains(lir::RuntimeFeature::sparse_reductions)) {
     result.push_back(lir::RuntimeFragment::sparse_reductions);
   }
@@ -98,6 +101,11 @@ void verify_module(const lir::SemanticProgram& program, std::vector<Diagnostic>&
       !program.runtime.contains(lir::RuntimeFeature::sparse_matrices)) {
     add_error(diagnostics, {1, 1},
               "JavaScript sparse-reduction runtime requires sparse-matrix support");
+  }
+  if (program.runtime.contains(lir::RuntimeFeature::sparse_arithmetic) &&
+      !program.runtime.contains(lir::RuntimeFeature::sparse_matrices)) {
+    add_error(diagnostics, {1, 1},
+              "JavaScript sparse-arithmetic runtime requires sparse-matrix support");
   }
 }
 

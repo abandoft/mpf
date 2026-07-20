@@ -4,6 +4,7 @@
 
 #include "complex_matrix_runtime.hpp"
 #include "matrix_runtime.hpp"
+#include "sparse_arithmetic_runtime.hpp"
 #include "sparse_matrix_runtime.hpp"
 #include "sparse_reduction_runtime.hpp"
 
@@ -27,6 +28,9 @@ class RuntimeEmitter final {
         break;
       case javascript::lir::RuntimeFragment::sparse_matrices:
         emit_javascript_sparse_matrix_runtime(output_);
+        break;
+      case javascript::lir::RuntimeFragment::sparse_arithmetic:
+        emit_javascript_sparse_arithmetic_runtime(output_);
         break;
       case javascript::lir::RuntimeFragment::sparse_reductions:
         emit_javascript_sparse_reduction_runtime(output_);

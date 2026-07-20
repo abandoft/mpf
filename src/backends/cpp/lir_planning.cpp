@@ -49,6 +49,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::sparse_matrices)) {
     result.push_back(lir::RuntimeFragment::sparse_matrices);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::sparse_arithmetic)) {
+    result.push_back(lir::RuntimeFragment::sparse_arithmetic);
+  }
   if (program.runtime.contains(lir::RuntimeFeature::sparse_reductions)) {
     result.push_back(lir::RuntimeFragment::sparse_reductions);
   }
@@ -129,6 +132,11 @@ void verify_translation_unit(const lir::SemanticProgram& program,
   if (program.runtime.contains(lir::RuntimeFeature::sparse_reductions) &&
       !program.runtime.contains(lir::RuntimeFeature::sparse_matrices)) {
     add_error(diagnostics, {1, 1}, "cpp sparse-reduction runtime requires sparse-matrix support");
+  }
+  if (program.runtime.contains(lir::RuntimeFeature::sparse_arithmetic) &&
+      !program.runtime.contains(lir::RuntimeFeature::sparse_matrices)) {
+    add_error(diagnostics, {1, 1},
+              "cpp sparse-arithmetic runtime requires sparse-matrix support");
   }
 }
 

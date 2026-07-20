@@ -101,6 +101,10 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
       attributes.intrinsic == IntrinsicId::matlab_nonzero_count) {
     result.runtime.require(lir::RuntimeFeature::sparse_matrices);
   }
+  if (attributes.sparse_arithmetic.valid()) {
+    result.runtime.require(lir::RuntimeFeature::sparse_matrices);
+    result.runtime.require(lir::RuntimeFeature::sparse_arithmetic);
+  }
   if (attributes.reduction.input_storage == ArrayStorageFormat::sparse_csc) {
     result.runtime.require(lir::RuntimeFeature::sparse_matrices);
     result.runtime.require(lir::RuntimeFeature::sparse_reductions);
