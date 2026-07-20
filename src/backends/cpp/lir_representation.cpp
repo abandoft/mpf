@@ -443,8 +443,6 @@ bool valid_matrix_shapes(const lir::MatrixOperationPlan& plan,
       return plan.solve == semantic::MatrixSolveKind::none && static_rank_two(plan.right_shape) &&
              semantic::valid_matrix_multiply_storage_contract(
                  plan.storage_policy, plan.left_storage, plan.right_storage, plan.result_storage) &&
-             (plan.storage_policy != semantic::MatrixStoragePolicy::sparse_csc_multiply ||
-              plan.numeric_domain == semantic::MatrixNumericDomain::real) &&
              plan.left_shape[1] == plan.right_shape[0] &&
              plan.result_shape[0] == plan.left_shape[0] &&
              plan.result_shape[1] == plan.right_shape[1];
@@ -1336,6 +1334,11 @@ lir::ExpressionPlan expected_expression_plan(
       result.runtime_shape_arguments = {expression.matrix_operation.left_shape,
                                         expression.matrix_operation.right_shape,
                                         expression.matrix_operation.result_shape};
+      if (expression.matrix_operation.storage_policy ==
+          semantic::MatrixStoragePolicy::sparse_csc_multiply) {
+        result.runtime_integer_arguments = {
+            static_cast<std::int64_t>(expression.matrix_operation.numeric_domain)};
+      }
     } else if (result.broadcast.valid &&
                result.broadcast.shape_source == semantic::BroadcastShapeSource::static_extents) {
       result.runtime_shape_arguments = {result.broadcast.left_shape, result.broadcast.right_shape,
