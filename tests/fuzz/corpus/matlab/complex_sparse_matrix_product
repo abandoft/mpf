@@ -1,0 +1,7 @@
+A = sparse([1+2i 0 2-1i; 0 3i -1]);
+B = sparse([0 4-1i; 5+2i 0; -2 1+3i]);
+C = A * B;
+D = A * full(B);
+E = full(A) * B;
+F = full(C);
+disp(real(F(1, 2)), imag(D(2, 1)), nnz(E))
