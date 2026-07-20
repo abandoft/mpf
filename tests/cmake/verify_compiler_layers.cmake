@@ -1490,6 +1490,8 @@ endif()
 file(READ "${SOURCE_DIR}/src/backends/javascript/renderer.cpp" javascript_renderer_contract)
 if(NOT javascript_renderer_contract MATCHES "program\\.module" OR
    NOT javascript_renderer_contract MATCHES "body_order" OR
+   NOT javascript_renderer_contract MATCHES "control_prelude_order" OR
+   NOT javascript_renderer_contract MATCHES "controlled_body_order" OR
    NOT javascript_renderer_contract MATCHES "emit_javascript_runtime_fragment")
   message(FATAL_ERROR "JavaScript renderer does not consume the module plan")
 endif()
@@ -1538,8 +1540,16 @@ endif()
 file(READ "${SOURCE_DIR}/src/backends/javascript/lir.hpp" javascript_lir_contract)
 if(NOT javascript_lir_contract MATCHES "ModulePlan" OR
    NOT javascript_lir_contract MATCHES "directives" OR
-   NOT javascript_lir_contract MATCHES "body_order")
+   NOT javascript_lir_contract MATCHES "body_order" OR
+   NOT javascript_lir_contract MATCHES "control_prelude_order" OR
+   NOT javascript_lir_contract MATCHES "controlled_body_order" OR
+   NOT javascript_lir_contract MATCHES "return_outputs" OR
+   NOT javascript_lir_contract MATCHES "return_program")
   message(FATAL_ERROR "JavaScript LIR does not own module topology")
+endif()
+if(NOT cpp_lir_contract MATCHES "return_outputs" OR
+   NOT cpp_lir_contract MATCHES "return_program")
+  message(FATAL_ERROR "cpp LIR does not own function-output and program return forms")
 endif()
 if(NOT javascript_lir_contract MATCHES "ComparisonPlan" OR
    NOT javascript_lir_contract MATCHES "binary_comparison" OR

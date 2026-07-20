@@ -5494,9 +5494,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v42") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v43") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v42") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v43") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -5655,6 +5655,118 @@ TEST_CASE("target LIR verifiers require scope ABI and dense temporary plans") {
   cpp.statements.front().function_abi.return_type = "auto";
   cpp.translation_unit.definitions.clear();
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+}
+
+TEST_CASE("Matlab return output identities remain explicit through MIR and target LIR") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "function output = choose(input)\n"
+                              "  output = 0;\n"
+                              "  if input > 0\n"
+                              "    output = 42;\n"
+                              "    return\n"
+                              "  end\n"
+                              "end\n",
+                              "return_output.m");
+  const auto& hir_function = lowered.program.statements.front();
+  const auto& hir_return = hir_function.body[1].body[1];
+  REQUIRE(hir_return.kind == mpf::detail::StatementKind::return_statement);
+  REQUIRE((hir_return.return_names == std::vector<std::string>{"output"}));
+
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  const auto* function_result = analysis.names.use(hir_function.id, mpf::detail::NameRole::result);
+  const auto* return_result = analysis.names.use(hir_return.id, mpf::detail::NameRole::result);
+  REQUIRE(function_result != nullptr);
+  REQUIRE(return_result != nullptr);
+  REQUIRE(function_result->symbol.valid());
+  REQUIRE(return_result->symbol == function_result->symbol);
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  const auto mir_return = std::find_if(
+      mir.program.statements.begin(), mir.program.statements.end(), [](const auto& statement) {
+        return statement.kind == mpf::detail::StatementKind::return_statement &&
+               !statement.return_names.empty();
+      });
+  REQUIRE(mir_return != mir.program.statements.end());
+  REQUIRE((mir_return->return_names == std::vector<std::string>{"output"}));
+  REQUIRE(
+      (mir_return->return_symbols == std::vector<mpf::detail::SymbolId>{function_result->symbol}));
+  REQUIRE(mpf::detail::mir::verify(mir.program, "matlab-return-output").empty());
+
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.source_language = mpf::SourceLanguage::matlab;
+  javascript.statements.resize(1);
+  javascript.statements.front().kind = mpf::detail::StatementKind::return_statement;
+  javascript.statements.front().return_names = {"output"};
+  javascript.statements.front().return_symbols = {mpf::detail::SymbolId{1}};
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  REQUIRE(javascript.statements.front().plan.form ==
+          mpf::detail::javascript::lir::StatementForm::return_outputs);
+  REQUIRE((javascript.statements.front().plan.return_names == std::vector<std::string>{"output"}));
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript.statements.front().plan.form =
+      mpf::detail::javascript::lir::StatementForm::return_void;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.source_language = mpf::SourceLanguage::matlab;
+  cpp.node_count = 1;
+  cpp.statements.resize(1);
+  cpp.statements.front().id = mpf::detail::LirNodeId{1};
+  cpp.statements.front().origin = mpf::detail::HirNodeId{1};
+  cpp.statements.front().kind = mpf::detail::StatementKind::return_statement;
+  cpp.statements.front().return_names = {"output"};
+  cpp.statements.front().return_symbols = {mpf::detail::SymbolId{1}};
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  REQUIRE(cpp.statements.front().plan.form == mpf::detail::cpp::lir::StatementForm::return_outputs);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp.identifiers = mpf::detail::allocate_identifiers(
+      mpf::TargetLanguage::cpp, mpf::detail::collect_identifier_inventory(cpp));
+  mpf::detail::cpp::plan_lir_resources(cpp, mpf::TranspileOptions{});
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_resources(cpp, diagnostics);
+  REQUIRE(std::any_of(diagnostics.begin(), diagnostics.end(), [](const auto& diagnostic) {
+    return diagnostic.message.find("return symbol contract") != std::string::npos;
+  }));
+}
+
+TEST_CASE("JavaScript module plan owns Matlab script return topology and label allocation") {
+  mpf::detail::javascript::lir::SemanticProgram program;
+  program.source_language = mpf::SourceLanguage::matlab;
+  program.node_count = 2;
+  program.statements.resize(2);
+  auto& function = program.statements[0];
+  function.id = mpf::detail::LirNodeId{1};
+  function.origin = mpf::detail::HirNodeId{1};
+  function.kind = mpf::detail::StatementKind::function;
+  function.name = "mpf_internal_script_0_0";
+  auto& script_return = program.statements[1];
+  script_return.id = mpf::detail::LirNodeId{2};
+  script_return.origin = mpf::detail::HirNodeId{2};
+  script_return.kind = mpf::detail::StatementKind::return_statement;
+  program.identifiers = mpf::detail::allocate_identifiers(
+      mpf::TargetLanguage::javascript, mpf::detail::collect_identifier_inventory(program));
+  mpf::detail::javascript::plan_lir_resources(program, mpf::TranspileOptions{});
+  mpf::detail::javascript::plan_lir_representation(program);
+  REQUIRE(program.module.wrap_script_control);
+  REQUIRE(program.module.script_label == "mpf_internal_script_0_0_1");
+  REQUIRE((program.module.control_prelude_order == std::vector<std::size_t>{0}));
+  REQUIRE((program.module.controlled_body_order == std::vector<std::size_t>{1}));
+  REQUIRE(program.statements[1].plan.form ==
+          mpf::detail::javascript::lir::StatementForm::return_program);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_resources(program, diagnostics);
+  REQUIRE(diagnostics.empty());
+  program.module.controlled_body_order.clear();
+  mpf::detail::javascript::verify_lir_resources(program, diagnostics);
+  REQUIRE(!diagnostics.empty());
 }
 
 TEST_CASE("target LIR owns module and translation-unit topology") {
@@ -6313,8 +6425,9 @@ TEST_CASE("target LIR scope plans own declarations types and probes") {
   REQUIRE(javascript_dump.find("scope [@s") != std::string::npos);
   REQUIRE(javascript_dump.find(":\"local\"") != std::string::npos);
   REQUIRE(javascript_dump.find(":\"result\"") != std::string::npos);
-  REQUIRE(javascript_dump.find("module banner=1 directives [] runtime [0] body [0,1,2,3,4]") !=
-          std::string::npos);
+  REQUIRE(javascript_dump.find("module banner=1 script-control=0 script-label=\"\" "
+                               "directives [] runtime [0] body [0,1,2,3,4] "
+                               "control-prelude [] controlled-body []") != std::string::npos);
   const auto cpp_dump = cpp.artifact->debug_dump();
   REQUIRE(cpp_dump.find("program-scope\n  declaration @s") != std::string::npos);
   REQUIRE(cpp_dump.find("\"items\" type-kind 0 type "
