@@ -33,6 +33,12 @@
       "maxPeakArenaBytes": 8388608,
       "maxGeneratedBytes": 524288
     },
+    "matlab-sparse-logical": {
+      "maxLatencyNanoseconds": 250000000,
+      "minThroughputBytesPerSecond": 25000,
+      "maxPeakArenaBytes": 8388608,
+      "maxGeneratedBytes": 524288
+    },
     "matlab-sparse-index": {
       "maxLatencyNanoseconds": 250000000,
       "minThroughputBytesPerSecond": 25000,

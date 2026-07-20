@@ -563,6 +563,54 @@ std::string matlab_logical_sparse_workload(const std::size_t width, const std::s
   return source;
 }
 
+std::string matlab_sparse_logical_workload(const std::size_t width, const std::size_t rounds) {
+  const auto append_logical_matrix =
+      [&](std::string& source, const std::string_view name, const std::size_t row_factor,
+          const std::size_t column_factor, const std::size_t modulus) {
+        source.append(name).append(" = [");
+        for (std::size_t row = 0U; row < width; ++row) {
+          if (row != 0U) source += "; ";
+          for (std::size_t column = 0U; column < width; ++column) {
+            if (column != 0U) source += ' ';
+            source += row == column || (row_factor * row + column_factor * column) % modulus == 0U
+                          ? "true"
+                          : "false";
+          }
+        }
+        source += "];\n";
+      };
+  std::string source;
+  source.reserve(width * width * 14U + rounds * 320U + 512U);
+  append_logical_matrix(source, "left_dense", 5U, 3U, 19U);
+  append_logical_matrix(source, "right_dense", 7U, 2U, 23U);
+  source +=
+      "left = sparse(left_dense);\n"
+      "right = sparse(right_dense);\n"
+      "row = sparse([1 1 1], [1 2 " +
+      std::to_string(width) + "], [true false true], 1, " + std::to_string(width) +
+      ");\n"
+      "column = row.';\n";
+  for (std::size_t round = 0U; round < rounds; ++round) {
+    source += "negated = ~left;\n";
+    source += "sparse_and = left & right;\n";
+    source += "sparse_dense_and = left & right_dense;\n";
+    source += "dense_sparse_and = left_dense & right;\n";
+    source += "sparse_or = left | right;\n";
+    source += "sparse_dense_or = left | right_dense;\n";
+    source += "broadcast_and = row & column;\n";
+    source += "broadcast_or = row | column;\n";
+    source += "scalar_and = row & true;\n";
+    source += "scalar_or = row | false;\n";
+    source += "left = sparse_and;\n";
+    source += "right = sparse_or;\n";
+  }
+  source +=
+      "disp(nnz(negated) + nnz(sparse_dense_and) + nnz(dense_sparse_and) + "
+      "nnz(sparse_dense_or) + nnz(broadcast_and) + nnz(broadcast_or) + "
+      "nnz(scalar_and) + nnz(scalar_or))\n";
+  return source;
+}
+
 std::string matlab_sparse_index_workload(const std::size_t width, const std::size_t rounds) {
   std::string source = "matrix = sparse([";
   for (std::size_t row = 0U; row < width; ++row) {
@@ -861,6 +909,8 @@ int main() {
       {"matlab-sparse-elementwise", matlab_sparse_elementwise_workload(24, 24),
        mpf::SourceLanguage::matlab},
       {"matlab-logical-sparse", matlab_logical_sparse_workload(24, 24),
+       mpf::SourceLanguage::matlab},
+      {"matlab-sparse-logical", matlab_sparse_logical_workload(24, 24),
        mpf::SourceLanguage::matlab},
       {"matlab-sparse-index", matlab_sparse_index_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-reshape", matlab_sparse_reshape_workload(24, 24),
