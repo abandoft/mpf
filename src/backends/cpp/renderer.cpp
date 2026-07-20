@@ -1383,6 +1383,21 @@ class Renderer final {
         emit_expression(statement.expression);
         output_ << ";\n";
         break;
+      case cpp::lir::StatementForm::implicit_result_value:
+        indentation();
+        output_ << mangler_->name(statement.symbol_id, statement.name);
+        if (statement.plan.target_access == cpp::lir::VariableAccess::optional_value) {
+          output_ << ".value()";
+        }
+        output_ << " = ";
+        emit_expression(statement.expression);
+        output_ << ";\n";
+        break;
+      case cpp::lir::StatementForm::implicit_result_discard:
+        indentation();
+        emit_expression(statement.expression);
+        output_ << ";\n";
+        break;
       case cpp::lir::StatementForm::conditional:
         indentation();
         output_ << "if (";

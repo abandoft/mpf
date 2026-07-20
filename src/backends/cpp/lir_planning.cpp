@@ -338,7 +338,10 @@ void collect_declarations(const std::vector<lir::Statement>& statements,
           statement.has_expression ? &statement.expression : nullptr, statement.declared_type,
           statement.declared_numeric_type, statement.element_type, statement.element_numeric_type,
           statement.shape, statement.array_storage));
-    } else if (!lexical_blocks && statement.kind == StatementKind::assignment &&
+    } else if (!lexical_blocks &&
+               (statement.kind == StatementKind::assignment ||
+                (statement.implicit_result != semantic::ImplicitResultPolicy::none &&
+                 statement.implicit_result_has_value)) &&
                accept_declaration(statement.symbol_id, statement.name, excluded_symbols,
                                   excluded_names, found_symbols, found_names)) {
       declarations.push_back(make_declaration(
