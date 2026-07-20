@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <string>
 
 #include "mpf/transpiler.hpp"
@@ -122,6 +123,108 @@ TEST_CASE("Matlab switch rejects malformed clauses and unsupported selector shap
   REQUIRE(case_after_default.diagnostics.front().code == "MPF1200");
   REQUIRE(wrong_type.diagnostics.front().code == "MPF2043");
   REQUIRE(missing_end.diagnostics.front().code == "MPF1200");
+}
+
+TEST_CASE("Matlab try catch lowers explicit exception state through both backends") {
+  const std::string source =
+      "value = 0;\n"
+      "try\n"
+      "  error('MPF:Expected', 'boom')\n"
+      "catch ME\n"
+      "  disp(ME.identifier)\n"
+      "  value = 42;\n"
+      "end\n"
+      "try\n"
+      "  value = value + 0;\n"
+      "catch\n"
+      "end\n";
+  const auto javascript =
+      transpile_flow(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_flow(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("function __mpf_capture_exception") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_matlab_error") != std::string::npos);
+  REQUIRE(javascript.code.find("catch (__mpf_caught)") != std::string::npos);
+  REQUIRE(javascript.code.find("ME = __mpf_capture_exception(__mpf_caught)") != std::string::npos);
+  REQUIRE(cpp.code.find("class matlab_exception final") != std::string::npos);
+  REQUIRE(cpp.code.find("catch (...)") != std::string::npos);
+  REQUIRE(cpp.code.find("ME = mpf_runtime::capture_exception(std::current_exception())") !=
+          std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 2U; }));
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 4U; }));
+  }
+}
+
+TEST_CASE("Matlab nested catch can rethrow the original exception") {
+  const std::string source =
+      "try\n"
+      "  try\n"
+      "    error('MPF:Nested', 'nested')\n"
+      "  catch inner\n"
+      "    rethrow(inner)\n"
+      "  end\n"
+      "catch outer\n"
+      "  disp(outer.message)\n"
+      "end\n";
+  for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+    const auto result = transpile_flow(source, mpf::SourceLanguage::matlab, target);
+    REQUIRE(result.success());
+    REQUIRE(result.code.find(target == mpf::TargetLanguage::javascript
+                                 ? "__mpf_matlab_rethrow(inner)"
+                                 : "mpf_runtime::matlab_rethrow(inner)") != std::string::npos);
+  }
+}
+
+TEST_CASE("Matlab try catch rejects malformed clauses and unsafe exception uses") {
+  const auto missing_catch = transpile_flow("try\n  disp(1)\nend\n", mpf::SourceLanguage::matlab,
+                                            mpf::TargetLanguage::javascript);
+  const auto malformed_binding =
+      transpile_flow("try\n  disp(1)\ncatch first second\nend\n", mpf::SourceLanguage::matlab,
+                     mpf::TargetLanguage::javascript);
+  const auto missing_end =
+      transpile_flow("try\ncatch\n", mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto repeated_catch =
+      transpile_flow("try\n  disp(1)\ncatch\ncatch\nend\n", mpf::SourceLanguage::matlab,
+                     mpf::TargetLanguage::javascript);
+  const auto invalid_error =
+      transpile_flow("error(1)\n", mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto invalid_rethrow = transpile_flow("rethrow('bad')\n", mpf::SourceLanguage::matlab,
+                                              mpf::TargetLanguage::javascript);
+  const auto unsupported_property =
+      transpile_flow("try\n  error('boom')\ncatch ME\n  disp(ME.cause)\nend\n",
+                     mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto escaped_binding =
+      transpile_flow("try\n  disp(1)\ncatch ME\n  disp(ME.message)\nend\ndisp(ME.message)\n",
+                     mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const std::string rebound_source =
+      "ME = 1;\ntry\n  error('boom')\ncatch ME\n  disp(ME.message)\nend\n";
+  const auto dynamic_rebind =
+      transpile_flow(rebound_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto static_rebind =
+      transpile_flow(rebound_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(!missing_catch.success());
+  REQUIRE(!malformed_binding.success());
+  REQUIRE(!missing_end.success());
+  REQUIRE(!repeated_catch.success());
+  REQUIRE(!invalid_error.success());
+  REQUIRE(!invalid_rethrow.success());
+  REQUIRE(!unsupported_property.success());
+  REQUIRE(!escaped_binding.success());
+  REQUIRE(dynamic_rebind.success());
+  REQUIRE(!static_rebind.success());
+  REQUIRE(missing_catch.diagnostics.front().code == "MPF1200");
+  REQUIRE(malformed_binding.diagnostics.front().code == "MPF1200");
+  REQUIRE(missing_end.diagnostics.front().code == "MPF1200");
+  REQUIRE(repeated_catch.diagnostics.front().code == "MPF1200");
+  REQUIRE(invalid_error.diagnostics.front().code == "MPF2057");
+  REQUIRE(invalid_rethrow.diagnostics.front().code == "MPF2057");
+  REQUIRE(unsupported_property.diagnostics.front().code == "MPF2056");
+  REQUIRE(escaped_binding.diagnostics.front().code == "MPF2003");
+  REQUIRE(static_rebind.diagnostics.front().code == "MPF2007");
 }
 
 TEST_CASE("Fortran counted DO exposes the terminal induction value") {
