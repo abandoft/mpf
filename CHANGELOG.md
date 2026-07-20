@@ -1,3 +1,18 @@
+## 0.7.1
+
+- Matlab complex sparse matrices now support compatible-size addition and subtraction.
+- Adding or subtracting two sparse operands preserves canonical CSC storage and complex values.
+- Real and logical sparse operands are promoted when combined with a complex sparse matrix.
+- Mixed sparse and dense arithmetic produces dense complex results while traversing sparse inputs by stored entries.
+- Complex scalar addition and subtraction work on either side of a sparse matrix with the correct operand order.
+- Singleton sparse rows and columns participate in Matlab compatible-size expansion without dense source conversion.
+- Complex sparse arithmetic preserves explicit zero extents and the sparse storage class of sparse-only results.
+- Exact-zero complex cancellations are removed from CSC results instead of remaining as stored entries.
+- Nonfinite complex operands and arithmetic overflow fail with stable generated-runtime errors.
+- Generated JavaScript carries an explicit complex value-domain tag, while generated C++17 preserves typed `std::complex<double>` sparse storage.
+- Complex-number and complex-sparse runtime support is emitted only when the translated program requires it.
+- Source maps retain the original locations of complex sparse addition and subtraction expressions.
+
 ## 0.7.0
 
 - Matlab `sparse(A)` now preserves statically shaped binary64 complex rank-two values in canonical CSC storage.

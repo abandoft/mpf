@@ -1,3 +1,18 @@
+## 0.7.1
+
+- Matlab complex sparse matrix 现支持 compatible-size 加法与减法。
+- 两个 sparse operand 相加或相减时，会保持 canonical CSC 存储和 complex value。
+- real 或 logical sparse operand 与 complex sparse matrix 运算时会正确提升为 complex。
+- sparse 与 dense 的混合算术会产生 dense complex 结果，同时仅按已存储 entry 遍历 sparse 输入。
+- complex scalar 可在 sparse matrix 两侧执行加减法，并保持正确的操作数顺序。
+- singleton sparse row 与 column 可参与 Matlab compatible-size expansion，无需将 sparse source 转为 dense。
+- complex sparse arithmetic 会保持显式零 extent，以及纯 sparse 结果的 sparse storage class。
+- exact-zero complex cancellation 会从 CSC 结果中删除，不会保留为显式 entry。
+- 非有限 complex operand 或算术溢出会以稳定的生成 runtime 错误失败。
+- 生成的 JavaScript 携带显式 complex value-domain tag，生成的 C++17 保持类型化 `std::complex<double>` sparse storage。
+- 仅当转译程序实际需要时才会装载 complex-number 与 complex-sparse runtime 支持。
+- source map 会保留 complex sparse 加减表达式的原始位置。
+
 ## 0.7.0
 
 - Matlab `sparse(A)` 现可将静态 shape 的 binary64 complex rank-2 值保持为 canonical CSC 存储。
