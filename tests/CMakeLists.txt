@@ -5,6 +5,7 @@ add_executable(mpf-tests
   unit/extension_architecture_tests.cpp
   unit/multilevel_ir_tests.cpp
   unit/reduction_contract_tests.cpp
+  unit/sparse_arithmetic_lir_tests.cpp
   unit/sparse_logical_lir_tests.cpp
   unit/sparse_reduction_lir_tests.cpp
   unit/semantic_tests.cpp
