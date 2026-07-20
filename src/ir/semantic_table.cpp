@@ -326,6 +326,9 @@ semantic::SparseValueDomain sparse_value_domain(const ExpressionFacts& facts) no
       numeric_type.complexity == NumericComplexity::real) {
     return semantic::SparseValueDomain::finite_real;
   }
+  if (type == ValueType::real && numeric_type == complex_numeric_type) {
+    return semantic::SparseValueDomain::finite_complex;
+  }
   return semantic::SparseValueDomain::none;
 }
 
@@ -464,9 +467,11 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
                              sparse_index.kind, sparse_index.source_storage,
                              sparse_index.result_storage, sparse_index.input_shape,
                              sparse_index.result_shape, expression.children.size() - 1U) &&
-                         (scalar ? facts->inferred_type == source->element_type
+                         (scalar ? facts->inferred_type == source->element_type &&
+                                       facts->numeric_type == source->element_numeric_type
                                  : facts->inferred_type == ValueType::list &&
-                                       facts->element_type == source->element_type);
+                                       facts->element_type == source->element_type &&
+                                       facts->element_numeric_type == source->element_numeric_type);
       if (!valid) {
         add_error(diagnostics, expression.location, stage,
                   "sparse-index plan has an invalid type, storage, arity, or shape contract");
@@ -562,6 +567,11 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
           const auto count =
               argument == nullptr ? std::optional<std::size_t>{} : sparse_argument_count(*argument);
           valid = count.has_value() && *count == sparse.triplet_element_counts[index];
+          if (valid && index < 2U) {
+            const auto domain = sparse_value_domain(*argument);
+            valid = domain == semantic::SparseValueDomain::finite_real ||
+                    domain == semantic::SparseValueDomain::logical;
+          }
         }
         const bool zero_extent = std::find(sparse.result_shape.begin(), sparse.result_shape.end(),
                                            0U) != sparse.result_shape.end();
@@ -1017,17 +1027,17 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
                                    source->array_storage == ArrayStorageFormat::sparse_csc;
         bool supported_replacement = false;
         if (replacement != nullptr) {
-          const auto type = replacement->inferred_type == ValueType::list
-                                ? replacement->element_type
-                                : replacement->inferred_type;
-          const auto numeric = expression_numeric_type(*replacement);
-          supported_replacement = (type == ValueType::boolean || type == ValueType::integer ||
-                                   type == ValueType::real) &&
-                                  numeric.present() &&
-                                  numeric.complexity == NumericComplexity::real &&
-                                  (replacement->inferred_type != ValueType::list ||
-                                   replacement->array_storage == ArrayStorageFormat::dense ||
-                                   replacement->array_storage == ArrayStorageFormat::sparse_csc);
+          const auto source_domain =
+              source == nullptr ? semantic::SparseValueDomain::none : sparse_value_domain(*source);
+          const auto replacement_domain = sparse_value_domain(*replacement);
+          supported_replacement =
+              source_domain != semantic::SparseValueDomain::none &&
+              replacement_domain != semantic::SparseValueDomain::none &&
+              (source_domain == semantic::SparseValueDomain::finite_complex ||
+               replacement_domain != semantic::SparseValueDomain::finite_complex) &&
+              (replacement->inferred_type != ValueType::list ||
+               replacement->array_storage == ArrayStorageFormat::dense ||
+               replacement->array_storage == ArrayStorageFormat::sparse_csc);
         }
         const bool deletion = facts->indexed_mutation.kind == semantic::IndexedMutationKind::erase;
         const bool expected_sparse_plan =

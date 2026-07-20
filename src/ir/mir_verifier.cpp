@@ -122,6 +122,9 @@ semantic::SparseValueDomain sparse_value_domain(const Program& program,
       numeric_type.complexity == NumericComplexity::real) {
     return semantic::SparseValueDomain::finite_real;
   }
+  if (type == ValueType::real && numeric_type == complex_numeric_type) {
+    return semantic::SparseValueDomain::finite_complex;
+  }
   return semantic::SparseValueDomain::none;
 }
 
@@ -1252,10 +1255,15 @@ void verify_expression(const Expression& expression, const Program& program,
         semantic::valid_sparse_index_contract(
             sparse_index.kind, sparse_index.source_storage, sparse_index.result_storage,
             input_shape->extents, result_shape->extents, expression.children.size() - 1U) &&
-        (scalar ? value_type(program, expression.type_id) == element_type(program, source->type_id)
-                : value_type(program, expression.type_id) == ValueType::list &&
-                      element_type(program, expression.type_id) ==
-                          element_type(program, source->type_id));
+        (scalar
+             ? value_type(program, expression.type_id) == element_type(program, source->type_id) &&
+                   numeric_type(program, expression.type_id) ==
+                       element_numeric_type(program, source->type_id)
+             : value_type(program, expression.type_id) == ValueType::list &&
+                   element_type(program, expression.type_id) ==
+                       element_type(program, source->type_id) &&
+                   element_numeric_type(program, expression.type_id) ==
+                       element_numeric_type(program, source->type_id));
     if (!valid) {
       add_error(diagnostics, expression.location, stage,
                 "sparse-index attributes have an invalid type, storage, arity, or shape");
@@ -1359,6 +1367,11 @@ void verify_expression(const Expression& expression, const Program& program,
         const auto count = argument == nullptr ? std::optional<std::size_t>{}
                                                : sparse_argument_count(program, *argument);
         valid = count.has_value() && *count == sparse.triplet_element_counts[child_index];
+        if (valid && child_index < 2U) {
+          const auto domain = sparse_value_domain(program, *argument);
+          valid = domain == semantic::SparseValueDomain::finite_real ||
+                  domain == semantic::SparseValueDomain::logical;
+        }
       }
       const bool zero_extent = result_shape != nullptr &&
                                std::find(result_shape->extents.begin(), result_shape->extents.end(),
