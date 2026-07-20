@@ -2005,7 +2005,7 @@ TEST_CASE("target LIR verifiers independently reject corrupted sparse constructi
   mpf::detail::javascript::verify_lir_representation(logical_javascript, diagnostics);
   REQUIRE(diagnostics.empty());
   REQUIRE(logical_javascript.statements.front().expression.plan.runtime_integer_arguments ==
-          std::vector<std::int64_t>({2, 2}));
+          std::vector<std::int64_t>({3, 2}));
   logical_javascript.statements.front().expression.plan.runtime_integer_arguments[1] = 1;
   mpf::detail::javascript::verify_lir_representation(logical_javascript, diagnostics);
   REQUIRE(!diagnostics.empty());
@@ -2022,6 +2022,44 @@ TEST_CASE("target LIR verifiers independently reject corrupted sparse constructi
           "mpf_runtime::sparse_logical_any");
   logical_cpp.statements.front().expression.plan.token = "mpf_runtime::sparse";
   mpf::detail::cpp::verify_lir_representation(logical_cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  const auto configure_complex_sparse_call = [&](auto& expression) {
+    configure_sparse_call(expression);
+    expression.element_numeric_type = mpf::detail::complex_numeric_type;
+    expression.sparse_construction.value_domain =
+        mpf::detail::semantic::SparseValueDomain::finite_complex;
+    expression.children[3].element_numeric_type = mpf::detail::complex_numeric_type;
+  };
+
+  mpf::detail::javascript::lir::SemanticProgram complex_javascript;
+  complex_javascript.source_language = mpf::SourceLanguage::matlab;
+  complex_javascript.statements.resize(1U);
+  configure_complex_sparse_call(complex_javascript.statements.front().expression);
+  mpf::detail::javascript::plan_lir_representation(complex_javascript);
+  diagnostics.clear();
+  mpf::detail::javascript::verify_lir_representation(complex_javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  REQUIRE(complex_javascript.statements.front().expression.plan.runtime_integer_arguments ==
+          std::vector<std::int64_t>({2, 1}));
+  complex_javascript.statements.front().expression.children[1].element_numeric_type =
+      mpf::detail::complex_numeric_type;
+  mpf::detail::javascript::verify_lir_representation(complex_javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram complex_cpp;
+  complex_cpp.source_language = mpf::SourceLanguage::matlab;
+  complex_cpp.statements.resize(1U);
+  configure_complex_sparse_call(complex_cpp.statements.front().expression);
+  mpf::detail::cpp::plan_lir_representation(complex_cpp);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(complex_cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  REQUIRE(complex_cpp.statements.front().expression.plan.token ==
+          "mpf_runtime::sparse_complex_sum");
+  complex_cpp.statements.front().expression.sparse_construction.value_domain =
+      mpf::detail::semantic::SparseValueDomain::finite_real;
+  mpf::detail::cpp::verify_lir_representation(complex_cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
 }
 
@@ -2065,7 +2103,7 @@ TEST_CASE("Matlab logical sparse construction keeps value and duplicate policies
                                               std::move(analysis.semantics), analysis.names);
   REQUIRE(mir.diagnostics.empty());
   REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-logical-construction").empty());
-  REQUIRE(mpf::detail::dump_mir(mir.program).find("value-domain=2 duplicate-policy=2") !=
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("value-domain=3 duplicate-policy=2") !=
           std::string::npos);
   const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto javascript =
@@ -2073,9 +2111,89 @@ TEST_CASE("Matlab logical sparse construction keeps value and duplicate policies
   const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
   REQUIRE(javascript.diagnostics.empty());
   REQUIRE(cpp.diagnostics.empty());
-  REQUIRE(javascript.artifact->debug_dump().find("value-domain 2 duplicate-policy 2") !=
+  REQUIRE(javascript.artifact->debug_dump().find("value-domain 3 duplicate-policy 2") !=
           std::string::npos);
-  REQUIRE(cpp.artifact->debug_dump().find("value-domain 2 duplicate-policy 2") !=
+  REQUIRE(cpp.artifact->debug_dump().find("value-domain 3 duplicate-policy 2") !=
+          std::string::npos);
+}
+
+TEST_CASE("Matlab complex sparse storage remains typed through every IR layer") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "A = sparse([1+2i 0; 0 3-4i]);\n"
+                              "B = sparse([1 1 2], [1 1 2], [1+2i 3-2i -4i], 2, 2);\n"
+                              "B(2, 1) = 5+6i;\n"
+                              "P = B.';\n"
+                              "H = B';\n"
+                              "I = B([2 1], [2 1]);\n"
+                              "R = reshape(I, [1 4]);\n",
+                              "complex_sparse_storage.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  using Kind = mpf::detail::semantic::SparseConstructionKind;
+  using Domain = mpf::detail::semantic::SparseValueDomain;
+  using Duplicate = mpf::detail::semantic::SparseDuplicatePolicy;
+  const auto dense = std::find_if(
+      analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+      [](const auto& facts) { return facts.sparse_construction.kind == Kind::dense_conversion; });
+  const auto triplets = std::find_if(
+      analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+      [](const auto& facts) { return facts.sparse_construction.kind == Kind::triplets_sized; });
+  REQUIRE(dense != analysis.semantics.expressions.end());
+  REQUIRE(triplets != analysis.semantics.expressions.end());
+  REQUIRE(dense->element_numeric_type == mpf::detail::complex_numeric_type);
+  REQUIRE(dense->sparse_construction.value_domain == Domain::finite_complex);
+  REQUIRE(dense->sparse_construction.duplicate_policy == Duplicate::none);
+  REQUIRE(triplets->element_numeric_type == mpf::detail::complex_numeric_type);
+  REQUIRE(triplets->sparse_construction.value_domain == Domain::finite_complex);
+  REQUIRE(triplets->sparse_construction.duplicate_policy == Duplicate::sum);
+
+  auto corrupted_hir = analysis.semantics;
+  const auto corrupt_hir = std::find_if(
+      corrupted_hir.expressions.begin(), corrupted_hir.expressions.end(),
+      [](const auto& facts) { return facts.sparse_construction.kind == Kind::triplets_sized; });
+  REQUIRE(corrupt_hir != corrupted_hir.expressions.end());
+  corrupt_hir->sparse_construction.value_domain = Domain::finite_real;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, corrupted_hir,
+                                              "complex-sparse-domain-corruption")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "complex-sparse-storage").empty());
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("value-domain=2 duplicate-policy=1") !=
+          std::string::npos);
+  auto corrupted_mir = mir.program;
+  const auto corrupt_mir =
+      std::find_if(corrupted_mir.attributes.expressions.begin() + 1,
+                   corrupted_mir.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.sparse_construction.kind == Kind::triplets_sized;
+                   });
+  REQUIRE(corrupt_mir != corrupted_mir.attributes.expressions.end());
+  corrupt_mir->sparse_construction.value_domain = Domain::finite_real;
+  REQUIRE(!mpf::detail::mir::verify(corrupted_mir, "complex-sparse-domain-corruption").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("value-domain 2 duplicate-policy 1") !=
+          std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("value-domain 2 duplicate-policy 1") !=
+          std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("token \"__mpf_sparse_transpose\"") !=
+          std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("token \"__mpf_sparse_ctranspose\"") !=
+          std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("value-ownership\n") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find(" mutation=1") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("token \"mpf_runtime::sparse_complex_sum\"") !=
+          std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("token \"mpf_runtime::sparse_transpose\"") !=
+          std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("token \"mpf_runtime::sparse_ctranspose\"") !=
           std::string::npos);
 }
 
@@ -3753,7 +3871,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v26") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v27") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -3764,7 +3882,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v32") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v33") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -5071,7 +5189,7 @@ TEST_CASE("MIR call regions model borrow copy forwarding lifetime and overlap") 
   REQUIRE(cpp.artifact->debug_dump().find(borrow_plan) != std::string::npos);
   REQUIRE(cpp.artifact->debug_dump().find(copy_plan) != std::string::npos);
   REQUIRE(javascript.artifact->debug_dump().find("function-abis") != std::string::npos);
-  REQUIRE(javascript.artifact->debug_dump().find("parameters [1]") != std::string::npos);
+  REQUIRE(javascript.artifact->debug_dump().find("parameters [2]") != std::string::npos);
   REQUIRE(javascript.artifact->debug_dump().find("temporaries\n  %l") != std::string::npos);
   REQUIRE(cpp.artifact->debug_dump().find("function-abis") != std::string::npos);
   REQUIRE(cpp.artifact->debug_dump().find("parameters [2:") != std::string::npos);
@@ -5233,9 +5351,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v39") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v40") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v39") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v40") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -5436,6 +5554,21 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
   std::reverse(javascript.module.runtime_fragments.begin(),
                javascript.module.runtime_fragments.end());
+  auto javascript_complex_sparse = javascript;
+  javascript_complex_sparse.runtime.require(
+      mpf::detail::javascript::lir::RuntimeFeature::complex_sparse);
+  mpf::detail::javascript::plan_lir_resources(javascript_complex_sparse, options);
+  REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript_complex_sparse).empty());
+  javascript_complex_sparse.runtime.require(
+      mpf::detail::javascript::lir::RuntimeFeature::complex_numbers);
+  javascript_complex_sparse.runtime.require(
+      mpf::detail::javascript::lir::RuntimeFeature::sparse_matrices);
+  mpf::detail::javascript::plan_lir_resources(javascript_complex_sparse, options);
+  REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript_complex_sparse).empty());
+  REQUIRE(std::find(javascript_complex_sparse.module.runtime_fragments.begin(),
+                    javascript_complex_sparse.module.runtime_fragments.end(),
+                    mpf::detail::javascript::lir::RuntimeFragment::complex_sparse) !=
+          javascript_complex_sparse.module.runtime_fragments.end());
   javascript.runtime.require(mpf::detail::javascript::lir::RuntimeFeature::complex_matrices);
   mpf::detail::javascript::plan_lir_resources(javascript, options);
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
@@ -5465,6 +5598,19 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   REQUIRE(cpp.translation_unit.entry_error_policy ==
           mpf::detail::cpp::lir::EntryErrorPolicy::report_standard_exception);
   REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  auto cpp_complex_sparse = cpp;
+  cpp_complex_sparse.runtime.require(mpf::detail::cpp::lir::RuntimeFeature::complex_sparse);
+  mpf::detail::cpp::plan_lir_resources(cpp_complex_sparse, options);
+  REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp_complex_sparse).empty());
+  cpp_complex_sparse.runtime.require(mpf::detail::cpp::lir::RuntimeFeature::arrays);
+  cpp_complex_sparse.runtime.require(mpf::detail::cpp::lir::RuntimeFeature::complex_numbers);
+  cpp_complex_sparse.runtime.require(mpf::detail::cpp::lir::RuntimeFeature::sparse_matrices);
+  mpf::detail::cpp::plan_lir_resources(cpp_complex_sparse, options);
+  REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp_complex_sparse).empty());
+  REQUIRE(std::find(cpp_complex_sparse.translation_unit.runtime_fragments.begin(),
+                    cpp_complex_sparse.translation_unit.runtime_fragments.end(),
+                    mpf::detail::cpp::lir::RuntimeFragment::complex_sparse) !=
+          cpp_complex_sparse.translation_unit.runtime_fragments.end());
   cpp.emission.division_by_zero = mpf::detail::semantic::DivisionByZero::ieee754;
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
   cpp.emission.division_by_zero = mpf::detail::semantic::DivisionByZero::exception;
@@ -5749,6 +5895,7 @@ TEST_CASE("target LIR verifiers reject corrupted dynamic index extent plans") {
 
 TEST_CASE("target LIR statement plans own control assignment and parameter access") {
   mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.source_language = mpf::SourceLanguage::matlab;
   javascript.emission.dynamic_truthiness = true;
   javascript.emission.resizable_sections = true;
   javascript.emission.emit_parameter_defaults = true;
@@ -5776,6 +5923,16 @@ TEST_CASE("target LIR statement plans own control assignment and parameter acces
   javascript_array.shape = {2, 3, 4};
   javascript.statements.push_back(std::move(javascript_array));
 
+  mpf::detail::javascript::lir::Statement javascript_array_copy;
+  javascript_array_copy.kind = mpf::detail::StatementKind::declaration;
+  javascript_array_copy.name = "copy";
+  javascript_array_copy.has_expression = true;
+  javascript_array_copy.expression.kind = mpf::detail::ExpressionKind::identifier;
+  javascript_array_copy.expression.value = "cube";
+  javascript_array_copy.expression.inferred_type = mpf::detail::ValueType::list;
+  javascript_array_copy.expression.array_storage = mpf::detail::ArrayStorageFormat::dense;
+  javascript.statements.push_back(std::move(javascript_array_copy));
+
   mpf::detail::javascript::plan_lir_representation(javascript);
   const auto& javascript_body = javascript.statements.front().body.front();
   REQUIRE(javascript.statements.front().plan.form ==
@@ -5789,6 +5946,8 @@ TEST_CASE("target LIR statement plans own control assignment and parameter acces
           mpf::detail::javascript::lir::StatementForm::declaration_array);
   REQUIRE((javascript.statements[1].plan.array_shape == std::vector<std::size_t>{2, 3, 4}));
   REQUIRE(javascript.statements[1].plan.array_default == "false");
+  REQUIRE(javascript.statements[2].plan.assignment_value ==
+          mpf::detail::javascript::lir::AssignmentValueForm::copy_array);
   std::vector<mpf::Diagnostic> diagnostics;
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(diagnostics.empty());
@@ -5796,6 +5955,35 @@ TEST_CASE("target LIR statement plans own control assignment and parameter acces
       mpf::detail::javascript::lir::VariableAccess::direct;
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(!diagnostics.empty());
+  javascript.statements.front().body.front().plan.target_access =
+      mpf::detail::javascript::lir::VariableAccess::reference_box_value;
+  diagnostics.clear();
+  javascript.statements[2].plan.assignment_value =
+      mpf::detail::javascript::lir::AssignmentValueForm::direct;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::javascript::lir::SemanticProgram javascript_copy_resources;
+  javascript_copy_resources.source_language = mpf::SourceLanguage::matlab;
+  mpf::detail::javascript::lir::Statement javascript_copy_statement;
+  javascript_copy_statement.kind = mpf::detail::StatementKind::declaration;
+  javascript_copy_statement.name = "copy";
+  javascript_copy_statement.has_expression = true;
+  javascript_copy_statement.expression.kind = mpf::detail::ExpressionKind::identifier;
+  javascript_copy_statement.expression.value = "source";
+  javascript_copy_statement.expression.inferred_type = mpf::detail::ValueType::list;
+  javascript_copy_statement.expression.array_storage = mpf::detail::ArrayStorageFormat::dense;
+  javascript_copy_resources.statements.push_back(std::move(javascript_copy_statement));
+  mpf::detail::javascript::plan_lir_resources(javascript_copy_resources, mpf::TranspileOptions{});
+  mpf::detail::javascript::plan_lir_representation(javascript_copy_resources);
+  diagnostics.clear();
+  mpf::detail::javascript::verify_lir_resources(javascript_copy_resources, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  javascript_copy_resources.runtime.require(mpf::detail::javascript::lir::RuntimeFeature::arrays);
+  mpf::detail::javascript::plan_lir_resources(javascript_copy_resources, mpf::TranspileOptions{});
+  diagnostics.clear();
+  mpf::detail::javascript::verify_lir_resources(javascript_copy_resources, diagnostics);
+  REQUIRE(diagnostics.empty());
 
   mpf::detail::cpp::lir::SemanticProgram cpp;
   cpp.emission.dynamic_truthiness = true;

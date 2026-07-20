@@ -1,4 +1,4 @@
-javascript-semantic-lir-v39 revision 1 nodes 5 runtime 0x0
+javascript-semantic-lir-v40 revision 1 nodes 5 runtime 0x0
 dependencies
 temporaries
 source-segments
@@ -13,6 +13,7 @@ stmt %l1 origin %h1 kind 4 line 1 name "" symbol @s0 declared 0 numeric 1/1 elem
     expr %l4 origin %h4 kind 7 type 1 numeric 3/2 element 0 element-numeric 0/0 array-storage 0 binding 0 intrinsic 0 symbol @s0 shape [] value "-" logical-evaluation 0 plan 5 precedence 6 token "-" call 0 evaluation 0 call-value 0 index 0 string-value 0 variable-access 0 index-base 0 negative-index 0 column-major 0 inclusive-slice 0
       expr %l5 origin %h5 kind 2 type 1 numeric 3/2 element 0 element-numeric 0/0 array-storage 0 binding 0 intrinsic 0 symbol @s0 shape [] value "2" logical-evaluation 0 plan 4 precedence 10 token "2" call 0 evaluation 0 call-value 0 index 0 string-value 0 variable-access 0 index-base 0 negative-index 0 column-major 0 inclusive-slice 0
 function-abis
+value-ownership
 program-scope []
 module banner=1 directives [] runtime [] body [0]
 emission dynamic-truthiness=1 matlab-truthiness=0 operand-logical-result=1 division=1 division-by-zero=2 explicit-exports-only=0 lexical-block-scopes=0 structural-equality=1 resizable-sections=1 parameter-defaults=1 padded-character-selection=0 module=1
