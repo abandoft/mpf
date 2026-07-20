@@ -611,6 +611,47 @@ std::string matlab_sparse_logical_workload(const std::size_t width, const std::s
   return source;
 }
 
+std::string matlab_sparse_reduction_workload(const std::size_t width, const std::size_t rounds) {
+  std::string source = "matrix = sparse([";
+  source.reserve(width * width * 6U + rounds * 256U + 512U);
+  for (std::size_t row = 0U; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0U; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += row == column || (row + 3U * column) % 17U == 0U ? std::to_string(row + column + 1U)
+                                                                 : "0";
+    }
+  }
+  source += "]);\n";
+  source += "logical_values = sparse([";
+  for (std::size_t row = 0U; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0U; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += row == column || (5U * row + column) % 19U == 0U ? "true" : "false";
+    }
+  }
+  source += "]);\n";
+  source += "zero_rows = sparse([], [], [], 0, " + std::to_string(width) + ");\n";
+  source += "zero_columns = sparse([], [], [], " + std::to_string(width) + ", 0);\n";
+  for (std::size_t round = 0U; round < rounds; ++round) {
+    source += "column_all = all(logical_values);\n";
+    source += "column_any = any(matrix);\n";
+    source += "row_all = all(logical_values, 2);\n";
+    source += "row_any = any(matrix, 2);\n";
+    source += "total_all = all(matrix, 'all');\n";
+    source += "total_any = any(matrix, 'all');\n";
+    source += "zero_rows_all = all(zero_rows);\n";
+    source += "zero_columns_any = any(zero_columns, 2);\n";
+    source += "unchanged = any(matrix, 3);\n";
+  }
+  source +=
+      "disp(nnz(column_all) + nnz(column_any) + nnz(row_all) + nnz(row_any) + "
+      "total_all + total_any + nnz(zero_rows_all) + nnz(zero_columns_any) + "
+      "nnz(unchanged))\n";
+  return source;
+}
+
 std::string matlab_sparse_index_workload(const std::size_t width, const std::size_t rounds) {
   std::string source = "matrix = sparse([";
   for (std::size_t row = 0U; row < width; ++row) {
@@ -911,6 +952,8 @@ int main() {
       {"matlab-logical-sparse", matlab_logical_sparse_workload(24, 24),
        mpf::SourceLanguage::matlab},
       {"matlab-sparse-logical", matlab_sparse_logical_workload(24, 24),
+       mpf::SourceLanguage::matlab},
+      {"matlab-sparse-reduction", matlab_sparse_reduction_workload(24, 24),
        mpf::SourceLanguage::matlab},
       {"matlab-sparse-index", matlab_sparse_index_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-reshape", matlab_sparse_reshape_workload(24, 24),
