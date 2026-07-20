@@ -430,6 +430,53 @@ TEST_CASE("Matlab statement lexer classifies return and structured block keyword
   REQUIRE(result.lines[4].tokens[1].kind == mpf::detail::MatlabStatementTokenKind::string_literal);
 }
 
+TEST_CASE("Matlab command scanner preserves quoting and operator spacing") {
+  std::vector<mpf::detail::SourceLine> lines;
+  lines.push_back({1, 0, 0, "invoke +token"});
+  lines.push_back({2, 14, 0, "invoke + token"});
+  lines.push_back({3, 29, 0, "invoke+token"});
+  lines.push_back({4, 42, 0, "invoke ./path"});
+  lines.push_back({5, 56, 0, "invoke ./ path"});
+  lines.push_back({6, 71, 0, "invoke 'two words' tail"});
+  lines.push_back({7, 95, 0, "invoke \"two words\""});
+  lines.push_back({8, 114, 0, "invoke terminal;"});
+  lines.push_back({9, 131, 0, "if value'"});
+  const auto result = mpf::detail::lex_matlab_statements(std::move(lines));
+  REQUIRE(result.diagnostics.empty());
+  REQUIRE(result.lines[0].command.has_value());
+  REQUIRE(result.lines[0].command->arguments[0].value == "+token");
+  REQUIRE(!result.lines[1].command.has_value());
+  REQUIRE(!result.lines[2].command.has_value());
+  REQUIRE(result.lines[3].command.has_value());
+  REQUIRE(result.lines[3].command->arguments[0].value == "./path");
+  REQUIRE(!result.lines[4].command.has_value());
+  REQUIRE(result.lines[5].command.has_value());
+  REQUIRE(result.lines[5].command->arguments.size() == 2U);
+  REQUIRE(result.lines[5].command->arguments[0].value == "two words");
+  REQUIRE(result.lines[5].command->arguments[0].form ==
+          mpf::detail::MatlabCommandArgumentForm::single_quoted);
+  REQUIRE(result.lines[5].command->arguments[1].value == "tail");
+  REQUIRE(result.lines[6].command.has_value());
+  REQUIRE(result.lines[6].command->arguments.size() == 2U);
+  REQUIRE(result.lines[6].command->arguments[0].value == "\"two");
+  REQUIRE(result.lines[6].command->arguments[1].value == "words\"");
+  REQUIRE(result.lines[7].command.has_value());
+  REQUIRE(result.lines[7].command->arguments[0].value == "terminal");
+  REQUIRE(!result.lines[8].command.has_value());
+  REQUIRE(result.lines[8].tokens[2].kind == mpf::detail::MatlabStatementTokenKind::transpose);
+}
+
+TEST_CASE("Matlab command scanner diagnoses unterminated quoted arguments") {
+  std::vector<mpf::detail::SourceLine> lines;
+  lines.push_back({1, 0, 0, "invoke 'unterminated"});
+  const auto result = mpf::detail::lex_matlab_statements(std::move(lines));
+  REQUIRE(result.lines.size() == 1U);
+  REQUIRE(result.lines.front().command.has_value());
+  REQUIRE(!result.lines.front().command->terminated);
+  REQUIRE(result.diagnostics.size() == 1U);
+  REQUIRE(result.diagnostics.front().code == "MPF1701");
+}
+
 TEST_CASE("Fortran statement lexer preserves declarations delimiters and contextual names") {
   std::vector<mpf::detail::SourceLine> lines;
   lines.push_back({2, 0, 0, "INTEGER :: BLOCK(2, 2) = RESHAPE([1,2,3,4], [2,2])"});

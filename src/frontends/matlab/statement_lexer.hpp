@@ -1,7 +1,9 @@
 #pragma once
 
+#include <optional>
 #include <vector>
 
+#include "frontends/matlab/command_syntax.hpp"
 #include "lexer/statement_token.hpp"
 #include "source/source_text.hpp"
 
@@ -48,6 +50,7 @@ using MatlabStatementToken = BasicStatementToken<MatlabStatementTokenKind>;
 struct MatlabStatementLine {
   SourceLine source;
   std::vector<MatlabStatementToken> tokens;
+  std::optional<MatlabCommandSyntax> command;
 };
 
 struct MatlabStatementLexResult {

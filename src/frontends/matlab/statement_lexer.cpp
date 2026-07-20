@@ -84,6 +84,7 @@ MatlabStatementLine lex_line(SourceLine line, std::vector<Diagnostic>& diagnosti
   MatlabStatementLine output;
   output.source = std::move(line);
   const auto& text = output.source.text;
+  output.command = scan_matlab_command_syntax(text);
   const auto view = std::string_view{text};
   std::size_t index = 0;
   while (index < text.size()) {
@@ -117,13 +118,9 @@ MatlabStatementLine lex_line(SourceLine line, std::vector<Diagnostic>& diagnosti
     const bool case_character_vector =
         text[index] == '\'' && output.tokens.size() == 1 &&
         output.tokens.front().kind == MatlabStatementTokenKind::keyword_case;
-    const bool display_command_character_vector =
-        text[index] == '\'' && output.tokens.size() == 1 &&
-        output.tokens.front().kind == MatlabStatementTokenKind::identifier &&
-        (lower(output.tokens.front().text) == "disp" ||
-         lower(output.tokens.front().text) == "display") &&
-        output.tokens.front().end < index;
-    if (text[index] == '\'' && !case_character_vector && !display_command_character_vector &&
+    const bool command_character_vector =
+        text[index] == '\'' && output.command.has_value() && index >= output.command->callee_end;
+    if (text[index] == '\'' && !case_character_vector && !command_character_vector &&
         !starts_character_vector(text, index)) {
       ++index;
       append_token(output, MatlabStatementTokenKind::transpose, text, begin, index);

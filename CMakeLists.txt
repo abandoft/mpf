@@ -146,6 +146,7 @@ add_library(mpf_core STATIC
   src/frontends/python/statement_parser.cpp
   src/frontends/python/frontend.cpp
   src/frontends/matlab/expression_lexer.cpp
+  src/frontends/matlab/command_syntax.cpp
   src/frontends/matlab/logical_source.cpp
   src/frontends/matlab/statement_lexer.cpp
   src/frontends/matlab/statement_parser.cpp
