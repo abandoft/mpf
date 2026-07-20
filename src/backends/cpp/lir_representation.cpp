@@ -481,6 +481,7 @@ bool valid_sparse_arithmetic_plan(const lir::Expression& expression) noexcept {
   const auto& plan = expression.sparse_arithmetic;
   if (!plan.valid()) {
     return plan.storage_policy == semantic::SparseArithmeticStoragePolicy::none &&
+           plan.value_domain == semantic::SparseValueDomain::none &&
            plan.shape_source == semantic::BroadcastShapeSource::static_extents &&
            plan.left_storage == ArrayStorageFormat::none &&
            plan.right_storage == ArrayStorageFormat::none &&
@@ -492,18 +493,24 @@ bool valid_sparse_arithmetic_plan(const lir::Expression& expression) noexcept {
                                   : expression.operation == BinaryOperator::subtract
                                       ? semantic::SparseArithmeticOperation::subtract
                                       : semantic::SparseArithmeticOperation::none;
+  const auto expected_value_domain =
+      expression.element_numeric_type.complexity == NumericComplexity::complex
+          ? semantic::SparseValueDomain::finite_complex
+          : semantic::SparseValueDomain::finite_real;
   return expression.kind == ExpressionKind::binary &&
          expression.array_operation == semantic::ArrayOperation::matlab &&
          expression.children.size() == 2U && plan.operation == expected_operation &&
          !expression.broadcast.valid && expression.inferred_type == ValueType::list &&
-         expression.element_numeric_type == real_numeric_type &&
+         (expression.element_numeric_type == real_numeric_type ||
+          expression.element_numeric_type == complex_numeric_type) &&
+         plan.value_domain == expected_value_domain &&
          plan.left_storage == expression.children[0].array_storage &&
          plan.right_storage == expression.children[1].array_storage &&
          plan.result_storage == expression.array_storage && plan.result_shape == expression.shape &&
          semantic::valid_sparse_arithmetic_contract(
-             plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage,
-             plan.right_storage, plan.result_storage, plan.left_shape, plan.right_shape,
-             plan.result_shape, plan.axes);
+             plan.operation, plan.storage_policy, plan.value_domain, plan.shape_source,
+             plan.left_storage, plan.right_storage, plan.result_storage, plan.left_shape,
+             plan.right_shape, plan.result_shape, plan.axes);
 }
 
 bool valid_sparse_elementwise_plan(const lir::Expression& expression) noexcept {
@@ -1308,7 +1315,8 @@ lir::ExpressionPlan expected_expression_plan(
           static_cast<std::int64_t>(result.sparse_arithmetic.storage_policy),
           static_cast<std::int64_t>(result.sparse_arithmetic.left_storage),
           static_cast<std::int64_t>(result.sparse_arithmetic.right_storage),
-          static_cast<std::int64_t>(result.sparse_arithmetic.result_storage)};
+          static_cast<std::int64_t>(result.sparse_arithmetic.result_storage),
+          static_cast<std::int64_t>(result.sparse_arithmetic.value_domain)};
     } else if (result.sparse_elementwise.valid()) {
       result.runtime_shape_arguments = {result.sparse_elementwise.left_shape,
                                         result.sparse_elementwise.right_shape,
@@ -1357,6 +1365,7 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.broadcast.axes != right.broadcast.axes ||
       left.sparse_arithmetic.operation != right.sparse_arithmetic.operation ||
       left.sparse_arithmetic.storage_policy != right.sparse_arithmetic.storage_policy ||
+      left.sparse_arithmetic.value_domain != right.sparse_arithmetic.value_domain ||
       left.sparse_arithmetic.shape_source != right.sparse_arithmetic.shape_source ||
       left.sparse_arithmetic.left_storage != right.sparse_arithmetic.left_storage ||
       left.sparse_arithmetic.right_storage != right.sparse_arithmetic.right_storage ||
