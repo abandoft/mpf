@@ -973,8 +973,8 @@ TEST_CASE("Matlab logical sparse CSC values preserve class and lifecycle plans")
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
   REQUIRE(javascript.code.find("__mpf_sparse_from_dense(") != std::string::npos);
-  REQUIRE(javascript.code.find(", [2, 2], 2)") != std::string::npos);
-  REQUIRE(javascript.code.find("__mpf_sparse(2, 2, ") != std::string::npos);
+  REQUIRE(javascript.code.find(", [2, 2], 3)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse(3, 2, ") != std::string::npos);
   REQUIRE(javascript.code.find("valueDomain") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::sparse_logical_from_dense(") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::sparse_logical_any(") != std::string::npos);
@@ -987,6 +987,64 @@ TEST_CASE("Matlab logical sparse CSC values preserve class and lifecycle plans")
                           [line](const auto& segment) { return segment.original_line == line; }));
     }
   }
+}
+
+TEST_CASE("Matlab complex sparse CSC values preserve storage and transpose identity") {
+  const std::string source =
+      "dense = sparse([1+2i 0; 0 3-4i]);\n"
+      "triplets = sparse([1 1 2], [1 1 2], [1+2i 3-2i -4i], 2, 2);\n"
+      "plain = triplets.';\n"
+      "hermitian = triplets';\n"
+      "selected = triplets([2 1], [2 1]);\n"
+      "reshaped = reshape(selected, [1 4]);\n"
+      "triplets(1, 2) = 5-6i;\n"
+      "triplets(2, 2) = 0;\n"
+      "triplets(3, 3) = 7+8i;\n"
+      "materialized = full(triplets);\n"
+      "disp(nnz(dense), real(materialized(1, 2)), imag(materialized(1, 2)), "
+      "real(materialized(3, 3)), imag(materialized(3, 3)))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_sparse_from_dense(") != std::string::npos);
+  REQUIRE(javascript.code.find(", [2, 2], 2)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse(2, 1, ") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_transpose(triplets)") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_sparse_ctranspose(triplets)") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_sparse_ctranspose") != std::string::npos);
+  REQUIRE(javascript.code.find("triplets = __mpf_sparse_assign(triplets") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_complex_from_dense(") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_complex_sum(") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_transpose(triplets)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_ctranspose(triplets)") != std::string::npos);
+  REQUIRE(cpp.code.find("sparse_matrix<T> sparse_ctranspose") != std::string::npos);
+  REQUIRE(cpp.code.find("sparse_matrix<std::complex<double>>") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 1U; line <= 11U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
+TEST_CASE("complex sparse runtime fragments require an actual complex CSC value") {
+  const std::string source =
+      "z = 1+2i;\n"
+      "real_sparse = sparse([1 0; 0 2]);\n"
+      "disp(real(z), nnz(real_sparse))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("function __mpf_complex") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_sparse_from_dense") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_sparse_ctranspose") == std::string::npos);
+  REQUIRE(cpp.code.find("std::complex<double>") != std::string::npos);
+  REQUIRE(cpp.code.find("struct sparse_matrix") != std::string::npos);
+  REQUIRE(cpp.code.find("sparse_matrix<T> sparse_ctranspose") == std::string::npos);
 }
 
 TEST_CASE("Matlab sparse logical operators preserve Matlab storage rules per target") {
@@ -1248,8 +1306,8 @@ TEST_CASE("Matlab sparse CSC contract fails closed outside the supported vertica
                                              "A = sparse([1 0; 0 1]);\n"
                                              "value = A(reshape([1 2], 1, 1, 2));\n",
                                              "A = sparse([1 0; 0 1]);\nvalue = A([1+0i]);\n",
+                                             "A = sparse([1+0i], [1], [2], 1, 1);\n",
                                              "A = sparse([1 0; 0 1; 1 1]);\nB = A \\ [1; 2; 3];\n",
-                                             "A = sparse([1+2i 0; 0 1]);\n",
                                              "A = sparse([1 2; 3 4], 2);\n",
                                              "m = 3;\nA = sparse(m, 3);\n",
                                              "i = [1 2];\nj = [1 2];\nv = [3 4];\n"
@@ -1674,7 +1732,10 @@ TEST_CASE("Matlab indexed mutation plans grow and erase vectors matrices and ten
       "cube = reshape([1 2 3 4 5 6 7 8], 2, 2, 2);\n"
       "cube(3, 2, 2) = 9;\n"
       "cube(:, 1, :) = [];\n"
-      "disp(row(4), row(9), matrix(4, 3), cube(3, 1, 2))\n";
+      "original = [1 2; 3 4];\n"
+      "detached = original;\n"
+      "detached(1, 1) = 42;\n"
+      "disp(row(4), row(9), matrix(4, 3), cube(3, 1, 2), original(1, 1))\n";
   const auto javascript =
       transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
   const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
@@ -1682,13 +1743,14 @@ TEST_CASE("Matlab indexed mutation plans grow and erase vectors matrices and ten
   REQUIRE(cpp.success());
   REQUIRE(javascript.code.find("__mpf_grow") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_erase") != std::string::npos);
+  REQUIRE(javascript.code.find("detached = __mpf_copy_array(original)") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::assign_growing_linear_column_major") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::assign_growing_section_nd") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::erase_indexed") != std::string::npos);
   REQUIRE(std::any_of(javascript.source_map.segments.begin(), javascript.source_map.segments.end(),
-                      [](const auto& segment) { return segment.original_line == 10U; }));
+                      [](const auto& segment) { return segment.original_line == 13U; }));
   REQUIRE(std::any_of(cpp.source_map.segments.begin(), cpp.source_map.segments.end(),
-                      [](const auto& segment) { return segment.original_line == 10U; }));
+                      [](const auto& segment) { return segment.original_line == 13U; }));
 }
 
 TEST_CASE("Matlab indexed deletion rejects ambiguous dimensions and invalid selectors") {

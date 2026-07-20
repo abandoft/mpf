@@ -311,7 +311,11 @@ if(TARGET mpfc)
   mpf_add_generated_runtime_failure_test(
     matlab-sparse-assignment-nonfinite
     tests/fixtures/matlab_sparse_assignment_nonfinite.m
-    "sparse assignment requires finite real or logical values" matlab)
+    "sparse assignment requires finite" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-complex-sparse-duplicate-nonfinite
+    tests/fixtures/matlab_complex_sparse_duplicate_nonfinite.m
+    "sparse duplicate accumulation is not finite" matlab)
   mpf_add_generated_plan_rejection_test(
     matlab-sparse-reshape-plan tests/fixtures/matlab_sparse_reshape_plan.m
     "result plan does not match requested dimensions" matlab
@@ -327,9 +331,9 @@ if(TARGET mpfc)
     matlab-logical-sparse-plan tests/fixtures/matlab_logical_sparse_plan.m
     "sparse input disagrees with its static shape contract" matlab
     JAVASCRIPT_SEARCH
-      "__mpf_sparse_from_dense([[true, false], [false, true]], [2, 2], 2)"
+      "__mpf_sparse_from_dense([[true, false], [false, true]], [2, 2], 3)"
     JAVASCRIPT_REPLACEMENT
-      "__mpf_sparse_from_dense([[true, false], [false, true]], [1, 4], 2)"
+      "__mpf_sparse_from_dense([[true, false], [false, true]], [1, 4], 3)"
     CPP_SEARCH
       "mpf_runtime::sparse_logical_from_dense(std::vector<std::vector<bool>>{std::vector<bool>{true, false}, std::vector<bool>{false, true}}, std::array<std::size_t, 2>{2, 2})"
     CPP_REPLACEMENT
