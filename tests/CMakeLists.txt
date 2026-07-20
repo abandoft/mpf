@@ -395,6 +395,50 @@ if(TARGET mpfc)
     matlab-sparse-scalar-overflow tests/fixtures/matlab_sparse_scalar_overflow.m
     "sparse scalar product produced a nonfinite value" matlab)
   mpf_add_generated_runtime_failure_test(
+    matlab-sparse-arithmetic-nonfinite
+    tests/fixtures/matlab_sparse_arithmetic_nonfinite.m
+    "must contain finite real or logical values" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-sparse-arithmetic-overflow
+    tests/fixtures/matlab_sparse_arithmetic_overflow.m
+    "sparse arithmetic produced a nonfinite value" matlab)
+  mpf_add_generated_plan_rejection_test(
+    matlab-sparse-arithmetic-operation-plan
+    tests/fixtures/matlab_sparse_arithmetic_plan.m
+    "sparse arithmetic storage plan is invalid" matlab
+    JAVASCRIPT_SEARCH
+      "__mpf_sparse_add(A, B, [2, 2], [2, 2], [2, 2], 1, 1, 3, 3, 3)"
+    JAVASCRIPT_REPLACEMENT
+      "__mpf_sparse_add(A, B, [2, 2], [2, 2], [2, 2], 2, 1, 3, 3, 3)"
+    CPP_SEARCH
+      "mpf_runtime::sparse_add(A, B, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, 1, 1, 3, 3, 3)"
+    CPP_REPLACEMENT
+      "mpf_runtime::sparse_add(A, B, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, 2, 1, 3, 3, 3)")
+  mpf_add_generated_plan_rejection_test(
+    matlab-sparse-arithmetic-storage-plan
+    tests/fixtures/matlab_sparse_arithmetic_plan.m
+    "sparse arithmetic storage plan is invalid" matlab
+    JAVASCRIPT_SEARCH
+      "__mpf_sparse_add(A, B, [2, 2], [2, 2], [2, 2], 1, 1, 3, 3, 3)"
+    JAVASCRIPT_REPLACEMENT
+      "__mpf_sparse_add(A, B, [2, 2], [2, 2], [2, 2], 1, 2, 3, 3, 2)"
+    CPP_SEARCH
+      "mpf_runtime::sparse_add(A, B, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, 1, 1, 3, 3, 3)"
+    CPP_REPLACEMENT
+      "mpf_runtime::sparse_add(A, B, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, 1, 2, 3, 3, 2)")
+  mpf_add_generated_plan_rejection_test(
+    matlab-sparse-arithmetic-shape-plan
+    tests/fixtures/matlab_sparse_arithmetic_plan.m
+    "sparse arithmetic shape mismatch" matlab
+    JAVASCRIPT_SEARCH
+      "__mpf_sparse_add(A, B, [2, 2], [2, 2], [2, 2], 1, 1, 3, 3, 3)"
+    JAVASCRIPT_REPLACEMENT
+      "__mpf_sparse_add(A, B, [2, 2], [2, 2], [1, 2], 1, 1, 3, 3, 3)"
+    CPP_SEARCH
+      "mpf_runtime::sparse_add(A, B, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, 1, 1, 3, 3, 3)"
+    CPP_REPLACEMENT
+      "mpf_runtime::sparse_add(A, B, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{1, 2}, 1, 1, 3, 3, 3)")
+  mpf_add_generated_runtime_failure_test(
     matlab-sparse-elementwise-nonfinite
     tests/fixtures/matlab_sparse_elementwise_nonfinite.m
     "finite real or logical" matlab)
