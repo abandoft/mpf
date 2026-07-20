@@ -87,6 +87,13 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
           NumericComplexity::complex) {
     result.runtime.require(lir::RuntimeFeature::complex_numbers);
   }
+  if (mir::array_storage(program, expression.type_id) == ArrayStorageFormat::sparse_csc &&
+      mir::element_numeric_type(program, expression.type_id).complexity ==
+          NumericComplexity::complex) {
+    result.runtime.require(lir::RuntimeFeature::complex_numbers);
+    result.runtime.require(lir::RuntimeFeature::sparse_matrices);
+    result.runtime.require(lir::RuntimeFeature::complex_sparse);
+  }
   if (attributes.matrix_operation.numeric_domain ==
       ::mpf::detail::semantic::MatrixNumericDomain::complex) {
     result.runtime.require(lir::RuntimeFeature::complex_numbers);

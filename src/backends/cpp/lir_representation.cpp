@@ -594,6 +594,9 @@ semantic::SparseValueDomain sparse_value_domain(const lir::Expression& expressio
       numeric_type.complexity == NumericComplexity::real) {
     return semantic::SparseValueDomain::finite_real;
   }
+  if (type == ValueType::real && numeric_type == complex_numeric_type) {
+    return semantic::SparseValueDomain::finite_complex;
+  }
   return semantic::SparseValueDomain::none;
 }
 
@@ -640,6 +643,11 @@ bool valid_sparse_construction(const lir::Expression& expression) noexcept {
     for (std::size_t index = 0U; valid && index < 3U; ++index) {
       const auto count = sparse_argument_count(expression.children[index + 1U]);
       valid = count.has_value() && *count == sparse.triplet_element_counts[index];
+      if (valid && index < 2U) {
+        const auto domain = sparse_value_domain(expression.children[index + 1U]);
+        valid = domain == semantic::SparseValueDomain::finite_real ||
+                domain == semantic::SparseValueDomain::logical;
+      }
     }
     const bool zero_extent = std::find(sparse.result_shape.begin(), sparse.result_shape.end(),
                                        0U) != sparse.result_shape.end();
@@ -900,7 +908,10 @@ lir::ExpressionPlan expected_expression_plan(
              expression.children.front().element_numeric_type.complexity ==
                  NumericComplexity::complex);
         result.token =
-            sparse_operand ? "mpf_runtime::sparse_transpose"
+            sparse_operand && expression.unary_operation == UnaryOperator::conjugate_transpose &&
+                    complex_operand
+                ? "mpf_runtime::sparse_ctranspose"
+            : sparse_operand ? "mpf_runtime::sparse_transpose"
             : expression.unary_operation == UnaryOperator::conjugate_transpose && complex_operand
                 ? "mpf_runtime::matlab_ctranspose"
                 : "mpf_runtime::matlab_transpose";
@@ -1147,15 +1158,25 @@ lir::ExpressionPlan expected_expression_plan(
       }
       if (result.call == lir::CallForm::matlab_sparse) {
         if (!result.runtime_shape_arguments.empty()) {
-          result.token =
-              expression.sparse_construction.value_domain == semantic::SparseValueDomain::logical
-                  ? "mpf_runtime::sparse_logical_from_dense"
-                  : "mpf_runtime::sparse_from_dense";
+          switch (expression.sparse_construction.value_domain) {
+            case semantic::SparseValueDomain::logical:
+              result.token = "mpf_runtime::sparse_logical_from_dense";
+              break;
+            case semantic::SparseValueDomain::finite_complex:
+              result.token = "mpf_runtime::sparse_complex_from_dense";
+              break;
+            default: result.token = "mpf_runtime::sparse_from_dense"; break;
+          }
         } else {
-          result.token = expression.sparse_construction.duplicate_policy ==
-                                 semantic::SparseDuplicatePolicy::logical_any
-                             ? "mpf_runtime::sparse_logical_any"
-                             : "mpf_runtime::sparse";
+          if (expression.sparse_construction.duplicate_policy ==
+              semantic::SparseDuplicatePolicy::logical_any) {
+            result.token = "mpf_runtime::sparse_logical_any";
+          } else if (expression.sparse_construction.value_domain ==
+                     semantic::SparseValueDomain::finite_complex) {
+            result.token = "mpf_runtime::sparse_complex_sum";
+          } else {
+            result.token = "mpf_runtime::sparse";
+          }
         }
       }
       result.call_arguments.reserve(expression.argument_transfers.size());
@@ -1567,9 +1588,11 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
             expression.sparse_index.kind, expression.sparse_index.source_storage,
             expression.sparse_index.result_storage, expression.sparse_index.input_shape,
             expression.sparse_index.result_shape, expression.children.size() - 1U) ||
-        (scalar ? expression.inferred_type != source.element_type
+        (scalar ? expression.inferred_type != source.element_type ||
+                      expression.numeric_type != source.element_numeric_type
                 : expression.inferred_type != ValueType::list ||
-                      expression.element_type != source.element_type)) {
+                      expression.element_type != source.element_type ||
+                      expression.element_numeric_type != source.element_numeric_type)) {
       add_error(diagnostics, expression.location, "cpp LIR sparse-index contract is inconsistent");
     }
   } else if (expression.sparse_index.source_storage != ArrayStorageFormat::none ||
