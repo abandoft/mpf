@@ -1,4 +1,4 @@
-javascript-semantic-lir-v42 revision 1 nodes 5 runtime 0x0
+javascript-semantic-lir-v43 revision 1 nodes 5 runtime 0x0
 dependencies
 temporaries
 source-segments
@@ -15,5 +15,5 @@ stmt %l1 origin %h1 kind 4 line 1 name "" symbol @s0 declared 0 numeric 1/1 elem
 function-abis
 value-ownership
 program-scope []
-module banner=1 directives [] runtime [] body [0]
+module banner=1 script-control=0 script-label="" directives [] runtime [] body [0] control-prelude [] controlled-body []
 emission dynamic-truthiness=1 matlab-truthiness=0 operand-logical-result=1 division=1 division-by-zero=2 explicit-exports-only=0 lexical-block-scopes=0 structural-equality=1 resizable-sections=1 parameter-defaults=1 padded-character-selection=0 module=1
