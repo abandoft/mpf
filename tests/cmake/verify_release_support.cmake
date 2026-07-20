@@ -141,4 +141,48 @@ if(changed_license_status EQUAL 0)
   message(FATAL_ERROR "release verifier accepted a byte-different LICENSE")
 endif()
 
-message(STATUS "Release support scripts accepted valid assets and rejected corrupt fixtures")
+set(policy_root "${TEST_BINARY_DIR}/changelog-policy")
+set(policy_build "${policy_root}/build")
+file(MAKE_DIRECTORY "${policy_root}/cmake" "${policy_build}")
+configure_file("${SOURCE_DIR}/cmake/verify_release_version.cmake"
+  "${policy_root}/cmake/verify_release_version.cmake" COPYONLY)
+configure_file("${SOURCE_DIR}/CHANGELOG.md" "${policy_root}/CHANGELOG.md" COPYONLY)
+configure_file("${SOURCE_DIR}/CHANGELOG-ZH.md" "${policy_root}/CHANGELOG-ZH.md" COPYONLY)
+file(WRITE "${policy_build}/CMakeCache.txt"
+  "CMAKE_PROJECT_VERSION:STATIC=${PROJECT_VERSION}\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}"
+    "-DBUILD_DIR=${policy_build}"
+    "-DTAG=${PROJECT_VERSION}"
+    -P "${policy_root}/cmake/verify_release_version.cmake"
+  RESULT_VARIABLE valid_policy_status
+  OUTPUT_VARIABLE valid_policy_output
+  ERROR_VARIABLE valid_policy_error)
+if(NOT valid_policy_status EQUAL 0)
+  message(FATAL_ERROR
+    "valid public changelogs were rejected:\n${valid_policy_output}\n${valid_policy_error}")
+endif()
+
+file(APPEND "${policy_root}/CHANGELOG.md"
+  "\n- Production source coverage is 91%.\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}"
+    "-DBUILD_DIR=${policy_build}"
+    "-DTAG=${PROJECT_VERSION}"
+    -P "${policy_root}/cmake/verify_release_version.cmake"
+  RESULT_VARIABLE historical_metadata_status
+  OUTPUT_VARIABLE historical_metadata_output
+  ERROR_VARIABLE historical_metadata_error)
+if(historical_metadata_status EQUAL 0)
+  message(FATAL_ERROR
+    "release verifier accepted internal metadata in a historical changelog section")
+endif()
+string(CONCAT historical_metadata_log
+  "${historical_metadata_output}" "${historical_metadata_error}")
+if(NOT historical_metadata_log MATCHES "complete public changelog history")
+  message(FATAL_ERROR
+    "historical changelog rejection did not report the public-history policy")
+endif()
+
+message(STATUS
+  "Release support scripts accepted valid assets and rejected corrupt archives and changelogs")

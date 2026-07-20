@@ -41,23 +41,48 @@ function(mpf_verify_changelog changelog_path changelog_name result_variable)
       "found ${release_entry_count}")
   endif()
 
-  set(forbidden_release_note_phrases
-    "The validation baseline now contains"
-    "Production source coverage"
-    "production line coverage"
-    "The release gate now includes"
-    "验证基线现包含"
-    "生产源码覆盖率"
-    "生产代码行覆盖率"
-    "发布门禁现包含")
-  foreach(forbidden_phrase IN LISTS forbidden_release_note_phrases)
-    string(FIND "${release_section}" "${forbidden_phrase}" forbidden_position)
+  string(TOLOWER "${changelog}" normalized_changelog)
+  set(forbidden_public_changelog_phrases
+    " coverage"
+    "fuzz"
+    " test suite"
+    " test count"
+    " test-count"
+    "release gate"
+    "validation baseline"
+    "quality report"
+    "github workflow"
+    "github automation"
+    "codeql"
+    "sanitizer"
+    "ctest"
+    "semantic dump"
+    "mir dump"
+    "lir dump"
+    "debug schema"
+    "测试"
+    "覆盖率"
+    "门禁"
+    "验证基线"
+    "质量报告"
+    "流水线"
+    "发布工作流"
+    "模糊测试")
+  foreach(forbidden_phrase IN LISTS forbidden_public_changelog_phrases)
+    string(FIND "${normalized_changelog}" "${forbidden_phrase}" forbidden_position)
     if(NOT forbidden_position EQUAL -1)
       message(FATAL_ERROR
-        "release ${project_version} in ${changelog_name} contains internal validation "
-        "metadata '${forbidden_phrase}'; user-facing changelogs must describe product changes")
+        "${changelog_name} contains internal validation metadata '${forbidden_phrase}'; "
+        "the complete public changelog history must describe user-visible product changes")
     endif()
   endforeach()
+  string(REGEX MATCH "(^|[^a-z])tests?([^a-z]|$)" forbidden_test_word
+    "${normalized_changelog}")
+  if(forbidden_test_word)
+    message(FATAL_ERROR
+      "${changelog_name} contains internal test metadata '${forbidden_test_word}'; "
+      "the complete public changelog history must describe user-visible product changes")
+  endif()
   set(${result_variable} "${release_entry_count}" PARENT_SCOPE)
 endfunction()
 
