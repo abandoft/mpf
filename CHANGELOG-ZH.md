@@ -1,3 +1,18 @@
+## 0.7.2
+
+- Matlab complex sparse matrix 现可参与静态 shape 的 rank-2 矩阵乘法。
+- complex sparse×sparse product 会保持 canonical CSC 存储和 complex value。
+- sparse×dense 与 dense×sparse complex product 返回 dense matrix，且不会先物化 sparse operand。
+- real 与 logical sparse operand 和 complex sparse/dense matrix 相乘时会正确提升为 complex。
+- sparse product kernel 直接遍历已存储 entry，并以按列 accumulator 构造 sparse 结果。
+- exact-zero complex cancellation 不会作为显式 entry 保留在 CSC 输出中。
+- 零行、零列与空 inner dimension product 会保持规划的 Matlab shape 和 storage class。
+- 生成 runtime 会在执行乘法前拒绝不一致的 shape 或 numeric-domain plan。
+- 非有限 complex 输入和乘法溢出会以稳定的生成 runtime 错误失败。
+- 生成的 C++17 会在全部受支持的 operand 组合中保持类型化 real 或 `std::complex<double>` 结果存储。
+- 仅当程序使用矩阵乘法时才会装载 product runtime，减少无关 sparse 操作的生成代码体积。
+- source map 会保留 complex sparse matrix-product expression 的原始位置。
+
 ## 0.7.1
 
 - Matlab complex sparse matrix 现支持 compatible-size 加法与减法。

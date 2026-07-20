@@ -1,3 +1,18 @@
+## 0.7.2
+
+- Matlab complex sparse matrices can now participate in statically shaped rank-two matrix multiplication.
+- Complex sparse-by-sparse products preserve canonical CSC storage and complex values.
+- Sparse-by-dense and dense-by-sparse complex products return dense matrices without first materializing the sparse operand.
+- Real and logical sparse operands are promoted when multiplied with complex sparse or dense matrices.
+- Sparse product kernels traverse stored entries directly and use a column-wise accumulator for sparse results.
+- Exact-zero complex cancellations are omitted from CSC output instead of becoming stored entries.
+- Zero-row, zero-column, and empty-inner-dimension products preserve their planned Matlab shapes and storage classes.
+- Generated runtimes reject inconsistent shape or numeric-domain plans before performing a product.
+- Nonfinite complex inputs and multiplication overflow fail with stable generated-runtime errors.
+- Generated C++17 preserves typed real or `std::complex<double>` result storage across all supported operand combinations.
+- Matrix-product runtime support is emitted only for programs that use it, reducing generated code for unrelated sparse operations.
+- Source maps retain the original locations of complex sparse matrix-product expressions.
+
 ## 0.7.1
 
 - Matlab complex sparse matrices now support compatible-size addition and subtraction.
