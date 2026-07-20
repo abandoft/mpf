@@ -627,6 +627,7 @@ TEST_CASE("target LIR verifiers reject corrupted Matlab logical reduction plans"
     expression.kind = mpf::detail::ExpressionKind::call;
     expression.inferred_type = mpf::detail::ValueType::list;
     expression.element_type = mpf::detail::ValueType::boolean;
+    expression.array_storage = mpf::detail::ArrayStorageFormat::dense;
     expression.shape = {1U, 2U};
     expression.reduction.operation = Operation::logical_all;
     expression.reduction.axis_policy = AxisPolicy::explicit_dimensions;
@@ -634,6 +635,9 @@ TEST_CASE("target LIR verifiers reject corrupted Matlab logical reduction plans"
     expression.reduction.result_shape = {1U, 2U};
     expression.reduction.output_shape = {1U, 2U};
     expression.reduction.axes = {0U};
+    expression.reduction.storage_policy = mpf::detail::semantic::ReductionStoragePolicy::dense;
+    expression.reduction.input_storage = mpf::detail::ArrayStorageFormat::dense;
+    expression.reduction.result_storage = mpf::detail::ArrayStorageFormat::dense;
     expression.children.resize(3);
     expression.children[0].kind = mpf::detail::ExpressionKind::identifier;
     expression.children[0].binding = mpf::detail::BindingKind::builtin;
@@ -641,6 +645,7 @@ TEST_CASE("target LIR verifiers reject corrupted Matlab logical reduction plans"
     expression.children[1].kind = mpf::detail::ExpressionKind::identifier;
     expression.children[1].inferred_type = mpf::detail::ValueType::list;
     expression.children[1].element_type = mpf::detail::ValueType::integer;
+    expression.children[1].array_storage = mpf::detail::ArrayStorageFormat::dense;
     expression.children[1].shape = {2U, 2U};
     expression.children[2].kind = mpf::detail::ExpressionKind::number_literal;
     expression.children[2].inferred_type = mpf::detail::ValueType::integer;

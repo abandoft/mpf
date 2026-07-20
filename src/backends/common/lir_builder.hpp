@@ -211,6 +211,9 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
     if (output_shape != nullptr) result.reduction.output_shape = output_shape->extents;
     result.reduction.axes = attributes.reduction.axes;
     result.reduction.scalar_result = attributes.reduction.scalar_result;
+    result.reduction.storage_policy = attributes.reduction.storage_policy;
+    result.reduction.input_storage = attributes.reduction.input_storage;
+    result.reduction.result_storage = attributes.reduction.result_storage;
   }
   const auto* source_type = mir::type(program, source.type_id);
   if (source_type != nullptr && source_type->kind == mir::TypeKind::tuple) {

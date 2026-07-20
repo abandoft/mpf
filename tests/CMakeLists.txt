@@ -6,6 +6,7 @@ add_executable(mpf-tests
   unit/multilevel_ir_tests.cpp
   unit/reduction_contract_tests.cpp
   unit/sparse_logical_lir_tests.cpp
+  unit/sparse_reduction_lir_tests.cpp
   unit/semantic_tests.cpp
   integration/language_tests.cpp
   integration/control_flow_tests.cpp

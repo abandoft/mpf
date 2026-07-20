@@ -1059,6 +1059,26 @@ lir::ExpressionPlan expected_expression_plan(
       result.call = call_form(expression);
       if (result.call == lir::CallForm::matlab_all || result.call == lir::CallForm::matlab_any) {
         result.reduction = expression.reduction;
+        const bool all = result.reduction.operation == semantic::ReductionOperation::logical_all;
+        if (result.reduction.shape_source == semantic::ReductionShapeSource::runtime_operand) {
+          result.token =
+              std::string("mpf_runtime::matlab_logical_total<") + (all ? "true>" : "false>");
+        } else {
+          result.token =
+              std::string(result.reduction.input_storage == ArrayStorageFormat::sparse_csc
+                              ? "mpf_runtime::sparse_logical_reduce<"
+                              : "mpf_runtime::matlab_logical_reduce<") +
+              (all ? "true, " : "false, ") + std::to_string(result.reduction.output_shape.size()) +
+              ">";
+          result.runtime_shape_arguments = {result.reduction.input_shape, result.reduction.axes,
+                                            result.reduction.result_shape,
+                                            result.reduction.output_shape};
+          result.runtime_integer_arguments = {
+              static_cast<std::int64_t>(result.reduction.operation),
+              static_cast<std::int64_t>(result.reduction.storage_policy),
+              static_cast<std::int64_t>(result.reduction.input_storage),
+              static_cast<std::int64_t>(result.reduction.result_storage)};
+        }
       }
       result.call_value = expression.multi_output_call && expression.requested_outputs == 1
                               ? lir::CallValueForm::first_tuple_result
@@ -1281,6 +1301,9 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.reduction.output_shape != right.reduction.output_shape ||
       left.reduction.axes != right.reduction.axes ||
       left.reduction.scalar_result != right.reduction.scalar_result ||
+      left.reduction.storage_policy != right.reduction.storage_policy ||
+      left.reduction.input_storage != right.reduction.input_storage ||
+      left.reduction.result_storage != right.reduction.result_storage ||
       left.sparse_index.kind != right.sparse_index.kind ||
       left.sparse_index.source_storage != right.sparse_index.source_storage ||
       left.sparse_index.result_storage != right.sparse_index.result_storage ||
@@ -1428,20 +1451,31 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
             ? expression.inferred_type == ValueType::boolean && expression.shape.empty()
             : expression.inferred_type == ValueType::list &&
                   expression.element_type == ValueType::boolean;
-    if (!valid_type || expression.shape != reduction.output_shape ||
+    const bool valid_storage = semantic::valid_logical_reduction_storage_contract(
+        reduction.storage_policy, reduction.input_storage, reduction.result_storage,
+        reduction.scalar_result);
+    const bool operand_storage_matches =
+        expression.children.size() >= 2U &&
+        expression.children[1].array_storage == reduction.input_storage;
+    if (!valid_type || !valid_storage || !operand_storage_matches ||
+        expression.array_storage != reduction.result_storage ||
+        expression.shape != reduction.output_shape ||
         !semantic::valid_logical_reduction_contract(reduction.operation, reduction.axis_policy,
                                                     reduction.shape_source, reduction.input_shape,
                                                     reduction.result_shape, reduction.output_shape,
                                                     reduction.axes, reduction.scalar_result)) {
       add_error(diagnostics, expression.location,
-                "cpp LIR logical reduction contract is inconsistent");
+                "cpp LIR logical reduction type, storage, or shape contract is inconsistent");
     }
   } else if (expression.reduction.axis_policy != semantic::ReductionAxisPolicy::none ||
              expression.reduction.shape_source != semantic::ReductionShapeSource::static_extents ||
              !expression.reduction.input_shape.empty() ||
              !expression.reduction.result_shape.empty() ||
              !expression.reduction.output_shape.empty() || !expression.reduction.axes.empty() ||
-             expression.reduction.scalar_result) {
+             expression.reduction.scalar_result ||
+             expression.reduction.storage_policy != semantic::ReductionStoragePolicy::none ||
+             expression.reduction.input_storage != ArrayStorageFormat::none ||
+             expression.reduction.result_storage != ArrayStorageFormat::none) {
     add_error(diagnostics, expression.location, "cpp LIR inactive logical reduction retains state");
   }
   const auto expected_sparse_index = expected_sparse_index_kind(expression);
