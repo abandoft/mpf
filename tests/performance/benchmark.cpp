@@ -1093,6 +1093,24 @@ std::string matlab_command_syntax_workload(const std::size_t calls) {
   return source;
 }
 
+std::string matlab_exception_workload(const std::size_t regions) {
+  std::string source = "value = 0;\n";
+  for (std::size_t index = 0; index < regions; ++index) {
+    source += "try\n";
+    source += "  value = value + 1;\n";
+    if (index % 2U == 0U) {
+      source += "catch exception" + std::to_string(index) + "\n";
+      source += "  value = value + length(exception" + std::to_string(index) + ".message);\n";
+    } else {
+      source += "catch\n";
+      source += "  value = 0;\n";
+    }
+    source += "end\n";
+  }
+  source += "disp(value)\n";
+  return source;
+}
+
 std::string source_extension(const mpf::SourceLanguage language) {
   switch (language) {
     case mpf::SourceLanguage::python: return ".py";
@@ -1238,7 +1256,8 @@ int main() {
       {"matlab-advanced-structured-square-solve",
        matlab_advanced_structured_square_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-return-command", matlab_return_command_workload(32), mpf::SourceLanguage::matlab},
-      {"matlab-command-syntax", matlab_command_syntax_workload(64), mpf::SourceLanguage::matlab}};
+      {"matlab-command-syntax", matlab_command_syntax_workload(64), mpf::SourceLanguage::matlab},
+      {"matlab-exception-control", matlab_exception_workload(64), mpf::SourceLanguage::matlab}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
     Measurement measurement;
