@@ -1,7 +1,9 @@
 #include <cstdint>
+#include <sstream>
 #include <string>
 #include <vector>
 
+#include "backends/common/lir_dump.hpp"
 #include "backends/cpp/lir.hpp"
 #include "backends/cpp/lir_representation.hpp"
 #include "backends/javascript/lir.hpp"
@@ -107,6 +109,11 @@ void verify_sparse_reduction_plans(Program& program, Planner planner, Verifier v
                                      static_cast<std::int64_t>(StoragePolicy::scalar_full),
                                      static_cast<std::int64_t>(Storage::sparse_csc),
                                      static_cast<std::int64_t>(Storage::none)}));
+
+  std::ostringstream dump;
+  mpf::detail::dump_target_lir_body(dump, program, "test");
+  REQUIRE(dump.str().find("storage-policy 2 storage 3->3") != std::string::npos);
+  REQUIRE(dump.str().find("storage-policy 3 storage 3->0") != std::string::npos);
 
   program.statements[0].expression.plan.runtime_integer_arguments.back() =
       static_cast<std::int64_t>(Storage::dense);

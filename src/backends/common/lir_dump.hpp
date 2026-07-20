@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+#include "ir/semantics.hpp"
+
 namespace mpf::detail {
 
 template <typename Plan>
@@ -181,7 +183,10 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     output << " reduction " << static_cast<int>(expression.reduction.operation) << " axis-policy "
            << static_cast<int>(expression.reduction.axis_policy) << " shape-source "
            << static_cast<int>(expression.reduction.shape_source) << " scalar "
-           << expression.reduction.scalar_result << ' ';
+           << expression.reduction.scalar_result << " storage-policy "
+           << static_cast<int>(expression.reduction.storage_policy) << " storage "
+           << static_cast<int>(expression.reduction.input_storage) << "->"
+           << static_cast<int>(expression.reduction.result_storage) << ' ';
     dump_shape(expression.reduction.input_shape);
     output << " axes [";
     for (std::size_t axis = 0; axis < expression.reduction.axes.size(); ++axis) {
@@ -389,7 +394,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v36 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v37 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";
