@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "mpf/transpiler.hpp"
@@ -531,6 +532,81 @@ TEST_CASE("Matlab sparse matrix products preserve zero extents and empty inner d
     for (std::size_t line = 1U; line <= 11U; ++line) {
       REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
                           [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+}
+
+TEST_CASE("Matlab sparse matrix powers preserve CSC storage and target isolation") {
+  const std::string source =
+      "A = sparse([1 1; 0 1]);\n"
+      "positive = A ^ 3;\n"
+      "identity = A ^ 0;\n"
+      "logical_base = sparse([true false; false true]);\n"
+      "logical_power = logical_base ^ 2;\n"
+      "disp(full(positive), full(identity), full(logical_power), "
+      "issparse(positive), issparse(identity), issparse(logical_power), nnz(positive))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+
+  const auto javascript_sparse_base = javascript.code.find("function __mpf_validate_sparse_csc");
+  const auto javascript_power = javascript.code.find("function __mpf_sparse_power_plan");
+  const auto cpp_sparse_base = cpp.code.find("void validate_sparse_csc");
+  const auto cpp_power = cpp.code.find("inline void validate_sparse_power_plan");
+  REQUIRE(javascript_sparse_base != std::string::npos);
+  REQUIRE(javascript_power != std::string::npos);
+  REQUIRE(javascript_sparse_base < javascript_power);
+  REQUIRE(cpp_sparse_base != std::string::npos);
+  REQUIRE(cpp_power != std::string::npos);
+  REQUIRE(cpp_sparse_base < cpp_power);
+  REQUIRE(javascript.code.find(
+              "__mpf_sparse_mpower(A, 3, [2, 2], [2, 2], 2, 3, 3)") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find(
+              "__mpf_sparse_mpower(A, 0, [2, 2], [2, 2], 2, 3, 3)") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find("mpf_runtime::sparse_mpower") == std::string::npos);
+  REQUIRE(cpp.code.find(
+              "mpf_runtime::sparse_mpower(A, 3, std::array<std::size_t, 2>{2, 2}, "
+              "std::array<std::size_t, 2>{2, 2}, 2, 3, 3)") != std::string::npos);
+  REQUIRE(cpp.code.find(
+              "mpf_runtime::sparse_mpower(A, 0, std::array<std::size_t, 2>{2, 2}, "
+              "std::array<std::size_t, 2>{2, 2}, 2, 3, 3)") != std::string::npos);
+  REQUIRE(cpp.code.find("__mpf_sparse_mpower") == std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 2U; line <= 5U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+
+  const std::string sparse_only_source =
+      "A = sparse([1 0; 0 1]);\n"
+      "disp(nnz(A))\n";
+  const auto sparse_only_javascript = transpile_array(
+      sparse_only_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto sparse_only_cpp =
+      transpile_array(sparse_only_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(sparse_only_javascript.success());
+  REQUIRE(sparse_only_cpp.success());
+  REQUIRE(sparse_only_javascript.code.find("__mpf_sparse_power_plan") == std::string::npos);
+  REQUIRE(sparse_only_cpp.code.find("validate_sparse_power_plan") == std::string::npos);
+}
+
+TEST_CASE("Matlab sparse matrix power fails closed outside the typed integer slice") {
+  const std::vector<std::pair<std::string, std::string>> rejected{
+      {"A = sparse([1 0 0; 0 1 0]);\nB = A ^ 2;\n", "MPF2046"},
+      {"A = sparse([1 0; 0 1]);\nB = A ^ -1;\n", "MPF2054"},
+      {"A = sparse([1 0; 0 1]);\nB = A ^ 0.5;\n", "MPF2054"},
+      {"A = sparse([1 0; 0 1]);\nB = A ^ 9007199254740992;\n", "MPF2054"},
+      {"A = sparse([1 0; 0 1]);\nB = A ^ sparse(2);\n", "MPF2054"}};
+  for (const auto& [source, diagnostic] : rejected) {
+    for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+      const auto result = transpile_array(source, mpf::SourceLanguage::matlab, target);
+      REQUIRE(!result.success());
+      REQUIRE(result.diagnostics.front().code == diagnostic);
     }
   }
 }
