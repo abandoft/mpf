@@ -598,6 +598,88 @@ TEST_CASE("Matlab sparse scalar products preserve zero extents") {
   }
 }
 
+TEST_CASE("Matlab sparse addition and subtraction preserve planned storage per target") {
+  const std::string source =
+      "A = sparse([1 0; 0 2]);\n"
+      "B = sparse([0 3; 4 -2]);\n"
+      "D = [5 6; 7 8];\n"
+      "row = sparse([1 1], [1 2], [10 20], 1, 2);\n"
+      "sparse_sum = A + B;\n"
+      "sparse_difference = A - B;\n"
+      "sparse_dense = A + D;\n"
+      "dense_sparse = D - A;\n"
+      "right_scalar = A + 10;\n"
+      "left_scalar = 10 - A;\n"
+      "broadcast_sum = row + B;\n"
+      "logical_sum = sparse([true false; false true]) + "
+      "sparse([false true; true false]);\n"
+      "empty_sparse = sparse(0, 2) + sparse(0, 2);\n"
+      "empty_dense = sparse(0, 2) + reshape([], 0, 2);\n"
+      "disp(issparse(sparse_sum), issparse(sparse_difference), issparse(sparse_dense), "
+      "issparse(dense_sparse), issparse(right_scalar), issparse(left_scalar), "
+      "issparse(broadcast_sum), issparse(logical_sum), issparse(empty_sparse), "
+      "issparse(empty_dense), nnz(empty_sparse))\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  const auto javascript_sparse_base = javascript.code.find("function __mpf_validate_sparse_csc");
+  const auto javascript_arithmetic =
+      javascript.code.find("function __mpf_sparse_arithmetic_plan");
+  const auto cpp_sparse_base = cpp.code.find("void validate_sparse_csc");
+  const auto cpp_arithmetic = cpp.code.find("void validate_sparse_arithmetic_plan(");
+  REQUIRE(javascript_sparse_base != std::string::npos);
+  REQUIRE(javascript_arithmetic != std::string::npos);
+  REQUIRE(javascript_sparse_base < javascript_arithmetic);
+  REQUIRE(cpp_sparse_base != std::string::npos);
+  REQUIRE(cpp_arithmetic != std::string::npos);
+  REQUIRE(cpp_sparse_base < cpp_arithmetic);
+  REQUIRE(javascript.code.find(
+              "__mpf_sparse_add(A, B, [2, 2], [2, 2], [2, 2], 1, 1, 3, 3, 3)") !=
+          std::string::npos);
+  REQUIRE(javascript.code.find(
+              "__mpf_sparse_subtract(10, A, [], [2, 2], [2, 2], 2, 2, 0, 3, 2)") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_add(A, B, ") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_subtract(") != std::string::npos);
+  REQUIRE(cpp.code.find("std::array<std::size_t, 0>{}") != std::string::npos);
+  REQUIRE(cpp.code.find("__mpf_sparse_add") == std::string::npos);
+  REQUIRE(javascript.code.find("mpf_runtime::sparse_add") == std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    for (std::size_t line = 5U; line <= 14U; ++line) {
+      REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                          [line](const auto& segment) { return segment.original_line == line; }));
+    }
+  }
+
+  const std::string sparse_only_source =
+      "A = sparse([1 0; 0 1]);\n"
+      "disp(nnz(A))\n";
+  const auto sparse_only_javascript = transpile_array(
+      sparse_only_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto sparse_only_cpp =
+      transpile_array(sparse_only_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(sparse_only_javascript.success());
+  REQUIRE(sparse_only_cpp.success());
+  REQUIRE(sparse_only_javascript.code.find("__mpf_sparse_arithmetic_plan") == std::string::npos);
+  REQUIRE(sparse_only_cpp.code.find("validate_sparse_arithmetic_plan") == std::string::npos);
+}
+
+TEST_CASE("Matlab sparse arithmetic fails closed outside the typed rank-two contract") {
+  const std::vector<std::string> rejected{
+      "A = sparse([1 0; 0 1]);\nB = A + [1 2 3];\n",
+      "A = sparse([1 0; 0 1]);\nB = A - [1i 0; 0 1];\n",
+      "A = sparse([1 0; 0 1]);\nB = A + reshape([1 2 3 4], 2, 1, 2);\n"};
+  for (const auto& source : rejected) {
+    for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+      const auto result = transpile_array(source, mpf::SourceLanguage::matlab, target);
+      REQUIRE(!result.success());
+      REQUIRE(result.diagnostics.front().code == "MPF2054");
+    }
+  }
+}
+
 TEST_CASE("Matlab sparse element-wise products preserve CSC storage and broadcast") {
   const std::string source =
       "A = sparse([1 0 2; 0 3 0]);\n"
