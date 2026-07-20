@@ -26,6 +26,7 @@ enum class RuntimeFeature : std::uint8_t {
   complex_matrices,
   sparse_matrices,
   complex_sparse,
+  sparse_product,
   sparse_power,
   sparse_arithmetic,
   sparse_reductions,
@@ -472,11 +473,12 @@ enum class RuntimeFragment : std::uint8_t {
   arrays,
   complex_matrices,
   sparse_matrices,
+  complex_sparse,
+  sparse_product,
   sparse_power,
   sparse_arithmetic,
   sparse_reductions,
-  scalar_division,
-  complex_sparse
+  scalar_division
 };
 
 struct ModulePlan {

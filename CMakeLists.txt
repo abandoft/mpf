@@ -194,6 +194,7 @@ if(MPF_ENABLE_JAVASCRIPT_BACKEND)
     src/backends/javascript/runtime.cpp
     src/backends/javascript/sparse_arithmetic_runtime.cpp
     src/backends/javascript/sparse_matrix_runtime.cpp
+    src/backends/javascript/sparse_product_runtime.cpp
     src/backends/javascript/sparse_power_runtime.cpp
     src/backends/javascript/sparse_reduction_runtime.cpp
     src/backends/javascript/validator.cpp)
@@ -221,6 +222,7 @@ if(MPF_ENABLE_CPP_BACKEND)
     src/backends/cpp/runtime.cpp
     src/backends/cpp/sparse_arithmetic_runtime.cpp
     src/backends/cpp/sparse_matrix_runtime.cpp
+    src/backends/cpp/sparse_product_runtime.cpp
     src/backends/cpp/sparse_power_runtime.cpp
     src/backends/cpp/sparse_reduction_runtime.cpp
     src/backends/cpp/validator.cpp)

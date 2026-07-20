@@ -9,6 +9,7 @@
 #include "sparse_arithmetic_runtime.hpp"
 #include "sparse_matrix_runtime.hpp"
 #include "sparse_power_runtime.hpp"
+#include "sparse_product_runtime.hpp"
 #include "sparse_reduction_runtime.hpp"
 
 namespace mpf::detail {
@@ -38,6 +39,9 @@ class RuntimeEmitter final {
     const bool include_sparse_arithmetic =
         std::find(fragments.begin(), fragments.end(),
                   cpp::lir::RuntimeFragment::sparse_arithmetic) != fragments.end();
+    const bool include_sparse_product =
+        std::find(fragments.begin(), fragments.end(), cpp::lir::RuntimeFragment::sparse_product) !=
+        fragments.end();
     const bool include_sparse_power =
         std::find(fragments.begin(), fragments.end(), cpp::lir::RuntimeFragment::sparse_power) !=
         fragments.end();
@@ -1977,6 +1981,7 @@ class RuntimeEmitter final {
     if (include_complex_matrices) emit_cpp_complex_matrix_runtime(output_);
     if (include_sparse_matrices) emit_cpp_sparse_matrix_runtime(output_);
     if (include_complex_sparse) emit_cpp_complex_sparse_runtime(output_);
+    if (include_sparse_product) emit_cpp_sparse_product_runtime(output_);
     if (include_sparse_power) emit_cpp_sparse_power_runtime(output_);
     if (include_sparse_arithmetic) emit_cpp_sparse_arithmetic_runtime(output_);
     if (include_sparse_reductions) emit_cpp_sparse_reduction_runtime(output_);

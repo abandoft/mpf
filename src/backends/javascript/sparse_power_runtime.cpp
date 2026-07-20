@@ -57,12 +57,15 @@ function __mpf_sparse_mpower(value, exponent, inputShape, resultShape,
     if (remaining % 2 === 1) {
       result = result === null
         ? factor
-        : __mpf_sparse_sparse_mtimes(result, factor, resultShape, inputShape, resultShape);
+        : __mpf_sparse_sparse_mtimes(
+            result, factor, resultShape, inputShape, resultShape,
+            __mpf_sparse_value_finite_real);
     }
     remaining = Math.floor(remaining / 2);
     if (remaining > 0) {
       factor = __mpf_sparse_sparse_mtimes(
-        factor, factor, inputShape, inputShape, inputShape);
+        factor, factor, inputShape, inputShape, inputShape,
+        __mpf_sparse_value_finite_real);
     }
   }
   return result;

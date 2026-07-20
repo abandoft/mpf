@@ -97,7 +97,10 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
   if (attributes.matrix_operation.numeric_domain ==
       ::mpf::detail::semantic::MatrixNumericDomain::complex) {
     result.runtime.require(lir::RuntimeFeature::complex_numbers);
-    result.runtime.require(lir::RuntimeFeature::complex_matrices);
+    if (attributes.matrix_operation.storage_policy !=
+        ::mpf::detail::semantic::MatrixStoragePolicy::sparse_csc_multiply) {
+      result.runtime.require(lir::RuntimeFeature::complex_matrices);
+    }
   }
   if (mir::array_storage(program, expression.type_id) == ArrayStorageFormat::sparse_csc ||
       attributes.matrix_operation.storage_policy ==
@@ -113,8 +116,14 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
     result.runtime.require(lir::RuntimeFeature::sparse_arithmetic);
   }
   if (attributes.matrix_operation.storage_policy ==
+      ::mpf::detail::semantic::MatrixStoragePolicy::sparse_csc_multiply) {
+    result.runtime.require(lir::RuntimeFeature::sparse_matrices);
+    result.runtime.require(lir::RuntimeFeature::sparse_product);
+  }
+  if (attributes.matrix_operation.storage_policy ==
       ::mpf::detail::semantic::MatrixStoragePolicy::sparse_csc_power) {
     result.runtime.require(lir::RuntimeFeature::sparse_matrices);
+    result.runtime.require(lir::RuntimeFeature::sparse_product);
     result.runtime.require(lir::RuntimeFeature::sparse_power);
   }
   if (attributes.reduction.input_storage == ArrayStorageFormat::sparse_csc) {

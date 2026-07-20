@@ -75,7 +75,7 @@ sparse_matrix<double> sparse_mpower(
   while (remaining != 0U) {
     if ((remaining & 1U) != 0U) {
       if (has_result) {
-        result = sparse_sparse_mtimes(result, factor, result_shape, input_shape, result_shape);
+        result = sparse_sparse_mtimes(result, factor, result_shape, input_shape, result_shape, 1);
       } else {
         result = factor;
         has_result = true;
@@ -83,7 +83,7 @@ sparse_matrix<double> sparse_mpower(
     }
     remaining >>= 1U;
     if (remaining != 0U) {
-      factor = sparse_sparse_mtimes(factor, factor, input_shape, input_shape, input_shape);
+      factor = sparse_sparse_mtimes(factor, factor, input_shape, input_shape, input_shape, 1);
     }
   }
   return result;

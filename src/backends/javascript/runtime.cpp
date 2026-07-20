@@ -8,6 +8,7 @@
 #include "sparse_arithmetic_runtime.hpp"
 #include "sparse_matrix_runtime.hpp"
 #include "sparse_power_runtime.hpp"
+#include "sparse_product_runtime.hpp"
 #include "sparse_reduction_runtime.hpp"
 
 namespace mpf::detail {
@@ -33,6 +34,9 @@ class RuntimeEmitter final {
         break;
       case javascript::lir::RuntimeFragment::complex_sparse:
         emit_javascript_complex_sparse_runtime(output_);
+        break;
+      case javascript::lir::RuntimeFragment::sparse_product:
+        emit_javascript_sparse_product_runtime(output_);
         break;
       case javascript::lir::RuntimeFragment::sparse_power:
         emit_javascript_sparse_power_runtime(output_);

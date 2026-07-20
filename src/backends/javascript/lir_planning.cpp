@@ -45,6 +45,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::complex_sparse)) {
     result.push_back(lir::RuntimeFragment::complex_sparse);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::sparse_product)) {
+    result.push_back(lir::RuntimeFragment::sparse_product);
+  }
   if (program.runtime.contains(lir::RuntimeFeature::sparse_power)) {
     result.push_back(lir::RuntimeFragment::sparse_power);
   }
@@ -134,10 +137,17 @@ void verify_module(const lir::SemanticProgram& program, std::vector<Diagnostic>&
     add_error(diagnostics, {1, 1},
               "JavaScript sparse-arithmetic runtime requires sparse-matrix support");
   }
-  if (program.runtime.contains(lir::RuntimeFeature::sparse_power) &&
+  if (program.runtime.contains(lir::RuntimeFeature::sparse_product) &&
       !program.runtime.contains(lir::RuntimeFeature::sparse_matrices)) {
     add_error(diagnostics, {1, 1},
-              "JavaScript sparse-power runtime requires sparse-matrix support");
+              "JavaScript sparse-product runtime requires sparse-matrix support");
+  }
+  if (program.runtime.contains(lir::RuntimeFeature::sparse_power) &&
+      (!program.runtime.contains(lir::RuntimeFeature::sparse_matrices) ||
+       !program.runtime.contains(lir::RuntimeFeature::sparse_product))) {
+    add_error(diagnostics, {1, 1},
+              "JavaScript sparse-power runtime requires sparse-matrix and sparse-product "
+              "support");
   }
   if (uses_array_copy(program.statements) &&
       !program.runtime.contains(lir::RuntimeFeature::arrays)) {
