@@ -129,6 +129,27 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     output << "->";
     dump_shape(expression.matrix_operation.result_shape);
   }
+  if (expression.sparse_arithmetic.valid()) {
+    const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
+      output << '[';
+      for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+        if (axis != 0U) output << ',';
+        output << shape[axis];
+      }
+      output << ']';
+    };
+    output << " sparse-arithmetic " << static_cast<int>(expression.sparse_arithmetic.operation)
+           << " storage-policy "
+           << static_cast<int>(expression.sparse_arithmetic.storage_policy) << " storage "
+           << static_cast<int>(expression.sparse_arithmetic.left_storage) << ','
+           << static_cast<int>(expression.sparse_arithmetic.right_storage) << "->"
+           << static_cast<int>(expression.sparse_arithmetic.result_storage) << ' ';
+    dump_shape(expression.sparse_arithmetic.left_shape);
+    output << ',';
+    dump_shape(expression.sparse_arithmetic.right_shape);
+    output << "->";
+    dump_shape(expression.sparse_arithmetic.result_shape);
+  }
   if (expression.sparse_elementwise.valid()) {
     const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
       output << '[';

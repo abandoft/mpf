@@ -155,6 +155,13 @@ std::string matlab_array_helper(const lir::Expression& expression) {
       case semantic::SparseLogicalOperation::none: return {};
     }
   }
+  if (expression.sparse_arithmetic.valid()) {
+    switch (expression.sparse_arithmetic.operation) {
+      case semantic::SparseArithmeticOperation::add: return "__mpf_sparse_add";
+      case semantic::SparseArithmeticOperation::subtract: return "__mpf_sparse_subtract";
+      case semantic::SparseArithmeticOperation::none: return {};
+    }
+  }
   if (expression.sparse_elementwise.valid()) {
     const auto left = expression.sparse_elementwise.left_storage;
     const auto right = expression.sparse_elementwise.right_storage;
@@ -419,6 +426,36 @@ bool valid_matrix_shapes(const lir::MatrixOperationPlan& plan,
              plan.left_shape[0] == plan.left_shape[1] && plan.result_shape == plan.left_shape;
   }
   return false;
+}
+
+bool valid_sparse_arithmetic_plan(const lir::Expression& expression) noexcept {
+  const auto& plan = expression.sparse_arithmetic;
+  if (!plan.valid()) {
+    return plan.storage_policy == semantic::SparseArithmeticStoragePolicy::none &&
+           plan.shape_source == semantic::BroadcastShapeSource::static_extents &&
+           plan.left_storage == ArrayStorageFormat::none &&
+           plan.right_storage == ArrayStorageFormat::none &&
+           plan.result_storage == ArrayStorageFormat::none && plan.left_shape.empty() &&
+           plan.right_shape.empty() && plan.result_shape.empty() && plan.axes.empty();
+  }
+  const auto expected_operation = expression.operation == BinaryOperator::add
+                                      ? semantic::SparseArithmeticOperation::add
+                                  : expression.operation == BinaryOperator::subtract
+                                      ? semantic::SparseArithmeticOperation::subtract
+                                      : semantic::SparseArithmeticOperation::none;
+  return expression.kind == ExpressionKind::binary &&
+         expression.array_operation == semantic::ArrayOperation::matlab &&
+         expression.children.size() == 2U && plan.operation == expected_operation &&
+         !expression.broadcast.valid && expression.inferred_type == ValueType::list &&
+         expression.element_type == ValueType::real &&
+         expression.element_numeric_type == real_numeric_type &&
+         plan.left_storage == expression.children[0].array_storage &&
+         plan.right_storage == expression.children[1].array_storage &&
+         plan.result_storage == expression.array_storage && plan.result_shape == expression.shape &&
+         semantic::valid_sparse_arithmetic_contract(
+             plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage,
+             plan.right_storage, plan.result_storage, plan.left_shape, plan.right_shape,
+             plan.result_shape, plan.axes);
 }
 
 bool valid_sparse_elementwise_plan(const lir::Expression& expression) noexcept {
@@ -864,8 +901,11 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
         result.precedence = 9;
         result.token = matlab_array_helper(expression);
         result.form = lir::ExpressionForm::matlab_array_operation;
+        result.sparse_arithmetic = expression.sparse_arithmetic;
         result.sparse_elementwise = expression.sparse_elementwise;
-        if (!result.sparse_elementwise.valid()) result.broadcast = expression.broadcast;
+        if (!result.sparse_arithmetic.valid() && !result.sparse_elementwise.valid()) {
+          result.broadcast = expression.broadcast;
+        }
         if (result.broadcast.valid &&
             result.broadcast.shape_source == semantic::BroadcastShapeSource::runtime_operands) {
           result.token += "_runtime";
@@ -1092,6 +1132,16 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
           static_cast<std::int64_t>(result.sparse_logical.left_storage),
           static_cast<std::int64_t>(result.sparse_logical.right_storage),
           static_cast<std::int64_t>(result.sparse_logical.result_storage)};
+    } else if (result.sparse_arithmetic.valid()) {
+      result.runtime_shape_arguments = {result.sparse_arithmetic.left_shape,
+                                        result.sparse_arithmetic.right_shape,
+                                        result.sparse_arithmetic.result_shape};
+      result.runtime_integer_arguments = {
+          static_cast<std::int64_t>(result.sparse_arithmetic.operation),
+          static_cast<std::int64_t>(result.sparse_arithmetic.storage_policy),
+          static_cast<std::int64_t>(result.sparse_arithmetic.left_storage),
+          static_cast<std::int64_t>(result.sparse_arithmetic.right_storage),
+          static_cast<std::int64_t>(result.sparse_arithmetic.result_storage)};
     } else if (result.sparse_elementwise.valid()) {
       result.runtime_shape_arguments = {result.sparse_elementwise.left_shape,
                                         result.sparse_elementwise.right_shape,
@@ -1130,6 +1180,16 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.broadcast.right_shape != right.broadcast.right_shape ||
       left.broadcast.result_shape != right.broadcast.result_shape ||
       left.broadcast.axes != right.broadcast.axes ||
+      left.sparse_arithmetic.operation != right.sparse_arithmetic.operation ||
+      left.sparse_arithmetic.storage_policy != right.sparse_arithmetic.storage_policy ||
+      left.sparse_arithmetic.shape_source != right.sparse_arithmetic.shape_source ||
+      left.sparse_arithmetic.left_storage != right.sparse_arithmetic.left_storage ||
+      left.sparse_arithmetic.right_storage != right.sparse_arithmetic.right_storage ||
+      left.sparse_arithmetic.result_storage != right.sparse_arithmetic.result_storage ||
+      left.sparse_arithmetic.left_shape != right.sparse_arithmetic.left_shape ||
+      left.sparse_arithmetic.right_shape != right.sparse_arithmetic.right_shape ||
+      left.sparse_arithmetic.result_shape != right.sparse_arithmetic.result_shape ||
+      left.sparse_arithmetic.axes != right.sparse_arithmetic.axes ||
       left.sparse_elementwise.operation != right.sparse_elementwise.operation ||
       left.sparse_elementwise.storage_policy != right.sparse_elementwise.storage_policy ||
       left.sparse_elementwise.shape_source != right.sparse_elementwise.shape_source ||
@@ -1394,6 +1454,10 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
     add_error(diagnostics, expression.location,
               "JavaScript LIR Matlab broadcast plan is inconsistent");
   }
+  if (!valid_sparse_arithmetic_plan(expression)) {
+    add_error(diagnostics, expression.location,
+              "JavaScript LIR sparse arithmetic plan is inconsistent");
+  }
   if (!valid_sparse_elementwise_plan(expression)) {
     add_error(diagnostics, expression.location,
               "JavaScript LIR sparse element-wise plan is inconsistent");
@@ -1438,6 +1502,10 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
       expression.plan.token.empty()) {
     add_error(diagnostics, expression.location,
               "JavaScript LIR numeric runtime plan has no target helper");
+  }
+  if (expression.sparse_arithmetic.valid() && expression.plan.token.empty()) {
+    add_error(diagnostics, expression.location,
+              "JavaScript LIR sparse arithmetic plan has no target helper");
   }
   if (expression.sparse_elementwise.valid() && expression.plan.token.empty()) {
     add_error(diagnostics, expression.location,

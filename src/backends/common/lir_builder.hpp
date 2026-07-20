@@ -114,6 +114,21 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
     if (result_shape != nullptr) result.broadcast.result_shape = result_shape->extents;
     result.broadcast.axes = attributes.broadcast.axes;
   }
+  if (attributes.sparse_arithmetic.valid()) {
+    result.sparse_arithmetic.operation = attributes.sparse_arithmetic.operation;
+    result.sparse_arithmetic.storage_policy = attributes.sparse_arithmetic.storage_policy;
+    result.sparse_arithmetic.shape_source = attributes.sparse_arithmetic.shape_source;
+    result.sparse_arithmetic.left_storage = attributes.sparse_arithmetic.left_storage;
+    result.sparse_arithmetic.right_storage = attributes.sparse_arithmetic.right_storage;
+    result.sparse_arithmetic.result_storage = attributes.sparse_arithmetic.result_storage;
+    const auto* left_shape = mir::shape(program, attributes.sparse_arithmetic.left_shape);
+    const auto* right_shape = mir::shape(program, attributes.sparse_arithmetic.right_shape);
+    const auto* result_shape = mir::shape(program, attributes.sparse_arithmetic.result_shape);
+    if (left_shape != nullptr) result.sparse_arithmetic.left_shape = left_shape->extents;
+    if (right_shape != nullptr) result.sparse_arithmetic.right_shape = right_shape->extents;
+    if (result_shape != nullptr) result.sparse_arithmetic.result_shape = result_shape->extents;
+    result.sparse_arithmetic.axes = attributes.sparse_arithmetic.axes;
+  }
   if (attributes.sparse_elementwise.valid()) {
     result.sparse_elementwise.operation = attributes.sparse_elementwise.operation;
     result.sparse_elementwise.storage_policy = attributes.sparse_elementwise.storage_policy;
