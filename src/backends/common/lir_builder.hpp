@@ -326,6 +326,9 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
                                                           resolve_binding, call_sites);
   result.has_expression = source.has_expression;
   result.procedure_call = attributes.procedure_call;
+  result.implicit_result = attributes.implicit_result;
+  result.implicit_result_has_value = attributes.implicit_result_has_value;
+  result.previous_assigned = attributes.previous_assigned;
   result.secondary_expression = lower_lir_expression<LirExpression>(
       program, source.secondary_expression, ids, resolve_binding, call_sites);
   result.has_secondary_expression = source.has_secondary_expression;

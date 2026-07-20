@@ -383,7 +383,10 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
            << static_cast<int>(statement.element_numeric_type.value_class) << '/'
            << static_cast<int>(statement.element_numeric_type.complexity) << " array-storage "
            << static_cast<int>(statement.array_storage) << " plan "
-           << static_cast<int>(statement.plan.form) << " condition "
+           << static_cast<int>(statement.plan.form) << " implicit-result "
+           << static_cast<int>(statement.implicit_result) << " implicit-result-value "
+           << statement.implicit_result_has_value << " previous-assigned "
+           << statement.previous_assigned << " condition "
            << static_cast<int>(statement.plan.condition) << " target-access "
            << static_cast<int>(statement.plan.target_access) << " alternative "
            << statement.plan.has_alternative << " range-step " << statement.plan.range_has_step
@@ -425,7 +428,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v43 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v45 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";
