@@ -1276,13 +1276,19 @@ TEST_CASE("Matlab sparse matrix products remain typed through every IR layer") {
                               "ZDS = full(ZL) * ZR;\n"
                               "IL = sparse(2, 0);\n"
                               "IR = sparse(0, 4);\n"
-                              "IZ = IL * IR;\n",
+                              "IZ = IL * IR;\n"
+                              "CA = sparse([1+2i 0 2-1i; 0 3i -1]);\n"
+                              "CB = sparse([0 4-1i; 5+2i 0; -2 1+3i]);\n"
+                              "CSS = CA * CB;\n"
+                              "CSD = CA * full(CB);\n"
+                              "CDS = full(CA) * CB;\n",
                               "sparse_matrix_products.m");
   auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
   REQUIRE(analysis.empty());
 
   using Storage = mpf::detail::ArrayStorageFormat;
   using Policy = mpf::detail::semantic::MatrixStoragePolicy;
+  using Domain = mpf::detail::semantic::MatrixNumericDomain;
   const auto has_product = [&](const Storage left, const Storage right, const Storage result) {
     return std::any_of(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
                        [&](const auto& facts) {
@@ -1311,6 +1317,15 @@ TEST_CASE("Matlab sparse matrix products remain typed through every IR layer") {
                            mpf::detail::semantic::MatrixFactorizationPolicy::none &&
                        plan.structure_policy == mpf::detail::semantic::MatrixStructurePolicy::none;
               }) == 7);
+  REQUIRE(std::count_if(analysis.semantics.expressions.begin(),
+                        analysis.semantics.expressions.end(), [](const auto& facts) {
+                          const auto& plan = facts.matrix_operation;
+                          return plan.operation ==
+                                     mpf::detail::semantic::MatrixOperation::multiply &&
+                                 plan.storage_policy == Policy::sparse_csc_multiply &&
+                                 plan.numeric_domain == Domain::complex &&
+                                 facts.element_numeric_type == mpf::detail::complex_numeric_type;
+                        }) == 3);
   const auto zero_outer = std::count_if(
       analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
       [](const auto& facts) {
@@ -1343,6 +1358,19 @@ TEST_CASE("Matlab sparse matrix products remain typed through every IR layer") {
                                               "sparse-product-storage-mismatch")
                .empty());
 
+  auto contradictory_hir_domain = analysis.semantics;
+  const auto corrupt_hir_domain =
+      std::find_if(contradictory_hir_domain.expressions.begin(),
+                   contradictory_hir_domain.expressions.end(), [](const auto& facts) {
+                     return facts.matrix_operation.storage_policy == Policy::sparse_csc_multiply &&
+                            facts.matrix_operation.numeric_domain == Domain::complex;
+                   });
+  REQUIRE(corrupt_hir_domain != contradictory_hir_domain.expressions.end());
+  corrupt_hir_domain->matrix_operation.numeric_domain = Domain::real;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir_domain,
+                                              "sparse-product-domain-mismatch")
+               .empty());
+
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
   REQUIRE(mir.diagnostics.empty());
@@ -1351,6 +1379,7 @@ TEST_CASE("Matlab sparse matrix products remain typed through every IR layer") {
   REQUIRE(dump.find("storage-policy=3 exponent-policy=0 storage=3,3->3") != std::string::npos);
   REQUIRE(dump.find("storage-policy=3 exponent-policy=0 storage=3,2->2") != std::string::npos);
   REQUIRE(dump.find("storage-policy=3 exponent-policy=0 storage=2,3->2") != std::string::npos);
+  REQUIRE(dump.find("numeric-domain=2") != std::string::npos);
 
   auto contradictory_mir = mir.program;
   const auto corrupt_mir =
@@ -1364,6 +1393,18 @@ TEST_CASE("Matlab sparse matrix products remain typed through every IR layer") {
   REQUIRE(corrupt_mir != contradictory_mir.attributes.expressions.end());
   corrupt_mir->matrix_operation.storage_policy = Policy::dense;
   REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-product-policy-mismatch").empty());
+
+  auto contradictory_mir_domain = mir.program;
+  const auto corrupt_mir_domain = std::find_if(
+      contradictory_mir_domain.attributes.expressions.begin() + 1,
+      contradictory_mir_domain.attributes.expressions.end(), [](const auto& attributes) {
+        return attributes.matrix_operation.storage_policy == Policy::sparse_csc_multiply &&
+               attributes.matrix_operation.numeric_domain == Domain::complex;
+      });
+  REQUIRE(corrupt_mir_domain != contradictory_mir_domain.attributes.expressions.end());
+  corrupt_mir_domain->matrix_operation.numeric_domain = Domain::real;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir_domain, "sparse-product-domain-mismatch")
+               .empty());
 
   const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, effects, "sparse-product-effects")
@@ -1380,6 +1421,7 @@ TEST_CASE("Matlab sparse matrix products remain typed through every IR layer") {
             std::string::npos);
     REQUIRE(target_dump.find("storage-policy 3 exponent-policy 0 storage 2,3->2") !=
             std::string::npos);
+    REQUIRE(target_dump.find("numeric-domain 2") != std::string::npos);
     REQUIRE(
         target_dump.find("storage-policy 3 exponent-policy 0 storage 3,3->3 [0,3],[3,2]->[0,2]") !=
         std::string::npos);
@@ -3076,20 +3118,23 @@ TEST_CASE("target LIR planners independently own sparse matrix product kernels")
   using StructurePolicy = mpf::detail::semantic::MatrixStructurePolicy;
   using StoragePolicy = mpf::detail::semantic::MatrixStoragePolicy;
   const auto configure_statement = [](auto& statement, const Storage left_storage,
-                                      const Storage right_storage, const Storage result_storage) {
+                                      const Storage right_storage, const Storage result_storage,
+                                      const NumericDomain numeric_domain) {
     auto& expression = statement.expression;
     expression.kind = mpf::detail::ExpressionKind::binary;
     expression.value = "*";
     expression.operation = mpf::detail::BinaryOperator::multiply;
     expression.inferred_type = mpf::detail::ValueType::list;
     expression.element_type = mpf::detail::ValueType::real;
-    expression.element_numeric_type = mpf::detail::real_numeric_type;
+    expression.element_numeric_type = numeric_domain == NumericDomain::complex
+                                          ? mpf::detail::complex_numeric_type
+                                          : mpf::detail::real_numeric_type;
     expression.array_storage = result_storage;
     expression.shape = {2U, 2U};
     expression.array_operation = mpf::detail::semantic::ArrayOperation::matlab;
     expression.matrix_operation = {Operation::multiply,
                                    Solve::none,
-                                   NumericDomain::real,
+                                   numeric_domain,
                                    ConditionPolicy::none,
                                    FactorizationPolicy::none,
                                    StructurePolicy::none,
@@ -3102,13 +3147,14 @@ TEST_CASE("target LIR planners independently own sparse matrix product kernels")
                                    {3U, 2U},
                                    {2U, 2U}};
     expression.children.resize(2U);
-    auto configure_operand = [](auto& operand, const std::string_view name, const Storage storage,
-                                const std::vector<std::size_t>& shape) {
+    const auto configure_operand = [&](auto& operand, const std::string_view name,
+                                       const Storage storage,
+                                       const std::vector<std::size_t>& shape) {
       operand.kind = mpf::detail::ExpressionKind::identifier;
       operand.value = name;
       operand.inferred_type = mpf::detail::ValueType::list;
       operand.element_type = mpf::detail::ValueType::real;
-      operand.element_numeric_type = mpf::detail::real_numeric_type;
+      operand.element_numeric_type = expression.element_numeric_type;
       operand.array_storage = storage;
       operand.shape = shape;
     };
@@ -3117,11 +3163,19 @@ TEST_CASE("target LIR planners independently own sparse matrix product kernels")
   };
   const auto configure_program = [&](auto& program) {
     program.source_language = mpf::SourceLanguage::matlab;
-    program.statements.resize(3U);
+    program.statements.resize(6U);
     configure_statement(program.statements[0], Storage::sparse_csc, Storage::sparse_csc,
-                        Storage::sparse_csc);
-    configure_statement(program.statements[1], Storage::sparse_csc, Storage::dense, Storage::dense);
-    configure_statement(program.statements[2], Storage::dense, Storage::sparse_csc, Storage::dense);
+                        Storage::sparse_csc, NumericDomain::real);
+    configure_statement(program.statements[1], Storage::sparse_csc, Storage::dense, Storage::dense,
+                        NumericDomain::real);
+    configure_statement(program.statements[2], Storage::dense, Storage::sparse_csc, Storage::dense,
+                        NumericDomain::real);
+    configure_statement(program.statements[3], Storage::sparse_csc, Storage::sparse_csc,
+                        Storage::sparse_csc, NumericDomain::complex);
+    configure_statement(program.statements[4], Storage::sparse_csc, Storage::dense, Storage::dense,
+                        NumericDomain::complex);
+    configure_statement(program.statements[5], Storage::dense, Storage::sparse_csc, Storage::dense,
+                        NumericDomain::complex);
   };
 
   mpf::detail::javascript::lir::SemanticProgram javascript;
@@ -3133,9 +3187,15 @@ TEST_CASE("target LIR planners independently own sparse matrix product kernels")
   REQUIRE(javascript.statements[0].expression.plan.token == "__mpf_sparse_sparse_mtimes");
   REQUIRE(javascript.statements[1].expression.plan.token == "__mpf_sparse_dense_mtimes");
   REQUIRE(javascript.statements[2].expression.plan.token == "__mpf_dense_sparse_mtimes");
+  REQUIRE(javascript.statements[3].expression.plan.token == "__mpf_sparse_sparse_mtimes");
+  REQUIRE(javascript.statements[4].expression.plan.token == "__mpf_sparse_dense_mtimes");
+  REQUIRE(javascript.statements[5].expression.plan.token == "__mpf_dense_sparse_mtimes");
   const std::vector<std::vector<std::size_t>> shape_arguments{{2U, 3U}, {3U, 2U}, {2U, 2U}};
-  for (const auto& statement : javascript.statements) {
+  for (std::size_t index = 0U; index < javascript.statements.size(); ++index) {
+    const auto& statement = javascript.statements[index];
     REQUIRE(statement.expression.plan.runtime_shape_arguments == shape_arguments);
+    REQUIRE(statement.expression.plan.runtime_integer_arguments ==
+            std::vector<std::int64_t>{index < 3U ? 1 : 2});
   }
   javascript.statements[0].expression.plan.token = "__mpf_sparse_dense_mtimes";
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
@@ -3143,6 +3203,11 @@ TEST_CASE("target LIR planners independently own sparse matrix product kernels")
   diagnostics.clear();
   javascript.statements[0].expression.plan.token = "__mpf_sparse_sparse_mtimes";
   javascript.statements[1].expression.matrix_operation.result_storage = Storage::sparse_csc;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  javascript.statements[1].expression.matrix_operation.result_storage = Storage::dense;
+  javascript.statements[3].expression.plan.runtime_integer_arguments.front() = 0;
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(!diagnostics.empty());
 
@@ -3155,8 +3220,14 @@ TEST_CASE("target LIR planners independently own sparse matrix product kernels")
   REQUIRE(cpp.statements[0].expression.plan.token == "mpf_runtime::sparse_sparse_mtimes");
   REQUIRE(cpp.statements[1].expression.plan.token == "mpf_runtime::sparse_dense_mtimes");
   REQUIRE(cpp.statements[2].expression.plan.token == "mpf_runtime::dense_sparse_mtimes");
-  for (const auto& statement : cpp.statements) {
+  REQUIRE(cpp.statements[3].expression.plan.token == "mpf_runtime::sparse_sparse_mtimes");
+  REQUIRE(cpp.statements[4].expression.plan.token == "mpf_runtime::sparse_dense_mtimes");
+  REQUIRE(cpp.statements[5].expression.plan.token == "mpf_runtime::dense_sparse_mtimes");
+  for (std::size_t index = 0U; index < cpp.statements.size(); ++index) {
+    const auto& statement = cpp.statements[index];
     REQUIRE(statement.expression.plan.runtime_shape_arguments == shape_arguments);
+    REQUIRE(statement.expression.plan.runtime_integer_arguments ==
+            std::vector<std::int64_t>{index < 3U ? 1 : 2});
   }
   cpp.statements[2].expression.plan.token = "mpf_runtime::sparse_dense_mtimes";
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
@@ -3164,6 +3235,11 @@ TEST_CASE("target LIR planners independently own sparse matrix product kernels")
   diagnostics.clear();
   cpp.statements[2].expression.plan.token = "mpf_runtime::dense_sparse_mtimes";
   cpp.statements[0].expression.matrix_operation.storage_policy = StoragePolicy::dense;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  cpp.statements[0].expression.matrix_operation.storage_policy = StoragePolicy::sparse_csc_multiply;
+  cpp.statements[3].expression.plan.runtime_integer_arguments.front() = 0;
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
 }
@@ -5418,9 +5494,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v41") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v42") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v41") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v42") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -5636,6 +5712,32 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
                     javascript_complex_sparse.module.runtime_fragments.end(),
                     mpf::detail::javascript::lir::RuntimeFragment::complex_sparse) !=
           javascript_complex_sparse.module.runtime_fragments.end());
+  auto javascript_sparse_product = javascript;
+  javascript_sparse_product.runtime.require(
+      mpf::detail::javascript::lir::RuntimeFeature::sparse_product);
+  mpf::detail::javascript::plan_lir_resources(javascript_sparse_product, options);
+  REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript_sparse_product).empty());
+  javascript_sparse_product.runtime.require(
+      mpf::detail::javascript::lir::RuntimeFeature::sparse_matrices);
+  mpf::detail::javascript::plan_lir_resources(javascript_sparse_product, options);
+  REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript_sparse_product).empty());
+  REQUIRE((javascript_sparse_product.module.runtime_fragments ==
+           std::vector<mpf::detail::javascript::lir::RuntimeFragment>{
+               mpf::detail::javascript::lir::RuntimeFragment::dynamic_values,
+               mpf::detail::javascript::lir::RuntimeFragment::arrays,
+               mpf::detail::javascript::lir::RuntimeFragment::sparse_matrices,
+               mpf::detail::javascript::lir::RuntimeFragment::sparse_product}));
+  javascript_sparse_product.runtime.require(
+      mpf::detail::javascript::lir::RuntimeFeature::sparse_power);
+  javascript_sparse_product.runtime.bits &=
+      ~(1U << static_cast<std::uint32_t>(
+            mpf::detail::javascript::lir::RuntimeFeature::sparse_product));
+  mpf::detail::javascript::plan_lir_resources(javascript_sparse_product, options);
+  REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript_sparse_product).empty());
+  javascript_sparse_product.runtime.require(
+      mpf::detail::javascript::lir::RuntimeFeature::sparse_product);
+  mpf::detail::javascript::plan_lir_resources(javascript_sparse_product, options);
+  REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript_sparse_product).empty());
   javascript.runtime.require(mpf::detail::javascript::lir::RuntimeFeature::complex_matrices);
   mpf::detail::javascript::plan_lir_resources(javascript, options);
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
@@ -5678,6 +5780,27 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
                     cpp_complex_sparse.translation_unit.runtime_fragments.end(),
                     mpf::detail::cpp::lir::RuntimeFragment::complex_sparse) !=
           cpp_complex_sparse.translation_unit.runtime_fragments.end());
+  auto cpp_sparse_product = cpp;
+  cpp_sparse_product.runtime.require(mpf::detail::cpp::lir::RuntimeFeature::arrays);
+  cpp_sparse_product.runtime.require(mpf::detail::cpp::lir::RuntimeFeature::sparse_product);
+  mpf::detail::cpp::plan_lir_resources(cpp_sparse_product, options);
+  REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp_sparse_product).empty());
+  cpp_sparse_product.runtime.require(mpf::detail::cpp::lir::RuntimeFeature::sparse_matrices);
+  mpf::detail::cpp::plan_lir_resources(cpp_sparse_product, options);
+  REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp_sparse_product).empty());
+  REQUIRE((cpp_sparse_product.translation_unit.runtime_fragments ==
+           std::vector<mpf::detail::cpp::lir::RuntimeFragment>{
+               mpf::detail::cpp::lir::RuntimeFragment::core,
+               mpf::detail::cpp::lir::RuntimeFragment::sparse_matrices,
+               mpf::detail::cpp::lir::RuntimeFragment::sparse_product}));
+  cpp_sparse_product.runtime.require(mpf::detail::cpp::lir::RuntimeFeature::sparse_power);
+  cpp_sparse_product.runtime.bits &=
+      ~(1U << static_cast<std::uint32_t>(mpf::detail::cpp::lir::RuntimeFeature::sparse_product));
+  mpf::detail::cpp::plan_lir_resources(cpp_sparse_product, options);
+  REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp_sparse_product).empty());
+  cpp_sparse_product.runtime.require(mpf::detail::cpp::lir::RuntimeFeature::sparse_product);
+  mpf::detail::cpp::plan_lir_resources(cpp_sparse_product, options);
+  REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp_sparse_product).empty());
   cpp.emission.division_by_zero = mpf::detail::semantic::DivisionByZero::ieee754;
   REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp).empty());
   cpp.emission.division_by_zero = mpf::detail::semantic::DivisionByZero::exception;
