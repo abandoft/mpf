@@ -692,6 +692,107 @@ if(NOT sparse_logical_analyzer_contract MATCHES "facts\.sparse_logical =" OR
   message(FATAL_ERROR
     "Analyzer and MIR do not independently own sparse logical storage and shape plans")
 endif()
+file(READ "${SOURCE_DIR}/src/ir/semantics.hpp" sparse_arithmetic_semantic_contract)
+foreach(required_sparse_arithmetic_semantic IN ITEMS
+    "SparseArithmeticOperation"
+    "SparseArithmeticStoragePolicy"
+    "sparse_arithmetic_result_storage"
+    "sparse_arithmetic_storage_policy"
+    "valid_sparse_arithmetic_contract")
+  if(NOT sparse_arithmetic_semantic_contract MATCHES
+     "${required_sparse_arithmetic_semantic}")
+    message(FATAL_ERROR
+      "sparse arithmetic semantic contract is missing: "
+      "${required_sparse_arithmetic_semantic}")
+  endif()
+endforeach()
+foreach(sparse_arithmetic_ir IN ITEMS
+    src/ir/semantic_facts.hpp
+    src/ir/mir.hpp
+    src/backends/javascript/lir.hpp
+    src/backends/cpp/lir.hpp)
+  file(READ "${SOURCE_DIR}/${sparse_arithmetic_ir}" sparse_arithmetic_ir_contract)
+  if(NOT sparse_arithmetic_ir_contract MATCHES "SparseArithmeticPlan" OR
+     NOT sparse_arithmetic_ir_contract MATCHES "sparse_arithmetic" OR
+     NOT sparse_arithmetic_ir_contract MATCHES "SparseArithmeticStoragePolicy")
+    message(FATAL_ERROR
+      "IR layer does not own a typed sparse arithmetic plan: ${sparse_arithmetic_ir}")
+  endif()
+endforeach()
+file(READ "${SOURCE_DIR}/src/backends/common/lir_builder.hpp"
+     sparse_arithmetic_lir_builder_contract)
+if(NOT sparse_arithmetic_lir_builder_contract MATCHES
+     "sparse_arithmetic\.operation = attributes\.sparse_arithmetic\.operation" OR
+   NOT sparse_arithmetic_lir_builder_contract MATCHES
+     "sparse_arithmetic\.storage_policy = attributes\.sparse_arithmetic\.storage_policy" OR
+   NOT sparse_arithmetic_lir_builder_contract MATCHES
+     "sparse_arithmetic\.result_storage = attributes\.sparse_arithmetic\.result_storage" OR
+   NOT sparse_arithmetic_lir_builder_contract MATCHES
+     "sparse_arithmetic\.result_shape")
+  message(FATAL_ERROR
+    "target LIR builder does not propagate the sparse arithmetic contract")
+endif()
+file(READ "${SOURCE_DIR}/src/semantic/expression_analyzer.cpp"
+     sparse_arithmetic_analyzer_contract)
+file(READ "${SOURCE_DIR}/src/ir/mir.cpp" sparse_arithmetic_mir_lowering_contract)
+file(READ "${SOURCE_DIR}/src/ir/mir_verifier.cpp" sparse_arithmetic_mir_verifier_contract)
+if(NOT sparse_arithmetic_analyzer_contract MATCHES "facts\.sparse_arithmetic =" OR
+   NOT sparse_arithmetic_analyzer_contract MATCHES "sparse_arithmetic_result_storage" OR
+   NOT sparse_arithmetic_analyzer_contract MATCHES "valid_sparse_arithmetic_contract" OR
+   NOT sparse_arithmetic_mir_lowering_contract MATCHES "sparse_arithmetic\.operation" OR
+   NOT sparse_arithmetic_mir_lowering_contract MATCHES "sparse_arithmetic\.result_shape" OR
+   NOT sparse_arithmetic_mir_verifier_contract MATCHES "valid_sparse_arithmetic_shapes" OR
+   NOT sparse_arithmetic_mir_verifier_contract MATCHES "valid_sparse_arithmetic_contract")
+  message(FATAL_ERROR
+    "Analyzer and MIR do not independently own sparse arithmetic storage and shape plans")
+endif()
+foreach(sparse_arithmetic_representation IN ITEMS
+    src/backends/javascript/lir_representation.cpp
+    src/backends/cpp/lir_representation.cpp)
+  file(READ "${SOURCE_DIR}/${sparse_arithmetic_representation}"
+       sparse_arithmetic_representation_contract)
+  if(NOT sparse_arithmetic_representation_contract MATCHES
+       "valid_sparse_arithmetic_plan" OR
+     NOT sparse_arithmetic_representation_contract MATCHES "sparse_add" OR
+     NOT sparse_arithmetic_representation_contract MATCHES "sparse_subtract" OR
+     NOT sparse_arithmetic_representation_contract MATCHES "runtime_shape_arguments" OR
+     NOT sparse_arithmetic_representation_contract MATCHES "runtime_integer_arguments")
+    message(FATAL_ERROR
+      "target representation does not own sparse arithmetic helper and ABI selection: "
+      "${sparse_arithmetic_representation}")
+  endif()
+endforeach()
+foreach(sparse_arithmetic_planning IN ITEMS
+    src/backends/javascript/lir_planning.cpp
+    src/backends/cpp/lir_planning.cpp)
+  file(READ "${SOURCE_DIR}/${sparse_arithmetic_planning}"
+       sparse_arithmetic_planning_contract)
+  if(NOT sparse_arithmetic_planning_contract MATCHES
+       "RuntimeFeature::sparse_arithmetic" OR
+     NOT sparse_arithmetic_planning_contract MATCHES
+       "RuntimeFragment::sparse_arithmetic" OR
+     NOT sparse_arithmetic_planning_contract MATCHES
+       "sparse-arithmetic runtime requires sparse-matrix support")
+    message(FATAL_ERROR
+      "target resource planner does not own the sparse arithmetic fragment dependency: "
+      "${sparse_arithmetic_planning}")
+  endif()
+  string(FIND "${sparse_arithmetic_planning_contract}"
+    "RuntimeFragment::sparse_matrices" sparse_matrix_fragment_index)
+  string(FIND "${sparse_arithmetic_planning_contract}"
+    "RuntimeFragment::sparse_arithmetic" sparse_arithmetic_fragment_index)
+  if(sparse_matrix_fragment_index EQUAL -1 OR sparse_arithmetic_fragment_index EQUAL -1 OR
+     sparse_arithmetic_fragment_index LESS sparse_matrix_fragment_index)
+    message(FATAL_ERROR
+      "sparse arithmetic fragment is planned before its sparse-matrix dependency: "
+      "${sparse_arithmetic_planning}")
+  endif()
+endforeach()
+foreach(renderer IN ITEMS src/backends/javascript/renderer.cpp src/backends/cpp/renderer.cpp)
+  mpf_assert_file_excludes("${renderer}"
+    "SparseArithmetic(Operation|StoragePolicy)|valid_sparse_arithmetic_contract|sparse_arithmetic"
+    "target renderer recovered sparse arithmetic semantics from source plans")
+endforeach()
 foreach(representation IN ITEMS
     src/backends/javascript/lir_representation.cpp
     src/backends/cpp/lir_representation.cpp)
@@ -860,6 +961,72 @@ foreach(sparse_reduction_runtime IN ITEMS
   mpf_assert_file_excludes("${sparse_reduction_runtime}"
     "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
     "target sparse-reduction runtime depends on compiler state")
+endforeach()
+foreach(sparse_arithmetic_runtime IN ITEMS
+    src/backends/javascript/sparse_arithmetic_runtime.cpp
+    src/backends/cpp/sparse_arithmetic_runtime.cpp)
+  if(NOT EXISTS "${SOURCE_DIR}/${sparse_arithmetic_runtime}")
+    message(FATAL_ERROR
+      "target sparse-arithmetic runtime is missing: ${sparse_arithmetic_runtime}")
+  endif()
+  file(READ "${SOURCE_DIR}/${sparse_arithmetic_runtime}"
+       sparse_arithmetic_runtime_contract)
+  if(NOT sparse_arithmetic_runtime_contract MATCHES
+       "emit_(javascript|cpp)_sparse_arithmetic_runtime" OR
+     NOT sparse_arithmetic_runtime_contract MATCHES "sparse_(add|subtract)" OR
+     NOT sparse_arithmetic_runtime_contract MATCHES "validate_sparse_csc" OR
+     NOT sparse_arithmetic_runtime_contract MATCHES
+       "sparse_arithmetic_(preserve|materialize)" OR
+     NOT sparse_arithmetic_runtime_contract MATCHES
+       "sparse arithmetic storage plan is invalid" OR
+     NOT sparse_arithmetic_runtime_contract MATCHES
+       "sparse arithmetic produced a nonfinite value")
+    message(FATAL_ERROR
+      "target sparse-arithmetic fragment does not own storage, shape, numeric and CSC kernels: "
+      "${sparse_arithmetic_runtime}")
+  endif()
+  mpf_assert_file_excludes("${sparse_arithmetic_runtime}"
+    "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
+    "target sparse-arithmetic runtime depends on compiler state")
+endforeach()
+foreach(sparse_matrix_runtime IN ITEMS
+    src/backends/javascript/sparse_matrix_runtime.cpp
+    src/backends/cpp/sparse_matrix_runtime.cpp)
+  mpf_assert_file_excludes("${sparse_matrix_runtime}"
+    "sparse_arithmetic|sparse_(add|subtract)|sparse arithmetic storage plan"
+    "target sparse-matrix base runtime absorbed the optional sparse-arithmetic fragment")
+endforeach()
+foreach(sparse_arithmetic_runtime_catalog IN ITEMS
+    src/backends/javascript/runtime.cpp
+    src/backends/cpp/runtime.cpp)
+  file(READ "${SOURCE_DIR}/${sparse_arithmetic_runtime_catalog}"
+       sparse_arithmetic_runtime_catalog_contract)
+  if(NOT sparse_arithmetic_runtime_catalog_contract MATCHES
+       "RuntimeFragment::sparse_arithmetic" OR
+     NOT sparse_arithmetic_runtime_catalog_contract MATCHES
+       "emit_(javascript|cpp)_sparse_arithmetic_runtime")
+    message(FATAL_ERROR
+      "target runtime catalog does not serialize the sparse-arithmetic fragment: "
+      "${sparse_arithmetic_runtime_catalog}")
+  endif()
+  string(FIND "${sparse_arithmetic_runtime_catalog_contract}"
+    "emit_javascript_sparse_matrix_runtime" javascript_sparse_matrix_emit_index)
+  string(FIND "${sparse_arithmetic_runtime_catalog_contract}"
+    "emit_javascript_sparse_arithmetic_runtime" javascript_sparse_arithmetic_emit_index)
+  string(FIND "${sparse_arithmetic_runtime_catalog_contract}"
+    "emit_cpp_sparse_matrix_runtime" cpp_sparse_matrix_emit_index)
+  string(FIND "${sparse_arithmetic_runtime_catalog_contract}"
+    "emit_cpp_sparse_arithmetic_runtime" cpp_sparse_arithmetic_emit_index)
+  if((javascript_sparse_arithmetic_emit_index GREATER -1 AND
+      (javascript_sparse_matrix_emit_index EQUAL -1 OR
+       javascript_sparse_arithmetic_emit_index LESS javascript_sparse_matrix_emit_index)) OR
+     (cpp_sparse_arithmetic_emit_index GREATER -1 AND
+      (cpp_sparse_matrix_emit_index EQUAL -1 OR
+       cpp_sparse_arithmetic_emit_index LESS cpp_sparse_matrix_emit_index)))
+    message(FATAL_ERROR
+      "target runtime emits sparse arithmetic before its sparse-matrix dependency: "
+      "${sparse_arithmetic_runtime_catalog}")
+  endif()
 endforeach()
 foreach(sparse_representation IN ITEMS
     src/backends/javascript/lir_representation.cpp
@@ -1306,6 +1473,17 @@ foreach(target_directory IN ITEMS javascript cpp)
        "${SOURCE_DIR}/src/backends/${target_directory}/${sparse_matrix_component}")
       message(FATAL_ERROR
         "target backend directory is missing ${target_directory}/${sparse_matrix_component}")
+    endif()
+  endforeach()
+  foreach(optional_sparse_component IN ITEMS
+      sparse_arithmetic_runtime.cpp
+      sparse_arithmetic_runtime.hpp
+      sparse_reduction_runtime.cpp
+      sparse_reduction_runtime.hpp)
+    if(NOT EXISTS
+       "${SOURCE_DIR}/src/backends/${target_directory}/${optional_sparse_component}")
+      message(FATAL_ERROR
+        "target backend directory is missing ${target_directory}/${optional_sparse_component}")
     endif()
   endforeach()
 endforeach()
