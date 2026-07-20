@@ -30,8 +30,9 @@ namespace mpf::detail::mir {
   return Opcode::invalid;
 }
 
-[[nodiscard]] inline Opcode statement_opcode(const StatementKind kind,
-                                             const bool has_expression = false) noexcept {
+[[nodiscard]] inline Opcode statement_opcode(
+    const StatementKind kind, const bool has_expression = false,
+    const bool implicit_result_has_value = false) noexcept {
   switch (kind) {
     case StatementKind::declaration: return has_expression ? Opcode::store : Opcode::allocate;
     case StatementKind::assignment:
@@ -39,7 +40,8 @@ namespace mpf::detail::mir {
     case StatementKind::indexed_assignment: return Opcode::store_indexed;
     case StatementKind::print: return Opcode::output;
     case StatementKind::return_statement: return Opcode::return_value;
-    case StatementKind::expression: return Opcode::expression;
+    case StatementKind::expression:
+      return implicit_result_has_value ? Opcode::store : Opcode::expression;
     case StatementKind::if_statement:
     case StatementKind::select_case:
     case StatementKind::case_clause: return Opcode::selection;

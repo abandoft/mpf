@@ -32,7 +32,8 @@ void dump_hir_statements(std::ostringstream& output, const std::vector<hir::Stat
   for (const auto& statement : statements) {
     output << std::string(depth * 2U, ' ') << "stmt %h" << statement.id.value()
            << " kind=" << enum_value(statement.kind) << " name=" << std::quoted(statement.name)
-           << " line=" << statement.line << '\n';
+           << " line=" << statement.line
+           << " implicit-result=" << enum_value(statement.implicit_result) << '\n';
     dump_hir_expression(output, statement.expression, depth + 1U);
     dump_hir_expression(output, statement.secondary_expression, depth + 1U);
     dump_hir_expression(output, statement.tertiary_expression, depth + 1U);
@@ -72,7 +73,8 @@ void dump_normalized_hir_statements(std::ostringstream& output,
                                     const std::size_t depth) {
   for (const auto& statement : statements) {
     output << std::string(depth * 2U, ' ') << "stmt kind=" << enum_value(statement.kind)
-           << " name=" << std::quoted(statement.name) << " parameters=[";
+           << " name=" << std::quoted(statement.name)
+           << " implicit-result=" << enum_value(statement.implicit_result) << " parameters=[";
     for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
       if (index != 0) output << ',';
       output << std::quoted(statement.parameters[index]);
@@ -169,7 +171,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v28 hir-nodes=" << table.hir_node_count
+  output << "semantic-v30 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -413,7 +415,9 @@ std::string dump_semantics(const hir::SemanticTable& table) {
       }
       output << "] parameters=" << facts.parameter_types.size()
              << " returns=" << facts.return_types.size() << " targets=" << facts.target_types.size()
-             << " exported=" << facts.exported;
+             << " exported=" << facts.exported
+             << " implicit-result-value=" << facts.implicit_result_has_value
+             << " previous-assigned=" << facts.previous_assigned;
       if (facts.indexed_mutation.valid()) {
         output << " mutation=" << enum_value(facts.indexed_mutation.kind)
                << " shape-source=" << enum_value(facts.indexed_mutation.shape_source)
@@ -437,7 +441,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v34 language=" << enum_value(program.source_language)
+  output << "mir-v36 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -655,6 +659,9 @@ std::string dump_mir(const mir::Program& program) {
     output << " origin=%h" << statement.origin.value();
     if (attributes != nullptr) {
       output << " procedure-call=" << attributes->procedure_call
+             << " implicit-result=" << enum_value(attributes->implicit_result)
+             << " implicit-result-value=" << attributes->implicit_result_has_value
+             << " previous-assigned=" << attributes->previous_assigned
              << " inclusive-stop=" << attributes->inclusive_stop << " previous=!t"
              << attributes->previous_type.value() << " targets=" << attributes->targets.size();
       if (attributes->indexed_mutation.contract.valid()) {

@@ -1549,6 +1549,31 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
       add_error(diagnostics, {statement.line, 1}, stage,
                 "statement has no matching operation-attribute row");
     } else {
+      const bool implicit_result_active =
+          statement_attributes->implicit_result != semantic::ImplicitResultPolicy::none;
+      const auto* implicit_expression = expression(program, statement.expression);
+      const auto* implicit_expression_attributes = attributes(program, statement.expression);
+      const bool expected_implicit_value =
+          implicit_expression != nullptr && implicit_expression_attributes != nullptr &&
+          (implicit_expression_attributes->procedure_has_result ||
+           value_type(program, implicit_expression->type_id) != ValueType::unknown);
+      if ((!implicit_result_active && statement_attributes->implicit_result_has_value) ||
+          (implicit_result_active &&
+           (program.source_language != SourceLanguage::matlab ||
+            statement_attributes->implicit_result !=
+                semantic::ImplicitResultPolicy::matlab_ans_if_value ||
+            statement.kind != StatementKind::expression || statement.name != "ans" ||
+            implicit_expression == nullptr || implicit_expression->kind != ExpressionKind::call ||
+            statement_attributes->implicit_result_has_value != expected_implicit_value ||
+            (statement_attributes->implicit_result_has_value != statement.symbol_id.valid())))) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "implicit-result MIR attributes disagree with the Matlab call/store");
+      }
+      if (statement_attributes->previous_assigned && statement.kind != StatementKind::assignment &&
+          !statement_attributes->implicit_result_has_value) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "previous-assignment MIR state belongs to no value assignment");
+      }
       if (statement.has_target_pattern != statement_attributes->target_pattern.valid()) {
         add_error(diagnostics, {statement.line, 1}, stage,
                   "statement assignment-pattern flag disagrees with its attribute row");
@@ -1690,7 +1715,10 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
     } else {
       const auto& instruction = program.instructions[statement.instruction.value()];
       if (instruction.origin != statement.origin ||
-          instruction.opcode != statement_opcode(statement.kind, statement.has_expression)) {
+          instruction.opcode !=
+              statement_opcode(statement.kind, statement.has_expression,
+                               statement_attributes != nullptr &&
+                                   statement_attributes->implicit_result_has_value)) {
         add_error(diagnostics, {statement.line, 1}, stage,
                   "statement arena disagrees with its MIR operation instruction");
       }

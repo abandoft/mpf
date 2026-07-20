@@ -145,8 +145,12 @@ class Builder final {
         case StatementKind::print:
         case StatementKind::return_statement:
         case StatementKind::break_statement:
-        case StatementKind::continue_statement:
+        case StatementKind::continue_statement: return NameRole::reference;
         case StatementKind::expression:
+          return source.implicit_result != semantic::ImplicitResultPolicy::none &&
+                         semantic_facts != nullptr && semantic_facts->implicit_result_has_value
+                     ? NameRole::assignment
+                     : NameRole::reference;
         case StatementKind::if_statement:
         case StatementKind::select_case:
         case StatementKind::case_clause:
@@ -182,6 +186,11 @@ class Builder final {
     result.expression = lower_expression(std::move(source.expression));
     result.has_expression = source.has_expression;
     result_attributes.procedure_call = source.procedure_call;
+    result_attributes.implicit_result = source.implicit_result;
+    result_attributes.implicit_result_has_value =
+        semantic_facts != nullptr && semantic_facts->implicit_result_has_value;
+    result_attributes.previous_assigned =
+        semantic_facts != nullptr && semantic_facts->previous_assigned;
     result.has_secondary_expression = source.has_secondary_expression;
     result.has_tertiary_expression = source.has_tertiary_expression;
     if (!for_loop) {
@@ -1385,7 +1394,8 @@ class Builder final {
     statement.instruction = instruction.id;
     instruction.opcode = statement.kind == StatementKind::for_loop
                              ? Opcode::store
-                             : statement_opcode(statement.kind, statement.has_expression);
+                             : statement_opcode(statement.kind, statement.has_expression,
+                                                attributes.implicit_result_has_value);
     instruction.origin = statement.origin;
     instruction.location = {statement.line, 1};
     const auto append_operand = [&](const MirExpressionId expression_id) {
@@ -1398,8 +1408,8 @@ class Builder final {
     append_operand(statement.target_expression);
     if ((statement.kind == StatementKind::declaration ||
          statement.kind == StatementKind::assignment ||
-         statement.kind == StatementKind::range_loop ||
-         statement.kind == StatementKind::for_loop) &&
+         statement.kind == StatementKind::range_loop || statement.kind == StatementKind::for_loop ||
+         attributes.implicit_result_has_value) &&
         !statement.name.empty()) {
       instruction.storage = storage_for(
           statement.symbol_id, statement.name, statement.origin,
@@ -1422,7 +1432,7 @@ class Builder final {
     if ((statement.kind == StatementKind::declaration ||
          statement.kind == StatementKind::assignment ||
          statement.kind == StatementKind::indexed_assignment ||
-         statement.kind == StatementKind::for_loop) &&
+         statement.kind == StatementKind::for_loop || attributes.implicit_result_has_value) &&
         instruction.storage.valid() && value != nullptr && value->value_id.valid()) {
       instruction.result = value_ids_.next();
       storage_values_[instruction.storage] = instruction.result;
@@ -1432,7 +1442,8 @@ class Builder final {
         statement.kind == StatementKind::assignment ||
         statement.kind == StatementKind::indexed_assignment ||
         statement.kind == StatementKind::range_loop || statement.kind == StatementKind::for_loop ||
-        (statement.kind == StatementKind::declaration && statement.has_expression);
+        (statement.kind == StatementKind::declaration && statement.has_expression) ||
+        attributes.implicit_result_has_value;
     if (writes_storage && instruction.storage.valid()) {
       auto region = full_region(instruction.storage);
       if (statement.kind == StatementKind::indexed_assignment) {

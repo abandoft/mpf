@@ -502,6 +502,9 @@ struct SparseMutationPlan {
 struct StatementAttributes {
   MirStatementId origin{};
   bool procedure_call{false};
+  semantic::ImplicitResultPolicy implicit_result{semantic::ImplicitResultPolicy::none};
+  bool implicit_result_has_value{false};
+  bool previous_assigned{false};
   bool inclusive_stop{false};
   bool retain_last_loop_value{true};
   TypeId previous_type{};
