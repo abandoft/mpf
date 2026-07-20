@@ -1,3 +1,18 @@
+## 0.7.3
+
+- Matlab 函数现可使用裸 `return` 在正常结尾前提前退出。
+- 单输出函数提前返回时会保持其声明的输出值。
+- 多输出函数提前返回时会按声明顺序返回全部输出。
+- Matlab 脚本现可使用裸 `return` 跳过后续可执行语句。
+- 脚本使用提前返回时，文件级 local function 仍会保留并可正常调用。
+- 生成的 JavaScript 使用碰撞安全的脚本标签区域，同时让 local function 保持模块级声明。
+- Matlab 脚本返回在生成的 C++17 中会干净退出程序入口。
+- Matlab command syntax 现同时支持 `disp` 与 `display` 的单个字符向量参数。
+- 未加引号、单引号和双引号 command input 均遵循 Matlab 字符向量规则，并保留空格及双引号字符。
+- 携带 operand 的 `return` 和多参数 command form 会给出聚焦诊断并失败关闭。
+- 不可达代码分析现可区分被脚本返回跳过的语句与文件级 local function 声明。
+- source map 会保留函数与脚本 `return` 语句的原始位置。
+
 ## 0.7.2
 
 - Matlab complex sparse matrix 现可参与静态 shape 的 rank-2 矩阵乘法。

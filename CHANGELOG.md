@@ -1,3 +1,18 @@
+## 0.7.3
+
+- Matlab functions can now use bare `return` to exit before normal fallthrough.
+- Early return preserves a function's declared single output value.
+- Multi-output functions return every declared output in declaration order when exiting early.
+- Matlab scripts can stop before later executable statements with bare `return`.
+- File-level local functions remain available when a script uses early return.
+- Generated JavaScript uses a collision-safe labeled script region while keeping local functions at module scope.
+- Generated C++17 exits the generated program entry cleanly for Matlab script return.
+- Matlab command syntax now supports a single character-vector argument for both `disp` and `display`.
+- Unquoted, single-quoted, and double-quoted command input follows Matlab character-vector rules, including spaces and preserved double-quote characters.
+- Invalid return operands and multi-argument command forms now fail with focused diagnostics.
+- Unreachable-code warnings distinguish skipped script statements from file-level local function declarations.
+- Source maps retain the original locations of function and script return statements.
+
 ## 0.7.2
 
 - Matlab complex sparse matrices can now participate in statically shaped rank-two matrix multiplication.
