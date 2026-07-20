@@ -15,7 +15,18 @@ namespace mpf::detail {
 
 inline constexpr std::size_t dynamic_extent = std::numeric_limits<std::size_t>::max();
 
-enum class ValueType { unknown, integer, real, boolean, string, null_value, list, tuple, function };
+enum class ValueType {
+  unknown,
+  integer,
+  real,
+  boolean,
+  string,
+  null_value,
+  list,
+  tuple,
+  function,
+  exception
+};
 
 enum class BindingKind { unresolved, variable, function, builtin };
 

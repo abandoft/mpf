@@ -22,7 +22,8 @@ namespace mpf::detail {
     case ValueType::null_value:
     case ValueType::list:
     case ValueType::tuple:
-    case ValueType::function: return numeric_type == no_numeric_type;
+    case ValueType::function:
+    case ValueType::exception: return numeric_type == no_numeric_type;
     case ValueType::unknown: return true;
   }
   return false;

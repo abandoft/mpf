@@ -43,6 +43,8 @@ enum class IntrinsicId : std::size_t {
   matlab_full,
   matlab_is_sparse,
   matlab_nonzero_count,
+  matlab_error,
+  matlab_rethrow,
   present,
   count
 };

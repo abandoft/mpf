@@ -969,8 +969,10 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
                   "implicit-result semantic row disagrees with its Matlab call");
       }
     }
+    const bool exception_assignment =
+        statement.kind == StatementKind::try_statement && !statement.name.empty();
     if (facts->previous_assigned && statement.kind != StatementKind::assignment &&
-        !facts->implicit_result_has_value) {
+        !facts->implicit_result_has_value && !exception_assignment) {
       add_error(diagnostics, {statement.line, 1}, stage,
                 "previous-assignment state belongs to no value assignment");
     }

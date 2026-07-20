@@ -790,10 +790,23 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
       return result;
     }
     case ExpressionKind::call: return analyze_call(expression);
-    case ExpressionKind::member:
-      if (!expression.children.empty()) analyze_expression(expression.children.front());
-      semantic(semantics_, expression).numeric_type = unknown_numeric_type;
-      return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+    case ExpressionKind::member: {
+      const auto owner = expression.children.empty()
+                             ? ValueType::unknown
+                             : analyze_expression(expression.children.front());
+      auto& facts = semantic(semantics_, expression);
+      if (program_.language == SourceLanguage::matlab && owner == ValueType::exception) {
+        if (expression.value == "message" || expression.value == "identifier") {
+          facts.numeric_type = no_numeric_type;
+          return facts.inferred_type = ValueType::string;
+        }
+        diagnose(expression.location.line, "MPF2056",
+                 "Matlab MException property '" + expression.value +
+                     "' is outside the current exception-object contract");
+      }
+      facts.numeric_type = unknown_numeric_type;
+      return facts.inferred_type = ValueType::unknown;
+    }
     case ExpressionKind::index: return analyze_index(expression);
     case ExpressionKind::slice:
       diagnose(expression.location.line, "MPF2029",
@@ -2254,6 +2267,38 @@ ValueType Analyzer::analyze_call(Expression& expression) {
   }
   if (associated_callee.kind == ExpressionKind::identifier &&
       associated_callee_facts.binding == BindingKind::builtin) {
+    if (associated_callee_facts.intrinsic == IntrinsicId::matlab_error) {
+      auto& facts = semantic(semantics_, expression);
+      const bool valid_arity = expression.children.size() == 2U || expression.children.size() == 3U;
+      bool valid_arguments = valid_arity;
+      for (std::size_t index = 1U; index < expression.children.size(); ++index) {
+        const auto type = semantic(semantics_, expression.children[index]).inferred_type;
+        valid_arguments =
+            valid_arguments && (type == ValueType::string || type == ValueType::unknown);
+      }
+      if (!valid_arguments) {
+        diagnose(expression.location.line, "MPF2057",
+                 "Matlab error requires error(message) or error(identifier, message) with "
+                 "character-vector arguments");
+      }
+      facts.procedure_has_result = false;
+      facts.numeric_type = no_numeric_type;
+      return facts.inferred_type = ValueType::unknown;
+    }
+    if (associated_callee_facts.intrinsic == IntrinsicId::matlab_rethrow) {
+      auto& facts = semantic(semantics_, expression);
+      const bool valid =
+          expression.children.size() == 2U &&
+          (semantic(semantics_, expression.children[1]).inferred_type == ValueType::exception ||
+           semantic(semantics_, expression.children[1]).inferred_type == ValueType::unknown);
+      if (!valid) {
+        diagnose(expression.location.line, "MPF2057",
+                 "Matlab rethrow requires exactly one caught exception argument");
+      }
+      facts.procedure_has_result = false;
+      facts.numeric_type = no_numeric_type;
+      return facts.inferred_type = ValueType::unknown;
+    }
     if (associated_callee_facts.intrinsic == IntrinsicId::python_float) {
       if (expression.children.size() != 2) {
         diagnose(expression.location.line, "MPF2033", "Python float requires exactly one argument");

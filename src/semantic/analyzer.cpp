@@ -48,7 +48,8 @@ NumericType default_numeric_type(const ValueType type) noexcept {
     case ValueType::null_value:
     case ValueType::list:
     case ValueType::tuple:
-    case ValueType::function: return no_numeric_type;
+    case ValueType::function:
+    case ValueType::exception: return no_numeric_type;
   }
   return unknown_numeric_type;
 }
@@ -1171,6 +1172,57 @@ bool Analyzer::analyze_statement(Statement& statement) {
                  "TypeScript if condition currently requires a boolean value");
       }
       return analyze_branches(statement);
+    case StatementKind::try_statement: {
+      const auto before = current();
+      const auto body_terminates =
+          analyze_statements_in_scope(statement.body, names_.body_scope(statement.id));
+      const auto after_body = current();
+
+      // A handler can observe mutations performed before an exception, but a definition made
+      // only somewhere in the protected region is not definitely assigned on every exceptional
+      // edge. Keep the entry assignment state and conservatively join representation facts.
+      current() = before;
+      for (std::size_t index = 0; index < current().symbols.size(); ++index) {
+        auto& handler_symbol = current().symbols[index];
+        const auto& protected_symbol = after_body.symbols[index];
+        handler_symbol.type = join_types(handler_symbol.type, protected_symbol.type);
+        handler_symbol.numeric_type =
+            join_numeric_types(handler_symbol.numeric_type, protected_symbol.numeric_type);
+        handler_symbol.element_type =
+            join_types(handler_symbol.element_type, protected_symbol.element_type);
+        handler_symbol.element_numeric_type = join_numeric_types(
+            handler_symbol.element_numeric_type, protected_symbol.element_numeric_type);
+        handler_symbol.array_storage = join_array_storage_formats(handler_symbol.array_storage,
+                                                                  protected_symbol.array_storage);
+        if (handler_symbol.shape != protected_symbol.shape) handler_symbol.shape.clear();
+      }
+      if (!statement.name.empty()) {
+        auto& exception = definition_state(statement, NameRole::assignment);
+        auto& facts = semantic(semantics_, statement);
+        facts.previous_assigned = exception.assigned;
+        facts.previous_type = exception.type;
+        facts.previous_numeric_type = exception.numeric_type;
+        facts.declared_type = ValueType::exception;
+        facts.declared_numeric_type = no_numeric_type;
+        exception.binding = BindingKind::variable;
+        exception.type = ValueType::exception;
+        exception.numeric_type = no_numeric_type;
+        exception.element_type = ValueType::unknown;
+        exception.element_numeric_type = no_numeric_type;
+        exception.array_storage = ArrayStorageFormat::none;
+        exception.shape.clear();
+        exception.assigned = true;
+      }
+      const auto handler_terminates = analyze_statements_in_scope(
+          statement.alternative, names_.alternative_scope(statement.id));
+      const auto after_handler = current();
+
+      std::vector<ScopeState> continuations;
+      if (!body_terminates) continuations.push_back(after_body);
+      if (!handler_terminates) continuations.push_back(after_handler);
+      merge_select_flows(before, continuations);
+      return continuations.empty();
+    }
     case StatementKind::select_case: return analyze_select_case(statement);
     case StatementKind::case_clause:
       diagnose(statement.line, "MPF2043", "CASE clause appears outside SELECT CASE");
@@ -2184,6 +2236,7 @@ const char* to_string(const ValueType type) noexcept {
     case ValueType::list: return "list";
     case ValueType::tuple: return "tuple";
     case ValueType::function: return "function";
+    case ValueType::exception: return "exception";
   }
   return "unknown";
 }

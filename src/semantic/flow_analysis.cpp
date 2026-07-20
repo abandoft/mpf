@@ -74,6 +74,11 @@ class FlowAnalyzer final {
             !statement.alternative.empty() && analyze_statements(statement.alternative, reachable);
         facts.terminates = facts.body_terminates && facts.alternative_terminates;
         break;
+      case StatementKind::try_statement:
+        facts.body_terminates = analyze_statements(statement.body, reachable);
+        facts.alternative_terminates = analyze_statements(statement.alternative, reachable);
+        facts.terminates = facts.body_terminates && facts.alternative_terminates;
+        break;
       case StatementKind::select_case: analyze_select(statement, reachable, facts); break;
       case StatementKind::case_clause:
         facts.body_terminates = analyze_statements(statement.body, reachable);

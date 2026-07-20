@@ -147,6 +147,16 @@ class NameAnalyzer final {
             }
           }
           break;
+        case StatementKind::try_statement: {
+          if (!statement.name.empty()) {
+            declare(scope, statement.name, NameSymbolKind::variable, statement.id);
+          }
+          const auto body_scope = branch_scope(scope, statement, NameScopeKind::body);
+          const auto handler_scope = branch_scope(scope, statement, NameScopeKind::alternative);
+          collect_statements(statement.body, body_scope);
+          collect_statements(statement.alternative, handler_scope);
+          break;
+        }
         case StatementKind::return_statement: break;
         case StatementKind::range_loop: {
           auto loop_scope = scope;
@@ -303,6 +313,11 @@ class NameAnalyzer final {
                              NameRole::assignment, index);
           }
           break;
+        case StatementKind::try_statement:
+          if (!statement.name.empty()) {
+            add_definition(statement.id, scope, statement.name, NameRole::assignment, 0);
+          }
+          break;
         case StatementKind::return_statement:
           for (std::size_t index = 0; index < statement.return_names.size(); ++index) {
             add_definition(statement.id, scope, statement.return_names[index], NameRole::result,
@@ -348,11 +363,13 @@ class NameAnalyzer final {
           lexical_blocks() && (statement.kind == StatementKind::if_statement ||
                                statement.kind == StatementKind::select_case ||
                                statement.kind == StatementKind::case_clause ||
+                               statement.kind == StatementKind::try_statement ||
                                statement.kind == StatementKind::while_loop);
       const auto body_scope = nested_scope ? result_.names.body_scope(statement.id) : scope;
-      const auto alternative_scope = nested_scope && !statement.alternative.empty()
-                                         ? result_.names.alternative_scope(statement.id)
-                                         : scope;
+      const auto alternative_scope =
+          nested_scope && (!statement.alternative.empty() || statement.has_exception_handler)
+              ? result_.names.alternative_scope(statement.id)
+              : scope;
       bind_statements(statement.body, body_scope);
       bind_statements(statement.alternative, alternative_scope);
     }
@@ -488,6 +505,12 @@ void verify_statements(const hir::Program& program, const std::vector<hir::State
                              !lexical_blocks(program), stage, diagnostics);
         }
         break;
+      case StatementKind::try_statement:
+        if (!statement.name.empty()) {
+          require_definition(statement, scope, names, NameRole::assignment, 0,
+                             !lexical_blocks(program), stage, diagnostics);
+        }
+        break;
       case StatementKind::range_loop: {
         verify_statement_expressions(statement, scope, names, resident, stage, diagnostics);
         const auto loop_scope =
@@ -560,17 +583,27 @@ void verify_statements(const hir::Program& program, const std::vector<hir::State
         lexical_blocks(program) && (statement.kind == StatementKind::if_statement ||
                                     statement.kind == StatementKind::select_case ||
                                     statement.kind == StatementKind::case_clause ||
+                                    statement.kind == StatementKind::try_statement ||
                                     statement.kind == StatementKind::while_loop);
     const auto body_scope = scoped_control ? names.body_scope(statement.id) : scope;
-    const auto alternative_scope = scoped_control && !statement.alternative.empty()
-                                       ? names.alternative_scope(statement.id)
-                                       : scope;
+    const auto alternative_scope =
+        scoped_control && (!statement.alternative.empty() || statement.has_exception_handler)
+            ? names.alternative_scope(statement.id)
+            : scope;
     if (scoped_control) {
       const auto* child = names.scope(body_scope);
       if (child == nullptr || child->parent != scope || child->owner != statement.id ||
           child->kind != NameScopeKind::body) {
         add_error(diagnostics, {statement.line, 1}, stage,
                   "control-flow body does not own a valid lexical scope");
+      }
+      if (statement.has_exception_handler) {
+        const auto* handler = names.scope(alternative_scope);
+        if (handler == nullptr || handler->parent != scope || handler->owner != statement.id ||
+            handler->kind != NameScopeKind::alternative) {
+          add_error(diagnostics, {statement.line, 1}, stage,
+                    "exception handler does not own a valid lexical scope");
+        }
       }
     }
     if (scoped_control && !statement.alternative.empty()) {
