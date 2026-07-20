@@ -24,12 +24,12 @@
 
 | 输入语言 | 自动识别扩展名 | 当前能力摘要 |
 |---|---|---|
-| Matlab | `.m` | 脚本与局部函数、条件/循环/标量 `switch`、N 维逐元素 `~`/`&`/`|`、标量短路 `&&`/`||`、数组 condition truthiness、保持 shape 的 `all`/`any` 逻辑归约、实数与复数标量/数组、保持 shape 的 `0×0` 与零 extent 数组、静态 N 维及 local-function runtime-shape 隐式扩展、数组比较、静态及运行时 extent 的 `end`、保序/重复/空 numeric selector、线性/逐维 logical selector、vector/matrix/N 维扩容与单轴删除、普通/共轭转置、section、`reshape`、复数逐元素算术、二维实数/复数矩阵乘法、结构感知实数方阵求解、Hermitian 正定/稠密复数方阵求解、rank-aware 实数/复数矩形求解、R2024 全部 `sparse` 调用形式对静态 rank-2 输入的实现，其中支持 real/logical value 以及 complex dense/triplet value（全零构造仍返回 double）、numeric/complex 重复项求和与 logical 重复项 `any`，以及保持类型的稀疏 scalar/linear/submatrix selection、indexed assignment、扩容、删除、reshape、转置/`full`/查询/计数、含 `0×0` 系数及 shaped-empty 结果的稀疏方阵求解，以及保持 Matlab 结果 storage 的 finite-real 或 complex sparse×sparse/sparse×dense/dense×sparse 矩阵乘法、双向 sparse/scalar 缩放、compatible-size sparse `.*` scalar/dense/sparse 乘法、sparse-sparse 保持类型化 CSC 且 mixed 物化 dense 的 compatible-size real/logical/complex sparse `+`/`-`、静态 rank-2 sparse logical `~`/`&`/`|`（`~S`、稀疏 AND 与 sparse-sparse OR 保持 CSC，mixed OR 物化 dense）、静态 real/logical rank-2 sparse `all`/`any`（非标量结果保持 logical CSC，全维结果为 full logical scalar）、保持 CSC 的 real/logical 稀疏方阵非负 safe-integer 幂、稠密实数/复数方阵 safe-integer 整数幂与多输出函数 |
+| Matlab | `.m` | 脚本与局部函数、条件/循环/标量 `switch`、单 handler `try`/`catch`、catch binding、`error`/`rethrow`、N 维逐元素 `~`/`&`/`|`、标量短路 `&&`/`||`、数组 condition truthiness、保持 shape 的 `all`/`any` 逻辑归约、实数与复数标量/数组、保持 shape 的 `0×0` 与零 extent 数组、静态 N 维及 local-function runtime-shape 隐式扩展、数组比较、静态及运行时 extent 的 `end`、保序/重复/空 numeric selector、线性/逐维 logical selector、vector/matrix/N 维扩容与单轴删除、普通/共轭转置、section、`reshape`、复数逐元素算术、二维实数/复数矩阵乘法、结构感知实数方阵求解、Hermitian 正定/稠密复数方阵求解、rank-aware 实数/复数矩形求解、R2024 全部 `sparse` 调用形式对静态 rank-2 输入的实现，其中支持 real/logical value 以及 complex dense/triplet value（全零构造仍返回 double）、numeric/complex 重复项求和与 logical 重复项 `any`，以及保持类型的稀疏 scalar/linear/submatrix selection、indexed assignment、扩容、删除、reshape、转置/`full`/查询/计数、含 `0×0` 系数及 shaped-empty 结果的稀疏方阵求解，以及保持 Matlab 结果 storage 的 finite-real 或 complex sparse×sparse/sparse×dense/dense×sparse 矩阵乘法、双向 sparse/scalar 缩放、compatible-size sparse `.*` scalar/dense/sparse 乘法、sparse-sparse 保持类型化 CSC 且 mixed 物化 dense 的 compatible-size real/logical/complex sparse `+`/`-`、静态 rank-2 sparse logical `~`/`&`/`|`（`~S`、稀疏 AND 与 sparse-sparse OR 保持 CSC，mixed OR 物化 dense）、静态 real/logical rank-2 sparse `all`/`any`（非标量结果保持 logical CSC，全维结果为 full logical scalar）、保持 CSC 的 real/logical 稀疏方阵非负 safe-integer 幂、稠密实数/复数方阵 safe-integer 整数幂与多输出函数 |
 | Python | `.py`、`.pyw` | 函数与参数、条件和循环、list/tuple、解包、比较链、多维数组、索引和切片 |
 | Fortran | `.f`、`.for`、`.ftn`、`.f77`、`.f90` 等 | free/fixed form、function/subroutine、`INTENT`/`OPTIONAL`、数组与 section、`SELECT CASE` |
 | TypeScript | `.ts`、`.mts`、`.cts` | 类型化标量和数组、函数、块作用域、条件、`while`、标准 C 风格 `for` |
 
-Matlab 已支持函数与脚本 `return`，函数提前退出会保持声明的单个或多个输出。command syntax 现可用一个或多个 character-vector 参数调用受支持的本地函数和内建函数，保留 Matlab 引号及运算符空格规则，并把产值结果写入 `ans`；`disp`/`display` 仍要求恰好一个参数。裸无参数 command、限定名/package command、外部 path 解析、`try/catch` 与 `arguments` block 仍不在受支持子集内。
+Matlab 已支持函数与脚本 `return`，函数提前退出会保持声明的单个或多个输出。command syntax 现可用一个或多个 character-vector 参数调用受支持的本地函数和内建函数，保留 Matlab 引号及运算符空格规则，并把产值结果写入 `ans`；`disp`/`display` 仍要求恰好一个参数。结构化异常支持单一 `catch`、可选异常 binding、嵌套 handler、`error(message)`、`error(identifier, message)`、所捕获异常的 `identifier`/`message` 与 `rethrow`。裸无参数 command、限定名/package command、外部 path 解析、`arguments` block 和剩余 `MException` 对象模型仍不在受支持子集内。
 
 语言名称只接受 `matlab`、`python`、`fortran` 和 `typescript`；输出目标只接受 `javascript` 和 `cpp`。`cpp` 是目标名称，当前生成标准为 C++17。
 
@@ -126,7 +126,7 @@ cmake --install build/release --prefix build/stage
 在项目中查找当前精确版本：
 
 ```cmake
-find_package(mpf 0.7.4 EXACT CONFIG REQUIRED COMPONENTS core cpp)
+find_package(mpf 0.7.5 EXACT CONFIG REQUIRED COMPONENTS core cpp)
 target_link_libraries(my_application PRIVATE mpf::mpf)
 ```
 
@@ -154,7 +154,7 @@ int main() {
 }
 ```
 
-安装包提供 `core`、`javascript` 和 `cpp` component，以及 `mpf::core`、`mpf::backend-javascript`、`mpf::backend-cpp` 和统一入口 `mpf::mpf`。完整集成示例见 [`examples/embedding`](examples/embedding)；配置时传入 `-DMPF_REQUIRED_VERSION=0.7.4`，以保持精确版本匹配。
+安装包提供 `core`、`javascript` 和 `cpp` component，以及 `mpf::core`、`mpf::backend-javascript`、`mpf::backend-cpp` 和统一入口 `mpf::mpf`。完整集成示例见 [`examples/embedding`](examples/embedding)；配置时传入 `-DMPF_REQUIRED_VERSION=0.7.5`，以保持精确版本匹配。
 
 MPF 0.x 有意只安装静态库。共享库需要先明确符号导出、allocator/所有权和版本协商契约；设置 `BUILD_SHARED_LIBS` 不会把当前内部 C++ ABI 意外暴露为受支持的动态库接口。
 

@@ -1,3 +1,18 @@
+## 0.7.5
+
+- Matlab `try`/`catch` now translates to native structured exception handling in JavaScript and C++17.
+- Catch clauses support either an exception binding or the binding-free `catch` form.
+- Successful protected regions skip their handlers, while runtime failures enter the matching handler immediately.
+- `error(message)` and `error(identifier, message)` now raise catchable Matlab exceptions in both targets.
+- Caught exceptions expose stable `identifier` and `message` properties across JavaScript and C++17.
+- `rethrow(exception)` now preserves the original exception when forwarding it to an outer handler.
+- Nested protected regions select the innermost handler and can propagate failures to enclosing handlers.
+- JavaScript runtime errors from translated operations are normalized into immutable Matlab exception values.
+- C++17 generated code preserves Matlab exception identifiers and messages without depending on JavaScript output.
+- Definite-assignment analysis prevents a catch-only exception binding from being read after a normally completed `try` path.
+- Source maps now retain separate locations for `try`, `catch`, protected statements, and handler statements.
+- Malformed, missing, or repeated catch clauses and invalid `error`/`rethrow` arguments now fail with focused diagnostics.
+
 ## 0.7.4
 
 - Matlab command syntax can now call supported local functions and built-ins, passing each command argument as a character vector.

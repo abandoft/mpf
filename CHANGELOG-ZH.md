@@ -1,3 +1,18 @@
+## 0.7.5
+
+- Matlab `try`/`catch` 现可转译为 JavaScript 与 C++17 的原生结构化异常处理。
+- `catch` 子句既支持绑定异常变量，也支持不绑定变量的形式。
+- protected region 正常完成时会跳过 handler，运行时失败则会立即进入对应 handler。
+- `error(message)` 与 `error(identifier, message)` 现可在两个目标中抛出可捕获的 Matlab 异常。
+- 捕获的异常可在 JavaScript 与 C++17 中稳定读取 `identifier` 和 `message` 属性。
+- `rethrow(exception)` 现会保留原始异常，并将其继续传递给外层 handler。
+- 嵌套 protected region 会优先选择最内层 handler，并可将失败继续传播到外层。
+- 转译后操作产生的 JavaScript runtime error 会规范化为不可变的 Matlab 异常值。
+- 生成的 C++17 会独立保持 Matlab 异常标识符与消息，不依赖 JavaScript 产物。
+- 确定赋值分析会阻止在 `try` 正常完成路径之后读取仅由 `catch` 赋值的异常变量。
+- source map 现分别保留 `try`、`catch`、protected statement 与 handler statement 的源码位置。
+- 缺失、重复或格式错误的 `catch`，以及非法的 `error`/`rethrow` 参数会给出聚焦诊断并失败关闭。
+
 ## 0.7.4
 
 - Matlab command syntax 现可调用受支持的本地函数和内建函数，并将每个 command 参数作为字符向量传入。
