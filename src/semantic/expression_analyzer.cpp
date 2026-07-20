@@ -172,6 +172,9 @@ NumericType matlab_arithmetic_numeric_join(const hir::ExpressionFacts& left,
     return unknown_numeric_type;
   }
   auto result = join_expression_numeric_types(left, right);
+  if (result.value_class == NumericClass::logical) {
+    result.value_class = NumericClass::binary64;
+  }
   if (floating_result && result.present()) result.value_class = NumericClass::binary64;
   return result.valid() ? result : unknown_numeric_type;
 }
@@ -937,14 +940,17 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                         (left == ValueType::list) != (right == ValueType::list);
     const bool supported_sparse_elementwise = operation == BinaryOperator::elementwise_multiply &&
                                               (left == ValueType::list || right == ValueType::list);
+    const bool supported_sparse_arithmetic =
+        operation == BinaryOperator::add || operation == BinaryOperator::subtract;
     const bool supported_sparse_logical = operation == BinaryOperator::elementwise_logical_and ||
                                           operation == BinaryOperator::elementwise_logical_or;
     if (!supported_sparse_solve && !supported_sparse_multiply && !supported_sparse_scale &&
-        !supported_sparse_elementwise && !supported_sparse_logical) {
+        !supported_sparse_elementwise && !supported_sparse_arithmetic &&
+        !supported_sparse_logical) {
       diagnose(expression.location.line, "MPF2054",
                "this sparse array operation is outside the current CSC contract; convert the "
-               "operand with full or use supported sparse multiplication, element-wise "
-               "multiplication, logical operation, or square division");
+               "operand with full or use supported sparse addition/subtraction, multiplication, "
+               "element-wise multiplication, logical operation, or square division");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
   }
@@ -1209,9 +1215,9 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
         (operation == BinaryOperator::left_divide && !left_array && right_array);
 
     const bool valid_left_arithmetic =
-        numeric_or_unknown(left_element) || (!left_array && left_element == ValueType::boolean);
+        numeric_or_unknown(left_element) || left_element == ValueType::boolean;
     const bool valid_right_arithmetic =
-        numeric_or_unknown(right_element) || (!right_array && right_element == ValueType::boolean);
+        numeric_or_unknown(right_element) || right_element == ValueType::boolean;
     if ((elementwise || scalar_scale || scalar_matrix_division) &&
         (!valid_left_arithmetic || !valid_right_arithmetic)) {
       diagnose(expression.location.line, "MPF2046",
@@ -1222,9 +1228,73 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
     const bool sparse_scale =
         scalar_scale && (left_facts.array_storage == ArrayStorageFormat::sparse_csc ||
                          right_facts.array_storage == ArrayStorageFormat::sparse_csc);
+    const bool sparse_arithmetic =
+        (operation == BinaryOperator::add || operation == BinaryOperator::subtract) &&
+        (left_facts.array_storage == ArrayStorageFormat::sparse_csc ||
+         right_facts.array_storage == ArrayStorageFormat::sparse_csc);
     const bool sparse_elementwise = operation == BinaryOperator::elementwise_multiply &&
                                     (left_facts.array_storage == ArrayStorageFormat::sparse_csc ||
                                      right_facts.array_storage == ArrayStorageFormat::sparse_csc);
+    if (sparse_arithmetic) {
+      auto& facts = semantic(semantics_, expression);
+      const auto numeric_domain = matlab_matrix_numeric_domain(left_facts, right_facts);
+      if (!numeric_domain.has_value() || *numeric_domain != semantic::MatrixNumericDomain::real ||
+          !matlab_sparse_value(left_facts) || !matlab_sparse_value(right_facts)) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse addition and subtraction require resolved real or logical operands");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      const auto broadcast =
+          matlab_broadcast_plan(left_array ? left_facts.shape : std::vector<std::size_t>{},
+                                right_array ? right_facts.shape : std::vector<std::size_t>{});
+      if (!broadcast.has_value() ||
+          broadcast->shape_source != semantic::BroadcastShapeSource::static_extents ||
+          broadcast->result_shape.size() != 2U) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse addition and subtraction require compatible static rank-2 operands");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      const auto left_shape =
+          left_array ? matlab_broadcast_shape(left_facts.shape, right_facts.shape.size())
+                     : std::vector<std::size_t>{};
+      const auto right_shape =
+          right_array ? matlab_broadcast_shape(right_facts.shape, left_facts.shape.size())
+                      : std::vector<std::size_t>{};
+      const auto sparse_operation = operation == BinaryOperator::add
+                                        ? semantic::SparseArithmeticOperation::add
+                                        : semantic::SparseArithmeticOperation::subtract;
+      const auto result_storage = semantic::sparse_arithmetic_result_storage(
+          left_facts.array_storage, right_facts.array_storage);
+      hir::SparseArithmeticPlan plan{
+          sparse_operation,
+          semantic::sparse_arithmetic_storage_policy(left_facts.array_storage,
+                                                     right_facts.array_storage),
+          semantic::BroadcastShapeSource::static_extents,
+          left_facts.array_storage,
+          right_facts.array_storage,
+          result_storage,
+          left_shape,
+          right_shape,
+          broadcast->result_shape,
+          broadcast->axes};
+      if (!semantic::valid_sparse_arithmetic_contract(
+              plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage,
+              plan.right_storage, plan.result_storage, plan.left_shape, plan.right_shape,
+              plan.result_shape, plan.axes)) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse addition or subtraction operands violate the planned CSC/full storage "
+                 "contract");
+        return facts.inferred_type = ValueType::unknown;
+      }
+      facts.array_operation = semantic::ArrayOperation::matlab;
+      facts.inferred_type = ValueType::list;
+      facts.element_type = matlab_arithmetic_join(left_element, right_element);
+      facts.element_numeric_type = matlab_arithmetic_numeric_join(left_facts, right_facts, false);
+      facts.shape = broadcast->result_shape;
+      facts.array_storage = result_storage;
+      facts.sparse_arithmetic = std::move(plan);
+      return facts.inferred_type;
+    }
     if (sparse_elementwise) {
       auto& facts = semantic(semantics_, expression);
       const auto numeric_domain = matlab_matrix_numeric_domain(left_facts, right_facts);

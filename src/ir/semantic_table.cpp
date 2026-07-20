@@ -658,6 +658,60 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
     add_error(diagnostics, expression.location, stage,
               "inactive expression broadcast plan retains a runtime shape source");
   }
+  const auto& sparse_arithmetic = facts->sparse_arithmetic;
+  if (sparse_arithmetic.valid()) {
+    const auto expected_operation = expression.operation == BinaryOperator::add
+                                        ? semantic::SparseArithmeticOperation::add
+                                    : expression.operation == BinaryOperator::subtract
+                                        ? semantic::SparseArithmeticOperation::subtract
+                                        : semantic::SparseArithmeticOperation::none;
+    const auto* left =
+        expression.children.size() == 2U ? table.expression(expression.children[0].id) : nullptr;
+    const auto* right =
+        expression.children.size() == 2U ? table.expression(expression.children[1].id) : nullptr;
+    const auto normalized_shape = [](const hir::ExpressionFacts* operand,
+                                     const std::size_t peer_rank) {
+      if (operand == nullptr || operand->inferred_type != ValueType::list) {
+        return std::vector<std::size_t>{};
+      }
+      auto shape = operand->shape;
+      if (shape.size() == 1U && peer_rank >= 2U) shape.insert(shape.begin(), 1U);
+      return shape;
+    };
+    const auto left_rank = left == nullptr ? 0U : left->shape.size();
+    const auto right_rank = right == nullptr ? 0U : right->shape.size();
+    if (facts->array_operation != semantic::ArrayOperation::matlab ||
+        expression.kind != ExpressionKind::binary || expression.children.size() != 2U ||
+        sparse_arithmetic.operation != expected_operation || facts->broadcast.valid ||
+        left == nullptr || right == nullptr || facts->inferred_type != ValueType::list ||
+        facts->element_numeric_type != real_numeric_type ||
+        sparse_arithmetic.left_storage != left->array_storage ||
+        sparse_arithmetic.right_storage != right->array_storage ||
+        sparse_arithmetic.result_storage != facts->array_storage ||
+        sparse_arithmetic.left_shape != normalized_shape(left, right_rank) ||
+        sparse_arithmetic.right_shape != normalized_shape(right, left_rank) ||
+        sparse_arithmetic.result_shape != facts->shape ||
+        !semantic::valid_sparse_arithmetic_contract(
+            sparse_arithmetic.operation, sparse_arithmetic.storage_policy,
+            sparse_arithmetic.shape_source, sparse_arithmetic.left_storage,
+            sparse_arithmetic.right_storage, sparse_arithmetic.result_storage,
+            sparse_arithmetic.left_shape, sparse_arithmetic.right_shape,
+            sparse_arithmetic.result_shape, sparse_arithmetic.axes)) {
+      add_error(diagnostics, expression.location, stage,
+                "sparse arithmetic plan has an invalid operator, broadcast, storage, numeric, "
+                "or result contract");
+    }
+  } else if (sparse_arithmetic.storage_policy !=
+                 semantic::SparseArithmeticStoragePolicy::none ||
+             sparse_arithmetic.shape_source != semantic::BroadcastShapeSource::static_extents ||
+             sparse_arithmetic.left_storage != ArrayStorageFormat::none ||
+             sparse_arithmetic.right_storage != ArrayStorageFormat::none ||
+             sparse_arithmetic.result_storage != ArrayStorageFormat::none ||
+             !sparse_arithmetic.left_shape.empty() || !sparse_arithmetic.right_shape.empty() ||
+             !sparse_arithmetic.result_shape.empty() || !sparse_arithmetic.axes.empty()) {
+    add_error(diagnostics, expression.location, stage,
+              "inactive sparse arithmetic plan retains semantic state");
+  }
   const auto& sparse_elementwise = facts->sparse_elementwise;
   if (sparse_elementwise.valid()) {
     const auto* left =

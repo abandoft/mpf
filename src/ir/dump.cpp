@@ -228,6 +228,26 @@ std::string dump_semantics(const hir::SemanticTable& table) {
         output << "->";
         dump_shape(facts.broadcast.result_shape);
       }
+      if (facts.sparse_arithmetic.valid()) {
+        const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
+          output << '[';
+          for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+            if (axis != 0U) output << ',';
+            output << shape[axis];
+          }
+          output << ']';
+        };
+        output << " sparse-arithmetic=" << enum_value(facts.sparse_arithmetic.operation)
+               << " storage-policy=" << enum_value(facts.sparse_arithmetic.storage_policy)
+               << " storage=" << enum_value(facts.sparse_arithmetic.left_storage) << ','
+               << enum_value(facts.sparse_arithmetic.right_storage) << "->"
+               << enum_value(facts.sparse_arithmetic.result_storage) << ' ';
+        dump_shape(facts.sparse_arithmetic.left_shape);
+        output << ',';
+        dump_shape(facts.sparse_arithmetic.right_shape);
+        output << "->";
+        dump_shape(facts.sparse_arithmetic.result_shape);
+      }
       if (facts.sparse_elementwise.valid()) {
         const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
           output << '[';

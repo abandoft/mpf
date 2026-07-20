@@ -1343,6 +1343,106 @@ TEST_CASE("Matlab sparse scalar products remain typed through every IR layer") {
   }
 }
 
+TEST_CASE("Matlab sparse arithmetic storage policy is explicit and shape checked") {
+  using Operation = mpf::detail::semantic::SparseArithmeticOperation;
+  using Policy = mpf::detail::semantic::SparseArithmeticStoragePolicy;
+  using Source = mpf::detail::semantic::BroadcastShapeSource;
+  using Axis = mpf::detail::semantic::BroadcastAxis;
+  using Storage = mpf::detail::ArrayStorageFormat;
+  const std::vector<std::size_t> shape{2U, 3U};
+  const std::vector<Axis> matched{Axis::match, Axis::match};
+  const std::vector<Axis> expanded_left{Axis::expand_left, Axis::expand_left};
+
+  REQUIRE(mpf::detail::semantic::valid_sparse_arithmetic_contract(
+      Operation::add, Policy::preserve_sparse, Source::static_extents, Storage::sparse_csc,
+      Storage::sparse_csc, Storage::sparse_csc, shape, shape, shape, matched));
+  REQUIRE(mpf::detail::semantic::valid_sparse_arithmetic_contract(
+      Operation::subtract, Policy::materialize_dense, Source::static_extents,
+      Storage::sparse_csc, Storage::dense, Storage::dense, shape, shape, shape, matched));
+  REQUIRE(mpf::detail::semantic::valid_sparse_arithmetic_contract(
+      Operation::add, Policy::materialize_dense, Source::static_extents, Storage::none,
+      Storage::sparse_csc, Storage::dense, std::vector<std::size_t>{}, shape, shape,
+      expanded_left));
+
+  REQUIRE(!mpf::detail::semantic::valid_sparse_arithmetic_contract(
+      Operation::add, Policy::preserve_sparse, Source::static_extents, Storage::sparse_csc,
+      Storage::dense, Storage::sparse_csc, shape, shape, shape, matched));
+  REQUIRE(!mpf::detail::semantic::valid_sparse_arithmetic_contract(
+      Operation::subtract, Policy::materialize_dense, Source::runtime_operands,
+      Storage::sparse_csc, Storage::dense, Storage::dense, shape, shape, shape, matched));
+  REQUIRE(!mpf::detail::semantic::valid_sparse_arithmetic_contract(
+      Operation::subtract, Policy::materialize_dense, Source::static_extents,
+      Storage::sparse_csc, Storage::dense, Storage::dense, shape, shape, shape,
+      std::vector<Axis>{Axis::match, Axis::runtime}));
+}
+
+TEST_CASE("Matlab Analyzer assigns sparse arithmetic storage without dense broadcast facts") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "A = sparse([1 0 2; 0 3 0]);\n"
+                              "B = sparse([0 4 0; 5 0 6]);\n"
+                              "F = [10 20 30; 40 50 60];\n"
+                              "row = sparse([1 1], [1 3], [2 4], 1, 3);\n"
+                              "column = sparse([1 2], [1 1], [5 6], 2, 1);\n"
+                              "L = sparse([true false; false true]);\n"
+                              "SS_add = A + B;\n"
+                              "SS_sub = A - B;\n"
+                              "SF_add = A + F;\n"
+                              "FS_sub = F - A;\n"
+                              "scalar_right = A + 2;\n"
+                              "scalar_left = 2 - A;\n"
+                              "expanded = row + column;\n"
+                              "logical_sum = L + L;\n"
+                              "Z = sparse(0, 3);\n"
+                              "zero_expanded = Z + row;\n",
+                              "sparse_arithmetic_semantics.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+
+  using Operation = mpf::detail::semantic::SparseArithmeticOperation;
+  using Policy = mpf::detail::semantic::SparseArithmeticStoragePolicy;
+  using Storage = mpf::detail::ArrayStorageFormat;
+  const auto count_plan = [&](const Operation operation, const Policy policy, const Storage left,
+                              const Storage right, const Storage result,
+                              const std::vector<std::size_t>& shape) {
+    return std::count_if(analysis.semantics.expressions.begin(),
+                         analysis.semantics.expressions.end(), [&](const auto& facts) {
+                           const auto& plan = facts.sparse_arithmetic;
+                           return plan.operation == operation && plan.storage_policy == policy &&
+                                  plan.left_storage == left && plan.right_storage == right &&
+                                  plan.result_storage == result && plan.result_shape == shape &&
+                                  facts.element_numeric_type == mpf::detail::real_numeric_type &&
+                                  !facts.broadcast.valid;
+                         });
+  };
+  REQUIRE(count_plan(Operation::add, Policy::preserve_sparse, Storage::sparse_csc,
+                     Storage::sparse_csc, Storage::sparse_csc, {2U, 3U}) == 2);
+  REQUIRE(count_plan(Operation::subtract, Policy::preserve_sparse, Storage::sparse_csc,
+                     Storage::sparse_csc, Storage::sparse_csc, {2U, 3U}) == 1);
+  REQUIRE(count_plan(Operation::add, Policy::materialize_dense, Storage::sparse_csc,
+                     Storage::dense, Storage::dense, {2U, 3U}) == 1);
+  REQUIRE(count_plan(Operation::subtract, Policy::materialize_dense, Storage::dense,
+                     Storage::sparse_csc, Storage::dense, {2U, 3U}) == 1);
+  REQUIRE(count_plan(Operation::add, Policy::materialize_dense, Storage::sparse_csc,
+                     Storage::none, Storage::dense, {2U, 3U}) == 1);
+  REQUIRE(count_plan(Operation::subtract, Policy::materialize_dense, Storage::none,
+                     Storage::sparse_csc, Storage::dense, {2U, 3U}) == 1);
+  REQUIRE(count_plan(Operation::add, Policy::preserve_sparse, Storage::sparse_csc,
+                     Storage::sparse_csc, Storage::sparse_csc, {2U, 2U}) == 1);
+  REQUIRE(count_plan(Operation::add, Policy::preserve_sparse, Storage::sparse_csc,
+                     Storage::sparse_csc, Storage::sparse_csc, {0U, 3U}) == 1);
+
+  auto corrupted = analysis.semantics;
+  const auto arithmetic = std::find_if(
+      corrupted.expressions.begin(), corrupted.expressions.end(), [](const auto& facts) {
+        return facts.sparse_arithmetic.storage_policy == Policy::materialize_dense;
+      });
+  REQUIRE(arithmetic != corrupted.expressions.end());
+  arithmetic->sparse_arithmetic.result_storage = Storage::sparse_csc;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, corrupted,
+                                              "sparse-arithmetic-storage-corruption")
+               .empty());
+}
+
 TEST_CASE("Matlab sparse logical storage policy is explicit and shape checked") {
   using Operation = mpf::detail::semantic::SparseLogicalOperation;
   using Policy = mpf::detail::semantic::SparseLogicalStoragePolicy;

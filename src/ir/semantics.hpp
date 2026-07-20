@@ -143,6 +143,88 @@ enum class BroadcastAxis : std::uint8_t { match, expand_left, expand_right, runt
 enum class BroadcastShapeSource : std::uint8_t { static_extents, runtime_operands };
 enum class ArrayOperation : std::uint8_t { native, matlab };
 
+// Matlab addition and subtraction are element-wise operations even without a dot prefix. Sparse
+// storage propagation differs from `.*`: two sparse operands preserve CSC, while any full/scalar
+// operand materializes a full result. Keep operation, storage policy, and compatible-size shape in
+// one typed contract so neither target infers them from a runtime tag or helper spelling.
+enum class SparseArithmeticOperation : std::uint8_t { none, add, subtract };
+enum class SparseArithmeticStoragePolicy : std::uint8_t {
+  none,
+  preserve_sparse,
+  materialize_dense
+};
+
+[[nodiscard]] constexpr ArrayStorageFormat sparse_arithmetic_result_storage(
+    const ArrayStorageFormat left, const ArrayStorageFormat right) noexcept {
+  const bool left_sparse = left == ArrayStorageFormat::sparse_csc;
+  const bool right_sparse = right == ArrayStorageFormat::sparse_csc;
+  const bool left_supported =
+      left == ArrayStorageFormat::none || left == ArrayStorageFormat::dense || left_sparse;
+  const bool right_supported =
+      right == ArrayStorageFormat::none || right == ArrayStorageFormat::dense || right_sparse;
+  if (!left_supported || !right_supported || (!left_sparse && !right_sparse)) {
+    return ArrayStorageFormat::none;
+  }
+  return left_sparse && right_sparse ? ArrayStorageFormat::sparse_csc
+                                     : ArrayStorageFormat::dense;
+}
+
+[[nodiscard]] constexpr SparseArithmeticStoragePolicy sparse_arithmetic_storage_policy(
+    const ArrayStorageFormat left, const ArrayStorageFormat right) noexcept {
+  const auto result = sparse_arithmetic_result_storage(left, right);
+  if (result == ArrayStorageFormat::sparse_csc) {
+    return SparseArithmeticStoragePolicy::preserve_sparse;
+  }
+  return result == ArrayStorageFormat::dense
+             ? SparseArithmeticStoragePolicy::materialize_dense
+             : SparseArithmeticStoragePolicy::none;
+}
+
+template <typename Shape, typename Axes>
+[[nodiscard]] bool valid_sparse_arithmetic_contract(
+    const SparseArithmeticOperation operation, const SparseArithmeticStoragePolicy policy,
+    const BroadcastShapeSource shape_source, const ArrayStorageFormat left_storage,
+    const ArrayStorageFormat right_storage, const ArrayStorageFormat result_storage,
+    const Shape& left_shape, const Shape& right_shape, const Shape& result_shape,
+    const Axes& axes) noexcept {
+  if ((operation != SparseArithmeticOperation::add &&
+       operation != SparseArithmeticOperation::subtract) ||
+      shape_source != BroadcastShapeSource::static_extents ||
+      result_storage != sparse_arithmetic_result_storage(left_storage, right_storage) ||
+      policy != sparse_arithmetic_storage_policy(left_storage, right_storage) ||
+      result_storage == ArrayStorageFormat::none || result_shape.size() != 2U ||
+      axes.size() != result_shape.size()) {
+    return false;
+  }
+  const auto valid_operand = [](const ArrayStorageFormat storage, const Shape& shape) {
+    if (storage == ArrayStorageFormat::none) return shape.empty();
+    if (storage != ArrayStorageFormat::dense && storage != ArrayStorageFormat::sparse_csc) {
+      return false;
+    }
+    constexpr auto dynamic = std::numeric_limits<std::size_t>::max();
+    return shape.size() == 2U && shape[0] != dynamic && shape[1] != dynamic;
+  };
+  if (!valid_operand(left_storage, left_shape) || !valid_operand(right_storage, right_shape)) {
+    return false;
+  }
+  for (std::size_t axis = 0U; axis < result_shape.size(); ++axis) {
+    const auto left_extent = axis < left_shape.size() ? left_shape[axis] : 1U;
+    const auto right_extent = axis < right_shape.size() ? right_shape[axis] : 1U;
+    const auto expected_axis = left_extent == right_extent ? BroadcastAxis::match
+                               : left_extent == 1U         ? BroadcastAxis::expand_left
+                               : right_extent == 1U        ? BroadcastAxis::expand_right
+                                                           : BroadcastAxis::runtime;
+    const auto expected_extent = left_extent == right_extent ? left_extent
+                                 : left_extent == 1U         ? right_extent
+                                                             : left_extent;
+    if (expected_axis == BroadcastAxis::runtime || axes[axis] != expected_axis ||
+        result_shape[axis] != expected_extent) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // Sparse element-wise arithmetic is not a matrix operation. Keep its source operation and
 // storage propagation independent so target lowering never aliases Matlab `.*` to `*` or infers
 // sparse preservation from a helper name. The current finite-real CSC contract deliberately
