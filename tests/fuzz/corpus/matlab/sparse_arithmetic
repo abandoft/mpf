@@ -1,0 +1,19 @@
+A = sparse([1 0; 0 2]);
+B = sparse([0 3; 4 -2]);
+D = [5 6; 7 8];
+row = sparse([1 1], [1 2], [10 20], 1, 2);
+column = sparse([1 2], [1 1], [5 6], 2, 1);
+sparse_sum = A + B;
+sparse_difference = A - B;
+sparse_dense = A + D;
+dense_sparse = D - A;
+right_scalar = A + 10;
+left_scalar = 10 - A;
+row_broadcast = row + B;
+outer_broadcast = row + column;
+logical_sum = sparse([true false; false true]) + ...
+              sparse([false true; true false]);
+empty_sum = sparse(0, 2) + sparse(0, 2);
+disp(nnz(sparse_sum), nnz(sparse_difference), sparse_dense(1, 1), ...
+     dense_sparse(2, 2), right_scalar(1, 1), left_scalar(2, 2), ...
+     nnz(row_broadcast), nnz(outer_broadcast), nnz(logical_sum), nnz(empty_sum))
