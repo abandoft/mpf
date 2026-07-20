@@ -364,13 +364,29 @@ if(TARGET mpfc)
     matlab-sparse-product-plan tests/fixtures/matlab_sparse_product_plan.m
     "sparse matrix product shape plans are inconsistent" matlab
     JAVASCRIPT_SEARCH
-      "__mpf_sparse_sparse_mtimes(A, B, [2, 3], [3, 2], [2, 2])"
+      "__mpf_sparse_sparse_mtimes(A, B, [2, 3], [3, 2], [2, 2], 1)"
     JAVASCRIPT_REPLACEMENT
-      "__mpf_sparse_sparse_mtimes(A, B, [2, 3], [3, 2], [2, 3])"
+      "__mpf_sparse_sparse_mtimes(A, B, [2, 3], [3, 2], [2, 3], 1)"
     CPP_SEARCH
-      "mpf_runtime::sparse_sparse_mtimes(A, B, std::array<std::size_t, 2>{2, 3}, std::array<std::size_t, 2>{3, 2}, std::array<std::size_t, 2>{2, 2})"
+      "mpf_runtime::sparse_sparse_mtimes(A, B, std::array<std::size_t, 2>{2, 3}, std::array<std::size_t, 2>{3, 2}, std::array<std::size_t, 2>{2, 2}, 1)"
     CPP_REPLACEMENT
-      "mpf_runtime::sparse_sparse_mtimes(A, B, std::array<std::size_t, 2>{2, 3}, std::array<std::size_t, 2>{3, 2}, std::array<std::size_t, 2>{2, 3})")
+      "mpf_runtime::sparse_sparse_mtimes(A, B, std::array<std::size_t, 2>{2, 3}, std::array<std::size_t, 2>{3, 2}, std::array<std::size_t, 2>{2, 3}, 1)")
+  mpf_add_generated_plan_rejection_test(
+    matlab-complex-sparse-product-domain-plan
+    tests/fixtures/matlab_complex_sparse_product_plan.m
+    "sparse matrix product numeric-domain plan is invalid" matlab
+    JAVASCRIPT_SEARCH
+      "__mpf_sparse_sparse_mtimes(A, B, [2, 2], [2, 2], [2, 2], 2)"
+    JAVASCRIPT_REPLACEMENT
+      "__mpf_sparse_sparse_mtimes(A, B, [2, 2], [2, 2], [2, 2], 0)"
+    CPP_SEARCH
+      "mpf_runtime::sparse_sparse_mtimes(A, B, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, 2)"
+    CPP_REPLACEMENT
+      "mpf_runtime::sparse_sparse_mtimes(A, B, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, std::array<std::size_t, 2>{2, 2}, 0)")
+  mpf_add_generated_runtime_failure_test(
+    matlab-complex-sparse-product-overflow
+    tests/fixtures/matlab_complex_sparse_product_overflow.m
+    "sparse matrix product produced a nonfinite value" matlab)
   mpf_add_generated_runtime_failure_test(
     matlab-sparse-power-invalid-exponent
     tests/fixtures/matlab_sparse_power_invalid_exponent.m
