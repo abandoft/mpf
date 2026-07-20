@@ -1698,7 +1698,7 @@ TEST_CASE("Matlab all and any preserve first-dimension vector N-D and empty iden
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
   REQUIRE(javascript.code.find("__mpf_matlab_logical_reduce") != std::string::npos);
-  REQUIRE(javascript.code.find("[0, 1], [2, 2, 2], [1, 1, 2], [1, 1, 2]") != std::string::npos);
+  REQUIRE(javascript.code.find("[2, 2, 2], [0, 1], [1, 1, 2], [1, 1, 2]") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_logical_reduce<true, 3>") != std::string::npos);
   REQUIRE(cpp.code.find("std::array<std::size_t, 2>{0, 3}") != std::string::npos);
   for (const auto* result : {&javascript, &cpp}) {
@@ -1719,7 +1719,7 @@ TEST_CASE("Matlab all and any preserve first-dimension vector N-D and empty iden
       transpile_array(dynamic_source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
   REQUIRE(dynamic_javascript.success());
   REQUIRE(dynamic_cpp.success());
-  REQUIRE(dynamic_javascript.code.find("__mpf_matlab_logical_total(values, true)") !=
+  REQUIRE(dynamic_javascript.code.find("__mpf_matlab_logical_total(values, 1)") !=
           std::string::npos);
   REQUIRE(dynamic_cpp.code.find("mpf_runtime::matlab_logical_total<true>(values)") !=
           std::string::npos);
