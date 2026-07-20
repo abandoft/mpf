@@ -413,6 +413,23 @@ TEST_CASE("Matlab statement lexer classifies switch case and otherwise") {
   REQUIRE(result.lines[3].tokens[0].kind == mpf::detail::MatlabStatementTokenKind::keyword_end);
 }
 
+TEST_CASE("Matlab statement lexer classifies return and structured block keywords") {
+  std::vector<mpf::detail::SourceLine> lines;
+  lines.push_back({1, 0, 0, "return"});
+  lines.push_back({2, 7, 0, "try"});
+  lines.push_back({3, 11, 0, "catch failure"});
+  lines.push_back({4, 25, 0, "arguments"});
+  lines.push_back({5, 35, 0, "display 'hello world'"});
+  const auto result = mpf::detail::lex_matlab_statements(std::move(lines));
+  REQUIRE(result.diagnostics.empty());
+  REQUIRE(result.lines[0].tokens[0].kind == mpf::detail::MatlabStatementTokenKind::keyword_return);
+  REQUIRE(result.lines[1].tokens[0].kind == mpf::detail::MatlabStatementTokenKind::keyword_try);
+  REQUIRE(result.lines[2].tokens[0].kind == mpf::detail::MatlabStatementTokenKind::keyword_catch);
+  REQUIRE(result.lines[3].tokens[0].kind ==
+          mpf::detail::MatlabStatementTokenKind::keyword_arguments);
+  REQUIRE(result.lines[4].tokens[1].kind == mpf::detail::MatlabStatementTokenKind::string_literal);
+}
+
 TEST_CASE("Fortran statement lexer preserves declarations delimiters and contextual names") {
   std::vector<mpf::detail::SourceLine> lines;
   lines.push_back({2, 0, 0, "INTEGER :: BLOCK(2, 2) = RESHAPE([1,2,3,4], [2,2])"});
