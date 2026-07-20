@@ -27,9 +27,7 @@
 - Zero-dimensional square solves preserve the source-language storage rule: dense operands produce shaped dense results and CSC operands produce canonical CSC results.
 - Generated JavaScript and C++17 validate coefficient, operand, and result shape plans before executing a sparse solve and report stable errors for corrupted plans.
 - JavaScript and C++17 use independent sparse runtimes and return zero-dimensional results without factorization or conversion through the other target.
-- Target LIR v34 now carries an explicit runtime shape-call ABI, allowing renderers to serialize validated calls without recovering semantic storage or shape policy.
 - Source maps preserve every new sparse operation and zero-dimensional left- or right-division call site.
-- Added dual-target differential execution, generated-plan rejection, cross-layer corruption, fuzz, and architecture coverage for zero-extent sparse behavior.
 
 ## 0.6.7
 
@@ -44,8 +42,6 @@
 - Source maps preserve the original `.*` expression location for every sparse operand arrangement.
 - Complex, zero-extent, dynamically shaped, and incompatible sparse element-wise operations continue to fail closed with diagnostics instead of changing semantics.
 - Added an executable Matlab example that compares values, shape, and sparse storage across both output targets.
-- The Matlab fuzz corpus now exercises sparse element-wise syntax, operand directions, broadcasting, and runtime validation boundaries.
-- A dedicated sparse element-wise benchmark constrains compilation latency, throughput, peak arena memory, and generated-code size.
 
 ## 0.6.6
 
@@ -57,10 +53,6 @@
 - Nonfinite scalar factors and nonfinite multiplication results fail with stable runtime errors in generated JavaScript and C++17.
 - JavaScript and C++17 use independent nonzero-driven scaling kernels and do not materialize a dense source matrix.
 - Source maps now preserve both right-scalar and left-scalar sparse product call sites.
-- Compiler validation rejects inconsistent scalar direction, shape, storage, and target helper plans before emission.
-- Differential coverage now compares bidirectional scaling, zero scaling, signs, logical factors, values, and sparse storage across both targets.
-- Generated-runtime rejection tests and the Matlab fuzz corpus now cover nonfinite factors, overflow, and sparse scaling syntax.
-- A dedicated sparse-scaling benchmark constrains compilation latency, throughput, peak arena memory, and generated-code size.
 
 ## 0.6.5
 
@@ -74,9 +66,6 @@
 - Unsupported sparse scalar multiplication, complex sparse products, zero extents, dynamic sparse shapes, and incompatible dimensions continue to fail closed with stable diagnostics.
 - Sparse matrix-product calls retain their original locations in JavaScript and C++17 source maps.
 - Added an executable Matlab example covering sparse-by-sparse and both mixed-storage product forms.
-- Added dual-target differential, negative, cross-layer corruption, generated-plan rejection, and fuzz coverage for sparse matrix products.
-- Semantic dump v19, MIR dump v25, and both target LIR dumps v31 expose the new sparse matrix-product storage policy.
-- Added a dedicated sparse matrix-product performance scenario with versioned latency, throughput, arena, and generated-size limits.
 
 ## 0.6.4
 
@@ -86,13 +75,10 @@
 - Reshaped sparse matrices preserve Matlab column-major linear order and remain canonical CSC values.
 - Generated JavaScript and C++17 remap CSC entries directly in O(nnz + output columns), without sorting entries or materializing a dense matrix.
 - JavaScript and C++17 use independent sparse-reshape runtimes and do not consume artifacts from the other backend.
-- A typed `SparseReshapePlan` carries syntax form, inference identity, storage, and input/requested/result shapes through semantic analysis, MIR, and both target LIRs.
-- Semantic, MIR, JavaScript LIR, and `cpp` LIR verifiers reject corrupted sparse-reshape syntax, inference, shape, storage, and inactive-state facts.
 - Generated runtimes validate canonical CSC input and all serialized shape plans before producing a result.
 - Invalid element counts, multiple inferred dimensions, zero extents, and unsupported dynamic, empty, or complex sparse sources fail closed with stable diagnostics.
 - Dense Matlab reshape also accepts one inferred dimension in the comma-separated form when the source element count is statically known.
 - Sparse-reshape calls retain their original source locations in JavaScript and C++17 source maps.
-- Added an executable sparse-reshape example plus dual-target differential, generated-plan rejection, fuzz, architecture, and performance coverage.
 
 ## 0.6.3
 
@@ -106,8 +92,6 @@
 - Sparse right-hand sides and self-referential sparse selections are accepted without materializing a dense copy of the source matrix.
 - Sparse updates are validated completely before a transactional commit, so invalid selectors or replacement values do not partially modify the target.
 - Generated JavaScript and C++17 independently sort, collapse, and merge updates into canonical CSC storage in O(nnz + k log k).
-- A typed `SparseMutationPlan` now carries assignment or deletion identity, shape, storage, scalar-expansion, duplicate-write, and zero-write policies through every compiler layer.
-- Cross-layer verifiers reject corrupted sparse-mutation identity, shape, storage, policy, or inactive-state facts before emission.
 - Added an executable sparse-assignment example covering insertion, overwrite, zero removal, repeated indices, growth, deletion, sparse replacement, and self-aliasing on both targets.
 
 ## 0.6.2
@@ -119,11 +103,9 @@
 - Nonscalar sparse indexing preserves canonical CSC storage and never materializes a dense copy of the source matrix.
 - Full-colon selection remaps CSC entries directly in O(nnz), while submatrix selection scans chosen columns through an ordered row map.
 - Generated JavaScript and C++17 use independent checked sparse-index runtimes; neither target depends on artifacts from the other backend.
-- A typed `SparseIndexPlan` now carries scalar/selection identity, input and result shapes, and source/result storage through semantic analysis, MIR, JavaScript LIR, and `cpp` LIR.
-- Cross-layer verifiers reject corrupted sparse-index identity, arity, shape, type, storage, or inactive-state facts before emission.
 - `full` now accepts rank-two dense or CSC selections with dynamic or zero result extents when their storage representation is known.
 - Sparse assignment, more than two selectors, complex or sparse selectors, N-dimensional linear results, and dynamic, empty, or complex sparse sources continue to fail closed with stable diagnostics.
-- Added an executable sparse-indexing example with dual-target behavior, source-map preservation, out-of-bounds rejection, and fuzz regression coverage.
+- Sparse-indexing calls retain their original locations in both target source maps, and out-of-bounds access reports stable errors.
 
 ## 0.6.1
 
@@ -135,11 +117,8 @@
 - The `nzmax` argument is validated as a nonnegative compile-time integer and becomes a capacity hint in generated C++17 without changing observable matrix contents.
 - Generated JavaScript and C++17 build canonical sorted CSC data directly from triplets instead of allocating an intermediate dense matrix.
 - Ordinary and conjugating transpose now preserve sparse CSC storage for the delivered real sparse contract and use target-owned transpose helpers.
-- A typed `SparseConstructionPlan` now carries constructor identity, result shape, triplet cardinalities, and reserve intent through semantic analysis, MIR, JavaScript LIR, and `cpp` LIR.
-- Independent HIR, MIR, JavaScript LIR, and `cpp` LIR verifiers reject corrupted sparse arity, shape, cardinality, reserve, storage, or inactive-state facts before emission.
 - Sparse constructor and transpose source locations remain mapped through both target-specific runtime calls; neither output backend depends on the other's artifacts.
 - Runtime checks now reject fractional or nonpositive triplet indices, mismatched nonscalar triplets, out-of-range coordinates, invalid dimensions, and nonfinite duplicate accumulation with stable diagnostics.
-- Added executable, differential, generated-runtime rejection, fuzz, architecture, and performance coverage for zero, empty, inferred, sized, reserved, scalar-expanded, duplicate, and transposed sparse matrices.
 
 ## 0.6.0
 
@@ -151,10 +130,8 @@
 - Exact singular and nearly singular sparse systems now emit the same stable condition warnings as the existing dense square solvers.
 - Generated JavaScript uses a private tagged CSC value, while generated C++17 uses a typed `mpf_runtime::sparse_matrix`; the two runtimes remain independent.
 - Runtime validation rejects malformed CSC pointers, unordered row indices, zero or nonfinite stored entries, and incompatible solve shapes.
-- Generated C++17 sparse validation remains warning-clean under strict GCC dangling-reference analysis without suppressing compiler diagnostics.
 - Unsupported sparse constructors, indexing, transpose, reshape, logical, element-wise, multiplication, power, rectangular, complex, and zero-extent cases fail before emission with `MPF2054`.
 - Numeric type planning now preserves Matlab binary64 arrays while keeping Python operand-returning short-circuit and conditional-expression result types correct in generated C++17.
-- Added executable sparse solve and condition-warning examples with source-map checks, fuzz coverage, and dual-target differential validation.
 
 ## 0.5.9
 
@@ -163,12 +140,8 @@
 - Multiple right-hand-side columns share one complex column-pivoted QR factorization.
 - Rank-revealing complex Householder QR uses deterministic column pivoting and a working-precision rank tolerance.
 - Rank-deficient complex systems return a pivoted basic least-squares solution and emit a stable warning instead of failing silently.
-- Matrix plans now carry an explicit rank-revealing column-pivoted-QR factorization policy through semantic analysis, MIR, and both target LIRs.
-- Semantic, MIR, JavaScript LIR, and `cpp` LIR debug schemas advance to v13, v19, and v25 with factorization-policy corruption rejection.
 - JavaScript and C++17 retain independent complex rectangular runtimes with finite-value, rectangularity, shape, and solve-plan validation.
 - Source maps preserve complex overdetermined, underdetermined, left-division, and right-division operator locations.
-- Added executable complex rectangular and rank-deficient Matlab examples with dual-target differential and warning validation.
-- Added complex rectangular fuzz coverage and a dedicated compilation-performance workload.
 
 ## 0.5.8
 
@@ -180,13 +153,9 @@
 - Complex square solvers now estimate reciprocal condition and preserve the existing singular and nearly-singular warning behavior.
 - Complex square matrix power supports zero, positive, and negative ECMAScript-safe integer exponents through exponentiation by squaring.
 - Generated runtimes reject malformed, nonfinite, shape-inconsistent, or fractional complex matrix operations at their owned boundaries.
-- Matrix plans now carry an explicit real or complex numeric domain and a distinct complex-square structure policy through every compiler layer.
-- Semantic, MIR, JavaScript LIR, and `cpp` LIR debug schemas advance to v12, v18, and v24 with numeric-domain validation and corruption rejection.
 - JavaScript and C++17 use independent complex-matrix runtimes; neither target reads generated code or runtime artifacts from the other.
 - Complex-matrix runtime fragments are dependency-checked and omitted entirely from real-only matrix programs.
 - Source maps retain the original locations of complex multiplication, left/right division, and positive or negative matrix powers.
-- Added executable examples for Hermitian, dense pivoted, singular, and nearly-singular complex matrix behavior with dual-target differential validation.
-- Added a complex matrix fuzz seed and generated-runtime rejection coverage for dynamically supplied invalid power exponents.
 
 ## 0.5.7
 
@@ -200,11 +169,9 @@
 - Generated JavaScript uses an independent, checked complex-number runtime and omits complex helpers entirely for real-only programs.
 - Generated C++17 uses an independent `std::complex`-based runtime and infers dynamic numeric result types without depending on JavaScript artifacts.
 - Unsupported complex comparisons, logical operations, reductions, and matrix solve/multiply/power paths now fail before emission with stable `MPF2053` diagnostics.
-- Numeric class and real/complex identity are validated throughout semantic analysis, MIR, and each target-specific lowering pipeline, including corruption rejection tests.
 - Source maps now retain source locations for complex construction, arithmetic, array mutation, reshape, and transpose operations.
-- Added an executable Matlab complex example, dual-target differential coverage, generated-code assertions, and a dedicated fuzz regression seed.
 - Python scalar return annotations now guide generated C++17 types, preventing annotated integer functions from being emitted with incompatible inferred types.
-- Fortran optional writable arguments and Python truthiness regressions found by the expanded full suite are fixed in both output backends.
+- Fixed Fortran optional writable arguments and Python truthiness behavior in both output backends.
 
 ## 0.5.6
 
@@ -218,10 +185,8 @@
 - Local functions with runtime-known rank can use `all(values,'all')` and `any(values,'all')` without requiring a statically known container shape.
 - Generated JavaScript uses a checked column-major reduction kernel and retains zero extents through the existing non-enumerable shape descriptor.
 - Generated C++17 uses an independent typed recursive-`std::vector` reduction kernel and remains warning-clean under strict C++17 compilation.
-- Logical evaluation and reduction contracts are independently verified through semantic analysis, MIR, JavaScript LIR, and `cpp` LIR before emission.
-- Scalar division now carries an explicit zero-denominator policy through HIR, MIR, and both target LIRs; generated C++17 uses portable target-runtime calls for Matlab/TypeScript IEEE results, while Python true and floor division report stable errors in both targets.
+- Generated C++17 scalar division uses portable runtime calls for Matlab and TypeScript IEEE results, while Python true and floor division report stable zero-denominator errors in both targets.
 - Source maps cover logical and reduction runtime calls; character arrays, dynamic dimensions, duplicate or invalid dimensions, and unsupported unknown-rank reductions produce stable diagnostics.
-- Added executable dual-target examples, differential cases, cross-layer corruption checks, runtime assertions, and dedicated Matlab fuzz seeds.
 
 ## 0.5.5
 
@@ -233,10 +198,6 @@
 - Square structure selection now follows diagonal, triangular, tridiagonal, symmetric-positive-definite, and dense fallback priority in both output targets.
 - Tridiagonal and Cholesky kernels now participate in the same iterative 1-norm reciprocal-condition estimation used for square-system warnings.
 - Exact singular tridiagonal systems and nearly singular positive-definite systems emit the stable Matlab-style warning and continue with the computed result.
-- The verified matrix structure policy now represents full real-square classification through semantic analysis, MIR, JavaScript LIR, and `cpp` LIR.
-- Generated helper names now describe the real structured-square contract and no longer retain the earlier diagonal/triangular-only helper identity.
-- Added executable left/right tridiagonal, positive-definite, symmetric-indefinite, singular, and nearly singular examples with dual-target output and warning validation.
-- Expanded source-map assertions, verifier corruption checks, architecture checks, and Matlab fuzz seeds for the advanced structure paths.
 
 ## 0.5.4
 
@@ -248,25 +209,20 @@
 - Reciprocal-condition estimation now follows the selected diagonal, triangular, or dense kernel, including transpose solves required by the estimator.
 - Exact singular and nearly singular structured systems emit the existing stable Matlab-style warnings and continue with the computed IEEE result.
 - Generated C++17 now recursively widens mixed integer and floating-point matrix rows to one concrete numeric container type.
-- Matrix structure policy is verified through semantic analysis, MIR, JavaScript LIR, and `cpp` LIR before code emission.
 - Source maps now retain the original locations of structured left and right division expressions.
-- Added executable structured-solve and condition-warning examples, dual-target differential cases, verifier corruption tests, and a Matlab fuzz regression seed.
 
 ## 0.5.3
 
 - Matlab rectangular left and right division now use rank-aware column-pivoted QR for both overdetermined and underdetermined systems.
 - Underdetermined solves now return a pivoted basic solution instead of the previously incorrect minimum-norm result.
 - Rank-deficient rectangular systems continue with a stable working-precision warning and a basic least-squares result.
-- Exact singular square left and right division now warn and continue, preserving the tested Matlab-style finite and IEEE-infinity components instead of terminating generated programs.
+- Exact singular square left and right division now warn and continue, preserving Matlab-style finite and IEEE-infinity components instead of terminating generated programs.
 - Nearly singular square systems now estimate reciprocal condition with the existing LU factors, emit a distinct `RCOND` warning, and continue with the computed result.
-- Matrix conditioning behavior is represented by a verified `MatrixConditionPolicy` across semantic analysis, MIR, JavaScript LIR, and `cpp` LIR.
 - Generated JavaScript and C++17 now own independent partial-pivoted LU, transpose-solve, condition-estimation, and column-pivoted QR runtimes.
 - Invalid non-vector linear deletion remains rejected consistently, while singular-square execution is no longer misclassified as an unsupported runtime operation.
 - Source maps now retain both left-division and right-division locations for condition-aware square solves.
 - Generated C++ now rejects impossible zero-extent coordinate conversion before division, keeping empty-array output warning-clean under MSVC `/WX`.
 - Release SHA-256 sidecars now use a carriage-return-free format that standard Unix checksum tools can verify even when the package is built on Windows.
-- Added executable exact-singular and nearly-singular Matlab examples with two-target output and warning-count validation.
-- Expanded cross-layer corruption checks, generated-code assertions, architecture checks, and the Matlab fuzz corpus for conditioned solves.
 
 ## 0.5.2
 
@@ -278,8 +234,7 @@
 - Linear assignment to `[]` follows Matlab row-vector growth semantics, while growth from shaped empty matrices retains the planned dimensions and column-major layout.
 - Generated JavaScript carries exact array shape in a checked, non-enumerable descriptor, preserving normal array iteration and serialization behavior.
 - Generated C++17 now consumes target-owned static shape plans for rank, `length`, transpose, broadcasting, and growth without depending on JavaScript output.
-- Invalid or contradictory empty-array shape facts are rejected consistently before target emission and again at generated-runtime boundaries.
-- Added an executable two-target empty-array example, source-map checks, cross-layer corruption tests, a fuzz regression seed, and a dedicated performance-release scenario.
+- Invalid or contradictory empty-array shapes are rejected consistently before target emission and at generated-runtime boundaries.
 
 ## 0.5.1
 
@@ -287,19 +242,15 @@
 - Linear growth preserves Matlab column-major order and vector orientation, extends the final matrix/tensor dimension when required, and initializes gaps with the element type's default value.
 - Matlab `[]` assignment now deletes vector elements or one selected dimension of a matrix/tensor, including scalar, slice, numeric, and logical selectors with duplicate positions removed once.
 - Shape-changing writes support statically known bounds, runtime indexes, local-function parameters, and dynamic `end` expressions in independently generated JavaScript and C++17.
-- Analyzer-owned `IndexedMutationContract` records overwrite, resize, grow, and erase behavior together with linear layout, deletion axis, shape source, and input/result shapes.
-- Semantic, MIR, and target LIR schemas advance to v7, v12, and v18; each layer verifies mutation rank, direction, axis, and shape consistency before emission.
-- MIR now treats growth and deletion as whole-storage writes; memory-dependence analysis forms required hazards and then prunes covered same-root history, avoiding stale partial regions and quadratic frontier growth.
+- Growth and deletion are treated as whole-storage writes, preventing stale partial-region ordering and quadratic dependency-frontier growth.
 - Generated JavaScript uses checked nested-array resizing and axis deletion, while generated C++17 uses typed nested-`std::vector` templates without consuming JavaScript output.
 - Both runtimes validate safe sizes, selector bounds and types, rectangular rank, replacement cardinality, and ambiguous multi-dimensional deletion at their owned boundary.
 - Source maps now cover generated growth and deletion calls, and invalid linear matrix deletion, multi-axis deletion, and out-of-bounds deletion fail closed with stable diagnostics.
-- Added static and runtime-shaped executable differential coverage, N-dimensional generated-code checks, cross-layer corruption tests, and a dedicated Matlab fuzz seed.
 
 ## 0.5.0
 
 - Matlab compatible-size arithmetic and relational comparisons now support operands whose rank and extents are available only when a local function is instantiated or executed.
 - Runtime broadcast dispatch preserves scalar results, scalar expansion, row-vector normalization, missing trailing singleton dimensions, and general rectangular nested arrays.
-- HIR, MIR, JavaScript LIR, and `cpp` LIR now carry a verified `static_extents` or `runtime_operands` broadcast shape source; unknown rank is explicit rather than encoded as a static empty shape.
 - Generated JavaScript derives and validates rectangular operand shapes once before its column-major flatten/stride kernel; incompatible extents fail with a stable runtime error.
 - Generated C++17 combines template-known rank with runtime extents, returns the correct scalar or nested `std::vector` type, and rejects ragged or incompatible operands without depending on JavaScript output.
 - C++ logical-array `sum` now returns a numeric count instead of collapsing all nonzero counts to `true`.
@@ -307,13 +258,9 @@
 - Runtime-sized `end` supports linear column-major indexing, per-dimension indexing, colon bounds, arithmetic such as `end - 1`, and numeric selector arrays such as `[1 end]`.
 - Dynamic `end` reads and writes now execute independently in generated JavaScript and C++17 for scalar elements and N-dimensional sections.
 - Static extents retain their constant-folded fast path, so existing fixed-shape indexing does not pay for runtime extent resolution.
-- HIR, MIR, JavaScript LIR, and `cpp` LIR now carry verified runtime-axis or runtime-linear extent plans instead of asking emitters to infer source semantics.
-- Semantic, MIR, and target LIR debug schemas advance to v6, v11, and v17 with explicit broadcast-shape sources and per-selector extent identities.
 - Generated JavaScript resolves selector closures against the active axis length or column-major element count while evaluating the indexed container only once.
 - Generated C++17 uses typed selector callables and a generalized column-major element accessor, including a C++17-safe type-probe path without lambdas in unevaluated operands.
-- Added cross-layer corruption tests, source-map assertions, generated-code checks, and a two-target executable differential example for dynamic `end` reads and writes.
-- Added a dedicated dynamic-`end` fuzz seed and compilation-performance scenario; read-only memory frontiers with no compatible function write are now pruned, retaining the existing release thresholds.
-- Added executable scalar/array dynamic-broadcast differential coverage, cross-layer corruption rejection, source-map checks, a fuzz seed, and a dedicated compilation-performance scenario.
+- Read-only memory frontiers with no compatible function write are pruned, reducing analysis work for runtime-sized indexing and broadcasting.
 
 ## 0.4.9
 
@@ -324,11 +271,7 @@
 - Matlab array division by a scalar and scalar left division of an array now preserve matrix-operator semantics without requiring element-wise spelling.
 - Matlab indexing now supports ordered numeric selector arrays, repeated indices, empty selectors, and logical selectors in either linear or per-dimension positions.
 - Logical selectors with runtime-known extents now validate their shape in generated code instead of requiring every mask size to be known during compilation.
-- Matrix operation kind, solve class, and input/output shapes now remain explicit and verified across HIR, MIR, JavaScript LIR, and `cpp` LIR.
-- Semantic, MIR, and target LIR schemas advance to v4, v9, and v15; every scalar, slice, numeric, logical, or empty selector now has a verified per-subscript identity.
 - Rank-deficient systems, non-square powers, matrix exponents, non-finite solve values, and unsafe or fractional exponents fail closed deterministically.
-- Added executable square and rectangular solve examples, two-target differential coverage, and generated-runtime rejection coverage for rank deficiency.
-- Expanded Matlab fuzz, source-map, generated-code, runtime-rejection, and compilation-performance coverage for matrix solve/power and generalized indexing.
 
 ## 0.4.8
 
@@ -340,8 +283,6 @@
 - Matlab `end` now resolves from the active indexing dimension or linear element count when extents are statically known, including arithmetic and colon expressions.
 - Matlab logical masks now support column-major linear reads and scalar or vector writes, with strict mask-size and replacement-shape validation.
 - Unsupported dynamic extents, higher-rank transpose, incompatible masks, growth through `end`, matrix division, and matrix power now fail before code generation with dedicated diagnostics.
-- Added five executable Matlab examples and differential cases covering implicit expansion, transpose, `end`, logical indexing, and broadcast comparisons on both output targets.
-- Expanded Matlab fuzz regression inputs and cross-layer validation for broadcast plans, transpose identity, logical selection, and optimized intermediate representations.
 
 ## 0.4.7
 
@@ -349,9 +290,6 @@
 - Added two-dimensional numeric matrix multiplication with executable JavaScript and C++17 implementations.
 - Added basic `+`, `-`, `.*`, `./`, `.\`, and `.^` operations for same-shape arrays and scalar expansion.
 - Incompatible shapes and unsupported matrix division or matrix power now produce `MPF2046` instead of unreliable target code.
-- Matlab operator identity is represented by strongly typed facts across the AST, HIR, MIR, and target LIR, providing a foundation for broadcasting, transpose, and numeric-type support.
-- JavaScript and C++ backend sources now reside in separate target directories, with redundant target prefixes removed from filenames to clarify extension boundaries.
-- Added Matlab array-operation differential examples, positive and negative semantic tests, target-code checks, and fuzz regression inputs.
 - Updated the Matlab-to-JavaScript support matrix, diagnostics documentation, and project roadmap to reflect current capabilities and known limitations.
 - C++ output now assigns distinct target identifiers to lexically shadowed symbols, preventing warning-as-error failures with MSVC while preserving source scope semantics.
 
@@ -372,7 +310,6 @@
 - Added the ability to distinguish disjoint N-dimensional regions, reducing conservative restrictions on safe accesses.
 - Compilation reports now include memory-dependence statistics to help diagnose complex control flow and performance issues.
 - Optimized large control-flow graphs and dependency deduplication, reducing a related benchmark from approximately 354 ms to 43 ms.
-- Expanded regression and fuzz validation for loop-carried dependencies, unknown external calls, and indexed writes.
 
 ## 0.4.4
 
@@ -380,7 +317,6 @@
 - Propagated actual argument access regions across function calls, improving correctness checks for writable arguments and array sections.
 - Improved alias analysis to distinguish definitely disjoint, definitely identical, and indeterminate memory regions.
 - Fixed a case where memory-access information could become inconsistent with generated code after optimization.
-- Expanded stability tests for indexing, slicing, writeback, and cross-function array access.
 
 ## 0.4.3
 
@@ -388,7 +324,6 @@
 - Fortran now allows multiple provably disjoint sections of the same array to be passed as writable procedure arguments.
 - Actual overlap and indeterminate boundaries continue to produce safety diagnostics.
 - Improved handling of empty sections, large strides, and column-major linear selection.
-- Added a Fortran disjoint-region example with result validation across gfortran, JavaScript, and C++.
 
 ## 0.4.2
 
@@ -397,7 +332,6 @@
 - Normalized static array shapes and removed invalid instructions and simple redundant control flow.
 - Improved block-parameter copy propagation while preserving general branch joins and dynamic-value semantics.
 - Compilation reports now include pre- and post-optimization sizes, constant-folding counts, and cleanup statistics.
-- Added a Python optimization example with consistent results across the source program, JavaScript output, and C++ output.
 
 ## 0.4.1
 
@@ -406,7 +340,6 @@
 - Fixed inaccurate local-variable scope and lifetime in generated JavaScript and C++.
 - TypeScript `number` now follows ECMAScript numeric semantics, and array indexing rejects values that cannot be represented safely as integers.
 - JavaScript output now includes only the runtime helpers required by the current program.
-- Added multi-target execution validation for TypeScript block scopes and `for` loops.
 
 ## 0.4.0
 
@@ -415,7 +348,6 @@
 - Type annotations in the supported subset can be erased when generating JavaScript or C++17.
 - TypeScript `export function` declarations can generate corresponding JavaScript ESM exports.
 - Added explicit diagnostics for `var`, loose equality, arrow functions, template strings, and unmodeled object semantics to prevent inconsistent generated behavior.
-- Added four-way validation using Node.js source execution, generated JavaScript, generated C++, and declared results.
 
 ## 0.3.9
 
@@ -446,7 +378,6 @@
 - Added membership operations for strings, lists, and tuples, including mixed comparison chains.
 - JavaScript output now distinguishes lists from tuples and preserves reference identity within the supported subset.
 - C++ output now supports recursive container comparison and membership; identity comparisons that cannot be represented reliably are explicitly rejected.
-- Added Python comparison validation across CPython, JavaScript, and C++.
 
 ## 0.3.5
 
@@ -464,8 +395,6 @@
 - Added source-language version selection to the public API and CLI; unsupported version-specific features now produce explicit diagnostics.
 - Added source-map output, dependency manifests, resource limits, and machine-readable compilation reports.
 - Reorganized frontends, shared analysis, and target backends into a clearly layered compilation pipeline while keeping the JavaScript and C++ backends independent.
-- Split GitHub automation by validation, portability, quality, sanitizer, coverage, performance, security, and release responsibilities.
-- Added fuzzing, performance baselines, installed-package consumer tests, and external extension examples.
 
 ## 0.3.3
 
@@ -481,7 +410,6 @@
 - Comparison chains preserve left-to-right order, single evaluation, and short-circuit behavior.
 - Conditional expressions preserve lazy branches and Python truthiness in JavaScript and C++ output.
 - Comparisons or branch results that C++ cannot represent statically now produce explicit diagnostics.
-- Added four-way result validation across CPython, JavaScript, C++, and declared results.
 
 ## 0.3.1
 
@@ -491,21 +419,12 @@
 - Character cases now compare according to Fortran blank-padding rules.
 - Improved definite-assignment and termination-flow analysis after multi-branch selections.
 
-## 0.3.0
-
-- Added unified C++ code-formatting and static-analysis configuration.
-- Added source-coverage reporting with an 85% production line-coverage gate.
-- Added formatting, static analysis, coverage, CodeQL, and dependency-security checks to GitHub automation.
-- Fixed duplicate branches and invalid state updates discovered by quality checks.
-- All quality reports continue to be generated under the `build/` directory.
-
 ## 0.2.9
 
 - Python unpacking assignment now supports nested tuple/list patterns and starred targets.
 - Starred targets can appear in any position and support empty captures, nested captures, and repeated-name overwrites.
 - The right-hand side is evaluated once, with assignment order preserved in JavaScript and C++ output.
 - Dynamic lengths, structural mismatches, and heterogeneous starred results that C++ cannot represent now produce explicit diagnostics.
-- Added four-way unpacking validation across CPython, JavaScript, C++, and declared results.
 
 ## 0.2.8
 
@@ -553,7 +472,6 @@
 - Contiguous and non-contiguous sections preserve writeback semantics through copy-in/copy-out.
 - Fortran function return values and section writeback now execute in the correct order.
 - Multiple potentially overlapping writable arguments produce conservative diagnostics to prevent unsafe code generation.
-- Added section-argument validation across gfortran, JavaScript, and C++.
 
 ## 0.2.2
 
@@ -608,7 +526,6 @@
 - Added the current subset of functions, multiple outputs, conditionals, loops, display, assignment, indexed assignment, and expression statements.
 - Character vectors, conjugate transpose, and non-conjugate transpose are now distinguished correctly.
 - Improved Matlab function return-type propagation and C++ forward-call generation.
-- Added parser error recovery and statement-token result validation.
 
 ## 0.1.5
 
@@ -616,7 +533,6 @@
 - Added the current subset of functions, conditionals, `while`, `for ... else`, return, loop control, assignment, and print.
 - Expressions continue to use the unified precedence parser, preventing inconsistencies between statement and expression syntax.
 - Added diagnostics and recovery for invalid chained assignment, parameter forms, and isolated clauses.
-- Added statement-token validation across CPython, JavaScript, and C++.
 
 ## 0.1.4
 
@@ -624,7 +540,6 @@
 - Matlab now supports `...` continuation, multiline matrices, block comments, and multiple statements on one line.
 - Python and Matlab comments and strings can now be processed safely across logical lines.
 - Added diagnostics for unclosed delimiters, strings, comments, and invalid continuations.
-- Added JavaScript and C++ result validation for multiline source programs.
 
 ## 0.1.3
 
@@ -633,14 +548,6 @@
 - JavaScript and C++ output preserve lazy evaluation within the supported subset.
 - Python `float` now supports basic numeric, Boolean, and string conversion, including NaN and Infinity parsing.
 - C++ output reports a diagnostic before generation when logical-expression result types cannot be unified statically.
-
-## 0.1.2
-
-- Added a unified differential-test corpus manifest.
-- A single example can now compare the source language, generated JavaScript, generated C++, and declared result directly.
-- Generated C++ is compiled and executed with the same compiler and generator as the top-level project.
-- Generated sources, compilation logs, and results from every execution path are retained on failure.
-- Automated environments pin Python and Node.js versions so missing runtimes cannot silently skip tests.
 
 ## 0.1.1
 
@@ -673,7 +580,6 @@
 - Generating either target no longer requires the other target backend to be built.
 - Added backend-availability queries to the public API and explicit diagnostics when a requested backend was not built.
 - Added `core`, `javascript`, and `cpp` components to the CMake install package.
-- Added build, install, and external-consumer validation for JavaScript-only, C++-only, and core-only configurations.
 - Fixed lost rank information for ragged Python lists.
 
 ## 0.0.7
@@ -724,8 +630,7 @@
 - Added UTF-8 source locations, CRLF handling, and a shared token model.
 - Python, Matlab, and Fortran expressions now use structured lexers and parsers.
 - JavaScript output now supports safe operator precedence, Python floor division, and list/tuple values.
-- Added Node.js validation for generated JavaScript and real compile-and-execute tests for generated C++.
 
 ## 0.0.1
 
-- Established the MPF public API, command-line tool, basic scalar transpilation for three languages, JavaScript backend, test infrastructure, and build system.
+- Established the MPF public API, command-line tool, basic scalar transpilation for three languages, and JavaScript output.

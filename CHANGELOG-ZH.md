@@ -27,9 +27,7 @@
 - 零维方阵求解保持源语言 storage 规则：dense operand 产生 shaped dense 结果，CSC operand 产生 canonical CSC 结果。
 - 生成的 JavaScript 与 C++17 会在执行稀疏求解前验证系数、operand 与结果 shape plan，并对损坏计划报告稳定错误。
 - JavaScript 与 C++17 使用彼此独立的稀疏 runtime，无需分解零维系数，也不经过另一目标进行转换。
-- 双目标 LIR v34 新增显式 runtime shape 调用 ABI，使 renderer 只序列化已验证调用，不再恢复 semantic storage 或 shape policy。
 - source map 会保留全部新增稀疏操作以及零维左除、右除的原始调用位置。
-- 新增零 extent sparse 的双目标差分执行、生成计划拒错、跨层损坏、fuzz 与架构覆盖。
 
 ## 0.6.7
 
@@ -44,8 +42,6 @@
 - source map 会为全部稀疏 operand 组合保留原始 `.*` 表达式位置。
 - complex、零 extent、动态 shape 或不兼容的稀疏逐元素运算继续失败关闭，不会静默改变语义。
 - 新增可执行 Matlab 示例，在两个输出目标间比较数值、shape 与稀疏存储。
-- Matlab fuzz corpus 现覆盖稀疏逐元素语法、操作数方向、广播与 runtime 验证边界。
-- 新增独立 sparse element-wise benchmark，约束编译延迟、吞吐、arena 峰值与生成代码大小。
 
 ## 0.6.6
 
@@ -57,10 +53,6 @@
 - 非有限标量因子或非有限乘法结果会在生成的 JavaScript 与 C++17 中以稳定 runtime 错误拒绝。
 - JavaScript 与 C++17 使用彼此独立、由非零项驱动的缩放 kernel，不会物化 dense source matrix。
 - source map 现在同时保持右侧标量与左侧标量稀疏乘法的调用位置。
-- 编译器会在发射前拒绝相互矛盾的标量方向、shape、storage 与目标 helper 计划。
-- 差分覆盖现在比较双向缩放、零缩放、符号、logical 因子、数值和两目标的稀疏存储。
-- 生成 runtime 拒错测试和 Matlab fuzz corpus 现在覆盖非有限因子、溢出与稀疏缩放语法。
-- 新增独立 sparse-scaling benchmark，约束编译延迟、吞吐、arena 峰值与生成代码大小。
 
 ## 0.6.5
 
@@ -74,9 +66,6 @@
 - 尚未支持的 sparse scalar multiplication、complex sparse product、零 extent、动态 sparse shape 与维度不匹配会继续以稳定诊断失败关闭。
 - JavaScript 与 C++17 source map 会保留 sparse matrix-product 调用的原始源码位置。
 - 新增同时覆盖 sparse×sparse 与两类 mixed-storage product 的可执行 Matlab 示例。
-- 新增双目标差分、负向语义、跨层损坏、生成计划篡改拒错与 fuzz 覆盖。
-- Semantic dump v19、MIR dump v25 与双目标 LIR dump v31 公开新的 sparse matrix-product storage policy。
-- 新增 sparse matrix-product 专属性能场景及版本化 latency、throughput、arena 和 generated-size 上限。
 
 ## 0.6.4
 
@@ -86,13 +75,10 @@
 - reshape 后的稀疏矩阵保持 Matlab 列主序线性顺序，并继续使用 canonical CSC 表示。
 - 生成的 JavaScript 与 C++17 以 O(nnz + 输出列数) 直接重映射 CSC 条目，无需排序或物化稠密矩阵。
 - JavaScript 与 C++17 使用彼此独立的 sparse-reshape runtime，不消费另一后端的任何产物。
-- 新增类型化 `SparseReshapePlan`，使语法形式、推断 identity、storage 及输入/请求/结果 shape 贯穿语义分析、MIR 与双目标 LIR。
-- Semantic、MIR、JavaScript LIR 与 `cpp` LIR verifier 会拒绝损坏的 sparse-reshape 语法、推断、shape、storage 和 inactive-state fact。
 - 生成 runtime 会在产生结果前验证 canonical CSC 输入和全部已序列化 shape plan。
 - 元素数量不匹配、多个推断维度、零 extent，以及不支持的动态、空或 complex sparse source 会以稳定诊断失败关闭。
 - 当源元素总数静态已知时，dense Matlab reshape 也可在逗号分隔形式中使用一个推断维度。
 - JavaScript 与 C++17 source map 会保留 sparse-reshape 调用的原始源码位置。
-- 新增可执行 sparse-reshape 示例，并补齐双目标差分、生成计划篡改拒错、fuzz、架构和性能覆盖。
 
 ## 0.6.3
 
@@ -106,8 +92,6 @@
 - sparse RHS 与自引用 sparse selection 均无需物化源矩阵的稠密副本。
 - sparse update 会先完成全部验证再事务式提交，非法 selector 或 replacement 不会造成部分写入。
 - 生成的 JavaScript 与 C++17 会彼此独立地排序、折叠更新，并以 O(nnz + k log k) 合并为 canonical CSC storage。
-- 新增类型化 `SparseMutationPlan`，使赋值/删除 identity、shape、storage、scalar-expansion、重复写入与零值策略贯穿全部编译层。
-- 跨层 verifier 会在发射前拒绝损坏的 sparse-mutation identity、shape、storage、policy 或 inactive-state fact。
 - 新增可执行 sparse-assignment 示例，在双目标覆盖插入、覆盖、零值删除、重复下标、扩容、删除、sparse replacement 与 self-alias。
 
 ## 0.6.2
@@ -119,11 +103,9 @@
 - 非标量 sparse indexing 保持 canonical CSC storage，且不会物化源矩阵的稠密副本。
 - full-colon selection 以 O(nnz) 直接 remap CSC 条目；submatrix selection 通过有序 row map 扫描选中的列。
 - 生成的 JavaScript 与 C++17 使用彼此独立、带检查的 sparse-index runtime；任一目标均不依赖另一后端产物。
-- 新增类型化 `SparseIndexPlan`，使 scalar/selection identity、输入/结果 shape 与 source/result storage 贯穿语义分析、MIR、JavaScript LIR 和 `cpp` LIR。
-- 跨层 verifier 会在发射前拒绝损坏的 sparse-index identity、arity、shape、type、storage 或 inactive-state fact。
 - 当 storage representation 已知时，`full` 现可接受结果 extent 为动态值或零值的 rank-two dense/CSC selection。
 - sparse assignment、超过两个 selector、complex/sparse selector、N 维 linear result，以及动态、空或 complex sparse source 继续以稳定诊断失败关闭。
-- 新增可执行 sparse-indexing 示例，覆盖双目标行为、source-map 保留、越界拒绝与 fuzz 回归。
+- sparse indexing 调用会在两个目标的 source map 中保留原始位置，越界访问会报告稳定错误。
 
 ## 0.6.1
 
@@ -135,11 +117,8 @@
 - `nzmax` 会作为非负编译期整数验证，并在生成 C++17 中作为 capacity hint 使用，不改变矩阵可观察内容。
 - 生成的 JavaScript 与 C++17 会从 triplet 直接建立有序 canonical CSC 数据，不再分配中间稠密矩阵。
 - 普通转置与共轭转置现可在已交付的 real sparse contract 内保持 CSC 存储，并调用目标专属 transpose helper。
-- 新增类型化 `SparseConstructionPlan`，使 constructor identity、结果 shape、triplet cardinality 与 reserve intent 贯穿语义分析、MIR、JavaScript LIR 和 `cpp` LIR。
-- 独立 HIR、MIR、JavaScript LIR 与 `cpp` LIR verifier 会在发射前拒绝损坏的 sparse arity、shape、cardinality、reserve、storage 或 inactive-state fact。
 - 稀疏构造与转置经过两个目标专属 runtime call 后仍保留 source location；任一输出后端均不依赖另一后端产物。
 - runtime 现以稳定诊断拒绝小数或非正 triplet index、非标量 triplet 数量不一致、越界坐标、非法维度和非有限重复项累加。
-- 新增可执行、差分、生成 runtime 拒错、fuzz、架构与性能覆盖，固定 zero、empty、inferred、sized、reserved、scalar-expanded、duplicate 与 transposed sparse matrix 行为。
 
 ## 0.6.0
 
@@ -151,10 +130,8 @@
 - 精确奇异与近奇异稀疏系统现会产生和既有稠密方阵求解器一致的稳定条件 warning。
 - 生成的 JavaScript 使用私有 tag 的 CSC 值，生成的 C++17 使用类型化 `mpf_runtime::sparse_matrix`；两套 runtime 继续彼此独立。
 - runtime 会拒绝畸形 CSC pointer、无序 row index、零值或非有限存储项，以及不匹配的求解 shape。
-- 生成的 C++17 sparse validation 可通过严格 GCC dangling-reference 分析，且不需要压制编译器诊断。
 - 尚未支持的 sparse constructor、索引、转置、reshape、逻辑、逐元素、乘法、幂、矩形、复数和零 extent 情形会在发射前以 `MPF2054` 失败。
 - 数值类型规划现可保持 Matlab binary64 数组，同时保证 Python operand-returning 短路与条件表达式在生成 C++17 中得到正确结果类型。
-- 新增可执行稀疏求解与条件 warning 示例，并覆盖 source map、fuzz 和双目标差分验证。
 
 ## 0.5.9
 
@@ -163,12 +140,8 @@
 - 多列右端项现共享一次复数列主元 QR 分解。
 - rank-revealing 复数 Householder QR 使用确定性列主元和 working-precision 秩容差。
 - 秩亏复数系统会返回 pivoted 基本最小二乘解并产生稳定 warning，不再静默失败。
-- 矩阵计划现通过语义分析、MIR 和双目标 LIR 显式携带 rank-revealing 列主元 QR 分解策略。
-- Semantic、MIR、JavaScript LIR 与 `cpp` LIR 调试 schema 提升到 v13、v19、v25，并拒绝损坏的分解策略。
 - JavaScript 与 C++17 继续使用独立复数矩形 runtime，并验证有限值、矩形性、shape 和求解计划。
 - source map 保留复数超定、欠定、左除和右除运算符的原始位置。
-- 新增复数矩形与秩亏 Matlab 可执行示例，并进行双目标差分和 warning 验证。
-- 新增复数矩形 fuzz 覆盖和专用编译性能 workload。
 
 ## 0.5.8
 
@@ -180,13 +153,9 @@
 - 复数方阵求解器现估计倒条件数，并保持既有精确奇异与近奇异 warning 行为。
 - 复数方阵幂通过平方求幂支持零、正、负 ECMAScript-safe integer 指数。
 - 生成 runtime 会在各自边界拒绝畸形、非有限、shape 不一致或分数指数的复数矩阵操作。
-- 矩阵计划现通过所有编译层显式携带实数/复数 numeric domain 与独立 complex-square 结构策略。
-- Semantic、MIR、JavaScript LIR 与 `cpp` LIR 调试 schema 提升到 v12、v18、v24，并验证 numeric domain 与损坏事实。
 - JavaScript 与 C++17 使用彼此独立的复数矩阵 runtime，任一目标都不读取另一目标的生成代码或 runtime 产物。
 - complex-matrix runtime fragment 会验证依赖，并在纯实数矩阵程序中完全裁剪。
 - source map 保留复数矩阵乘法、左右除及正/负矩阵幂的原始位置。
-- 新增 Hermitian、稠密换行主元、精确奇异和近奇异复数矩阵可执行示例及双目标差分验证。
-- 新增复数矩阵 fuzz seed，以及动态非法矩阵幂指数的生成 runtime 拒错覆盖。
 
 ## 0.5.7
 
@@ -200,11 +169,9 @@
 - 生成的 JavaScript 使用独立且带检查的复数 runtime；纯实数程序不会携带任何复数 helper。
 - 生成的 C++17 使用独立的 `std::complex` runtime，并可推导动态数值结果类型，不依赖 JavaScript 产物。
 - 尚未支持的复数比较、逻辑、归约、矩阵求解/乘法/幂会在发射前以稳定的 `MPF2053` 诊断失败。
-- 数值类别及实数/复数身份现贯穿语义分析、MIR 和两个目标专属 lowering 管线进行验证，并覆盖损坏事实拒绝测试。
 - source map 现可保留复数构造、算术、数组写入、reshape 和转置操作的源码位置。
-- 新增可执行 Matlab 复数示例、双目标差分覆盖、生成代码断言和专用 fuzz 回归 seed。
 - Python 标量返回注解现会约束生成的 C++17 类型，避免带整数注解的函数产生不兼容推导类型。
-- 扩展全量测试发现的 Fortran optional 可写参数和 Python truthiness 回归已在两个输出后端修复。
+- 修复两个输出后端中的 Fortran optional 可写参数和 Python truthiness 行为。
 
 ## 0.5.6
 
@@ -218,10 +185,8 @@
 - rank 只能在运行时确定的 local function 现可使用 `all(values,'all')` 和 `any(values,'all')`，无需静态容器 shape。
 - 生成的 JavaScript 使用带检查的列主序归约 kernel，并通过已有的不可枚举 shape descriptor 保持零 extent。
 - 生成的 C++17 使用独立、类型化的递归 `std::vector` 归约 kernel，并可通过严格 C++17 零警告编译。
-- 逻辑求值与归约 contract 会在语义分析、MIR、JavaScript LIR 和 `cpp` LIR 中独立验证后才允许发射代码。
-- 标量除法现通过 HIR、MIR 和双目标 LIR 显式携带除零策略；生成的 C++17 通过可移植目标 runtime 保持 Matlab/TypeScript IEEE 结果，Python 真除法与 floor division 则在两个目标中给出稳定错误。
+- 生成 C++17 的标量除法通过可移植 runtime 保持 Matlab/TypeScript IEEE 结果，Python 真除法与 floor division 则在两个目标中给出稳定的零分母错误。
 - source map 现覆盖逻辑与归约 runtime 调用；字符数组、动态维度、重复/非法维度和不支持的未知 rank 归约会给出稳定诊断。
-- 新增双目标可执行示例、差分 case、跨层损坏检查、runtime 断言和 Matlab 专用 fuzz seed。
 
 ## 0.5.5
 
@@ -233,10 +198,6 @@
 - 两个输出目标现按对角、三角、三对角、对称正定及稠密回退的固定优先级选择方阵结构。
 - 三对角与 Cholesky 内核现进入统一的迭代 1-范数倒条件估计，用于方阵条件 warning。
 - 精确奇异三对角系统和近奇异正定系统会给出稳定的 Matlab 风格 warning，并继续返回计算结果。
-- 可验证矩阵结构策略现通过 Semantic、MIR、JavaScript LIR 和 `cpp` LIR 表达完整实数方阵分类。
-- 生成 helper 名称现描述实数结构化方阵契约，不再保留早期仅含对角/三角含义的身份。
-- 新增可执行的三对角左/右除、正定、对称不定、奇异及近奇异示例，并验证双目标输出和 warning。
-- 扩充高级结构路径的 source map 断言、verifier 损坏检查、架构检查和 Matlab fuzz seed。
 
 ## 0.5.4
 
@@ -248,25 +209,20 @@
 - 倒条件估计现跟随所选对角、三角或稠密 kernel，并包含估计器所需的转置求解。
 - 精确奇异和近奇异的结构化系统会给出已有的稳定 Matlab 风格警告，并继续返回计算得到的 IEEE 结果。
 - 生成 C++17 现会递归统一混合整数与浮点矩阵各行的数值容器类型。
-- 矩阵结构策略会在语义分析、MIR、JavaScript LIR 与 `cpp` LIR 中逐层验证后才允许发射代码。
 - source map 现可保留结构感知左除与右除表达式的原始源码位置。
-- 新增结构化求解和条件警告可执行示例、双目标差分 case、verifier 损坏测试与 Matlab fuzz 回归种子。
 
 ## 0.5.3
 
 - Matlab 矩形左除与右除现对超定和欠定系统统一使用 rank-aware 带列主元 QR。
 - 欠定求解现返回 pivoted basic solution，不再产生此前不正确的最小范数结果。
 - 数值秩亏的矩形系统会给出稳定的工作精度警告，并继续返回基本最小二乘解。
-- 精确奇异方阵的左除与右除现会警告并继续，保留已验证的 Matlab 风格有限分量和 IEEE 无穷分量，不再终止生成程序。
+- 精确奇异方阵的左除与右除现会警告并继续，保留 Matlab 风格有限分量和 IEEE 无穷分量，不再终止生成程序。
 - 近奇异方阵现复用 LU 因子估计倒条件数，给出独立的 `RCOND` 警告，并继续返回计算结果。
-- 矩阵条件行为以可验证的 `MatrixConditionPolicy` 贯穿语义分析、MIR、JavaScript LIR 与 `cpp` LIR。
 - 生成的 JavaScript 与 C++17 现分别拥有独立的部分主元 LU、转置求解、条件估计和带列主元 QR runtime。
 - 非 vector 线性删除继续被一致拒绝；奇异方阵执行不再被错误归类为不支持的 runtime 操作。
 - source map 现可保留 condition-aware 方阵左除与右除的源码位置。
 - 生成 C++ 现会在除法前拒绝不可能成立的零 extent 坐标转换，使空数组输出可在 MSVC `/WX` 下保持零警告。
 - 发布 SHA-256 侧车文件现使用无回车格式，即使软件包在 Windows 上构建，也可由标准 Unix 校验工具直接验证。
-- 新增精确奇异和近奇异 Matlab 可执行示例，并验证两个目标的输出与警告次数。
-- 扩充 conditioned solve 的跨层损坏检查、生成代码断言、架构门禁与 Matlab fuzz corpus。
 
 ## 0.5.2
 
@@ -278,8 +234,7 @@
 - 对 `[]` 的线性赋值遵循 Matlab row-vector 扩容语义；从有 shape 的空矩阵扩容时则保持已规划的维度和列主序布局。
 - 生成的 JavaScript 使用经过检查且不可枚举的 descriptor 保存准确数组 shape，不改变普通数组迭代和序列化行为。
 - 生成的 C++17 现直接消费目标后端拥有的静态 shape plan，用于 rank、`length`、转置、广播和扩容，不依赖 JavaScript 输出。
-- 矛盾或损坏的空数组 shape fact 会在目标发射前及生成 runtime 边界被一致拒绝。
-- 新增双目标可执行空数组示例、source map 检查、跨层损坏拒绝测试、fuzz 回归 seed 和专用性能发布场景。
+- 矛盾或损坏的空数组 shape 会在目标发射前及生成 runtime 边界被一致拒绝。
 
 ## 0.5.1
 
@@ -287,19 +242,15 @@
 - 线性扩容保持 Matlab 列主序和 vector 方向；矩阵/张量按需扩展末维，并用元素类型默认值初始化中间空位。
 - Matlab `[]` 赋值现可删除 vector 元素或 matrix/tensor 的一个选定维，支持 scalar、slice、numeric 与 logical selector，重复位置只删除一次。
 - shape-changing write 同时支持静态边界、运行时索引、local-function 参数和动态 `end`，生成的 JavaScript 与 C++17 分别独立执行。
-- Analyzer 所有的 `IndexedMutationContract` 显式记录 overwrite、resize、grow、erase、线性布局、删除轴、shape 来源以及输入/结果 shape。
-- Semantic、MIR 与目标 LIR schema 分别升级到 v7、v12 和 v18；每一层都会在发射前验证 mutation rank、方向、axis 与 shape 一致性。
-- MIR 将 growth/deletion 记录为整个 storage 的写入；memory-dependence 在形成必要依赖后裁剪被覆盖的同根历史，避免沿用旧局部区域及 frontier 二次增长。
+- growth 与 deletion 按 whole-storage write 处理，避免陈旧 partial region 排序和依赖 frontier 二次增长。
 - 生成 JavaScript 使用带安全检查的嵌套数组 resize/axis deletion；生成 C++17 使用类型化嵌套 `std::vector` 模板，不消费 JavaScript 产物。
 - 两个 runtime 在各自边界验证安全 size、selector bounds/type、矩形 rank、replacement cardinality 和有歧义的多维删除。
 - source map 已覆盖 growth/deletion 调用；线性 matrix 删除、多轴删除和越界删除以稳定诊断失败关闭。
-- 新增静态及运行时 shape 的可执行差分、N 维生成代码检查、跨层 plan 损坏拒绝和 Matlab 专用 fuzz seed。
 
 ## 0.5.0
 
 - Matlab compatible-size 算术和关系比较现支持 rank 与 extent 只能在 local function 实例化或执行时取得的操作数。
 - 运行时广播分派可同时保持标量结果、scalar expansion、row-vector 规范化、缺失尾随 singleton 维和一般矩形嵌套数组。
-- HIR、MIR、JavaScript LIR 与 `cpp` LIR 现在以可验证的 `static_extents` 或 `runtime_operands` 保存广播 shape 来源；未知 rank 不再伪装成静态空 shape。
 - 生成的 JavaScript 在列主序 flatten/stride 内核前一次性推导并验证矩形 operand shape，不兼容 extent 以稳定 runtime 错误失败。
 - 生成的 C++17 将模板期 rank 与运行时 extent 组合，返回正确的标量或嵌套 `std::vector` 类型，并独立拒绝 ragged 或不兼容操作数。
 - C++ logical array 的 `sum` 现在返回数值计数，不再把全部非零计数折叠为 `true`。
@@ -307,13 +258,9 @@
 - 运行时 `end` 支持列主序线性索引、逐维索引、colon bound、`end - 1` 等算术，以及 `[1 end]` 形式的 numeric selector array。
 - 动态 `end` 的 scalar element 与 N 维 section 读取和写入现可在生成的 JavaScript 与 C++17 中独立执行。
 - 静态 extent 继续使用编译期常量快路径，固定 shape 索引不会承担运行时 extent 解析成本。
-- HIR、MIR、JavaScript LIR 与 `cpp` LIR 现在保存并验证 runtime-axis 或 runtime-linear extent plan，Emitter 不再推断源语言语义。
-- Semantic、MIR 与目标 LIR 调试 schema 分别升级到 v6、v11 和 v17，并公开广播 shape 来源与逐 selector extent identity。
 - 生成的 JavaScript 按当前轴长度或列主序元素总数解析 selector closure，同时保证被索引容器只求值一次。
 - 生成的 C++17 使用类型化 selector callable 和通用列主序 element accessor，并以无 unevaluated lambda 的类型探针保持严格 C++17。
-- 新增跨层 plan 损坏拒绝、source map 断言、生成代码检查，以及覆盖动态 `end` 读写的双目标可执行差分示例。
-- 新增动态 `end` 专用 fuzz seed 和编译性能场景；函数内没有兼容写入时会裁剪只读 memory frontier，并继续使用现有发布阈值。
-- 新增标量/数组动态广播的双目标可执行差分、跨层损坏拒绝、source map 检查、fuzz seed 和专用编译性能场景。
+- 函数内没有兼容写入时会裁剪只读 memory frontier，减少运行时 shape 索引与广播的分析工作量。
 
 ## 0.4.9
 
@@ -324,11 +271,7 @@
 - 数组除以 scalar 和 scalar 左除数组现可保持 Matlab 矩阵运算符语义，无需改写为逐元素运算符。
 - Matlab 索引新增保序 numeric selector array、重复下标、空 selector，以及线性或逐维位置的 logical selector。
 - shape 只能在 runtime 确定的 logical selector 现在由生成代码验证，不再要求所有 mask 大小都能在编译期求出。
-- 矩阵运算种类、求解类别及输入/输出 shape 现在以显式、可验证事实贯穿 HIR、MIR、JavaScript LIR 和 `cpp` LIR。
-- Semantic、MIR 与目标 LIR schema 分别升级到 v4、v9 和 v15；每个 scalar、slice、numeric、logical 或 empty selector 都拥有逐下标可验证身份。
 - 秩亏系统、非方阵幂、矩阵指数、非有限求解值，以及不安全或非整数指数会确定性失败关闭。
-- 新增可执行的方阵和矩形求解示例、双目标差分验证，以及秩亏系统的生成 runtime 拒绝门禁。
-- 扩充 Matlab 矩阵求解/幂和通用索引的 fuzz、source map、生成代码、runtime 拒绝及编译性能覆盖。
 
 ## 0.4.8
 
@@ -340,8 +283,6 @@
 - Matlab `end` 可在静态已知 extent 时按当前索引维度或线性元素总数解析，并可参与算术和 colon 表达式。
 - Matlab 逻辑 mask 现支持列主序线性读取，以及标量或 vector 写入，并严格检查 mask 大小和 replacement shape。
 - 动态 extent、高 rank 转置、不兼容 mask、通过 `end` 扩容、矩阵除法和矩阵幂会在生成代码前使用专用诊断失败关闭。
-- 新增五个可执行 Matlab 示例和差分 case，双目标覆盖隐式扩展、转置、`end`、逻辑索引和广播比较。
-- 扩充 Matlab fuzz 回归输入，并加强 broadcast plan、转置身份、逻辑选择和优化后中间表示的跨层验证。
 
 ## 0.4.7
 
@@ -349,9 +290,6 @@
 - 新增二维 numeric 矩阵乘法，并同时生成可执行的 JavaScript 与 C++17 实现。
 - 新增同 shape 数组及 scalar expansion 的 `+`、`-`、`.*`、`./`、`.\`、`.^` 基础运算。
 - shape 不相容或尚未支持的矩阵除法、矩阵幂会给出 `MPF2046`，不会生成不可靠的目标代码。
-- Matlab 运算符身份使用强类型事实贯穿 AST、HIR、MIR 与目标 LIR，便于后续扩展广播、转置和数值类型。
-- JavaScript 与 C++ 后端源码改为独立语言目录，文件名移除重复目标前缀，新增目标时边界更清晰。
-- 新增 Matlab 数组运算差分示例、正负语义测试、目标代码检查和 fuzz 回归样本。
 - Matlab → JavaScript 语言支持矩阵、诊断文档和项目路线图已同步当前能力与已知限制。
 - C++ 输出现在为词法作用域中同名的 symbol 分配不同目标标识符，在保持源语言作用域语义的同时避免 MSVC 警告升级为错误。
 
@@ -372,7 +310,6 @@
 - 能够区分不相交的 N 维区域，减少对安全访问的保守限制。
 - 编译报告新增内存依赖统计，便于定位复杂控制流和潜在性能问题。
 - 优化大型控制流图和依赖去重，相关基准场景耗时由约 354 ms 降至约 43 ms。
-- 加强循环携带依赖、未知外部调用和索引写入的回归与 fuzz 验证。
 
 ## 0.4.4
 
@@ -380,7 +317,6 @@
 - 跨函数调用传播参数的实际访问区域，改善可写参数和数组 section 的正确性检查。
 - 改进别名分析，可识别明确不相交、明确相同和无法确定的内存区域。
 - 修复优化后内存访问信息可能与生成代码不同步的问题。
-- 扩充索引、切片、写回和跨函数数组访问的稳定性测试。
 
 ## 0.4.3
 
@@ -388,7 +324,6 @@
 - Fortran 现在允许把同一数组中可证明互不重叠的多个 section 作为可写实参传入过程。
 - 对真实重叠或边界无法确定的可写实参继续给出安全诊断。
 - 改进空 section、大步长区域和列主序线性选择的处理。
-- 新增 Fortran 不相交区域示例及跨 gfortran、JavaScript、C++ 的结果验证。
 
 ## 0.4.2
 
@@ -397,7 +332,6 @@
 - 规范化静态数组 shape，清理无效指令和简单冗余控制流。
 - 改进块参数复制传播，同时保留一般分支合流和动态值语义。
 - 编译报告新增优化前后规模、常量折叠和清理统计。
-- 新增 Python 优化示例，并验证源程序、JavaScript 和 C++ 输出结果一致。
 
 ## 0.4.1
 
@@ -406,7 +340,6 @@
 - 修复生成 JavaScript/C++ 时局部变量作用域和生命周期不准确的问题。
 - TypeScript `number` 按 ECMAScript 数值语义处理，数组索引拒绝无法安全表示的非整数值。
 - JavaScript 输出只携带当前程序实际需要的运行时辅助代码。
-- 新增 TypeScript 块作用域和 `for` 循环的多目标执行验证。
 
 ## 0.4.0
 
@@ -415,7 +348,6 @@
 - 支持擦除当前子集中的类型标注，并生成 JavaScript 或 C++17。
 - TypeScript `export function` 可生成对应的 JavaScript ESM 导出。
 - 对 `var`、宽松相等、箭头函数、模板字符串和尚未建模的对象语义给出明确诊断，避免生成行为不一致的代码。
-- 新增 Node.js 源码、生成 JavaScript、生成 C++ 和声明结果的四路验证。
 
 ## 0.3.9
 
@@ -446,7 +378,6 @@
 - 支持字符串、list 和 tuple membership，以及混合 comparison chain。
 - JavaScript 输出能够区分 list 与 tuple，并保持支持范围内的引用身份。
 - C++ 输出新增递归容器比较和 membership 支持；无法可靠表达的 identity 比较会明确拒绝。
-- 新增 Python 比较语义的 CPython、JavaScript 和 C++ 结果验证。
 
 ## 0.3.5
 
@@ -464,8 +395,6 @@
 - 公共 API 和 CLI 新增源语言版本选择；不支持的版本特性会给出明确诊断。
 - 新增源码映射输出、依赖清单、资源限制和机器可读编译报告。
 - 前端、共享分析和目标后端改为清晰分层的编译管线，JavaScript 与 C++ 后端保持独立。
-- GitHub 自动化按验证、平台、质量、Sanitizer、覆盖率、性能、安全和发布职责拆分。
-- 增加 fuzz、性能基线、安装后消费和外部扩展示例。
 
 ## 0.3.3
 
@@ -481,7 +410,6 @@
 - 比较链保持从左到右、单次求值和短路行为。
 - 条件表达式在 JavaScript 与 C++ 输出中保持惰性分支和 Python truthiness。
 - 对 C++ 无法静态表达的比较或分支结果给出明确诊断。
-- 新增 CPython、JavaScript 和 C++ 四路结果验证。
 
 ## 0.3.1
 
@@ -491,21 +419,12 @@
 - character CASE 按 Fortran 空格补齐规则比较。
 - 改进多分支后的确定赋值和终止流分析。
 
-## 0.3.0
-
-- 新增统一的 C++ 代码格式化和静态检查配置。
-- 新增源码覆盖率报告，并设置 85% 的生产代码行覆盖率门槛。
-- GitHub 自动化加入格式、静态检查、覆盖率、CodeQL 和依赖安全检查。
-- 修复质量检查发现的重复分支和无效状态更新。
-- 所有质量报告继续统一生成到 `build/` 目录。
-
 ## 0.2.9
 
 - Python 解包赋值支持嵌套 tuple/list pattern 和 starred target。
 - 支持 star 位于任意位置、空 capture、嵌套 capture 和重复名称覆盖。
 - 解包右侧只求值一次，并在 JavaScript 与 C++ 输出中保持赋值顺序。
 - 对动态长度、结构不匹配和 C++ 无法表示的异质 star 结果给出明确诊断。
-- 新增 CPython、JavaScript 和 C++ 四路解包验证。
 
 ## 0.2.8
 
@@ -553,7 +472,6 @@
 - 连续与非连续 section 通过 copy-in/copy-out 保持写回语义。
 - Fortran function 的返回值与 section 写回按正确顺序执行。
 - 对可能重叠的多个可写实参采用保守诊断，避免生成不安全代码。
-- 新增 gfortran、JavaScript 和 C++ 的 section 实参验证。
 
 ## 0.2.2
 
@@ -608,7 +526,6 @@
 - 支持当前函数、多输出、条件、循环、display、赋值、索引赋值和表达式语句子集。
 - 正确区分字符向量、共轭转置和非共轭转置。
 - 改进 Matlab 函数返回类型传播和 C++ 前向调用生成。
-- 新增 parser 错误恢复和 statement-token 结果验证。
 
 ## 0.1.5
 
@@ -616,7 +533,6 @@
 - 支持当前函数、条件、`while`、`for ... else`、return、循环控制、赋值和 print 子集。
 - 表达式继续由统一的优先级 parser 处理，避免 statement 与 expression 语法不一致。
 - 新增非法链式赋值、参数形态和孤立 clause 的诊断与恢复。
-- 新增 CPython、JavaScript 和 C++ 的 statement-token 验证。
 
 ## 0.1.4
 
@@ -624,7 +540,6 @@
 - Matlab 支持 `...` 续行、多行矩阵、block comment 和一行多个 statement。
 - Python 与 Matlab 的注释和字符串现在能够安全跨越逻辑行处理。
 - 新增未闭合 delimiter、字符串、注释和错误续行的诊断。
-- 新增多行源码的 JavaScript/C++ 结果验证。
 
 ## 0.1.3
 
@@ -633,14 +548,6 @@
 - JavaScript 与 C++ 输出保持支持范围内的惰性求值。
 - Python `float` 新增数字、布尔和字符串基础转换，以及 NaN/Infinity 解析。
 - C++ 无法静态统一逻辑表达式结果时会在生成前给出诊断。
-
-## 0.1.2
-
-- 建立统一的差分测试语料清单。
-- 同一示例可直接比较源语言、生成 JavaScript、生成 C++ 和声明结果。
-- 生成 C++ 使用与顶层项目相同的编译器和生成器进行真实编译执行。
-- 失败时保留生成源码、编译日志和各执行路径结果。
-- 自动化环境固定 Python 和 Node.js 版本，避免运行时缺失导致测试被静默跳过。
 
 ## 0.1.1
 
@@ -673,7 +580,6 @@
 - 生成任一目标不再要求构建另一目标后端。
 - 公共 API 新增后端可用性查询；请求未构建后端时返回明确诊断。
 - CMake 安装包新增 `core`、`javascript` 和 `cpp` component。
-- 增加 javascript-only、cpp-only 和 core-only 的构建、安装及外部消费验证。
 - 修复 Python ragged list 的 rank 信息丢失问题。
 
 ## 0.0.7
@@ -724,8 +630,7 @@
 - 新增 UTF-8 源码位置、CRLF 处理和公共 token 模型。
 - Python、Matlab 和 Fortran 表达式改用结构化 lexer/parser。
 - JavaScript 输出新增安全的运算符优先级、Python floor division 和 list/tuple 支持。
-- 新增生成 JavaScript 的 Node.js 验证和生成 C++ 的真实编译执行测试。
 
 ## 0.0.1
 
-- 建立 MPF 公共 API、命令行工具、三语言基础标量转译、JavaScript 后端、测试和构建基础。
+- 建立 MPF 公共 API、命令行工具、三语言基础标量转译和 JavaScript 输出。
