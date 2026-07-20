@@ -2534,9 +2534,10 @@ ValueType Analyzer::analyze_logical_reduction(Expression& expression,
   }
 
   const auto& input = semantic(semantics_, expression.children[1]);
-  if (input.array_storage == ArrayStorageFormat::sparse_csc) {
+  const bool sparse_input = input.array_storage == ArrayStorageFormat::sparse_csc;
+  if (sparse_input && (!static_rank_two_shape(input.shape) || !matlab_sparse_value(input))) {
     diagnose(expression.location.line, "MPF2054",
-             "all/any over sparse arrays is outside the current CSC runtime contract");
+             "sparse all/any requires a statically shaped real or logical rank-2 CSC array");
     return facts.inferred_type = ValueType::unknown;
   }
   if (expression_numeric_type(input).complexity == NumericComplexity::complex) {
@@ -2577,6 +2578,9 @@ ValueType Analyzer::analyze_logical_reduction(Expression& expression,
   facts.reduction.shape_source = semantic::ReductionShapeSource::static_extents;
   if (scalar_input && input.inferred_type != ValueType::unknown) {
     facts.reduction.scalar_result = true;
+    facts.reduction.storage_policy = semantic::ReductionStoragePolicy::scalar_full;
+    facts.reduction.input_storage = ArrayStorageFormat::none;
+    facts.reduction.result_storage = ArrayStorageFormat::none;
     return facts.inferred_type = ValueType::boolean;
   }
   if (input.inferred_type == ValueType::unknown) {
@@ -2589,6 +2593,9 @@ ValueType Analyzer::analyze_logical_reduction(Expression& expression,
     }
     facts.reduction.shape_source = semantic::ReductionShapeSource::runtime_operand;
     facts.reduction.scalar_result = true;
+    facts.reduction.storage_policy = semantic::ReductionStoragePolicy::scalar_full;
+    facts.reduction.input_storage = input.array_storage;
+    facts.reduction.result_storage = ArrayStorageFormat::none;
     return facts.inferred_type = ValueType::boolean;
   }
   if (!known_shape(input.shape) || input.shape.empty()) {
@@ -2635,11 +2642,17 @@ ValueType Analyzer::analyze_logical_reduction(Expression& expression,
   facts.reduction.output_shape = output_shape;
   facts.reduction.axes = std::move(axes);
   facts.reduction.scalar_result = scalar_result;
+  facts.reduction.storage_policy = scalar_result ? semantic::ReductionStoragePolicy::scalar_full
+                                   : sparse_input
+                                       ? semantic::ReductionStoragePolicy::preserve_sparse
+                                       : semantic::ReductionStoragePolicy::dense;
+  facts.reduction.input_storage = input.array_storage;
+  facts.reduction.result_storage = scalar_result ? ArrayStorageFormat::none : input.array_storage;
   facts.shape = output_shape;
   facts.inferred_type = scalar_result ? ValueType::boolean : ValueType::list;
   facts.numeric_type = scalar_result ? logical_numeric_type : no_numeric_type;
   facts.element_numeric_type = scalar_result ? no_numeric_type : logical_numeric_type;
-  facts.array_storage = scalar_result ? ArrayStorageFormat::none : ArrayStorageFormat::dense;
+  facts.array_storage = facts.reduction.result_storage;
   return facts.inferred_type;
 }
 

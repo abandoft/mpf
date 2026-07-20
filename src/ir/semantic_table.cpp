@@ -402,30 +402,39 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
       const bool valid_contract = semantic::valid_logical_reduction_contract(
           reduction.operation, reduction.axis_policy, reduction.shape_source, reduction.input_shape,
           reduction.result_shape, reduction.output_shape, reduction.axes, reduction.scalar_result);
+      const bool valid_storage = semantic::valid_logical_reduction_storage_contract(
+          reduction.storage_policy, reduction.input_storage, reduction.result_storage,
+          reduction.scalar_result);
       const bool valid_type =
           reduction.scalar_result
               ? facts->inferred_type == ValueType::boolean && facts->shape.empty()
               : facts->inferred_type == ValueType::list &&
                     facts->element_type == ValueType::boolean;
-      if (!valid_contract || !valid_type || facts->shape != reduction.output_shape) {
+      if (!valid_contract || !valid_storage || !valid_type ||
+          facts->array_storage != reduction.result_storage ||
+          facts->shape != reduction.output_shape) {
         add_error(diagnostics, expression.location, stage,
-                  "logical reduction has an invalid type, axis, or shape contract");
+                  "logical reduction has an invalid type, storage, axis, or shape contract");
       } else if (reduction.shape_source == semantic::ReductionShapeSource::static_extents &&
                  expression.children.size() >= 2U) {
         const auto* operand = table.expression(expression.children[1].id);
         auto operand_shape = operand == nullptr ? std::vector<std::size_t>{} : operand->shape;
         if (operand_shape.size() == 1U) operand_shape.insert(operand_shape.begin(), 1U);
-        if (operand != nullptr && operand->inferred_type == ValueType::list &&
-            operand_shape != reduction.input_shape) {
+        if (operand != nullptr && (operand->array_storage != reduction.input_storage ||
+                                   (operand->inferred_type == ValueType::list &&
+                                    operand_shape != reduction.input_shape))) {
           add_error(diagnostics, expression.location, stage,
-                    "logical reduction input shape disagrees with its operand");
+                    "logical reduction input storage or shape disagrees with its operand");
         }
       }
     } else if (reduction.axis_policy != semantic::ReductionAxisPolicy::none ||
                reduction.shape_source != semantic::ReductionShapeSource::static_extents ||
                !reduction.input_shape.empty() || !reduction.result_shape.empty() ||
                !reduction.output_shape.empty() || !reduction.axes.empty() ||
-               reduction.scalar_result) {
+               reduction.scalar_result ||
+               reduction.storage_policy != semantic::ReductionStoragePolicy::none ||
+               reduction.input_storage != ArrayStorageFormat::none ||
+               reduction.result_storage != ArrayStorageFormat::none) {
       add_error(diagnostics, expression.location, stage,
                 "inactive logical reduction retains semantic state");
     }
