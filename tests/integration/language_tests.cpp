@@ -376,6 +376,98 @@ TEST_CASE("Matlab function output becomes a JavaScript return value") {
   REQUIRE(result.code.find("return y;") != std::string::npos);
 }
 
+TEST_CASE("Matlab early return preserves single and multiple declared outputs") {
+  const std::string source =
+      "single = choose(1);\n"
+      "[left, right] = pair(1);\n"
+      "disp(single + left + right)\n"
+      "function y = choose(x)\n"
+      "  y = -1;\n"
+      "  if x > 0\n"
+      "    y = 42;\n"
+      "    return\n"
+      "  end\n"
+      "  y = 0;\n"
+      "end\n"
+      "function [first, second] = pair(x)\n"
+      "  first = x;\n"
+      "  second = x + 1;\n"
+      "  if x > 0\n"
+      "    return\n"
+      "  end\n"
+      "  first = 0;\n"
+      "  second = 0;\n"
+      "end\n";
+  const auto javascript = transpile(source, mpf::SourceLanguage::matlab);
+  const auto cpp = transpile(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("y = 42;\n    return y;") != std::string::npos);
+  REQUIRE(javascript.code.find("return [first, second];") != std::string::npos);
+  REQUIRE(cpp.code.find("y = 42;") != std::string::npos);
+  REQUIRE(cpp.code.find("return y;") != std::string::npos);
+  REQUIRE(cpp.code.find("return std::make_tuple(first, second);") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 8U; }));
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 16U; }));
+  }
+}
+
+TEST_CASE("Matlab script return uses target-owned program control") {
+  const std::string source =
+      "disp(1)\n"
+      "return\n"
+      "disp(999)\n"
+      "function y = identity(x)\n"
+      "  y = x;\n"
+      "end\n";
+  const auto javascript = transpile(source, mpf::SourceLanguage::matlab);
+  const auto cpp = transpile(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("mpf_internal_script_0_0: {") != std::string::npos);
+  REQUIRE(javascript.code.find("break mpf_internal_script_0_0;") != std::string::npos);
+  REQUIRE(javascript.code.find("function identity(x)") <
+          javascript.code.find("mpf_internal_script_0_0: {"));
+  REQUIRE(cpp.code.find("return 0;\n    mpf_runtime::print(999);") != std::string::npos);
+  REQUIRE(std::count_if(javascript.diagnostics.begin(), javascript.diagnostics.end(),
+                        [](const auto& diagnostic) { return diagnostic.code == "MPF2101"; }) == 1);
+  REQUIRE(std::count_if(cpp.diagnostics.begin(), cpp.diagnostics.end(),
+                        [](const auto& diagnostic) { return diagnostic.code == "MPF2101"; }) == 1);
+  for (const auto* result : {&javascript, &cpp}) {
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 2U; }));
+  }
+}
+
+TEST_CASE("Matlab disp and display command forms preserve character-vector inputs") {
+  const std::string source =
+      "disp hello\n"
+      "display 'hello world'\n"
+      "disp 42\n"
+      "disp \"quoted\"\n";
+  const auto javascript = transpile(source, mpf::SourceLanguage::matlab);
+  const auto cpp = transpile(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("console.log(\"hello\");") != std::string::npos);
+  REQUIRE(javascript.code.find("console.log(\"hello world\");") != std::string::npos);
+  REQUIRE(javascript.code.find("console.log(\"42\");") != std::string::npos);
+  REQUIRE(javascript.code.find("console.log(\"\\\"quoted\\\"\");") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::print(std::string{\"hello\"});") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::print(std::string{\"hello world\"});") != std::string::npos);
+
+  const auto multiple = transpile("disp hello world\n", mpf::SourceLanguage::matlab);
+  const auto operand = transpile("return 1\n", mpf::SourceLanguage::matlab);
+  REQUIRE(!multiple.success());
+  REQUIRE(!operand.success());
+  REQUIRE(multiple.diagnostics.front().message.find("exactly one character-vector input") !=
+          std::string::npos);
+  REQUIRE(operand.diagnostics.front().message.find("cannot have operands") != std::string::npos);
+}
+
 TEST_CASE("Matlab tokenized parser handles multi-output signatures and expression boundaries") {
   const std::string source =
       "function [sum_value product_value] = pair(left, right)\n"
@@ -473,7 +565,7 @@ TEST_CASE("Matlab output variables propagate function call types before C++ decl
 
 TEST_CASE("Matlab tokenized parser rejects malformed statements with recovery") {
   const auto chained = transpile("first = second = 1\n", mpf::SourceLanguage::matlab);
-  const auto command = transpile("disp 42\n", mpf::SourceLanguage::matlab);
+  const auto command = transpile("disp hello world\n", mpf::SourceLanguage::matlab);
   const auto parameters =
       transpile("function value = bad(left right)\nvalue = 1\nend\n", mpf::SourceLanguage::matlab);
   const auto orphan = transpile("else\ndisp(1)\nend\ndisp(2)\n", mpf::SourceLanguage::matlab);
