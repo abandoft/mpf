@@ -15,6 +15,7 @@ namespace {
 using FunctionReturnTypes = std::unordered_map<std::string, ValueType>;
 using AssignmentTypeProbes = std::unordered_map<SymbolId, const mir::Expression*>;
 using IncompatibleAssignments = std::unordered_set<SymbolId>;
+using ExceptionAssignments = std::unordered_set<SymbolId>;
 
 bool numeric(const ValueType type) noexcept {
   return type == ValueType::integer || type == ValueType::real || type == ValueType::unknown;
@@ -394,6 +395,7 @@ void validate_statements(const mir::Program& program, const std::vector<MirState
                          const semantic::Profile& semantics,
                          const FunctionReturnTypes& function_returns,
                          AssignmentTypeProbes& assignment_type_probes,
+                         ExceptionAssignments& exception_assignments,
                          IncompatibleAssignments& incompatible_assignments,
                          std::vector<Diagnostic>& diagnostics) {
   for (const auto statement_id : statements) {
@@ -428,8 +430,32 @@ void validate_statements(const mir::Program& program, const std::vector<MirState
     const bool implicit_result_assignment =
         attributes->implicit_result != semantic::ImplicitResultPolicy::none &&
         attributes->implicit_result_has_value;
+    if (statement->kind == StatementKind::try_statement && statement->symbol_id.valid()) {
+      exception_assignments.insert(statement->symbol_id);
+      const auto previous_type = mir::value_type(program, attributes->previous_type);
+      const auto previous_probe = assignment_type_probes.find(statement->symbol_id);
+      const bool incompatible_previous =
+          attributes->previous_assigned && previous_type != ValueType::exception;
+      const bool incompatible_probe =
+          previous_probe != assignment_type_probes.end() &&
+          mir::value_type(program, previous_probe->second->type_id) != ValueType::exception;
+      if ((incompatible_previous || incompatible_probe) &&
+          incompatible_assignments.insert(statement->symbol_id).second) {
+        add_error(diagnostics, statement->line, "MPF2007",
+                  "C++17 target cannot represent catch variable '" + statement->name +
+                      "' with a non-exception type on another control-flow path");
+      }
+    }
     if ((statement->kind == StatementKind::assignment || implicit_result_assignment) &&
         value != nullptr) {
+      if (statement->symbol_id.valid() &&
+          exception_assignments.find(statement->symbol_id) != exception_assignments.end() &&
+          mir::value_type(program, value->type_id) != ValueType::exception &&
+          incompatible_assignments.insert(statement->symbol_id).second) {
+        add_error(diagnostics, statement->line, "MPF2007",
+                  "C++17 target cannot represent catch variable '" + statement->name +
+                      "' with a non-exception type on another control-flow path");
+      }
       if (statement->symbol_id.valid()) {
         const auto [probe, inserted] = assignment_type_probes.emplace(statement->symbol_id, value);
         if (!inserted && !attributes->previous_assigned &&
@@ -554,9 +580,11 @@ void validate_statements(const mir::Program& program, const std::vector<MirState
     }
 
     validate_statements(program, statement->body, semantics, function_returns,
-                        assignment_type_probes, incompatible_assignments, diagnostics);
+                        assignment_type_probes, exception_assignments, incompatible_assignments,
+                        diagnostics);
     validate_statements(program, statement->alternative, semantics, function_returns,
-                        assignment_type_probes, incompatible_assignments, diagnostics);
+                        assignment_type_probes, exception_assignments, incompatible_assignments,
+                        diagnostics);
   }
 }
 
@@ -621,9 +649,11 @@ std::vector<Diagnostic> validate_cpp_capabilities(const mir::Program& program,
     }
   }
   AssignmentTypeProbes assignment_type_probes;
+  ExceptionAssignments exception_assignments;
   IncompatibleAssignments incompatible_assignments;
   validate_statements(program, program.roots, program.semantics, function_returns,
-                      assignment_type_probes, incompatible_assignments, diagnostics);
+                      assignment_type_probes, exception_assignments, incompatible_assignments,
+                      diagnostics);
   return diagnostics;
 }
 

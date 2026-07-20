@@ -138,6 +138,10 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
     result.runtime.require(lir::RuntimeFeature::complex_numbers);
   }
   if (attributes.binding == BindingKind::builtin && attributes.intrinsic != IntrinsicId::none) {
+    if (attributes.intrinsic == IntrinsicId::matlab_error ||
+        attributes.intrinsic == IntrinsicId::matlab_rethrow) {
+      result.runtime.require(lir::RuntimeFeature::exception_handling);
+    }
     const auto* binding = cpp_code_binding(attributes.intrinsic);
     if (binding == nullptr || binding->kind == CodeBindingKind::unavailable) {
       const auto* descriptor = intrinsic_descriptor(attributes.intrinsic);
@@ -227,6 +231,9 @@ void analyze_statements(const mir::Program& program, const std::vector<MirStatem
     const auto* statement_node = mir::statement(program, statement_id);
     if (statement_node == nullptr) continue;
     const auto& statement = *statement_node;
+    if (statement.kind == StatementKind::try_statement) {
+      result.runtime.require(lir::RuntimeFeature::exception_handling);
+    }
     if ((statement.kind == StatementKind::if_statement ||
          statement.kind == StatementKind::while_loop) &&
         result.source_semantics.truthiness == mpf::detail::semantic::Truthiness::dynamic) {

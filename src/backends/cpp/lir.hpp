@@ -32,6 +32,7 @@ enum class RuntimeFeature : std::uint8_t {
   sparse_power,
   sparse_arithmetic,
   sparse_reductions,
+  exception_handling,
   count
 };
 
@@ -469,7 +470,8 @@ enum class StatementForm : std::uint8_t {
   while_loop,
   range_loop,
   for_loop,
-  function
+  function,
+  try_catch
 };
 
 enum class SelectorForm : std::uint8_t { value, closed_range, lower_bound, upper_bound };
@@ -490,6 +492,7 @@ struct StatementPlan {
   ConditionForm condition{ConditionForm::direct};
   VariableAccess target_access{VariableAccess::direct};
   bool has_alternative{false};
+  bool has_exception_binding{false};
   bool range_has_step{false};
   bool retain_loop_value{false};
   bool inclusive_stop{false};
@@ -518,7 +521,8 @@ enum class RuntimeFragment : std::uint8_t {
   sparse_product,
   sparse_power,
   sparse_arithmetic,
-  sparse_reductions
+  sparse_reductions,
+  exception_handling
 };
 enum class EntryErrorPolicy : std::uint8_t { none, report_standard_exception };
 
@@ -687,6 +691,8 @@ struct Statement {
   SparseMutationPlan sparse_mutation;
   std::vector<CaseSelector> case_selectors;
   bool default_case{false};
+  bool has_exception_handler{false};
+  std::size_t exception_handler_line{0};
   FunctionAbi function_abi;
   ScopePlan function_scope;
   ScopePlan statement_scope;

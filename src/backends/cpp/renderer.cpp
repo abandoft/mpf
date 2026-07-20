@@ -1420,6 +1420,28 @@ class Renderer final {
         }
         output_ << '\n';
         break;
+      case cpp::lir::StatementForm::try_catch:
+        indentation();
+        output_ << "try {\n";
+        ++indent_;
+        emit_scope_declarations(statement.body_scope);
+        for (const auto& child : statement.body) emit_statement(child);
+        --indent_;
+        mark({statement.exception_handler_line, 1}, statement.origin);
+        indentation();
+        output_ << "} catch (...) {\n";
+        ++indent_;
+        emit_scope_declarations(statement.alternative_scope);
+        if (statement.plan.has_exception_binding) {
+          indentation();
+          output_ << mangler_->name(statement.symbol_id, statement.name);
+          output_ << " = mpf_runtime::capture_exception(std::current_exception());\n";
+        }
+        for (const auto& child : statement.alternative) emit_statement(child);
+        --indent_;
+        indentation();
+        output_ << "}\n";
+        break;
       case cpp::lir::StatementForm::selection: emit_select_case(statement); break;
       case cpp::lir::StatementForm::case_clause: break;
       case cpp::lir::StatementForm::while_loop: {
@@ -1588,6 +1610,13 @@ class Renderer final {
     const auto position = output_.tellp();
     if (position < 0) return;
     markers_.push_back({static_cast<std::size_t>(position), segment->source, segment->origin});
+  }
+
+  void mark(const SourceLocation source, const HirNodeId origin) {
+    if (source.line == 0U) return;
+    const auto position = output_.tellp();
+    if (position < 0) return;
+    markers_.push_back({static_cast<std::size_t>(position), source, origin});
   }
 
   const std::string& temporary(const LirNodeId node, const cpp::lir::TemporaryRole role,

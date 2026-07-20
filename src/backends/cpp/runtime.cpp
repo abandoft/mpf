@@ -51,7 +51,57 @@ class RuntimeEmitter final {
     const bool include_complex_sparse =
         std::find(fragments.begin(), fragments.end(), cpp::lir::RuntimeFragment::complex_sparse) !=
         fragments.end();
+    const bool include_exception_handling =
+        std::find(fragments.begin(), fragments.end(),
+                  cpp::lir::RuntimeFragment::exception_handling) != fragments.end();
     output_ << "namespace " << runtime_namespace << " {\n";
+    if (include_exception_handling) {
+      output_ << "class matlab_exception final : public std::exception {\n"
+                 " public:\n"
+                 "  matlab_exception() = default;\n"
+                 "  matlab_exception(std::string identifier, std::string message, "
+                 "std::exception_ptr original)\n"
+                 "      : identifier_(std::move(identifier)), message_(std::move(message)), "
+                 "original_(std::move(original)) {}\n"
+                 "  const std::string& identifier() const noexcept { return identifier_; }\n"
+                 "  const std::string& message() const noexcept { return message_; }\n"
+                 "  const char* what() const noexcept override { return message_.c_str(); }\n"
+                 "  [[noreturn]] void rethrow() const {\n"
+                 "    if (original_) std::rethrow_exception(original_);\n"
+                 "    throw std::runtime_error(message_);\n"
+                 "  }\n"
+                 " private:\n"
+                 "  std::string identifier_;\n"
+                 "  std::string message_;\n"
+                 "  std::exception_ptr original_;\n"
+                 "};\n\n"
+                 "inline matlab_exception capture_exception(std::exception_ptr original) {\n"
+                 "  try {\n"
+                 "    if (original) std::rethrow_exception(original);\n"
+                 "  } catch (const matlab_exception& error) {\n"
+                 "    return matlab_exception{error.identifier(), error.message(), "
+                 "std::move(original)};\n"
+                 "  } catch (const std::exception& error) {\n"
+                 "    return matlab_exception{\"MPF:RuntimeError\", error.what(), "
+                 "std::move(original)};\n"
+                 "  } catch (...) {\n"
+                 "    return matlab_exception{\"MPF:UnknownException\", "
+                 "\"unknown non-standard exception\", std::move(original)};\n"
+                 "  }\n"
+                 "  return matlab_exception{\"MPF:RuntimeError\", \"empty exception\", "
+                 "std::move(original)};\n"
+                 "}\n\n"
+                 "[[noreturn]] inline void matlab_error(const std::string& message) {\n"
+                 "  throw matlab_exception{\"MATLAB:error\", message, {}};\n"
+                 "}\n"
+                 "[[noreturn]] inline void matlab_error(const std::string& identifier, "
+                 "const std::string& message) {\n"
+                 "  throw matlab_exception{identifier, message, {}};\n"
+                 "}\n"
+                 "[[noreturn]] inline void matlab_rethrow(const matlab_exception& exception) {\n"
+                 "  exception.rethrow();\n"
+                 "}\n\n";
+    }
     output_
         << "template <typename T> class optional_argument {\n"
            " public:\n"

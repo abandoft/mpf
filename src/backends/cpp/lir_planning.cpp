@@ -64,6 +64,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::sparse_reductions)) {
     result.push_back(lir::RuntimeFragment::sparse_reductions);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::exception_handling)) {
+    result.push_back(lir::RuntimeFragment::exception_handling);
+  }
   return result;
 }
 
@@ -184,6 +187,7 @@ const char* cpp_type(const ValueType type,
     case ValueType::list:
     case ValueType::tuple:
     case ValueType::function: return "double";
+    case ValueType::exception: return "mpf_runtime::matlab_exception";
   }
   return "double";
 }
@@ -227,7 +231,7 @@ std::string cpp_parameter_type(const lir::Statement& statement, const std::size_
 
 bool primitive_type(const ValueType type) noexcept {
   return type == ValueType::integer || type == ValueType::real || type == ValueType::boolean ||
-         type == ValueType::string || type == ValueType::null_value;
+         type == ValueType::string || type == ValueType::null_value || type == ValueType::exception;
 }
 
 bool explicit_return_type(const lir::Statement& statement, std::string& type) {
@@ -396,6 +400,21 @@ void collect_declarations(const std::vector<lir::Statement>& statements,
                                                   numeric_type, element_type, element_numeric_type,
                                                   shape, array_storage, index));
         }
+      }
+    } else if (statement.kind == StatementKind::try_statement) {
+      if (!lexical_blocks && !statement.name.empty() &&
+          accept_declaration(statement.symbol_id, statement.name, excluded_symbols, excluded_names,
+                             found_symbols, found_names)) {
+        declarations.push_back(make_declaration(
+            statement.symbol_id, statement.name, nullptr, statement.declared_type,
+            statement.declared_numeric_type, statement.element_type, statement.element_numeric_type,
+            statement.shape, statement.array_storage));
+      }
+      if (!lexical_blocks) {
+        collect_declarations(statement.body, excluded_symbols, excluded_names, found_symbols,
+                             found_names, false, declarations);
+        collect_declarations(statement.alternative, excluded_symbols, excluded_names, found_symbols,
+                             found_names, false, declarations);
       }
     } else if (statement.kind == StatementKind::if_statement ||
                statement.kind == StatementKind::while_loop) {
