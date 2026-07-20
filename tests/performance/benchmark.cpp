@@ -1081,6 +1081,18 @@ std::string matlab_return_command_workload(const std::size_t functions) {
   return source;
 }
 
+std::string matlab_command_syntax_workload(const std::size_t calls) {
+  std::string source;
+  for (std::size_t index = 0; index < calls; ++index) {
+    source += "identity value" + std::to_string(index) + "\n";
+  }
+  source += "disp(ans)\n";
+  source += "function out = identity(value)\n";
+  source += "  out = value;\n";
+  source += "end\n";
+  return source;
+}
+
 std::string source_extension(const mpf::SourceLanguage language) {
   switch (language) {
     case mpf::SourceLanguage::python: return ".py";
@@ -1225,7 +1237,8 @@ int main() {
        mpf::SourceLanguage::matlab},
       {"matlab-advanced-structured-square-solve",
        matlab_advanced_structured_square_solve_workload(24), mpf::SourceLanguage::matlab},
-      {"matlab-return-command", matlab_return_command_workload(32), mpf::SourceLanguage::matlab}};
+      {"matlab-return-command", matlab_return_command_workload(32), mpf::SourceLanguage::matlab},
+      {"matlab-command-syntax", matlab_command_syntax_workload(64), mpf::SourceLanguage::matlab}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
     Measurement measurement;
