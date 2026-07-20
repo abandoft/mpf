@@ -150,6 +150,10 @@ TEST_CASE("Matlab complex square matrix kernels preserve target contracts and so
   REQUIRE(cpp.code.find("mpf_runtime::matlab_mrdivide_structured_complex_square") !=
           std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_complex_mpower") != std::string::npos);
+  REQUIRE(cpp.code.find("std::vector<std::vector<std::complex<double>>> powered{}") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("std::vector<std::vector<std::complex<double>>> inverse{}") !=
+          std::string::npos);
   for (const auto* result : {&javascript, &cpp}) {
     for (const auto line : {2U, 3U, 5U, 6U, 7U, 8U}) {
       REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
@@ -561,19 +565,15 @@ TEST_CASE("Matlab sparse matrix powers preserve CSC storage and target isolation
   REQUIRE(cpp_sparse_base != std::string::npos);
   REQUIRE(cpp_power != std::string::npos);
   REQUIRE(cpp_sparse_base < cpp_power);
-  REQUIRE(javascript.code.find(
-              "__mpf_sparse_mpower(A, 3, [2, 2], [2, 2], 2, 3, 3)") !=
+  REQUIRE(javascript.code.find("__mpf_sparse_mpower(A, 3, [2, 2], [2, 2], 2, 3, 3)") !=
           std::string::npos);
-  REQUIRE(javascript.code.find(
-              "__mpf_sparse_mpower(A, 0, [2, 2], [2, 2], 2, 3, 3)") !=
+  REQUIRE(javascript.code.find("__mpf_sparse_mpower(A, 0, [2, 2], [2, 2], 2, 3, 3)") !=
           std::string::npos);
   REQUIRE(javascript.code.find("mpf_runtime::sparse_mpower") == std::string::npos);
-  REQUIRE(cpp.code.find(
-              "mpf_runtime::sparse_mpower(A, 3, std::array<std::size_t, 2>{2, 2}, "
-              "std::array<std::size_t, 2>{2, 2}, 2, 3, 3)") != std::string::npos);
-  REQUIRE(cpp.code.find(
-              "mpf_runtime::sparse_mpower(A, 0, std::array<std::size_t, 2>{2, 2}, "
-              "std::array<std::size_t, 2>{2, 2}, 2, 3, 3)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_mpower(A, 3, std::array<std::size_t, 2>{2, 2}, "
+                        "std::array<std::size_t, 2>{2, 2}, 2, 3, 3)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::sparse_mpower(A, 0, std::array<std::size_t, 2>{2, 2}, "
+                        "std::array<std::size_t, 2>{2, 2}, 2, 3, 3)") != std::string::npos);
   REQUIRE(cpp.code.find("__mpf_sparse_mpower") == std::string::npos);
   for (const auto* result : {&javascript, &cpp}) {
     for (std::size_t line = 2U; line <= 5U; ++line) {
@@ -701,8 +701,7 @@ TEST_CASE("Matlab sparse addition and subtraction preserve planned storage per t
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
   const auto javascript_sparse_base = javascript.code.find("function __mpf_validate_sparse_csc");
-  const auto javascript_arithmetic =
-      javascript.code.find("function __mpf_sparse_arithmetic_plan");
+  const auto javascript_arithmetic = javascript.code.find("function __mpf_sparse_arithmetic_plan");
   const auto cpp_sparse_base = cpp.code.find("void validate_sparse_csc");
   const auto cpp_arithmetic = cpp.code.find("void validate_sparse_arithmetic_plan(");
   REQUIRE(javascript_sparse_base != std::string::npos);
@@ -711,11 +710,9 @@ TEST_CASE("Matlab sparse addition and subtraction preserve planned storage per t
   REQUIRE(cpp_sparse_base != std::string::npos);
   REQUIRE(cpp_arithmetic != std::string::npos);
   REQUIRE(cpp_sparse_base < cpp_arithmetic);
-  REQUIRE(javascript.code.find(
-              "__mpf_sparse_add(A, B, [2, 2], [2, 2], [2, 2], 1, 1, 3, 3, 3)") !=
+  REQUIRE(javascript.code.find("__mpf_sparse_add(A, B, [2, 2], [2, 2], [2, 2], 1, 1, 3, 3, 3)") !=
           std::string::npos);
-  REQUIRE(javascript.code.find(
-              "__mpf_sparse_subtract(10, A, [], [2, 2], [2, 2], 2, 2, 0, 3, 2)") !=
+  REQUIRE(javascript.code.find("__mpf_sparse_subtract(10, A, [], [2, 2], [2, 2], 2, 2, 0, 3, 2)") !=
           std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::sparse_add(A, B, ") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::sparse_subtract(") != std::string::npos);

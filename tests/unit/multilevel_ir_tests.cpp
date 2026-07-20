@@ -756,6 +756,32 @@ TEST_CASE("Matlab matrix operation plans retain typed shape contracts through MI
   REQUIRE(std::find(numeric_domains.begin(), numeric_domains.end(),
                     mpf::detail::semantic::MatrixNumericDomain::complex) != numeric_domains.end());
 
+  const auto hir_complex_power =
+      std::find_if(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                   [](const auto& facts) {
+                     return facts.matrix_operation.operation ==
+                                mpf::detail::semantic::MatrixOperation::integer_power &&
+                            facts.matrix_operation.numeric_domain ==
+                                mpf::detail::semantic::MatrixNumericDomain::complex;
+                   });
+  REQUIRE(hir_complex_power != analysis.semantics.expressions.end());
+  REQUIRE(hir_complex_power->element_numeric_type == mpf::detail::complex_numeric_type);
+
+  auto contradictory_hir_result_numeric = analysis.semantics;
+  const auto hir_power_with_corrupted_result =
+      std::find_if(contradictory_hir_result_numeric.expressions.begin(),
+                   contradictory_hir_result_numeric.expressions.end(), [](const auto& facts) {
+                     return facts.matrix_operation.operation ==
+                                mpf::detail::semantic::MatrixOperation::integer_power &&
+                            facts.matrix_operation.numeric_domain ==
+                                mpf::detail::semantic::MatrixNumericDomain::complex;
+                   });
+  REQUIRE(hir_power_with_corrupted_result != contradictory_hir_result_numeric.expressions.end());
+  hir_power_with_corrupted_result->element_numeric_type = mpf::detail::real_numeric_type;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir_result_numeric,
+                                              "matrix-result-numeric-mismatch")
+               .empty());
+
   auto contradictory_hir_solve = analysis.semantics;
   const auto hir_rectangular =
       std::find_if(contradictory_hir_solve.expressions.begin(),
@@ -953,12 +979,11 @@ TEST_CASE("Matlab sparse matrix power plans remain typed through every IR layer"
   using StoragePolicy = mpf::detail::semantic::MatrixStoragePolicy;
 
   REQUIRE(mpf::detail::semantic::valid_matrix_power_storage_contract(
-      StoragePolicy::sparse_csc_power, Storage::sparse_csc, Storage::none,
-      Storage::sparse_csc));
+      StoragePolicy::sparse_csc_power, Storage::sparse_csc, Storage::none, Storage::sparse_csc));
   REQUIRE(!mpf::detail::semantic::valid_matrix_power_storage_contract(
       StoragePolicy::dense, Storage::sparse_csc, Storage::none, Storage::dense));
-  REQUIRE(mpf::detail::semantic::matrix_exponent_policy(
-              Operation::integer_power, StoragePolicy::sparse_csc_power) ==
+  REQUIRE(mpf::detail::semantic::matrix_exponent_policy(Operation::integer_power,
+                                                        StoragePolicy::sparse_csc_power) ==
           ExponentPolicy::nonnegative_safe_integer);
 
   auto lowered = lower_source(mpf::SourceLanguage::matlab,
@@ -970,13 +995,13 @@ TEST_CASE("Matlab sparse matrix power plans remain typed through every IR layer"
                               "sparse_power.m");
   auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
   REQUIRE(analysis.empty());
-  const auto power_count = std::count_if(
-      analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
-      [](const auto& facts) {
-        const auto& plan = facts.matrix_operation;
-        return plan.operation == Operation::integer_power &&
-               plan.storage_policy == StoragePolicy::sparse_csc_power;
-      });
+  const auto power_count =
+      std::count_if(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                    [](const auto& facts) {
+                      const auto& plan = facts.matrix_operation;
+                      return plan.operation == Operation::integer_power &&
+                             plan.storage_policy == StoragePolicy::sparse_csc_power;
+                    });
   REQUIRE(power_count == 3);
   for (const auto& facts : analysis.semantics.expressions) {
     const auto& plan = facts.matrix_operation;
@@ -997,11 +1022,11 @@ TEST_CASE("Matlab sparse matrix power plans remain typed through every IR layer"
           std::string::npos);
 
   auto contradictory_hir = analysis.semantics;
-  const auto corrupt_hir = std::find_if(
-      contradictory_hir.expressions.begin(), contradictory_hir.expressions.end(),
-      [](const auto& facts) {
-        return facts.matrix_operation.storage_policy == StoragePolicy::sparse_csc_power;
-      });
+  const auto corrupt_hir = std::find_if(contradictory_hir.expressions.begin(),
+                                        contradictory_hir.expressions.end(), [](const auto& facts) {
+                                          return facts.matrix_operation.storage_policy ==
+                                                 StoragePolicy::sparse_csc_power;
+                                        });
   REQUIRE(corrupt_hir != contradictory_hir.expressions.end());
   corrupt_hir->matrix_operation.exponent_policy = ExponentPolicy::safe_integer;
   REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
@@ -1026,18 +1051,18 @@ TEST_CASE("Matlab sparse matrix power plans remain typed through every IR layer"
   REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "sparse-power-storage-mismatch").empty());
 
   const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
-  REQUIRE(mpf::detail::mir::verify_alias_effects(mir.program, effects, "sparse-power-effects")
-              .empty());
+  REQUIRE(
+      mpf::detail::mir::verify_alias_effects(mir.program, effects, "sparse-power-effects").empty());
   const auto javascript =
       mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
   const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
   REQUIRE(javascript.diagnostics.empty());
   REQUIRE(cpp.diagnostics.empty());
-  REQUIRE(javascript.artifact->debug_dump()
-              .find("storage-policy 5 exponent-policy 2 storage 3,0->3 [2,2]->[2,2]") !=
+  REQUIRE(javascript.artifact->debug_dump().find(
+              "storage-policy 5 exponent-policy 2 storage 3,0->3 [2,2]->[2,2]") !=
           std::string::npos);
-  REQUIRE(cpp.artifact->debug_dump()
-              .find("storage-policy 5 exponent-policy 2 storage 3,0->3 [2,2]->[2,2]") !=
+  REQUIRE(cpp.artifact->debug_dump().find(
+              "storage-policy 5 exponent-policy 2 storage 3,0->3 [2,2]->[2,2]") !=
           std::string::npos);
 }
 
@@ -1099,8 +1124,7 @@ TEST_CASE("Matlab sparse storage and solver policies remain typed through every 
   REQUIRE(sparse_mir_plan->matrix_operation.result_storage ==
           mpf::detail::ArrayStorageFormat::sparse_csc);
   REQUIRE(mpf::detail::dump_mir(mir.program)
-              .find("storage-policy=2 exponent-policy=0 storage=3,3->3") !=
-          std::string::npos);
+              .find("storage-policy=2 exponent-policy=0 storage=3,3->3") != std::string::npos);
 
   const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto javascript =
@@ -1108,11 +1132,10 @@ TEST_CASE("Matlab sparse storage and solver policies remain typed through every 
   const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
   REQUIRE(javascript.diagnostics.empty());
   REQUIRE(cpp.diagnostics.empty());
-  REQUIRE(javascript.artifact->debug_dump()
-              .find("storage-policy 2 exponent-policy 0 storage 3,3->3") !=
+  REQUIRE(javascript.artifact->debug_dump().find(
+              "storage-policy 2 exponent-policy 0 storage 3,3->3") != std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("storage-policy 2 exponent-policy 0 storage 3,3->3") !=
           std::string::npos);
-  REQUIRE(cpp.artifact->debug_dump()
-              .find("storage-policy 2 exponent-policy 0 storage 3,3->3") != std::string::npos);
 
   auto contradictory_mir = mir.program;
   const auto contradictory_mir_plan =
@@ -1224,18 +1247,18 @@ TEST_CASE("Matlab zero-extent sparse square solve plans remain typed through eve
   REQUIRE(javascript.diagnostics.empty());
   REQUIRE(cpp.diagnostics.empty());
   for (const auto& target_dump : {javascript.artifact->debug_dump(), cpp.artifact->debug_dump()}) {
-    REQUIRE(target_dump.find(
-                "storage-policy 2 exponent-policy 0 storage 3,2->2 [0,0],[0,3]->[0,3]") !=
-            std::string::npos);
-    REQUIRE(target_dump.find(
-                "storage-policy 2 exponent-policy 0 storage 3,3->3 [0,0],[0,3]->[0,3]") !=
-            std::string::npos);
-    REQUIRE(target_dump.find(
-                "storage-policy 2 exponent-policy 0 storage 2,3->2 [2,0],[0,0]->[2,0]") !=
-            std::string::npos);
-    REQUIRE(target_dump.find(
-                "storage-policy 2 exponent-policy 0 storage 3,3->3 [2,0],[0,0]->[2,0]") !=
-            std::string::npos);
+    REQUIRE(
+        target_dump.find("storage-policy 2 exponent-policy 0 storage 3,2->2 [0,0],[0,3]->[0,3]") !=
+        std::string::npos);
+    REQUIRE(
+        target_dump.find("storage-policy 2 exponent-policy 0 storage 3,3->3 [0,0],[0,3]->[0,3]") !=
+        std::string::npos);
+    REQUIRE(
+        target_dump.find("storage-policy 2 exponent-policy 0 storage 2,3->2 [2,0],[0,0]->[2,0]") !=
+        std::string::npos);
+    REQUIRE(
+        target_dump.find("storage-policy 2 exponent-policy 0 storage 3,3->3 [2,0],[0,0]->[2,0]") !=
+        std::string::npos);
   }
 }
 
@@ -1325,12 +1348,9 @@ TEST_CASE("Matlab sparse matrix products remain typed through every IR layer") {
   REQUIRE(mir.diagnostics.empty());
   REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-product-plan").empty());
   const auto dump = mpf::detail::dump_mir(mir.program);
-  REQUIRE(dump.find("storage-policy=3 exponent-policy=0 storage=3,3->3") !=
-          std::string::npos);
-  REQUIRE(dump.find("storage-policy=3 exponent-policy=0 storage=3,2->2") !=
-          std::string::npos);
-  REQUIRE(dump.find("storage-policy=3 exponent-policy=0 storage=2,3->2") !=
-          std::string::npos);
+  REQUIRE(dump.find("storage-policy=3 exponent-policy=0 storage=3,3->3") != std::string::npos);
+  REQUIRE(dump.find("storage-policy=3 exponent-policy=0 storage=3,2->2") != std::string::npos);
+  REQUIRE(dump.find("storage-policy=3 exponent-policy=0 storage=2,3->2") != std::string::npos);
 
   auto contradictory_mir = mir.program;
   const auto corrupt_mir =
@@ -1360,12 +1380,12 @@ TEST_CASE("Matlab sparse matrix products remain typed through every IR layer") {
             std::string::npos);
     REQUIRE(target_dump.find("storage-policy 3 exponent-policy 0 storage 2,3->2") !=
             std::string::npos);
-    REQUIRE(target_dump.find(
-                "storage-policy 3 exponent-policy 0 storage 3,3->3 [0,3],[3,2]->[0,2]") !=
-            std::string::npos);
-    REQUIRE(target_dump.find(
-                "storage-policy 3 exponent-policy 0 storage 3,3->3 [2,0],[0,4]->[2,4]") !=
-            std::string::npos);
+    REQUIRE(
+        target_dump.find("storage-policy 3 exponent-policy 0 storage 3,3->3 [0,3],[3,2]->[0,2]") !=
+        std::string::npos);
+    REQUIRE(
+        target_dump.find("storage-policy 3 exponent-policy 0 storage 3,3->3 [2,0],[0,4]->[2,4]") !=
+        std::string::npos);
   }
 }
 
@@ -1422,8 +1442,7 @@ TEST_CASE("Matlab sparse scalar products remain typed through every IR layer") {
   REQUIRE(mir.diagnostics.empty());
   REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-scale-plan").empty());
   const auto dump = mpf::detail::dump_mir(mir.program);
-  REQUIRE(dump.find("storage-policy=4 exponent-policy=0 storage=3,0->3") !=
-          std::string::npos);
+  REQUIRE(dump.find("storage-policy=4 exponent-policy=0 storage=3,0->3") != std::string::npos);
   REQUIRE(dump.find("storage-policy=4 exponent-policy=0 storage=0,3->3 scalar,!s") !=
           std::string::npos);
 
@@ -1451,11 +1470,9 @@ TEST_CASE("Matlab sparse scalar products remain typed through every IR layer") {
             std::string::npos);
     REQUIRE(target_dump.find("storage-policy 4 exponent-policy 0 storage 0,3->3") !=
             std::string::npos);
-    REQUIRE(target_dump.find(
-                "storage-policy 4 exponent-policy 0 storage 3,0->3 [0,3]->[0,3]") !=
+    REQUIRE(target_dump.find("storage-policy 4 exponent-policy 0 storage 3,0->3 [0,3]->[0,3]") !=
             std::string::npos);
-    REQUIRE(target_dump.find(
-                "storage-policy 4 exponent-policy 0 storage 0,3->3 [],[0,3]->[0,3]") !=
+    REQUIRE(target_dump.find("storage-policy 4 exponent-policy 0 storage 0,3->3 [],[0,3]->[0,3]") !=
             std::string::npos);
   }
 }
@@ -1474,8 +1491,8 @@ TEST_CASE("Matlab sparse arithmetic storage policy is explicit and shape checked
       Operation::add, Policy::preserve_sparse, Source::static_extents, Storage::sparse_csc,
       Storage::sparse_csc, Storage::sparse_csc, shape, shape, shape, matched));
   REQUIRE(mpf::detail::semantic::valid_sparse_arithmetic_contract(
-      Operation::subtract, Policy::materialize_dense, Source::static_extents,
-      Storage::sparse_csc, Storage::dense, Storage::dense, shape, shape, shape, matched));
+      Operation::subtract, Policy::materialize_dense, Source::static_extents, Storage::sparse_csc,
+      Storage::dense, Storage::dense, shape, shape, shape, matched));
   REQUIRE(mpf::detail::semantic::valid_sparse_arithmetic_contract(
       Operation::add, Policy::materialize_dense, Source::static_extents, Storage::none,
       Storage::sparse_csc, Storage::dense, std::vector<std::size_t>{}, shape, shape,
@@ -1485,11 +1502,11 @@ TEST_CASE("Matlab sparse arithmetic storage policy is explicit and shape checked
       Operation::add, Policy::preserve_sparse, Source::static_extents, Storage::sparse_csc,
       Storage::dense, Storage::sparse_csc, shape, shape, shape, matched));
   REQUIRE(!mpf::detail::semantic::valid_sparse_arithmetic_contract(
-      Operation::subtract, Policy::materialize_dense, Source::runtime_operands,
-      Storage::sparse_csc, Storage::dense, Storage::dense, shape, shape, shape, matched));
+      Operation::subtract, Policy::materialize_dense, Source::runtime_operands, Storage::sparse_csc,
+      Storage::dense, Storage::dense, shape, shape, shape, matched));
   REQUIRE(!mpf::detail::semantic::valid_sparse_arithmetic_contract(
-      Operation::subtract, Policy::materialize_dense, Source::static_extents,
-      Storage::sparse_csc, Storage::dense, Storage::dense, shape, shape, shape,
+      Operation::subtract, Policy::materialize_dense, Source::static_extents, Storage::sparse_csc,
+      Storage::dense, Storage::dense, shape, shape, shape,
       std::vector<Axis>{Axis::match, Axis::runtime}));
 }
 
@@ -1535,12 +1552,12 @@ TEST_CASE("Matlab Analyzer assigns sparse arithmetic storage without dense broad
                      Storage::sparse_csc, Storage::sparse_csc, {2U, 3U}) == 2);
   REQUIRE(count_plan(Operation::subtract, Policy::preserve_sparse, Storage::sparse_csc,
                      Storage::sparse_csc, Storage::sparse_csc, {2U, 3U}) == 1);
-  REQUIRE(count_plan(Operation::add, Policy::materialize_dense, Storage::sparse_csc,
-                     Storage::dense, Storage::dense, {2U, 3U}) == 1);
+  REQUIRE(count_plan(Operation::add, Policy::materialize_dense, Storage::sparse_csc, Storage::dense,
+                     Storage::dense, {2U, 3U}) == 1);
   REQUIRE(count_plan(Operation::subtract, Policy::materialize_dense, Storage::dense,
                      Storage::sparse_csc, Storage::dense, {2U, 3U}) == 1);
-  REQUIRE(count_plan(Operation::add, Policy::materialize_dense, Storage::sparse_csc,
-                     Storage::none, Storage::dense, {2U, 3U}) == 1);
+  REQUIRE(count_plan(Operation::add, Policy::materialize_dense, Storage::sparse_csc, Storage::none,
+                     Storage::dense, {2U, 3U}) == 1);
   REQUIRE(count_plan(Operation::subtract, Policy::materialize_dense, Storage::none,
                      Storage::sparse_csc, Storage::dense, {2U, 3U}) == 1);
   REQUIRE(count_plan(Operation::add, Policy::preserve_sparse, Storage::sparse_csc,
@@ -1564,23 +1581,17 @@ TEST_CASE("Matlab Analyzer assigns sparse arithmetic storage without dense broad
   REQUIRE(mir.diagnostics.empty());
   REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-arithmetic-plan").empty());
   const auto dump = mpf::detail::dump_mir(mir.program);
-  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=1 storage=3,3->3") !=
-          std::string::npos);
-  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=1 storage=3,3->3") !=
-          std::string::npos);
-  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=2 storage=3,2->2") !=
-          std::string::npos);
-  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=2 storage=2,3->2") !=
-          std::string::npos);
-  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=2 storage=3,0->2") !=
-          std::string::npos);
-  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=2 storage=0,3->2") !=
-          std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=1 storage=3,3->3") != std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=1 storage=3,3->3") != std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=2 storage=3,2->2") != std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=2 storage=2,3->2") != std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=1 storage-policy=2 storage=3,0->2") != std::string::npos);
+  REQUIRE(dump.find("sparse-arithmetic=2 storage-policy=2 storage=0,3->2") != std::string::npos);
 
   auto corrupted_mir = mir.program;
   const auto mir_arithmetic = std::find_if(
-      corrupted_mir.attributes.expressions.begin(),
-      corrupted_mir.attributes.expressions.end(), [](const auto& attributes) {
+      corrupted_mir.attributes.expressions.begin(), corrupted_mir.attributes.expressions.end(),
+      [](const auto& attributes) {
         return attributes.sparse_arithmetic.storage_policy == Policy::materialize_dense;
       });
   REQUIRE(mir_arithmetic != corrupted_mir.attributes.expressions.end());
@@ -2807,6 +2818,13 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   diagnostics.clear();
   mpf::detail::javascript::verify_lir_representation(complex_javascript, diagnostics);
   REQUIRE(diagnostics.empty());
+  complex_javascript.statements.front().expression.element_numeric_type =
+      mpf::detail::real_numeric_type;
+  mpf::detail::javascript::verify_lir_representation(complex_javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  complex_javascript.statements.front().expression.element_numeric_type =
+      mpf::detail::complex_numeric_type;
   complex_javascript.statements.front().expression.matrix_operation.structure_policy =
       StructurePolicy::classify_real_square;
   mpf::detail::javascript::verify_lir_representation(complex_javascript, diagnostics);
@@ -2852,6 +2870,12 @@ TEST_CASE("target LIR verifiers reject contradictory Matlab matrix policies") {
   diagnostics.clear();
   mpf::detail::cpp::verify_lir_representation(complex_cpp, diagnostics);
   REQUIRE(diagnostics.empty());
+  complex_cpp.statements.front().expression.element_numeric_type = mpf::detail::real_numeric_type;
+  mpf::detail::cpp::verify_lir_representation(complex_cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  complex_cpp.statements.front().expression.element_numeric_type =
+      mpf::detail::complex_numeric_type;
   complex_cpp.statements.front().expression.matrix_operation.numeric_domain = NumericDomain::real;
   mpf::detail::cpp::verify_lir_representation(complex_cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
