@@ -2090,9 +2090,11 @@ ValueType Analyzer::analyze_call(Expression& expression) {
   }
   const auto& associated_callee = expression.children.front();
   const auto& associated_callee_facts = semantic(semantics_, associated_callee);
-  if (program_.language == SourceLanguage::fortran && called_function != nullptr) {
+  if (called_function != nullptr) {
     const auto& called_facts = semantic(semantics_, *called_function);
-    semantic(semantics_, expression).argument_intents = called_facts.parameter_intents;
+    if (program_.language == SourceLanguage::fortran) {
+      semantic(semantics_, expression).argument_intents = called_facts.parameter_intents;
+    }
     semantic(semantics_, expression).procedure_has_result =
         !called_function->return_names.empty() || called_facts.has_value_return;
   }
@@ -2271,9 +2273,13 @@ ValueType Analyzer::analyze_call(Expression& expression) {
         associated_callee_facts.intrinsic == IntrinsicId::element_count) {
       if (expression.children.size() != 2) {
         diagnose(expression.location.line, "MPF2026", "length/size builtin requires one argument");
-      } else if (semantic(semantics_, expression.children[1]).inferred_type != ValueType::list &&
-                 semantic(semantics_, expression.children[1]).inferred_type != ValueType::unknown) {
-        diagnose(expression.location.line, "MPF2022", "length/size argument is not an array/list");
+      } else if (const auto length_argument_type =
+                     semantic(semantics_, expression.children[1]).inferred_type;
+                 length_argument_type != ValueType::list &&
+                 length_argument_type != ValueType::unknown &&
+                 length_argument_type != ValueType::string) {
+        diagnose(expression.location.line, "MPF2022",
+                 "length/size argument is not an array/list or character vector");
       }
       semantic(semantics_, expression).numeric_type = integer_numeric_type;
       return semantic(semantics_, expression).inferred_type = ValueType::integer;
