@@ -417,6 +417,8 @@ enum class StatementForm : std::uint8_t {
   print_tuple,
   return_void,
   return_value,
+  return_outputs,
+  return_program,
   break_loop,
   continue_loop,
   expression,
@@ -484,10 +486,14 @@ enum class RuntimeFragment : std::uint8_t {
 struct ModulePlan {
   bool valid{false};
   bool emit_banner{false};
+  bool wrap_script_control{false};
   std::string banner;
+  std::string script_label;
   std::vector<std::string> directives;
   std::vector<RuntimeFragment> runtime_fragments;
   std::vector<std::size_t> body_order;
+  std::vector<std::size_t> control_prelude_order;
+  std::vector<std::size_t> controlled_body_order;
 };
 
 struct Expression {

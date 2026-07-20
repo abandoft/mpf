@@ -22,12 +22,26 @@ class Renderer final {
   RenderedOutput render(const Program& program) {
     temporaries_ = &program.temporaries;
     source_segments_ = &program.source_segments;
+    script_label_ = &program.module.script_label;
     mangler_ = std::make_unique<IdentifierMangler>(program.identifiers);
     output_ << program.module.banner;
     for (const auto& directive : program.module.directives) output_ << directive << '\n';
     for (const auto fragment : program.module.runtime_fragments) emit_runtime(fragment);
     emit_scope_declarations(program.program_scope);
-    for (const auto index : program.module.body_order) emit_statement(program.statements[index]);
+    if (program.module.wrap_script_control) {
+      for (const auto index : program.module.control_prelude_order) {
+        emit_statement(program.statements[index]);
+      }
+      output_ << program.module.script_label << ": {\n";
+      ++indent_;
+      for (const auto index : program.module.controlled_body_order) {
+        emit_statement(program.statements[index]);
+      }
+      --indent_;
+      output_ << "}\n";
+    } else {
+      for (const auto index : program.module.body_order) emit_statement(program.statements[index]);
+    }
     return {output_.str(), std::move(markers_)};
   }
 
@@ -1033,6 +1047,34 @@ class Renderer final {
         }
         output_ << ";\n";
         break;
+      case javascript::lir::StatementForm::return_outputs:
+        indentation();
+        if (statement.plan.return_names.size() == 1U) {
+          output_ << "return "
+                  << mangler_->name(statement.return_symbols.empty()
+                                        ? SymbolId{}
+                                        : statement.return_symbols.front(),
+                                    statement.plan.return_names.front())
+                  << ";\n";
+        } else {
+          output_ << "return [";
+          for (std::size_t index = 0; index < statement.plan.return_names.size(); ++index) {
+            if (index != 0U) output_ << ", ";
+            output_ << mangler_->name(index < statement.return_symbols.size()
+                                          ? statement.return_symbols[index]
+                                          : SymbolId{},
+                                      statement.plan.return_names[index]);
+          }
+          output_ << "];\n";
+        }
+        break;
+      case javascript::lir::StatementForm::return_program:
+        indentation();
+        if (script_label_ == nullptr || script_label_->empty()) {
+          throw std::logic_error("verified JavaScript script-return label is missing");
+        }
+        output_ << "break " << *script_label_ << ";\n";
+        break;
       case javascript::lir::StatementForm::break_loop:
         indentation();
         if (!loop_completion_flags_.empty() && !loop_completion_flags_.back().empty()) {
@@ -1319,6 +1361,7 @@ class Renderer final {
   std::size_t indent_{0};
   const javascript::lir::TemporaryPlan* temporaries_{nullptr};
   const SourceSegmentPlan* source_segments_{nullptr};
+  const std::string* script_label_{nullptr};
   std::unique_ptr<IdentifierMangler> mangler_;
   std::vector<std::string> loop_completion_flags_;
   std::vector<RenderMarker> markers_;

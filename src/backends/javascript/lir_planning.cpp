@@ -79,6 +79,45 @@ std::vector<std::size_t> expected_body_order(const lir::SemanticProgram& program
   return result;
 }
 
+std::vector<std::size_t> expected_control_prelude_order(const lir::SemanticProgram& program,
+                                                        const bool wrap_script_control) {
+  std::vector<std::size_t> result;
+  if (!wrap_script_control) return result;
+  for (std::size_t index = 0; index < program.statements.size(); ++index) {
+    if (program.statements[index].kind == StatementKind::function) result.push_back(index);
+  }
+  return result;
+}
+
+std::vector<std::size_t> expected_controlled_body_order(const lir::SemanticProgram& program,
+                                                        const bool wrap_script_control) {
+  std::vector<std::size_t> result;
+  if (!wrap_script_control) return result;
+  for (std::size_t index = 0; index < program.statements.size(); ++index) {
+    if (program.statements[index].kind != StatementKind::function) result.push_back(index);
+  }
+  return result;
+}
+
+bool contains_program_return(const std::vector<lir::Statement>& statements) {
+  for (const auto& statement : statements) {
+    if (statement.kind == StatementKind::function) continue;
+    if (statement.kind == StatementKind::return_statement ||
+        contains_program_return(statement.body) || contains_program_return(statement.alternative)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::string expected_script_label(const lir::SemanticProgram& program,
+                                  const bool wrap_script_control) {
+  if (!wrap_script_control) return {};
+  auto used = program.identifiers.used;
+  for (const auto& temporary : program.temporaries.slots) used.insert(temporary.name);
+  return reserve_internal_identifier(used, "script", 0U);
+}
+
 bool uses_array_copy(const std::vector<lir::Statement>& statements) {
   for (const auto& statement : statements) {
     if (statement.plan.assignment_value == lir::AssignmentValueForm::copy_array ||
@@ -96,18 +135,33 @@ void plan_module(lir::SemanticProgram& program, const TranspileOptions& options)
   program.module.valid = true;
   program.module.emit_banner = options.emit_source_banner;
   program.module.banner = program.module.emit_banner ? expected_banner(program) : std::string{};
+  program.module.wrap_script_control = program.source_language == SourceLanguage::matlab &&
+                                       contains_program_return(program.statements);
+  program.module.script_label = expected_script_label(program, program.module.wrap_script_control);
   program.module.directives = expected_directives(program);
   program.module.runtime_fragments = expected_runtime_fragments(program);
   program.module.body_order = expected_body_order(program);
+  program.module.control_prelude_order =
+      expected_control_prelude_order(program, program.module.wrap_script_control);
+  program.module.controlled_body_order =
+      expected_controlled_body_order(program, program.module.wrap_script_control);
 }
 
 void verify_module(const lir::SemanticProgram& program, std::vector<Diagnostic>& diagnostics) {
   const auto banner = expected_banner(program);
   if (!program.module.valid || program.module.emit_banner != !program.module.banner.empty() ||
       (program.module.emit_banner && program.module.banner != banner) ||
+      program.module.wrap_script_control != (program.source_language == SourceLanguage::matlab &&
+                                             contains_program_return(program.statements)) ||
+      program.module.script_label !=
+          expected_script_label(program, program.module.wrap_script_control) ||
       program.module.directives != expected_directives(program) ||
       program.module.runtime_fragments != expected_runtime_fragments(program) ||
-      program.module.body_order != expected_body_order(program)) {
+      program.module.body_order != expected_body_order(program) ||
+      program.module.control_prelude_order !=
+          expected_control_prelude_order(program, program.module.wrap_script_control) ||
+      program.module.controlled_body_order !=
+          expected_controlled_body_order(program, program.module.wrap_script_control)) {
     add_error(diagnostics, {1, 1}, "JavaScript LIR module plan is inconsistent");
   }
   if (program.runtime.contains(lir::RuntimeFeature::complex_matrices) &&
@@ -451,13 +505,25 @@ void verify_expression_resources(const lir::SemanticProgram& program,
 void verify_statement_resources(const lir::SemanticProgram& program,
                                 const std::vector<lir::Statement>& statements,
                                 std::vector<std::size_t>& expected, std::set<std::string>& names,
-                                std::vector<Diagnostic>& diagnostics, const bool top_level) {
+                                std::vector<Diagnostic>& diagnostics, const bool top_level,
+                                const bool in_function = false) {
   for (const auto& statement : statements) {
     if (statement.parameter_symbols.size() != statement.parameters.size() ||
         statement.return_symbols.size() != statement.return_names.size() ||
         statement.target_symbols.size() != statement.target_names.size()) {
       add_error(diagnostics, {statement.line, 1},
                 "JavaScript LIR symbol identity arrays have inconsistent arity");
+    }
+    const bool output_return = statement.kind == StatementKind::return_statement &&
+                               !statement.has_expression && !statement.return_names.empty();
+    if ((!statement.return_names.empty() && statement.kind != StatementKind::function &&
+         !output_return) ||
+        (output_return && (program.source_language != SourceLanguage::matlab || !in_function)) ||
+        (!statement.return_names.empty() &&
+         std::any_of(statement.return_symbols.begin(), statement.return_symbols.end(),
+                     [](const SymbolId symbol) { return !symbol.valid(); }))) {
+      add_error(diagnostics, {statement.line, 1},
+                "JavaScript LIR return symbol contract is inconsistent");
     }
     const auto function = statement.kind == StatementKind::function;
     if (function != statement.function_abi.valid || function != statement.function_scope.valid ||
@@ -571,8 +637,10 @@ void verify_statement_resources(const lir::SemanticProgram& program,
       verify_expression_resources(program, selector.lower, expected, names, diagnostics);
       verify_expression_resources(program, selector.upper, expected, names, diagnostics);
     }
-    verify_statement_resources(program, statement.body, expected, names, diagnostics, false);
-    verify_statement_resources(program, statement.alternative, expected, names, diagnostics, false);
+    verify_statement_resources(program, statement.body, expected, names, diagnostics, false,
+                               in_function || function);
+    verify_statement_resources(program, statement.alternative, expected, names, diagnostics, false,
+                               in_function || function);
   }
 }
 

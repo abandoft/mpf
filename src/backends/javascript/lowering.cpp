@@ -677,7 +677,9 @@ std::string lir::dump(const SemanticProgram& program) {
   output << "program-scope ";
   dump_scope(program.program_scope);
   output << "\n";
-  output << "module banner=" << program.module.emit_banner << " directives [";
+  output << "module banner=" << program.module.emit_banner
+         << " script-control=" << program.module.wrap_script_control
+         << " script-label=" << std::quoted(program.module.script_label) << " directives [";
   for (std::size_t index = 0; index < program.module.directives.size(); ++index) {
     if (index != 0) output << ',';
     output << std::quoted(program.module.directives[index]);
@@ -691,6 +693,16 @@ std::string lir::dump(const SemanticProgram& program) {
   for (std::size_t index = 0; index < program.module.body_order.size(); ++index) {
     if (index != 0) output << ',';
     output << program.module.body_order[index];
+  }
+  output << "] control-prelude [";
+  for (std::size_t index = 0; index < program.module.control_prelude_order.size(); ++index) {
+    if (index != 0) output << ',';
+    output << program.module.control_prelude_order[index];
+  }
+  output << "] controlled-body [";
+  for (std::size_t index = 0; index < program.module.controlled_body_order.size(); ++index) {
+    if (index != 0) output << ',';
+    output << program.module.controlled_body_order[index];
   }
   output << "]\n";
   output << "emission dynamic-truthiness=" << program.emission.dynamic_truthiness
