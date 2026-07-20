@@ -950,6 +950,30 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
     seen[statement.id.value()] = true;
     const bool analyzed =
         stage != "ast-to-hir" && stage != "frontend-seed" && stage != "conformance";
+    if (statement.implicit_result == semantic::ImplicitResultPolicy::none) {
+      if (facts->implicit_result_has_value) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "inactive implicit-result statement retains result state");
+      }
+    } else {
+      const auto* expression = table.expression(statement.expression.id);
+      const bool expected_value =
+          expression != nullptr &&
+          (expression->procedure_has_result || expression->inferred_type != ValueType::unknown);
+      if (source_language != SourceLanguage::matlab ||
+          statement.implicit_result != semantic::ImplicitResultPolicy::matlab_ans_if_value ||
+          statement.kind != StatementKind::expression || statement.name != "ans" ||
+          statement.expression.kind != ExpressionKind::call ||
+          (analyzed && facts->implicit_result_has_value != expected_value)) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "implicit-result semantic row disagrees with its Matlab call");
+      }
+    }
+    if (facts->previous_assigned && statement.kind != StatementKind::assignment &&
+        !facts->implicit_result_has_value) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "previous-assignment state belongs to no value assignment");
+    }
     if (analyzed && !statement_numeric_contract_matches(*facts)) {
       add_error(diagnostics, {statement.line, 1}, stage,
                 "statement numeric metadata is inconsistent (declared " +

@@ -215,6 +215,8 @@ struct ExpressionFacts {
 
 struct StatementFacts {
   HirNodeId origin{};
+  bool implicit_result_has_value{false};
+  bool previous_assigned{false};
   ValueType declared_type{ValueType::unknown};
   NumericType declared_numeric_type{unknown_numeric_type};
   ValueType element_type{ValueType::unknown};

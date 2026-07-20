@@ -107,6 +107,7 @@ class Analyzer final {
                                                   ValueMetadata metadata,
                                                   std::vector<AssignmentAccess> path,
                                                   std::size_t& target_ordinal);
+  void assign_expression_result(Statement& statement, Symbol& symbol, ValueType type);
   bool analyze_statement(Statement& statement);
   [[nodiscard]] bool analyze_branches(Statement& statement);
   void merge_select_flows(const ScopeState& before, const std::vector<ScopeState>& flows);

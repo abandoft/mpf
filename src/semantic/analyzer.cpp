@@ -726,6 +726,77 @@ bool Analyzer::associate_assignment_pattern(Statement& statement, AssignmentPatt
   return valid;
 }
 
+void Analyzer::assign_expression_result(Statement& statement, Symbol& symbol,
+                                        const ValueType type) {
+  symbol.binding = BindingKind::variable;
+  semantic(semantics_, statement).previous_assigned = symbol.assigned;
+  semantic(semantics_, statement).previous_type = symbol.type;
+  semantic(semantics_, statement).previous_numeric_type = symbol.numeric_type;
+  semantic(semantics_, statement).previous_element_type = symbol.element_type;
+  semantic(semantics_, statement).previous_element_numeric_type = symbol.element_numeric_type;
+  semantic(semantics_, statement).previous_array_storage = symbol.array_storage;
+  symbol.type = join_types(symbol.type, type);
+  symbol.numeric_type = join_numeric_types(symbol.numeric_type,
+                                           semantic(semantics_, statement.expression).numeric_type);
+  if (type == ValueType::list) {
+    symbol.array_storage = join_array_storage_formats(
+        symbol.array_storage, semantic(semantics_, statement.expression).array_storage);
+    symbol.element_type =
+        join_types(symbol.element_type, semantic(semantics_, statement.expression).element_type);
+    symbol.element_numeric_type =
+        join_numeric_types(symbol.element_numeric_type,
+                           semantic(semantics_, statement.expression).element_numeric_type);
+    if (program_.language == SourceLanguage::fortran && !symbol.shape.empty() &&
+        !semantic(semantics_, statement.expression).shape.empty() && known_shape(symbol.shape) &&
+        known_shape(semantic(semantics_, statement.expression).shape) &&
+        symbol.shape != semantic(semantics_, statement.expression).shape) {
+      diagnose(statement.line, "MPF2024",
+               "Fortran array assignment shape does not match its declared shape");
+    }
+    if (program_.language != SourceLanguage::fortran || symbol.shape.empty()) {
+      symbol.shape = semantic(semantics_, statement.expression).shape;
+    }
+  } else if (type == ValueType::tuple) {
+    if (semantic(semantics_, statement).previous_type == ValueType::unknown) {
+      symbol.tuple_types = semantic(semantics_, statement.expression).tuple_types;
+      symbol.tuple_numeric_types = semantic(semantics_, statement.expression).tuple_numeric_types;
+      symbol.tuple_element_types = semantic(semantics_, statement.expression).tuple_element_types;
+      symbol.tuple_element_numeric_types =
+          semantic(semantics_, statement.expression).tuple_element_numeric_types;
+      symbol.tuple_array_storage = semantic(semantics_, statement.expression).tuple_array_storage;
+      symbol.tuple_shapes = semantic(semantics_, statement.expression).tuple_shapes;
+    } else if (symbol.tuple_types != semantic(semantics_, statement.expression).tuple_types ||
+               symbol.tuple_numeric_types !=
+                   semantic(semantics_, statement.expression).tuple_numeric_types ||
+               symbol.tuple_element_types !=
+                   semantic(semantics_, statement.expression).tuple_element_types ||
+               symbol.tuple_element_numeric_types !=
+                   semantic(semantics_, statement.expression).tuple_element_numeric_types ||
+               symbol.tuple_array_storage !=
+                   semantic(semantics_, statement.expression).tuple_array_storage ||
+               symbol.tuple_shapes != semantic(semantics_, statement.expression).tuple_shapes) {
+      symbol.tuple_types.clear();
+      symbol.tuple_numeric_types.clear();
+      symbol.tuple_element_types.clear();
+      symbol.tuple_element_numeric_types.clear();
+      symbol.tuple_array_storage.clear();
+      symbol.tuple_shapes.clear();
+    }
+  }
+  if (type == ValueType::list || type == ValueType::tuple) {
+    if (semantic(semantics_, statement).previous_type == ValueType::unknown ||
+        (symbol.sequence_is_list == semantic(semantics_, statement.expression).sequence_is_list &&
+         same_metadata(symbol.sequence_elements,
+                       semantic(semantics_, statement.expression).sequence_elements))) {
+      symbol.sequence_is_list = semantic(semantics_, statement.expression).sequence_is_list;
+      symbol.sequence_elements = semantic(semantics_, statement.expression).sequence_elements;
+    } else {
+      symbol.sequence_elements.clear();
+    }
+  }
+  symbol.assigned = true;
+}
+
 bool Analyzer::analyze_statement(Statement& statement) {
   switch (statement.kind) {
     case StatementKind::declaration: {
@@ -824,79 +895,7 @@ bool Analyzer::analyze_statement(Statement& statement) {
       diagnose_fortran_parameter_write(symbol_id, statement.line);
       const auto type = analyze_expression(statement.expression);
       auto& symbol = definition_state(statement, NameRole::assignment);
-      symbol.binding = BindingKind::variable;
-      semantic(semantics_, statement).previous_type = symbol.type;
-      semantic(semantics_, statement).previous_numeric_type = symbol.numeric_type;
-      semantic(semantics_, statement).previous_element_type = symbol.element_type;
-      semantic(semantics_, statement).previous_element_numeric_type = symbol.element_numeric_type;
-      semantic(semantics_, statement).previous_array_storage = symbol.array_storage;
-      const auto joined = join_types(symbol.type, type);
-      symbol.type = joined;
-      symbol.numeric_type = join_numeric_types(
-          symbol.numeric_type, semantic(semantics_, statement.expression).numeric_type);
-      if (type == ValueType::list) {
-        symbol.array_storage = join_array_storage_formats(
-            symbol.array_storage, semantic(semantics_, statement.expression).array_storage);
-        const auto joined_element = join_types(
-            symbol.element_type, semantic(semantics_, statement.expression).element_type);
-        symbol.element_type = joined_element;
-        symbol.element_numeric_type =
-            join_numeric_types(symbol.element_numeric_type,
-                               semantic(semantics_, statement.expression).element_numeric_type);
-        if (program_.language == SourceLanguage::fortran && !symbol.shape.empty() &&
-            !semantic(semantics_, statement.expression).shape.empty() &&
-            known_shape(symbol.shape) &&
-            known_shape(semantic(semantics_, statement.expression).shape) &&
-            symbol.shape != semantic(semantics_, statement.expression).shape) {
-          diagnose(statement.line, "MPF2024",
-                   "Fortran array assignment shape does not match its declared shape");
-        }
-        if (program_.language != SourceLanguage::fortran || symbol.shape.empty()) {
-          symbol.shape = semantic(semantics_, statement.expression).shape;
-        }
-      } else if (type == ValueType::tuple) {
-        if (semantic(semantics_, statement).previous_type == ValueType::unknown) {
-          symbol.tuple_types = semantic(semantics_, statement.expression).tuple_types;
-          symbol.tuple_numeric_types =
-              semantic(semantics_, statement.expression).tuple_numeric_types;
-          symbol.tuple_element_types =
-              semantic(semantics_, statement.expression).tuple_element_types;
-          symbol.tuple_element_numeric_types =
-              semantic(semantics_, statement.expression).tuple_element_numeric_types;
-          symbol.tuple_array_storage =
-              semantic(semantics_, statement.expression).tuple_array_storage;
-          symbol.tuple_shapes = semantic(semantics_, statement.expression).tuple_shapes;
-        } else if (symbol.tuple_types != semantic(semantics_, statement.expression).tuple_types ||
-                   symbol.tuple_numeric_types !=
-                       semantic(semantics_, statement.expression).tuple_numeric_types ||
-                   symbol.tuple_element_types !=
-                       semantic(semantics_, statement.expression).tuple_element_types ||
-                   symbol.tuple_element_numeric_types !=
-                       semantic(semantics_, statement.expression).tuple_element_numeric_types ||
-                   symbol.tuple_array_storage !=
-                       semantic(semantics_, statement.expression).tuple_array_storage ||
-                   symbol.tuple_shapes != semantic(semantics_, statement.expression).tuple_shapes) {
-          symbol.tuple_types.clear();
-          symbol.tuple_numeric_types.clear();
-          symbol.tuple_element_types.clear();
-          symbol.tuple_element_numeric_types.clear();
-          symbol.tuple_array_storage.clear();
-          symbol.tuple_shapes.clear();
-        }
-      }
-      if (type == ValueType::list || type == ValueType::tuple) {
-        if (semantic(semantics_, statement).previous_type == ValueType::unknown ||
-            (symbol.sequence_is_list ==
-                 semantic(semantics_, statement.expression).sequence_is_list &&
-             same_metadata(symbol.sequence_elements,
-                           semantic(semantics_, statement.expression).sequence_elements))) {
-          symbol.sequence_is_list = semantic(semantics_, statement.expression).sequence_is_list;
-          symbol.sequence_elements = semantic(semantics_, statement.expression).sequence_elements;
-        } else {
-          symbol.sequence_elements.clear();
-        }
-      }
-      symbol.assigned = true;
+      assign_expression_result(statement, symbol, type);
       return false;
     }
     case StatementKind::multi_assignment: {
@@ -1133,8 +1132,19 @@ bool Analyzer::analyze_statement(Statement& statement) {
       if (program_.language == SourceLanguage::fortran && statement.procedure_call) {
         fortran_call_expression_ = &statement.expression;
       }
-      if (statement.has_expression) analyze_expression(statement.expression);
+      const auto type =
+          statement.has_expression ? analyze_expression(statement.expression) : ValueType::unknown;
       fortran_call_expression_ = saved_call;
+      if (statement.implicit_result != semantic::ImplicitResultPolicy::none) {
+        const auto& expression_facts = semantic(semantics_, statement.expression);
+        const bool has_value = expression_facts.procedure_has_result ||
+                               expression_facts.inferred_type != ValueType::unknown;
+        semantic(semantics_, statement).implicit_result_has_value = has_value;
+        if (has_value) {
+          auto& symbol = definition_state(statement, NameRole::assignment);
+          assign_expression_result(statement, symbol, type);
+        }
+      }
       return false;
     }
     case StatementKind::return_statement:
@@ -2054,10 +2064,14 @@ ValueType Analyzer::collect_return_type(const std::vector<Statement>& statements
 
 void Analyzer::annotate_types(std::vector<Statement>& statements) {
   for (auto& statement : statements) {
-    if (statement.kind == StatementKind::assignment ||
+    const bool implicit_result =
+        statement.implicit_result != semantic::ImplicitResultPolicy::none &&
+        semantic(semantics_, statement).implicit_result_has_value;
+    if (statement.kind == StatementKind::assignment || implicit_result ||
         statement.kind == StatementKind::range_loop || statement.kind == StatementKind::for_loop) {
-      const auto role = statement.kind == StatementKind::assignment ? NameRole::assignment
-                                                                    : NameRole::loop_variable;
+      const auto role = statement.kind == StatementKind::assignment || implicit_result
+                            ? NameRole::assignment
+                            : NameRole::loop_variable;
       const auto* use = definition(statement, role);
       const auto* symbol = use == nullptr ? nullptr : lookup(use->symbol);
       if (symbol != nullptr) {
@@ -2067,7 +2081,7 @@ void Analyzer::annotate_types(std::vector<Statement>& statements) {
         semantic(semantics_, statement).element_numeric_type = symbol->element_numeric_type;
         semantic(semantics_, statement).array_storage = symbol->array_storage;
         semantic(semantics_, statement).shape = symbol->shape;
-        if (statement.kind == StatementKind::assignment &&
+        if ((statement.kind == StatementKind::assignment || implicit_result) &&
             statement.expression.kind == ExpressionKind::list) {
           semantic(semantics_, statement.expression).element_type = symbol->element_type;
           semantic(semantics_, statement.expression).element_numeric_type =

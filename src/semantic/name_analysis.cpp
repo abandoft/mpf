@@ -112,6 +112,9 @@ class NameAnalyzer final {
 
   void collect_statements(const std::vector<hir::Statement>& statements, const ScopeId scope) {
     for (const auto& statement : statements) {
+      if (statement.implicit_result != semantic::ImplicitResultPolicy::none && !lexical_blocks()) {
+        declare(scope, statement.name, NameSymbolKind::variable, statement.id);
+      }
       switch (statement.kind) {
         case StatementKind::function: {
           declare(scope, statement.name, NameSymbolKind::function, statement.id);
@@ -257,6 +260,12 @@ class NameAnalyzer final {
 
   void bind_statements(const std::vector<hir::Statement>& statements, const ScopeId scope) {
     for (const auto& statement : statements) {
+      if (statement.implicit_result != semantic::ImplicitResultPolicy::none) {
+        if (lexical_blocks())
+          add_assignment(statement.id, scope, statement.name, 0);
+        else
+          add_definition(statement.id, scope, statement.name, NameRole::assignment, 0);
+      }
       switch (statement.kind) {
         case StatementKind::function: {
           add_definition(statement.id, scope, statement.name, NameRole::declaration, 0);
@@ -432,6 +441,10 @@ void verify_statements(const hir::Program& program, const std::vector<hir::State
                        const std::string_view stage, std::vector<Diagnostic>& diagnostics) {
   for (const auto& statement : statements) {
     resident[statement.id.value()] = true;
+    if (statement.implicit_result != semantic::ImplicitResultPolicy::none) {
+      require_definition(statement, scope, names, NameRole::assignment, 0, !lexical_blocks(program),
+                         stage, diagnostics);
+    }
     if (statement.kind == StatementKind::function) {
       require_definition(statement, scope, names, NameRole::declaration, 0, true, stage,
                          diagnostics);
