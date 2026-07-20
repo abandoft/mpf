@@ -216,6 +216,7 @@ struct SparseArithmeticPlan {
   semantic::SparseArithmeticOperation operation{semantic::SparseArithmeticOperation::none};
   semantic::SparseArithmeticStoragePolicy storage_policy{
       semantic::SparseArithmeticStoragePolicy::none};
+  semantic::SparseValueDomain value_domain{semantic::SparseValueDomain::none};
   semantic::BroadcastShapeSource shape_source{semantic::BroadcastShapeSource::static_extents};
   ArrayStorageFormat left_storage{ArrayStorageFormat::none};
   ArrayStorageFormat right_storage{ArrayStorageFormat::none};
