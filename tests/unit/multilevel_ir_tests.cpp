@@ -4007,14 +4007,14 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto first_hir = mpf::detail::dump_hir(lowered.program);
   const auto second_hir = mpf::detail::dump_hir(lowered.program);
   REQUIRE(first_hir == second_hir);
-  REQUIRE(first_hir.find("hir-v2") != std::string::npos);
+  REQUIRE(first_hir.find("hir-v3") != std::string::npos);
   REQUIRE(first_hir.find("stmt %h") != std::string::npos);
   auto invalid_hir_profile = lowered.program;
   invalid_hir_profile.semantics.division_by_zero = mpf::detail::semantic::DivisionByZero::ieee754;
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v30") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v31") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -4025,7 +4025,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v36") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v37") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -4107,6 +4107,59 @@ TEST_CASE("MIR alias and effect analysis is independent revision-bound and cache
   REQUIRE(write != weakened.instructions.end());
   write->effects = mpf::detail::mir::Effect::none;
   REQUIRE(!mpf::detail::mir::verify_alias_effects(mir.program, weakened, "weakened").empty());
+}
+
+TEST_CASE("Matlab exceptions own verified MIR regions handlers and effects") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "try\n"
+                              "  error('MPF:Expected', 'boom')\n"
+                              "catch ME\n"
+                              "  disp(ME.message)\n"
+                              "end\n",
+                              "exceptions.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mir.program.exception_regions.size() == 1U);
+  const auto region = mir.program.exception_regions.front();
+  REQUIRE(region.owner.valid());
+  REQUIRE(region.protected_entry.valid());
+  REQUIRE(!region.protected_blocks.empty());
+  REQUIRE(region.handler.valid());
+  REQUIRE(region.continuation.valid());
+  REQUIRE(region.exception_symbol.valid());
+  for (const auto block : region.protected_blocks) {
+    REQUIRE(mir.program.blocks[block.value()].exception_handler == region.handler);
+  }
+  const auto& handler = mir.program.blocks[region.handler.value()];
+  REQUIRE(!handler.instructions.empty());
+  const auto catch_instruction = handler.instructions.front();
+  REQUIRE(mir.program.instructions[catch_instruction.value()].opcode ==
+          mpf::detail::mir::Opcode::catch_exception);
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto* catch_effects = effects.instruction(catch_instruction);
+  REQUIRE(catch_effects != nullptr);
+  REQUIRE(mpf::detail::mir::has_effect(catch_effects->effects, mpf::detail::mir::Effect::write));
+  REQUIRE(mpf::detail::mir::has_effect(catch_effects->effects, mpf::detail::mir::Effect::control));
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("exception-region owner=") != std::string::npos);
+
+  auto optimized = mir.program;
+  const auto optimization = mpf::detail::mir::run_default_optimization_pipeline(optimized);
+  REQUIRE(optimization.diagnostics.empty());
+  REQUIRE(optimized.exception_regions.size() == 1U);
+  REQUIRE(mpf::detail::mir::verify(optimized, "optimized-exceptions").empty());
+
+  auto missing_edge = mir.program;
+  missing_edge.blocks[region.protected_entry.value()].exception_handler = {};
+  REQUIRE(!mpf::detail::mir::verify(missing_edge, "missing-exception-edge").empty());
+  auto invalid_region = mir.program;
+  invalid_region.exception_regions.front().handler = {};
+  REQUIRE(!mpf::detail::mir::verify(invalid_region, "invalid-exception-region").empty());
+  auto invalid_capture = mir.program;
+  invalid_capture.instructions[catch_instruction.value()].storage = {};
+  REQUIRE(!mpf::detail::mir::verify(invalid_capture, "invalid-catch-capture").empty());
 }
 
 TEST_CASE("MIR memory dependence analysis is CFG-aware revision-bound and cacheable") {
@@ -5494,9 +5547,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v45") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v46") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v45") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v46") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));

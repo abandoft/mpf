@@ -76,6 +76,10 @@ TEST_CASE("frontend catalog rejects duplicate registrations") {
       mpf::detail::FrontendFeature::keyword_arguments));
   REQUIRE(mpf::detail::fortran_frontend().manifest.features.contains(
       mpf::detail::FrontendFeature::fixed_source_form));
+  REQUIRE(mpf::detail::matlab_frontend().manifest.features.contains(
+      mpf::detail::FrontendFeature::exception_handling));
+  REQUIRE(std::string_view(mpf::detail::matlab_frontend().manifest.ast_schema) ==
+          "mpf.matlab.ast.v4");
   REQUIRE(
       (mpf::detail::typescript_frontend().manifest.maximum_version == mpf::LanguageVersion{6, 0}));
   malformed = mpf::detail::python_frontend();
