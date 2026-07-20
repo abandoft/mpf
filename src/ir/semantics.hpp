@@ -415,6 +415,14 @@ enum class MatrixFactorizationPolicy : std::uint8_t {
 // Matrix arithmetic must not infer its numeric domain from a target representation. The semantic
 // plan fixes whether a kernel consumes real or complex values before target-specific lowering.
 enum class MatrixNumericDomain : std::uint8_t { none, real, complex };
+// Matrix exponent admissibility is a source-language contract. Dense Matlab matrix power accepts
+// signed safe integers in the current subset, while a sparse base accepts only nonnegative real
+// integers. Targets must validate the selected policy instead of inferring it from a helper name.
+enum class MatrixExponentPolicy : std::uint8_t {
+  none,
+  safe_integer,
+  nonnegative_safe_integer
+};
 // Square Matlab division examines runtime coefficient values before selecting a numerical kernel.
 // Keeping this policy explicit prevents target lowering from silently adding or removing structure
 // detection based on helper spelling. Sparse representations require a separate storage policy.
@@ -432,8 +440,17 @@ enum class MatrixStoragePolicy : std::uint8_t {
   dense,
   sparse_csc_coefficient,
   sparse_csc_multiply,
-  sparse_csc_scale
+  sparse_csc_scale,
+  sparse_csc_power
 };
+
+[[nodiscard]] constexpr MatrixExponentPolicy matrix_exponent_policy(
+    const MatrixOperation operation, const MatrixStoragePolicy storage) noexcept {
+  if (operation != MatrixOperation::integer_power) return MatrixExponentPolicy::none;
+  return storage == MatrixStoragePolicy::sparse_csc_power
+             ? MatrixExponentPolicy::nonnegative_safe_integer
+             : MatrixExponentPolicy::safe_integer;
+}
 
 [[nodiscard]] constexpr ArrayStorageFormat matrix_multiply_result_storage(
     const ArrayStorageFormat left, const ArrayStorageFormat right) noexcept {
@@ -462,6 +479,18 @@ enum class MatrixStoragePolicy : std::uint8_t {
       left == ArrayStorageFormat::sparse_csc || right == ArrayStorageFormat::sparse_csc;
   return policy ==
          (has_sparse ? MatrixStoragePolicy::sparse_csc_multiply : MatrixStoragePolicy::dense);
+}
+
+[[nodiscard]] constexpr bool valid_matrix_power_storage_contract(
+    const MatrixStoragePolicy policy, const ArrayStorageFormat left,
+    const ArrayStorageFormat right, const ArrayStorageFormat result) noexcept {
+  if (right != ArrayStorageFormat::none) return false;
+  if (left == ArrayStorageFormat::sparse_csc) {
+    return policy == MatrixStoragePolicy::sparse_csc_power &&
+           result == ArrayStorageFormat::sparse_csc;
+  }
+  return left == ArrayStorageFormat::dense && policy == MatrixStoragePolicy::dense &&
+         result == ArrayStorageFormat::dense;
 }
 
 // Matlab sparse construction has several observably different source forms.  Preserve the
@@ -652,6 +681,9 @@ template <typename Shape>
   if (storage == MatrixStoragePolicy::sparse_csc_scale) {
     return MatrixFactorizationPolicy::none;
   }
+  if (storage == MatrixStoragePolicy::sparse_csc_power) {
+    return MatrixFactorizationPolicy::none;
+  }
   switch (solve) {
     case MatrixSolveKind::overdetermined:
     case MatrixSolveKind::underdetermined:
@@ -695,6 +727,10 @@ template <typename Shape>
       array_storage_known(right) &&
       (left == ArrayStorageFormat::sparse_csc || right == ArrayStorageFormat::sparse_csc)) {
     return MatrixStoragePolicy::sparse_csc_multiply;
+  }
+  if (operation == MatrixOperation::integer_power &&
+      left == ArrayStorageFormat::sparse_csc && right == ArrayStorageFormat::none) {
+    return MatrixStoragePolicy::sparse_csc_power;
   }
   if (operation != MatrixOperation::none && array_storage_known(left) &&
       (right == ArrayStorageFormat::none || array_storage_known(right))) {

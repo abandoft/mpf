@@ -167,6 +167,7 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
     result.matrix_operation.factorization_policy = attributes.matrix_operation.factorization_policy;
     result.matrix_operation.structure_policy = attributes.matrix_operation.structure_policy;
     result.matrix_operation.storage_policy = attributes.matrix_operation.storage_policy;
+    result.matrix_operation.exponent_policy = attributes.matrix_operation.exponent_policy;
     result.matrix_operation.left_storage = attributes.matrix_operation.left_storage;
     result.matrix_operation.right_storage = attributes.matrix_operation.right_storage;
     result.matrix_operation.result_storage = attributes.matrix_operation.result_storage;

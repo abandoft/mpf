@@ -925,6 +925,8 @@ class Builder final {
             semantic_facts->matrix_operation.structure_policy;
         result_attributes.matrix_operation.storage_policy =
             semantic_facts->matrix_operation.storage_policy;
+        result_attributes.matrix_operation.exponent_policy =
+            semantic_facts->matrix_operation.exponent_policy;
         result_attributes.matrix_operation.left_storage =
             semantic_facts->matrix_operation.left_storage;
         result_attributes.matrix_operation.right_storage =

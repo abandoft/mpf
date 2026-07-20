@@ -263,6 +263,10 @@ std::string matlab_array_helper(const lir::Expression& expression) {
           expression.matrix_operation.factorization_policy,
           expression.matrix_operation.structure_policy, expression.matrix_operation.storage_policy);
     case semantic::MatrixOperation::integer_power:
+      if (expression.matrix_operation.storage_policy ==
+          semantic::MatrixStoragePolicy::sparse_csc_power) {
+        return "mpf_runtime::sparse_mpower";
+      }
       return expression.matrix_operation.numeric_domain == semantic::MatrixNumericDomain::complex
                  ? "mpf_runtime::matlab_complex_mpower"
                  : "mpf_runtime::matlab_mpower";
@@ -404,6 +408,8 @@ bool valid_matrix_shapes(const lir::MatrixOperationPlan& plan,
       plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
       plan.storage_policy !=
           semantic::matrix_storage_policy(plan.operation, plan.left_storage, plan.right_storage) ||
+      plan.exponent_policy !=
+          semantic::matrix_exponent_policy(plan.operation, plan.storage_policy) ||
       plan.factorization_policy !=
           semantic::matrix_factorization_policy(plan.solve, plan.storage_policy) ||
       plan.structure_policy !=
@@ -462,10 +468,11 @@ bool valid_matrix_shapes(const lir::MatrixOperationPlan& plan,
              plan.result_shape[1] == plan.right_shape[0];
     case semantic::MatrixOperation::integer_power:
       return plan.solve == semantic::MatrixSolveKind::none && plan.right_shape.empty() &&
-             plan.storage_policy == semantic::MatrixStoragePolicy::dense &&
-             plan.left_storage == ArrayStorageFormat::dense &&
-             plan.right_storage == ArrayStorageFormat::none &&
-             plan.result_storage == ArrayStorageFormat::dense &&
+             semantic::valid_matrix_power_storage_contract(
+                 plan.storage_policy, plan.left_storage, plan.right_storage,
+                 plan.result_storage) &&
+             (plan.storage_policy != semantic::MatrixStoragePolicy::sparse_csc_power ||
+              plan.numeric_domain == semantic::MatrixNumericDomain::real) &&
              plan.left_shape[0] == plan.left_shape[1] && plan.result_shape == plan.left_shape;
   }
   return false;
@@ -1287,6 +1294,14 @@ lir::ExpressionPlan expected_expression_plan(
                                         result.sparse_elementwise.right_shape,
                                         result.sparse_elementwise.result_shape};
     } else if (expression.matrix_operation.storage_policy ==
+               semantic::MatrixStoragePolicy::sparse_csc_power) {
+      result.runtime_shape_arguments = {expression.matrix_operation.left_shape,
+                                        expression.matrix_operation.result_shape};
+      result.runtime_integer_arguments = {
+          static_cast<std::int64_t>(expression.matrix_operation.exponent_policy),
+          static_cast<std::int64_t>(expression.matrix_operation.left_storage),
+          static_cast<std::int64_t>(expression.matrix_operation.result_storage)};
+    } else if (expression.matrix_operation.storage_policy ==
                    semantic::MatrixStoragePolicy::sparse_csc_multiply ||
                expression.matrix_operation.storage_policy ==
                    semantic::MatrixStoragePolicy::sparse_csc_coefficient) {
@@ -1632,6 +1647,7 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
             semantic::MatrixFactorizationPolicy::none ||
         expression.matrix_operation.structure_policy != semantic::MatrixStructurePolicy::none ||
         expression.matrix_operation.storage_policy != semantic::MatrixStoragePolicy::none ||
+        expression.matrix_operation.exponent_policy != semantic::MatrixExponentPolicy::none ||
         expression.matrix_operation.left_storage != ArrayStorageFormat::none ||
         expression.matrix_operation.right_storage != ArrayStorageFormat::none ||
         expression.matrix_operation.result_storage != ArrayStorageFormat::none ||

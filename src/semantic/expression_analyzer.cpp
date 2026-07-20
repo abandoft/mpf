@@ -942,15 +942,21 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                               (left == ValueType::list || right == ValueType::list);
     const bool supported_sparse_arithmetic =
         operation == BinaryOperator::add || operation == BinaryOperator::subtract;
+    const bool supported_sparse_power = operation == BinaryOperator::power &&
+                                        left == ValueType::list && right != ValueType::list &&
+                                        analyzed_left_facts.array_storage ==
+                                            ArrayStorageFormat::sparse_csc;
     const bool supported_sparse_logical = operation == BinaryOperator::elementwise_logical_and ||
                                           operation == BinaryOperator::elementwise_logical_or;
     if (!supported_sparse_solve && !supported_sparse_multiply && !supported_sparse_scale &&
         !supported_sparse_elementwise && !supported_sparse_arithmetic &&
+        !supported_sparse_power &&
         !supported_sparse_logical) {
       diagnose(expression.location.line, "MPF2054",
                "this sparse array operation is outside the current CSC contract; convert the "
                "operand with full or use supported sparse addition/subtraction, multiplication, "
-               "element-wise multiplication, logical operation, or square division");
+               "element-wise multiplication, nonnegative integer power, logical operation, or "
+               "square division");
       return semantic(semantics_, expression).inferred_type = ValueType::unknown;
     }
   }
@@ -1387,6 +1393,7 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                 semantic::MatrixFactorizationPolicy::none,
                                 semantic::MatrixStructurePolicy::none,
                                 storage_policy,
+                                semantic::MatrixExponentPolicy::none,
                                 left_facts.array_storage,
                                 right_facts.array_storage,
                                 result_storage,
@@ -1491,6 +1498,7 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                 semantic::MatrixFactorizationPolicy::none,
                                 semantic::MatrixStructurePolicy::none,
                                 storage_policy,
+                                semantic::MatrixExponentPolicy::none,
                                 left_facts.array_storage,
                                 right_facts.array_storage,
                                 result_storage,
@@ -1555,6 +1563,7 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
             semantic::matrix_factorization_policy(solve, storage_policy),
             semantic::matrix_structure_policy(solve, *numeric_domain, storage_policy),
             storage_policy,
+            semantic::MatrixExponentPolicy::none,
             left_facts.array_storage,
             right_facts.array_storage,
             result_storage,
@@ -1592,6 +1601,7 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
             semantic::matrix_factorization_policy(solve, storage_policy),
             semantic::matrix_structure_policy(solve, *numeric_domain, storage_policy),
             storage_policy,
+            semantic::MatrixExponentPolicy::none,
             left_facts.array_storage,
             right_facts.array_storage,
             result_storage,
@@ -1603,7 +1613,10 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
       return facts.inferred_type;
     }
     if (left_array && !right_array && operation == BinaryOperator::power) {
-      if (!numeric_or_unknown(left_element) || !numeric_or_unknown(right)) {
+      const auto numeric_logical_or_unknown = [](const ValueType type) {
+        return numeric(type) || type == ValueType::boolean || type == ValueType::unknown;
+      };
+      if (!numeric_logical_or_unknown(left_element) || !numeric_logical_or_unknown(right)) {
         diagnose(expression.location.line, "MPF2046",
                  "Matlab matrix power requires a numeric matrix and numeric scalar exponent");
         return semantic(semantics_, expression).inferred_type = ValueType::unknown;
@@ -1625,17 +1638,47 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
       const auto exponent_constant = numeric_constant(expression.children[1]);
       const auto integral_exponent = integral_constant(expression.children[1]);
       constexpr long long maximum_safe_integer = 9007199254740991LL;
+      const bool sparse_base = left_facts.array_storage == ArrayStorageFormat::sparse_csc;
+      if (sparse_base &&
+          (*numeric_domain != semantic::MatrixNumericDomain::real ||
+           !matlab_sparse_value(left_facts))) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse matrix power requires a resolved real or logical CSC base");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
       if (exponent_constant.has_value() &&
           (!integral_exponent.has_value() || *integral_exponent < -maximum_safe_integer ||
            *integral_exponent > maximum_safe_integer)) {
-        diagnose(expression.location.line, "MPF2046",
-                 "Matlab matrix power currently requires an ECMAScript-safe integer exponent");
+        diagnose(expression.location.line, sparse_base ? "MPF2054" : "MPF2046",
+                 sparse_base
+                     ? "sparse matrix power requires a nonnegative ECMAScript-safe integer "
+                       "exponent"
+                     : "Matlab matrix power currently requires an ECMAScript-safe integer "
+                       "exponent");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      if (sparse_base && integral_exponent.has_value() && *integral_exponent < 0) {
+        diagnose(expression.location.line, "MPF2054",
+                 "sparse matrix power requires a nonnegative ECMAScript-safe integer exponent");
+        return semantic(semantics_, expression).inferred_type = ValueType::unknown;
+      }
+      const auto storage_policy = semantic::matrix_storage_policy(
+          semantic::MatrixOperation::integer_power, left_facts.array_storage,
+          ArrayStorageFormat::none);
+      const auto result_storage =
+          sparse_base ? ArrayStorageFormat::sparse_csc : ArrayStorageFormat::dense;
+      if (!semantic::valid_matrix_power_storage_contract(
+              storage_policy, left_facts.array_storage, ArrayStorageFormat::none,
+              result_storage)) {
+        diagnose(expression.location.line, sparse_base ? "MPF2054" : "MPF2046",
+                 "Matlab matrix power has an invalid storage contract");
         return semantic(semantics_, expression).inferred_type = ValueType::unknown;
       }
       auto& facts = semantic(semantics_, expression);
       facts.array_operation = semantic::ArrayOperation::matlab;
       facts.inferred_type = ValueType::list;
       facts.element_type = ValueType::real;
+      facts.element_numeric_type = real_numeric_type;
       facts.shape = left_facts.shape;
       facts.matrix_operation = {semantic::MatrixOperation::integer_power,
                                 semantic::MatrixSolveKind::none,
@@ -1643,14 +1686,16 @@ ValueType Analyzer::analyze_binary(Expression& expression, const bool condition_
                                 semantic::MatrixConditionPolicy::none,
                                 semantic::MatrixFactorizationPolicy::none,
                                 semantic::MatrixStructurePolicy::none,
-                                semantic::MatrixStoragePolicy::dense,
+                                storage_policy,
+                                semantic::matrix_exponent_policy(
+                                    semantic::MatrixOperation::integer_power, storage_policy),
                                 left_facts.array_storage,
                                 ArrayStorageFormat::none,
-                                ArrayStorageFormat::dense,
+                                result_storage,
                                 left_facts.shape,
                                 {},
                                 facts.shape};
-      facts.array_storage = ArrayStorageFormat::dense;
+      facts.array_storage = result_storage;
       return facts.inferred_type;
     }
     if (has_array &&

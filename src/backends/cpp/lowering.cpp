@@ -105,6 +105,11 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
     result.runtime.require(lir::RuntimeFeature::sparse_matrices);
     result.runtime.require(lir::RuntimeFeature::sparse_arithmetic);
   }
+  if (attributes.matrix_operation.storage_policy ==
+      ::mpf::detail::semantic::MatrixStoragePolicy::sparse_csc_power) {
+    result.runtime.require(lir::RuntimeFeature::sparse_matrices);
+    result.runtime.require(lir::RuntimeFeature::sparse_power);
+  }
   if (attributes.reduction.input_storage == ArrayStorageFormat::sparse_csc) {
     result.runtime.require(lir::RuntimeFeature::sparse_matrices);
     result.runtime.require(lir::RuntimeFeature::sparse_reductions);

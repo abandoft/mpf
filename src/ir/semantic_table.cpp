@@ -169,6 +169,8 @@ bool valid_matrix_shapes(const MatrixOperationPlan& plan) noexcept {
       plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
       plan.storage_policy !=
           semantic::matrix_storage_policy(plan.operation, plan.left_storage, plan.right_storage) ||
+      plan.exponent_policy !=
+          semantic::matrix_exponent_policy(plan.operation, plan.storage_policy) ||
       plan.factorization_policy !=
           semantic::matrix_factorization_policy(plan.solve, plan.storage_policy) ||
       plan.structure_policy !=
@@ -227,10 +229,11 @@ bool valid_matrix_shapes(const MatrixOperationPlan& plan) noexcept {
              plan.result_shape[1] == plan.right_shape[0];
     case semantic::MatrixOperation::integer_power:
       return plan.solve == semantic::MatrixSolveKind::none && plan.right_shape.empty() &&
-             plan.storage_policy == semantic::MatrixStoragePolicy::dense &&
-             plan.left_storage == ArrayStorageFormat::dense &&
-             plan.right_storage == ArrayStorageFormat::none &&
-             plan.result_storage == ArrayStorageFormat::dense &&
+             semantic::valid_matrix_power_storage_contract(
+                 plan.storage_policy, plan.left_storage, plan.right_storage,
+                 plan.result_storage) &&
+             (plan.storage_policy != semantic::MatrixStoragePolicy::sparse_csc_power ||
+              plan.numeric_domain == semantic::MatrixNumericDomain::real) &&
              plan.left_shape[0] == plan.left_shape[1] && plan.result_shape == plan.left_shape;
   }
   return false;
@@ -849,6 +852,7 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
              matrix.factorization_policy != semantic::MatrixFactorizationPolicy::none ||
              matrix.structure_policy != semantic::MatrixStructurePolicy::none ||
              matrix.storage_policy != semantic::MatrixStoragePolicy::none ||
+             matrix.exponent_policy != semantic::MatrixExponentPolicy::none ||
              matrix.left_storage != ArrayStorageFormat::none ||
              matrix.right_storage != ArrayStorageFormat::none ||
              matrix.result_storage != ArrayStorageFormat::none || !matrix.left_shape.empty() ||

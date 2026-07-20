@@ -118,6 +118,8 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
            << static_cast<int>(expression.matrix_operation.factorization_policy)
            << " structure-policy " << static_cast<int>(expression.matrix_operation.structure_policy)
            << " storage-policy " << static_cast<int>(expression.matrix_operation.storage_policy)
+           << " exponent-policy "
+           << static_cast<int>(expression.matrix_operation.exponent_policy)
            << " storage " << static_cast<int>(expression.matrix_operation.left_storage) << ','
            << static_cast<int>(expression.matrix_operation.right_storage) << "->"
            << static_cast<int>(expression.matrix_operation.result_storage) << ' ';
@@ -292,6 +294,15 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     }
     output << ']';
   }
+  if (!expression.plan.runtime_integer_arguments.empty()) {
+    output << " runtime-integer-arguments [";
+    for (std::size_t argument = 0U; argument < expression.plan.runtime_integer_arguments.size();
+         ++argument) {
+      if (argument != 0U) output << ',';
+      output << expression.plan.runtime_integer_arguments[argument];
+    }
+    output << ']';
+  }
   if (!expression.plan.comparisons.empty()) {
     output << " comparisons [";
     for (std::size_t index = 0; index < expression.plan.comparisons.size(); ++index) {
@@ -415,7 +426,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v38 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v39 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

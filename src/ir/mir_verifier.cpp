@@ -399,6 +399,8 @@ bool valid_matrix_shapes(const Program& program, const MatrixOperationPlan& plan
       plan.condition_policy != semantic::matrix_condition_policy(plan.solve) ||
       plan.storage_policy !=
           semantic::matrix_storage_policy(plan.operation, plan.left_storage, plan.right_storage) ||
+      plan.exponent_policy !=
+          semantic::matrix_exponent_policy(plan.operation, plan.storage_policy) ||
       plan.factorization_policy !=
           semantic::matrix_factorization_policy(plan.solve, plan.storage_policy) ||
       plan.structure_policy !=
@@ -455,10 +457,11 @@ bool valid_matrix_shapes(const Program& program, const MatrixOperationPlan& plan
              result->extents[0] == left->extents[0] && result->extents[1] == right->extents[0];
     case semantic::MatrixOperation::integer_power:
       return plan.solve == semantic::MatrixSolveKind::none && !plan.right_shape.valid() &&
-             plan.storage_policy == semantic::MatrixStoragePolicy::dense &&
-             plan.left_storage == ArrayStorageFormat::dense &&
-             plan.right_storage == ArrayStorageFormat::none &&
-             plan.result_storage == ArrayStorageFormat::dense &&
+             semantic::valid_matrix_power_storage_contract(
+                 plan.storage_policy, plan.left_storage, plan.right_storage,
+                 plan.result_storage) &&
+             (plan.storage_policy != semantic::MatrixStoragePolicy::sparse_csc_power ||
+              plan.numeric_domain == semantic::MatrixNumericDomain::real) &&
              left->extents[0] == left->extents[1] && result->extents == left->extents;
   }
   return false;
@@ -714,6 +717,8 @@ void verify_expression(const Expression& expression, const Program& program,
             semantic::MatrixStructurePolicy::none ||
         retired_attributes->matrix_operation.storage_policy !=
             semantic::MatrixStoragePolicy::none ||
+        retired_attributes->matrix_operation.exponent_policy !=
+            semantic::MatrixExponentPolicy::none ||
         retired_attributes->matrix_operation.left_storage != ArrayStorageFormat::none ||
         retired_attributes->matrix_operation.right_storage != ArrayStorageFormat::none ||
         retired_attributes->matrix_operation.result_storage != ArrayStorageFormat::none ||
@@ -1162,6 +1167,7 @@ void verify_expression(const Expression& expression, const Program& program,
               matrix.factorization_policy != semantic::MatrixFactorizationPolicy::none ||
               matrix.structure_policy != semantic::MatrixStructurePolicy::none ||
               matrix.storage_policy != semantic::MatrixStoragePolicy::none ||
+              matrix.exponent_policy != semantic::MatrixExponentPolicy::none ||
               matrix.left_storage != ArrayStorageFormat::none ||
               matrix.right_storage != ArrayStorageFormat::none ||
               matrix.result_storage != ArrayStorageFormat::none || matrix.left_shape.valid() ||

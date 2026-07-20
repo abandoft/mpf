@@ -27,6 +27,7 @@ enum class RuntimeFeature : std::uint8_t {
   complex_numbers,
   complex_matrices,
   sparse_matrices,
+  sparse_power,
   sparse_arithmetic,
   sparse_reductions,
   count
@@ -310,6 +311,7 @@ struct MatrixOperationPlan {
       semantic::MatrixFactorizationPolicy::none};
   semantic::MatrixStructurePolicy structure_policy{semantic::MatrixStructurePolicy::none};
   semantic::MatrixStoragePolicy storage_policy{semantic::MatrixStoragePolicy::none};
+  semantic::MatrixExponentPolicy exponent_policy{semantic::MatrixExponentPolicy::none};
   ArrayStorageFormat left_storage{ArrayStorageFormat::none};
   ArrayStorageFormat right_storage{ArrayStorageFormat::none};
   ArrayStorageFormat result_storage{ArrayStorageFormat::none};
@@ -505,6 +507,7 @@ enum class RuntimeFragment : std::uint8_t {
   complex_numbers,
   complex_matrices,
   sparse_matrices,
+  sparse_power,
   sparse_arithmetic,
   sparse_reductions
 };
