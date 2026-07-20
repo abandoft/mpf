@@ -1,0 +1,6 @@
+A = sparse([1+2i 0; 0 3-4i]);
+B = sparse([1 2], [1 2], [-1+1i 5+4i], 2, 2);
+C = A + B;
+D = A - B;
+E = A + [1 2; 3 4];
+disp(nnz(C), nnz(D), real(E(1, 1)), imag(E(1, 1)))

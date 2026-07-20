@@ -55,6 +55,9 @@ mpf_add_differential_case(
   matlab-complex-sparse-storage matlab examples/matlab/complex_sparse_storage.m
   "2 2 2 1 1 1 2 4 -4 4 4 -4 -4 4 5 -6 3 7 8")
 mpf_add_differential_case(
+  matlab-complex-sparse-arithmetic matlab examples/matlab/complex_sparse_arithmetic.m
+  "0 3 2 -3 8 0 2 1 -2 3 -2 -8 3 2 4 0 2 -4 2 2 4 -4 11 2 43 -4 9 -2 37 4 3 1 5 -5 1 -3 -1 3 4 1 6 -2 3 3 4 0 1 1 0 0 1 1 1 0")
+mpf_add_differential_case(
   matlab-sparse-scalar-product matlab examples/matlab/sparse_scalar_product.m
   "4 -8 12 -0.5 1 -1.5 1 1 1 3 0")
 mpf_add_differential_case(
