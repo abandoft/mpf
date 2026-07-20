@@ -29,6 +29,9 @@ mpf_add_differential_case(matlab-logical-lines matlab examples/matlab/logical_li
 mpf_add_differential_case(matlab-statement-tokens matlab examples/matlab/statement_tokens.m "42")
 mpf_add_differential_case(
   matlab-return-command matlab examples/matlab/return_command.m "start hello world 42 0 1 2 7")
+mpf_add_differential_case(
+  matlab-command-syntax matlab examples/matlab/command_syntax.m
+  "hello two words tail +token \"quoted\" it's here ignored it's here")
 mpf_add_differential_case(matlab-multi-output matlab examples/matlab/multi_output.m "97")
 mpf_add_differential_case(matlab-function-graph matlab examples/matlab/function_graph.m "61")
 mpf_add_differential_case(matlab-switch-case matlab examples/matlab/switch_case.m "42")
