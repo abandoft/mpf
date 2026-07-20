@@ -1,6 +1,6 @@
 # 诊断与 CLI 契约
 
-MPF 当前为库调用、命令行、IDE 和 CI 使用同一个诊断模型；本文描述 0.6.9 源码树的唯一契约。每条诊断在构造时即包含 code、severity、消息、源文件身份以及完整的 1-based UTF-8 code-point range；renderer 不接收缺失结束位置的旧结构，也不合成兼容范围。
+MPF 当前为库调用、命令行、IDE 和 CI 使用同一个诊断模型；本文描述 0.7.0 源码树的唯一契约。每条诊断在构造时即包含 code、severity、消息、源文件身份以及完整的 1-based UTF-8 code-point range；renderer 不接收缺失结束位置的旧结构，也不合成兼容范围。
 
 ## 文本输出
 
@@ -131,7 +131,7 @@ TypeScript statement lexer 诊断使用 `MPF19xx`：`MPF1901` 表示 block comme
 | `MPF2050` | Matlab shape-changing assignment 违反 null-assignment/shape contract，例如非 vector 线性删除、多个非 colon selector，或缺失维度的 shape-changing selector |
 | `MPF2051` | Matlab logical operator 的 operand、shape、truthiness 或短路上下文超出当前可保持边界 |
 | `MPF2052` | Matlab `all`/`any` 的 operand、`dim`/`vecdim` 或未知 rank reduction contract 无法静态保持 |
-| `MPF2053` | Matlab complex 操作超出已交付的 binary64 scalar/element-wise array 与 dense matrix 子集，例如 complex comparison/logical/reduction、complex sparse，或 `complex`/projection intrinsic 参数不满足当前标量 contract |
-| `MPF2054` | Matlab sparse 操作超出静态 real/logical rank-2 canonical CSC 子集，例如尚未实现的 rectangular solve、complex 或动态 source shape，或 constructor/index/mutation/reshape/product/arithmetic/logical/reduction/power storage 与 shape contract 无法保持；已支持的 `+`/`-`、`~`/`&`/`|` 要求可静态验证 compatible size 与 preserve-sparse/materialize-dense 计划，`all`/`any` 要求静态 axis/shape 及 preserve-sparse/scalar-full 计划，方阵 `^` 要求非负 ECMAScript-safe integer exponent；非有限 scalar/result 由目标 runtime 稳定拒绝 |
+| `MPF2053` | Matlab complex 操作超出已交付的 binary64 scalar/element-wise array、dense matrix 与 complex sparse storage lifecycle，例如 complex comparison/logical/reduction、complex sparse arithmetic/solve，或 `complex`/projection intrinsic 参数不满足当前标量 contract |
+| `MPF2054` | Matlab sparse 操作超出静态 real/logical/complex rank-2 canonical CSC storage 子集，例如尚未实现的 rectangular solve、complex arithmetic/solve 或动态 source shape，或 constructor/index/mutation/reshape/product/arithmetic/logical/reduction/power storage 与 shape contract 无法保持；已支持的 `+`/`-`、`~`/`&`/`|` 要求可静态验证 compatible size 与 preserve-sparse/materialize-dense 计划，`all`/`any` 要求静态 axis/shape 及 preserve-sparse/scalar-full 计划，方阵 `^` 要求非负 ECMAScript-safe integer exponent；非有限 scalar/result 由目标 runtime 稳定拒绝 |
 
 语义分析和 capability validator 必须在 emitter 前产生这些错误；失败结果不应包含可被误认为成功输出的目标代码。新增或重新定义稳定 code 时必须同步本表、测试和 changelog。
