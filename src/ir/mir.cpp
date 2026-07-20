@@ -929,6 +929,9 @@ class Builder final {
             intern_shape(semantic_facts->reduction.output_shape, false);
         result_attributes.reduction.axes = semantic_facts->reduction.axes;
         result_attributes.reduction.scalar_result = semantic_facts->reduction.scalar_result;
+        result_attributes.reduction.storage_policy = semantic_facts->reduction.storage_policy;
+        result_attributes.reduction.input_storage = semantic_facts->reduction.input_storage;
+        result_attributes.reduction.result_storage = semantic_facts->reduction.result_storage;
       }
       if (semantic_facts->sparse_construction.valid()) {
         result_attributes.sparse_construction.kind = semantic_facts->sparse_construction.kind;

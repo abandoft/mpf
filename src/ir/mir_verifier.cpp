@@ -698,6 +698,9 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->reduction.output_shape.valid() ||
         !retired_attributes->reduction.axes.empty() ||
         retired_attributes->reduction.scalar_result ||
+        retired_attributes->reduction.storage_policy != semantic::ReductionStoragePolicy::none ||
+        retired_attributes->reduction.input_storage != ArrayStorageFormat::none ||
+        retired_attributes->reduction.result_storage != ArrayStorageFormat::none ||
         retired_attributes->sparse_construction.valid() ||
         retired_attributes->sparse_construction.result_shape.valid() ||
         !retired_attributes->sparse_construction.triplet_element_counts.empty() ||
@@ -1106,24 +1109,32 @@ void verify_expression(const Expression& expression, const Program& program,
     const auto* result_shape = shape(program, reduction.result_shape);
     const auto* output_shape = shape(program, reduction.output_shape);
     const auto expression_type = value_type(program, expression.type_id);
+    const auto* operand = expression.children.size() >= 2U
+                              ? mir::expression(program, expression.children[1])
+                              : nullptr;
     const bool valid_type =
         reduction.scalar_result
             ? expression_type == ValueType::boolean
             : expression_type == ValueType::list &&
                   element_type(program, expression.type_id) == ValueType::boolean;
+    const bool valid_storage = semantic::valid_logical_reduction_storage_contract(
+        reduction.storage_policy, reduction.input_storage, reduction.result_storage,
+        reduction.scalar_result);
     const bool valid_shapes = input_shape != nullptr && result_shape != nullptr &&
                               output_shape != nullptr &&
                               reduction.output_shape == expression.shape_id;
-    if (!valid_type || !valid_shapes ||
+    if (!valid_type || !valid_storage || !valid_shapes ||
+        reduction.result_storage != array_storage(program, expression.type_id) ||
+        (operand != nullptr &&
+         reduction.input_storage != array_storage(program, operand->type_id)) ||
         (valid_shapes && !semantic::valid_logical_reduction_contract(
                              reduction.operation, reduction.axis_policy, reduction.shape_source,
                              input_shape->extents, result_shape->extents, output_shape->extents,
                              reduction.axes, reduction.scalar_result))) {
       add_error(diagnostics, expression.location, stage,
-                "logical reduction has an invalid MIR type, axis, or shape contract");
+                "logical reduction has an invalid MIR type, storage, axis, or shape contract");
     } else if (reduction.shape_source == semantic::ReductionShapeSource::static_extents &&
                expression.children.size() >= 2U) {
-      const auto* operand = mir::expression(program, expression.children[1]);
       const auto* operand_shape = operand == nullptr ? nullptr : shape(program, operand->shape_id);
       auto normalized =
           operand_shape == nullptr ? std::vector<std::size_t>{} : operand_shape->extents;
@@ -1137,7 +1148,10 @@ void verify_expression(const Expression& expression, const Program& program,
   } else if (reduction.axis_policy != semantic::ReductionAxisPolicy::none ||
              reduction.shape_source != semantic::ReductionShapeSource::static_extents ||
              reduction.input_shape.valid() || reduction.result_shape.valid() ||
-             reduction.output_shape.valid() || !reduction.axes.empty() || reduction.scalar_result) {
+             reduction.output_shape.valid() || !reduction.axes.empty() || reduction.scalar_result ||
+             reduction.storage_policy != semantic::ReductionStoragePolicy::none ||
+             reduction.input_storage != ArrayStorageFormat::none ||
+             reduction.result_storage != ArrayStorageFormat::none) {
     add_error(diagnostics, expression.location, stage,
               "inactive logical reduction retains MIR attributes");
   }

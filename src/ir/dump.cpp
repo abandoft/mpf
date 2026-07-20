@@ -310,7 +310,10 @@ std::string dump_semantics(const hir::SemanticTable& table) {
         output << " reduction=" << enum_value(facts.reduction.operation)
                << " axis-policy=" << enum_value(facts.reduction.axis_policy)
                << " shape-source=" << enum_value(facts.reduction.shape_source)
-               << " scalar=" << facts.reduction.scalar_result << ' ';
+               << " scalar=" << facts.reduction.scalar_result
+               << " storage-policy=" << enum_value(facts.reduction.storage_policy)
+               << " storage=" << enum_value(facts.reduction.input_storage) << "->"
+               << enum_value(facts.reduction.result_storage) << ' ';
         dump_shape(facts.reduction.input_shape);
         output << " axes=[";
         for (std::size_t axis = 0; axis < facts.reduction.axes.size(); ++axis) {
@@ -549,7 +552,10 @@ std::string dump_mir(const mir::Program& program) {
         output << " reduction=" << enum_value(attributes->reduction.operation)
                << " axis-policy=" << enum_value(attributes->reduction.axis_policy)
                << " shape-source=" << enum_value(attributes->reduction.shape_source)
-               << " scalar=" << attributes->reduction.scalar_result << " !s"
+               << " scalar=" << attributes->reduction.scalar_result
+               << " storage-policy=" << enum_value(attributes->reduction.storage_policy)
+               << " storage=" << enum_value(attributes->reduction.input_storage) << "->"
+               << enum_value(attributes->reduction.result_storage) << " !s"
                << attributes->reduction.input_shape.value() << " axes=[";
         for (std::size_t axis = 0; axis < attributes->reduction.axes.size(); ++axis) {
           if (axis != 0U) output << ',';

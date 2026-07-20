@@ -1,5 +1,9 @@
+#include <algorithm>
+#include <utility>
+
 #include "compiler/array_storage.hpp"
 #include "frontends/common/registry.hpp"
+#include "ir/mir.hpp"
 #include "ir/semantics.hpp"
 #include "semantic/analyzer.hpp"
 #include "source/source_manager.hpp"
@@ -76,4 +80,28 @@ TEST_CASE("Matlab Analyzer preserves sparse storage for nonscalar logical reduct
   }
   REQUIRE(sparse_results == 3U);
   REQUIRE(scalar_results == 1U);
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "sparse-reduction-storage").empty());
+
+  const auto sparse_plan =
+      std::find_if(mir.program.attributes.expressions.begin() + 1,
+                   mir.program.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.reduction.storage_policy == Policy::preserve_sparse;
+                   });
+  REQUIRE(sparse_plan != mir.program.attributes.expressions.end());
+  REQUIRE(sparse_plan->reduction.input_storage == Storage::sparse_csc);
+  REQUIRE(sparse_plan->reduction.result_storage == Storage::sparse_csc);
+
+  auto corrupted = mir.program;
+  const auto corrupted_plan =
+      std::find_if(corrupted.attributes.expressions.begin() + 1,
+                   corrupted.attributes.expressions.end(), [](const auto& attributes) {
+                     return attributes.reduction.storage_policy == Policy::preserve_sparse;
+                   });
+  REQUIRE(corrupted_plan != corrupted.attributes.expressions.end());
+  corrupted_plan->reduction.result_storage = Storage::dense;
+  REQUIRE(!mpf::detail::mir::verify(corrupted, "sparse-reduction-storage-corruption").empty());
 }

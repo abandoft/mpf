@@ -32,12 +32,7 @@ enum class ReductionAxisPolicy : std::uint8_t {
   all_dimensions
 };
 enum class ReductionShapeSource : std::uint8_t { static_extents, runtime_operand };
-enum class ReductionStoragePolicy : std::uint8_t {
-  none,
-  dense,
-  preserve_sparse,
-  scalar_full
-};
+enum class ReductionStoragePolicy : std::uint8_t { none, dense, preserve_sparse, scalar_full };
 
 [[nodiscard]] constexpr bool valid_logical_reduction_storage_contract(
     const ReductionStoragePolicy policy, const ArrayStorageFormat input_storage,
