@@ -517,6 +517,69 @@ std::string matlab_sparse_elementwise_workload(const std::size_t width, const st
   return source;
 }
 
+std::string matlab_sparse_arithmetic_workload(const std::size_t width, const std::size_t rounds) {
+  const auto append_matrix = [&](std::string& source, const std::string_view name,
+                                 const std::size_t row_factor, const std::size_t column_factor,
+                                 const std::size_t modulus) {
+    source.append(name).append(" = sparse([");
+    for (std::size_t row = 0U; row < width; ++row) {
+      if (row != 0U) source += "; ";
+      for (std::size_t column = 0U; column < width; ++column) {
+        if (column != 0U) source += ' ';
+        source += row == column || (row_factor * row + column_factor * column) % modulus == 0U
+                      ? std::to_string(row + column + 1U)
+                      : "0";
+      }
+    }
+    source += "]);\n";
+  };
+  std::string source;
+  append_matrix(source, "left", 3U, 5U, 19U);
+  append_matrix(source, "right", 7U, 2U, 23U);
+  source += "dense = [";
+  for (std::size_t row = 0U; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0U; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += std::to_string((5U * row + 3U * column) % 31U + 1U);
+    }
+  }
+  source += "];\nrow = sparse([";
+  for (std::size_t index = 0U; index < width; ++index) {
+    if (index != 0U) source += ' ';
+    source += "1";
+  }
+  source += "], [";
+  for (std::size_t index = 0U; index < width; ++index) {
+    if (index != 0U) source += ' ';
+    source += std::to_string(index + 1U);
+  }
+  source += "], [";
+  for (std::size_t index = 0U; index < width; ++index) {
+    if (index != 0U) source += ' ';
+    source += index % 3U == 0U ? std::to_string(index + 1U) : "1";
+  }
+  source += "], 1, " + std::to_string(width) + ");\ncolumn = row.';\n";
+  for (std::size_t round = 0U; round < rounds; ++round) {
+    source += "sparse_sum = left + right;\n";
+    source += "sparse_difference = left - right;\n";
+    source += "sparse_dense = left + dense;\n";
+    source += "dense_sparse = dense - right;\n";
+    source += "right_scalar = left + 3;\n";
+    source += "left_scalar = 4 - right;\n";
+    source += "row_broadcast = row + right;\n";
+    source += "column_broadcast = left - column;\n";
+    source += "outer_broadcast = row + column;\n";
+    source += "left = sparse_sum;\n";
+    source += "right = sparse_difference;\n";
+  }
+  source +=
+      "disp(nnz(left) + nnz(right) + nnz(row_broadcast) + nnz(column_broadcast) + "
+      "nnz(outer_broadcast) + sparse_dense(1, 1) + dense_sparse(1, 1) + "
+      "right_scalar(1, 1) + left_scalar(1, 1))\n";
+  return source;
+}
+
 std::string matlab_logical_sparse_workload(const std::size_t width, const std::size_t rounds) {
   const auto width_text = std::to_string(width);
   const auto element_count = std::to_string(width * width);
@@ -948,6 +1011,8 @@ int main() {
        mpf::SourceLanguage::matlab},
       {"matlab-sparse-scale", matlab_sparse_scale_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-sparse-elementwise", matlab_sparse_elementwise_workload(24, 24),
+       mpf::SourceLanguage::matlab},
+      {"matlab-sparse-arithmetic", matlab_sparse_arithmetic_workload(24, 24),
        mpf::SourceLanguage::matlab},
       {"matlab-logical-sparse", matlab_logical_sparse_workload(24, 24),
        mpf::SourceLanguage::matlab},
