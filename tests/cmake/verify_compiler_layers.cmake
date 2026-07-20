@@ -1088,7 +1088,77 @@ foreach(sparse_matrix_runtime IN ITEMS
   mpf_assert_file_excludes("${sparse_matrix_runtime}"
     "sparse_power|sparse_mpower|sparse matrix power plan"
     "target sparse-matrix base runtime absorbed the optional sparse-power fragment")
+  mpf_assert_file_excludes("${sparse_matrix_runtime}"
+    "function __mpf_sparse_ctranspose|sparse_matrix<T> sparse_ctranspose"
+    "target sparse-matrix base runtime absorbed the complex-sparse fragment")
 endforeach()
+foreach(complex_sparse_runtime IN ITEMS
+    src/backends/javascript/complex_sparse_runtime.cpp
+    src/backends/cpp/complex_sparse_runtime.cpp)
+  if(NOT EXISTS "${SOURCE_DIR}/${complex_sparse_runtime}")
+    message(FATAL_ERROR
+      "target complex-sparse runtime is missing: ${complex_sparse_runtime}")
+  endif()
+  file(READ "${SOURCE_DIR}/${complex_sparse_runtime}" complex_sparse_runtime_contract)
+  if(NOT complex_sparse_runtime_contract MATCHES
+       "emit_(javascript|cpp)_complex_sparse_runtime" OR
+     NOT complex_sparse_runtime_contract MATCHES "sparse_ctranspose")
+    message(FATAL_ERROR
+      "target complex-sparse fragment does not own conjugate CSC transpose: "
+      "${complex_sparse_runtime}")
+  endif()
+  mpf_assert_file_excludes("${complex_sparse_runtime}"
+    "TranspileOptions|SourceLanguage::|[./]ir/(hir|mir)\\.hpp"
+    "target complex-sparse runtime depends on compiler state")
+endforeach()
+foreach(complex_sparse_runtime_catalog IN ITEMS
+    src/backends/javascript/runtime.cpp
+    src/backends/cpp/runtime.cpp)
+  file(READ "${SOURCE_DIR}/${complex_sparse_runtime_catalog}"
+       complex_sparse_runtime_catalog_contract)
+  if(NOT complex_sparse_runtime_catalog_contract MATCHES
+       "RuntimeFragment::complex_sparse" OR
+     NOT complex_sparse_runtime_catalog_contract MATCHES
+       "emit_(javascript|cpp)_complex_sparse_runtime")
+    message(FATAL_ERROR
+      "target runtime catalog does not serialize the complex-sparse fragment: "
+      "${complex_sparse_runtime_catalog}")
+  endif()
+endforeach()
+foreach(complex_sparse_target IN ITEMS javascript cpp)
+  file(READ "${SOURCE_DIR}/src/backends/${complex_sparse_target}/lir.hpp"
+       complex_sparse_lir_contract)
+  file(READ "${SOURCE_DIR}/src/backends/${complex_sparse_target}/lowering.cpp"
+       complex_sparse_lowering_contract)
+  file(READ "${SOURCE_DIR}/src/backends/${complex_sparse_target}/lir_planning.cpp"
+       complex_sparse_planning_contract)
+  if(NOT complex_sparse_lir_contract MATCHES "RuntimeFeature[^}]*complex_sparse" OR
+     NOT complex_sparse_lowering_contract MATCHES
+       "RuntimeFeature::complex_sparse" OR
+     NOT complex_sparse_planning_contract MATCHES
+       "RuntimeFeature::complex_sparse")
+    message(FATAL_ERROR
+      "${complex_sparse_target} does not own an explicit complex-sparse feature and fragment plan")
+  endif()
+endforeach()
+file(READ "${SOURCE_DIR}/src/backends/javascript/lir.hpp"
+     javascript_value_ownership_lir)
+file(READ "${SOURCE_DIR}/src/backends/javascript/lir_representation.cpp"
+     javascript_value_ownership_planning)
+file(READ "${SOURCE_DIR}/src/backends/javascript/renderer.cpp"
+     javascript_value_ownership_renderer)
+file(READ "${SOURCE_DIR}/src/backends/javascript/sparse_matrix_runtime.cpp"
+     javascript_value_ownership_sparse_runtime)
+if(NOT javascript_value_ownership_lir MATCHES "AssignmentValueForm" OR
+   NOT javascript_value_ownership_lir MATCHES "MutationOwnership" OR
+   NOT javascript_value_ownership_planning MATCHES "copy_array" OR
+   NOT javascript_value_ownership_planning MATCHES "replace_with_result" OR
+   NOT javascript_value_ownership_renderer MATCHES "__mpf_copy_array" OR
+   NOT javascript_value_ownership_sparse_runtime MATCHES
+     "return __mpf_make_sparse_csc")
+  message(FATAL_ERROR
+    "JavaScript target LIR does not own Matlab dense-copy and immutable sparse-mutation policy")
+endif()
 foreach(sparse_power_runtime IN ITEMS
     src/backends/javascript/sparse_power_runtime.cpp
     src/backends/cpp/sparse_power_runtime.cpp)
@@ -1610,7 +1680,11 @@ foreach(target_directory IN ITEMS javascript cpp)
         "target backend directory is missing ${target_directory}/${required_component}.cpp")
     endif()
   endforeach()
-  foreach(complex_matrix_component IN ITEMS complex_matrix_runtime.cpp complex_matrix_runtime.hpp)
+  foreach(complex_matrix_component IN ITEMS
+      complex_matrix_runtime.cpp
+      complex_matrix_runtime.hpp
+      complex_sparse_runtime.cpp
+      complex_sparse_runtime.hpp)
     if(NOT EXISTS
        "${SOURCE_DIR}/src/backends/${target_directory}/${complex_matrix_component}")
       message(FATAL_ERROR
