@@ -1521,6 +1521,15 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
       add_error(diagnostics, {statement.line, 1}, stage,
                 "statement symbol identity arrays have inconsistent arity");
     }
+    if (!statement.return_names.empty() &&
+        (statement.kind != StatementKind::function &&
+         (program.source_language != SourceLanguage::matlab ||
+          statement.kind != StatementKind::return_statement || statement.has_expression ||
+          std::any_of(statement.return_symbols.begin(), statement.return_symbols.end(),
+                      [](const SymbolId symbol) { return !symbol.valid(); })))) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "MIR result bindings belong only to functions or Matlab bare returns");
+    }
     if (statement.has_expression != statement.expression.valid() ||
         statement.has_secondary_expression != statement.secondary_expression.valid() ||
         statement.has_tertiary_expression != statement.tertiary_expression.valid() ||

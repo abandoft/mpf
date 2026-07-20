@@ -981,6 +981,13 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
                 "function parameter semantic arity disagrees with HIR");
     }
     const auto returns = statement.return_names.size();
+    if (returns != 0U &&
+        (statement.kind != StatementKind::function &&
+         (source_language != SourceLanguage::matlab ||
+          statement.kind != StatementKind::return_statement || statement.has_expression))) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "result bindings belong only to functions or Matlab bare returns");
+    }
     if (returns != 0 && (!compatible_arity(facts->return_types.size(), returns) ||
                          !compatible_arity(facts->return_numeric_types.size(), returns) ||
                          !compatible_arity(facts->return_element_types.size(), returns) ||
