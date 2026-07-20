@@ -841,8 +841,7 @@ class Builder final {
         result_attributes.broadcast.axes = semantic_facts->broadcast.axes;
       }
       if (semantic_facts->sparse_arithmetic.valid()) {
-        result_attributes.sparse_arithmetic.operation =
-            semantic_facts->sparse_arithmetic.operation;
+        result_attributes.sparse_arithmetic.operation = semantic_facts->sparse_arithmetic.operation;
         result_attributes.sparse_arithmetic.storage_policy =
             semantic_facts->sparse_arithmetic.storage_policy;
         result_attributes.sparse_arithmetic.shape_source =

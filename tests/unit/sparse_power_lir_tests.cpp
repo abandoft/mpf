@@ -33,21 +33,20 @@ void configure_program(Program& program) {
   expression.array_storage = Storage::sparse_csc;
   expression.shape = {kOrder, kOrder};
   expression.array_operation = mpf::detail::semantic::ArrayOperation::matlab;
-  expression.matrix_operation = {
-      Operation::integer_power,
-      mpf::detail::semantic::MatrixSolveKind::none,
-      mpf::detail::semantic::MatrixNumericDomain::real,
-      mpf::detail::semantic::MatrixConditionPolicy::none,
-      mpf::detail::semantic::MatrixFactorizationPolicy::none,
-      mpf::detail::semantic::MatrixStructurePolicy::none,
-      StoragePolicy::sparse_csc_power,
-      ExponentPolicy::nonnegative_safe_integer,
-      Storage::sparse_csc,
-      Storage::none,
-      Storage::sparse_csc,
-      {kOrder, kOrder},
-      {},
-      {kOrder, kOrder}};
+  expression.matrix_operation = {Operation::integer_power,
+                                 mpf::detail::semantic::MatrixSolveKind::none,
+                                 mpf::detail::semantic::MatrixNumericDomain::real,
+                                 mpf::detail::semantic::MatrixConditionPolicy::none,
+                                 mpf::detail::semantic::MatrixFactorizationPolicy::none,
+                                 mpf::detail::semantic::MatrixStructurePolicy::none,
+                                 StoragePolicy::sparse_csc_power,
+                                 ExponentPolicy::nonnegative_safe_integer,
+                                 Storage::sparse_csc,
+                                 Storage::none,
+                                 Storage::sparse_csc,
+                                 {kOrder, kOrder},
+                                 {},
+                                 {kOrder, kOrder}};
   expression.children.resize(2U);
   auto& base = expression.children[0];
   base.kind = mpf::detail::ExpressionKind::identifier;
@@ -77,11 +76,11 @@ void verify_sparse_power_plan(Program& program, Planner planner, Verifier verifi
   REQUIRE(expression.plan.token == expected_helper);
   REQUIRE((expression.plan.runtime_shape_arguments ==
            std::vector<std::vector<std::size_t>>{{kOrder, kOrder}, {kOrder, kOrder}}));
-  REQUIRE((expression.plan.runtime_integer_arguments ==
-           std::vector<std::int64_t>{
-               static_cast<std::int64_t>(ExponentPolicy::nonnegative_safe_integer),
-               static_cast<std::int64_t>(Storage::sparse_csc),
-               static_cast<std::int64_t>(Storage::sparse_csc)}));
+  REQUIRE((
+      expression.plan.runtime_integer_arguments ==
+      std::vector<std::int64_t>{static_cast<std::int64_t>(ExponentPolicy::nonnegative_safe_integer),
+                                static_cast<std::int64_t>(Storage::sparse_csc),
+                                static_cast<std::int64_t>(Storage::sparse_csc)}));
 
   std::ostringstream dump;
   mpf::detail::dump_target_lir_body(dump, program, "test");

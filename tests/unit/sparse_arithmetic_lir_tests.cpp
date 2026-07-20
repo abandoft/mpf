@@ -24,8 +24,8 @@ template <typename Expression>
 void configure_operand(Expression& expression, const Storage storage, const char* name) {
   expression.kind = mpf::detail::ExpressionKind::identifier;
   expression.value = name;
-  expression.inferred_type = storage == Storage::none ? mpf::detail::ValueType::real
-                                                       : mpf::detail::ValueType::list;
+  expression.inferred_type =
+      storage == Storage::none ? mpf::detail::ValueType::real : mpf::detail::ValueType::list;
   expression.numeric_type =
       storage == Storage::none ? mpf::detail::real_numeric_type : mpf::detail::no_numeric_type;
   expression.element_type =
@@ -44,29 +44,22 @@ void configure_binary(Statement& statement, const Operation operation, const Sto
   expression.kind = mpf::detail::ExpressionKind::binary;
   expression.value = operation == Operation::add ? "+" : "-";
   expression.operation = operation == Operation::add ? mpf::detail::BinaryOperator::add
-                                                      : mpf::detail::BinaryOperator::subtract;
+                                                     : mpf::detail::BinaryOperator::subtract;
   expression.inferred_type = mpf::detail::ValueType::list;
   expression.element_type = mpf::detail::ValueType::real;
   expression.element_numeric_type = mpf::detail::real_numeric_type;
   expression.array_storage = result_storage;
   expression.shape = {kRows, kColumns};
   expression.array_operation = mpf::detail::semantic::ArrayOperation::matlab;
-  const auto left_shape = left_storage == Storage::none
-                              ? std::vector<std::size_t>{}
-                              : std::vector<std::size_t>{kRows, kColumns};
+  const auto left_shape = left_storage == Storage::none ? std::vector<std::size_t>{}
+                                                        : std::vector<std::size_t>{kRows, kColumns};
   const auto right_shape = right_storage == Storage::none
                                ? std::vector<std::size_t>{}
                                : std::vector<std::size_t>{kRows, kColumns};
   expression.sparse_arithmetic = {
-      operation,
-      policy,
-      mpf::detail::semantic::BroadcastShapeSource::static_extents,
-      left_storage,
-      right_storage,
-      result_storage,
-      left_shape,
-      right_shape,
-      {kRows, kColumns},
+      operation,      policy,        mpf::detail::semantic::BroadcastShapeSource::static_extents,
+      left_storage,   right_storage, result_storage,
+      left_shape,     right_shape,   {kRows, kColumns},
       std::move(axes)};
   expression.children.resize(2U);
   configure_operand(expression.children[0], left_storage, "left");
@@ -77,14 +70,12 @@ template <typename Program>
 void configure_program(Program& program) {
   program.source_language = mpf::SourceLanguage::matlab;
   program.statements.resize(3U);
-  configure_binary(program.statements[0], Operation::add, Storage::sparse_csc,
-                   Storage::sparse_csc, Storage::sparse_csc,
-                   StoragePolicy::preserve_sparse, {Axis::match, Axis::match});
-  configure_binary(program.statements[1], Operation::subtract, Storage::sparse_csc,
-                   Storage::dense, Storage::dense, StoragePolicy::materialize_dense,
-                   {Axis::match, Axis::match});
-  configure_binary(program.statements[2], Operation::subtract, Storage::none,
-                   Storage::sparse_csc, Storage::dense, StoragePolicy::materialize_dense,
+  configure_binary(program.statements[0], Operation::add, Storage::sparse_csc, Storage::sparse_csc,
+                   Storage::sparse_csc, StoragePolicy::preserve_sparse, {Axis::match, Axis::match});
+  configure_binary(program.statements[1], Operation::subtract, Storage::sparse_csc, Storage::dense,
+                   Storage::dense, StoragePolicy::materialize_dense, {Axis::match, Axis::match});
+  configure_binary(program.statements[2], Operation::subtract, Storage::none, Storage::sparse_csc,
+                   Storage::dense, StoragePolicy::materialize_dense,
                    {Axis::expand_left, Axis::expand_left});
 }
 

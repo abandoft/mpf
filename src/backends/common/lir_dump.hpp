@@ -118,8 +118,7 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
            << static_cast<int>(expression.matrix_operation.factorization_policy)
            << " structure-policy " << static_cast<int>(expression.matrix_operation.structure_policy)
            << " storage-policy " << static_cast<int>(expression.matrix_operation.storage_policy)
-           << " exponent-policy "
-           << static_cast<int>(expression.matrix_operation.exponent_policy)
+           << " exponent-policy " << static_cast<int>(expression.matrix_operation.exponent_policy)
            << " storage " << static_cast<int>(expression.matrix_operation.left_storage) << ','
            << static_cast<int>(expression.matrix_operation.right_storage) << "->"
            << static_cast<int>(expression.matrix_operation.result_storage) << ' ';
@@ -141,9 +140,8 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
       output << ']';
     };
     output << " sparse-arithmetic " << static_cast<int>(expression.sparse_arithmetic.operation)
-           << " storage-policy "
-           << static_cast<int>(expression.sparse_arithmetic.storage_policy) << " storage "
-           << static_cast<int>(expression.sparse_arithmetic.left_storage) << ','
+           << " storage-policy " << static_cast<int>(expression.sparse_arithmetic.storage_policy)
+           << " storage " << static_cast<int>(expression.sparse_arithmetic.left_storage) << ','
            << static_cast<int>(expression.sparse_arithmetic.right_storage) << "->"
            << static_cast<int>(expression.sparse_arithmetic.result_storage) << ' ';
     dump_shape(expression.sparse_arithmetic.left_shape);

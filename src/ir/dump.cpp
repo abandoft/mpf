@@ -572,8 +572,7 @@ std::string dump_mir(const mir::Program& program) {
                << enum_value(attributes->matrix_operation.factorization_policy)
                << " structure-policy=" << enum_value(attributes->matrix_operation.structure_policy)
                << " storage-policy=" << enum_value(attributes->matrix_operation.storage_policy)
-               << " exponent-policy="
-               << enum_value(attributes->matrix_operation.exponent_policy)
+               << " exponent-policy=" << enum_value(attributes->matrix_operation.exponent_policy)
                << " storage=" << enum_value(attributes->matrix_operation.left_storage) << ','
                << enum_value(attributes->matrix_operation.right_storage) << "->"
                << enum_value(attributes->matrix_operation.result_storage) << ' ';

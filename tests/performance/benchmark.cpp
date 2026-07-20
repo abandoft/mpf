@@ -605,8 +605,7 @@ std::string matlab_sparse_power_workload(const std::size_t width, const std::siz
     source += "logical_power = logical_base ^ 2;\n";
     source += "base = squared;\n";
   }
-  source +=
-      "disp(nnz(squared) + nnz(cubed) + nnz(identity) + nnz(logical_power))\n";
+  source += "disp(nnz(squared) + nnz(cubed) + nnz(identity) + nnz(logical_power))\n";
   return source;
 }
 
@@ -1044,8 +1043,7 @@ int main() {
        mpf::SourceLanguage::matlab},
       {"matlab-sparse-arithmetic", matlab_sparse_arithmetic_workload(24, 24),
        mpf::SourceLanguage::matlab},
-      {"matlab-sparse-power", matlab_sparse_power_workload(24, 24),
-       mpf::SourceLanguage::matlab},
+      {"matlab-sparse-power", matlab_sparse_power_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-logical-sparse", matlab_logical_sparse_workload(24, 24),
        mpf::SourceLanguage::matlab},
       {"matlab-sparse-logical", matlab_sparse_logical_workload(24, 24),

@@ -138,13 +138,11 @@ void verify_translation_unit(const lir::SemanticProgram& program,
   }
   if (program.runtime.contains(lir::RuntimeFeature::sparse_arithmetic) &&
       !program.runtime.contains(lir::RuntimeFeature::sparse_matrices)) {
-    add_error(diagnostics, {1, 1},
-              "cpp sparse-arithmetic runtime requires sparse-matrix support");
+    add_error(diagnostics, {1, 1}, "cpp sparse-arithmetic runtime requires sparse-matrix support");
   }
   if (program.runtime.contains(lir::RuntimeFeature::sparse_power) &&
       !program.runtime.contains(lir::RuntimeFeature::sparse_matrices)) {
-    add_error(diagnostics, {1, 1},
-              "cpp sparse-power runtime requires sparse-matrix support");
+    add_error(diagnostics, {1, 1}, "cpp sparse-power runtime requires sparse-matrix support");
   }
 }
 
