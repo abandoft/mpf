@@ -7,19 +7,59 @@ namespace mpf::detail {
 void emit_javascript_sparse_matrix_runtime(std::ostream& output) {
   output << R"MPF(const __mpf_sparse_csc_tag = Symbol('mpf.sparse.csc');
 const __mpf_sparse_value_finite_real = 1;
-const __mpf_sparse_value_logical = 2;
+const __mpf_sparse_value_finite_complex = 2;
+const __mpf_sparse_value_logical = 3;
 const __mpf_sparse_duplicate_none = 0;
 const __mpf_sparse_duplicate_sum = 1;
 const __mpf_sparse_duplicate_logical_any = 2;
 function __mpf_issparse(value) {
   return value !== null && typeof value === 'object' && value[__mpf_sparse_csc_tag] === true;
 }
+function __mpf_sparse_valid_domain(valueDomain) {
+  return valueDomain === __mpf_sparse_value_finite_real ||
+    valueDomain === __mpf_sparse_value_finite_complex ||
+    valueDomain === __mpf_sparse_value_logical;
+}
+function __mpf_sparse_is_complex(value) {
+  return typeof __mpf_is_complex === 'function' && __mpf_is_complex(value);
+}
+function __mpf_sparse_finite_complex(value) {
+  return __mpf_sparse_is_complex(value) && Number.isFinite(value.re) && Number.isFinite(value.im);
+}
+function __mpf_sparse_nonzero(value, valueDomain) {
+  if (valueDomain === __mpf_sparse_value_logical) return value === true;
+  if (valueDomain === __mpf_sparse_value_finite_complex) return value.re !== 0 || value.im !== 0;
+  return value !== 0;
+}
+function __mpf_sparse_zero(valueDomain) {
+  if (valueDomain === __mpf_sparse_value_logical) return false;
+  return valueDomain === __mpf_sparse_value_finite_complex ? __mpf_complex(0, 0) : 0;
+}
+function __mpf_sparse_stored_value(value, valueDomain, name) {
+  if (valueDomain === __mpf_sparse_value_logical) {
+    if (typeof value !== 'boolean') {
+      throw new TypeError(`MPF Matlab ${name} requires logical values`);
+    }
+    return value;
+  }
+  if (valueDomain === __mpf_sparse_value_finite_complex) {
+    const result = __mpf_as_complex(value);
+    if (!Number.isFinite(result.re) || !Number.isFinite(result.im)) {
+      throw new TypeError(`MPF Matlab ${name} requires finite complex values`);
+    }
+    return result;
+  }
+  if ((typeof value !== 'number' && typeof value !== 'boolean') ||
+      !Number.isFinite(Number(value))) {
+    throw new TypeError(`MPF Matlab ${name} requires finite real values`);
+  }
+  return Number(value);
+}
 function __mpf_validate_sparse_csc(value, name = 'sparse matrix') {
   if (!__mpf_issparse(value)) throw new TypeError(`MPF Matlab ${name} is not a CSC matrix`);
   const { rows, columns, columnPointers, rowIndices, values, valueDomain } = value;
   if (!Number.isSafeInteger(rows) || rows < 0 || !Number.isSafeInteger(columns) || columns < 0 ||
-      (valueDomain !== __mpf_sparse_value_finite_real &&
-       valueDomain !== __mpf_sparse_value_logical) ||
+      !__mpf_sparse_valid_domain(valueDomain) ||
       !Array.isArray(columnPointers) || columnPointers.length !== columns + 1 ||
       !Array.isArray(rowIndices) || !Array.isArray(values) || rowIndices.length !== values.length ||
       columnPointers[0] !== 0 || columnPointers[columns] !== values.length) {
@@ -34,10 +74,12 @@ function __mpf_validate_sparse_csc(value, name = 'sparse matrix') {
       const row = rowIndices[index]; const stored = values[index];
       const validValue = valueDomain === __mpf_sparse_value_logical
         ? stored === true
-        : typeof stored === 'number' && Number.isFinite(stored) && stored !== 0;
+        : valueDomain === __mpf_sparse_value_finite_complex
+          ? __mpf_sparse_finite_complex(stored) && __mpf_sparse_nonzero(stored, valueDomain)
+          : typeof stored === 'number' && Number.isFinite(stored) && stored !== 0;
       if (!Number.isSafeInteger(row) || row <= previous || row >= rows ||
           !validValue) {
-        throw new RangeError(`MPF Matlab ${name} is not canonical finite-real/logical CSC`);
+        throw new RangeError(`MPF Matlab ${name} is not canonical finite numeric/logical CSC`);
       }
       previous = row;
     }
@@ -63,18 +105,12 @@ function __mpf_sparse_dense_rank2(value, name, plannedShape = undefined,
   }
   const flattened = __mpf_flatten_column_major(value);
   for (const item of flattened) {
-    const valid = valueDomain === __mpf_sparse_value_logical
-      ? typeof item === 'boolean'
-      : typeof item === 'number' && Number.isFinite(item);
-    if (!valid) {
-      throw new TypeError(`MPF Matlab ${name} disagrees with its sparse value-domain plan`);
-    }
+    __mpf_sparse_stored_value(item, valueDomain, name);
   }
   return { shape, flattened };
 }
 function __mpf_sparse_from_dense(value, plannedShape, valueDomain) {
-  if (valueDomain !== __mpf_sparse_value_finite_real &&
-      valueDomain !== __mpf_sparse_value_logical) {
+  if (!__mpf_sparse_valid_domain(valueDomain)) {
     throw new RangeError('MPF Matlab sparse conversion has an invalid value-domain plan');
   }
   if (plannedShape !== undefined &&
@@ -103,9 +139,11 @@ function __mpf_sparse_from_dense(value, plannedShape, valueDomain) {
   const columnPointers = [0]; const rowIndices = []; const values = [];
   for (let column = 0; column < columns; ++column) {
     for (let row = 0; row < rows; ++row) {
-      const numeric = flattened[row + column * rows];
-      const keep = valueDomain === __mpf_sparse_value_logical ? numeric : numeric !== 0;
-      if (keep) { rowIndices.push(row); values.push(numeric); }
+      const stored = __mpf_sparse_stored_value(
+        flattened[row + column * rows], valueDomain, 'sparse input');
+      if (__mpf_sparse_nonzero(stored, valueDomain)) {
+        rowIndices.push(row); values.push(stored);
+      }
     }
     columnPointers.push(values.length);
   }
@@ -124,13 +162,15 @@ function __mpf_sparse_triplet_input(value, name, valueDomain, storedValues = fal
   const source = sequence ? __mpf_flatten_column_major(value) : [value];
   const flattened = [];
   for (const item of source) {
-    const logicalStored = storedValues && valueDomain === __mpf_sparse_value_logical;
-    if (logicalStored ? typeof item !== 'boolean'
-                      : (typeof item !== 'number' && typeof item !== 'boolean') ||
-                            !Number.isFinite(Number(item))) {
-      throw new TypeError(`MPF Matlab sparse ${name} disagrees with its value-domain plan`);
+    if (storedValues) {
+      flattened.push(__mpf_sparse_stored_value(item, valueDomain, `sparse ${name}`));
+      continue;
     }
-    flattened.push(logicalStored ? item : Number(item));
+    if ((typeof item !== 'number' && typeof item !== 'boolean') ||
+        !Number.isFinite(Number(item))) {
+      throw new TypeError(`MPF Matlab sparse ${name} must be finite real values`);
+    }
+    flattened.push(Number(item));
   }
   return { sequence, flattened };
 }
@@ -139,8 +179,7 @@ function __mpf_sparse_from_triplets(rowValue, columnValue, storedValue,
                                     valueDomain, duplicatePolicy) {
   const expectedPolicy = valueDomain === __mpf_sparse_value_logical
     ? __mpf_sparse_duplicate_logical_any : __mpf_sparse_duplicate_sum;
-  if ((valueDomain !== __mpf_sparse_value_finite_real &&
-       valueDomain !== __mpf_sparse_value_logical) || duplicatePolicy !== expectedPolicy) {
+  if (!__mpf_sparse_valid_domain(valueDomain) || duplicatePolicy !== expectedPolicy) {
     throw new RangeError('MPF Matlab sparse triplet value-domain plan is inconsistent');
   }
   const rowInput = __mpf_sparse_triplet_input(rowValue, 'row indices', valueDomain);
@@ -182,18 +221,24 @@ function __mpf_sparse_from_triplets(rowValue, columnValue, storedValue,
   let entry = 0;
   for (let column = 0; column < columns; ++column) {
     while (entry < entries.length && entries[entry].column === column) {
-      const row = entries[entry].row; let sum = 0; let any = false;
+      const row = entries[entry].row;
+      let sum = __mpf_sparse_zero(valueDomain); let any = false;
       while (entry < entries.length && entries[entry].column === column &&
              entries[entry].row === row) {
         const stored = entries[entry++].value;
         if (valueDomain === __mpf_sparse_value_logical) any = any || stored;
-        else sum += stored;
+        else if (valueDomain === __mpf_sparse_value_finite_complex) {
+          sum = __mpf_complex_add(sum, stored);
+        } else sum += stored;
       }
-      if (valueDomain === __mpf_sparse_value_finite_real && !Number.isFinite(sum)) {
+      const finiteSum = valueDomain === __mpf_sparse_value_finite_complex
+        ? __mpf_sparse_finite_complex(sum) : Number.isFinite(sum);
+      if (valueDomain !== __mpf_sparse_value_logical && !finiteSum) {
         throw new RangeError('MPF Matlab sparse duplicate accumulation is not finite');
       }
-      if (valueDomain === __mpf_sparse_value_logical ? any : sum !== 0) {
-        rowIndices.push(row); values.push(valueDomain === __mpf_sparse_value_logical ? true : sum);
+      const result = valueDomain === __mpf_sparse_value_logical ? any : sum;
+      if (__mpf_sparse_nonzero(result, valueDomain)) {
+        rowIndices.push(row); values.push(result);
       }
     }
     columnPointers.push(values.length);
@@ -241,7 +286,7 @@ function __mpf_full(value) {
   }
   const matrix = __mpf_validate_sparse_csc(value);
   const flattened = new Array(matrix.rows * matrix.columns).fill(
-    matrix.valueDomain === __mpf_sparse_value_logical ? false : 0);
+    __mpf_sparse_zero(matrix.valueDomain));
   for (let column = 0; column < matrix.columns; ++column) {
     for (let index = matrix.columnPointers[column]; index < matrix.columnPointers[column + 1];
          ++index) {
@@ -733,22 +778,36 @@ function __mpf_dense_sparse_mtimes(leftValue, rightValue,
 function __mpf_nnz(value) {
   if (__mpf_issparse(value)) return __mpf_validate_sparse_csc(value).values.length;
   if (!Array.isArray(value)) {
-    if (typeof value !== 'number' && typeof value !== 'boolean') {
-      throw new TypeError('MPF Matlab nnz requires a real or logical value');
+    if (__mpf_sparse_is_complex(value)) {
+      if (!__mpf_sparse_finite_complex(value)) {
+        throw new TypeError('MPF Matlab nnz requires finite numeric values');
+      }
+      return value.re !== 0 || value.im !== 0 ? 1 : 0;
+    }
+    if ((typeof value !== 'number' && typeof value !== 'boolean') ||
+        !Number.isFinite(Number(value))) {
+      throw new TypeError('MPF Matlab nnz requires finite numeric or logical values');
     }
     return Number(value) !== 0 ? 1 : 0;
   }
   let count = 0;
   for (const item of __mpf_flatten_column_major(value)) {
+    if (__mpf_sparse_is_complex(item)) {
+      if (!__mpf_sparse_finite_complex(item)) {
+        throw new TypeError('MPF Matlab nnz requires finite numeric values');
+      }
+      if (item.re !== 0 || item.im !== 0) ++count;
+      continue;
+    }
     if ((typeof item !== 'number' && typeof item !== 'boolean') ||
-        (typeof item === 'number' && !Number.isFinite(item))) {
-      throw new TypeError('MPF Matlab nnz requires finite real or logical values');
+        !Number.isFinite(Number(item))) {
+      throw new TypeError('MPF Matlab nnz requires finite numeric or logical values');
     }
     if (Number(item) !== 0) ++count;
   }
   return count;
 }
-function __mpf_sparse_transpose(value) {
+function __mpf_sparse_transpose_impl(value, conjugate) {
   const matrix = __mpf_validate_sparse_csc(value, 'transpose operand');
   const counts = new Array(matrix.rows).fill(0);
   for (const row of matrix.rowIndices) ++counts[row];
@@ -760,11 +819,15 @@ function __mpf_sparse_transpose(value) {
     for (let index = matrix.columnPointers[column]; index < matrix.columnPointers[column + 1];
          ++index) {
       const target = next[matrix.rowIndices[index]]++;
-      rows[target] = column; values[target] = matrix.values[index];
+      rows[target] = column;
+      values[target] = conjugate ? __mpf_conj(matrix.values[index]) : matrix.values[index];
     }
   }
   return __mpf_make_sparse_csc(
     matrix.columns, matrix.rows, pointers, rows, values, matrix.valueDomain);
+}
+function __mpf_sparse_transpose(value) {
+  return __mpf_sparse_transpose_impl(value, false);
 }
 function __mpf_sparse_reshape_shape(shape, name, minimumRank) {
   if (!Array.isArray(shape) || shape.length < minimumRank) {
@@ -830,7 +893,7 @@ function __mpf_sparse_value_at(matrix, row, column) {
   }
   return first < matrix.columnPointers[column + 1] && matrix.rowIndices[first] === row
     ? matrix.values[first]
-    : matrix.valueDomain === __mpf_sparse_value_logical ? false : 0;
+    : __mpf_sparse_zero(matrix.valueDomain);
 }
 function __mpf_sparse_linear_shape(shape, count) {
   if (!Array.isArray(shape) || shape.length !== 2) {
@@ -984,11 +1047,14 @@ function __mpf_sparse_same_shape(left, right) {
   return left.length === right.length && left.every((extent, axis) => extent === right[axis]);
 }
 function __mpf_sparse_replacement_value(value, valueDomain) {
-  if ((typeof value !== 'number' && typeof value !== 'boolean') ||
-      (typeof value === 'number' && !Number.isFinite(value))) {
-    throw new TypeError('MPF Matlab sparse assignment requires finite real or logical values');
+  if (valueDomain === __mpf_sparse_value_logical) {
+    if ((typeof value !== 'number' && typeof value !== 'boolean') ||
+        !Number.isFinite(Number(value))) {
+      throw new TypeError('MPF Matlab logical sparse assignment requires finite real values');
+    }
+    return Number(value) !== 0;
   }
-  return valueDomain === __mpf_sparse_value_logical ? Number(value) !== 0 : Number(value);
+  return __mpf_sparse_stored_value(value, valueDomain, 'sparse assignment');
 }
 function __mpf_sparse_replacement_payload(value, valueDomain) {
   if (__mpf_issparse(value)) {
@@ -997,8 +1063,7 @@ function __mpf_sparse_replacement_payload(value, valueDomain) {
     if (!Number.isSafeInteger(size)) {
       throw new RangeError('MPF Matlab sparse replacement exceeds safe integer limits');
     }
-    const flattened = new Array(size).fill(
-      valueDomain === __mpf_sparse_value_logical ? false : 0);
+    const flattened = new Array(size).fill(__mpf_sparse_zero(valueDomain));
     for (let column = 0; column < matrix.columns; ++column) {
       for (let stored = matrix.columnPointers[column];
            stored < matrix.columnPointers[column + 1]; ++stored) {
@@ -1038,12 +1103,8 @@ function __mpf_sparse_verify_result_shape(planned, actual, operation) {
   }
 }
 function __mpf_sparse_commit(value, rows, columns, columnPointers, rowIndices, values) {
-  const result = __mpf_make_sparse_csc(
+  return __mpf_make_sparse_csc(
     rows, columns, columnPointers, rowIndices, values, value.valueDomain);
-  value.rows = result.rows; value.columns = result.columns;
-  value.columnPointers = result.columnPointers; value.rowIndices = result.rowIndices;
-  value.values = result.values; value.valueDomain = result.valueDomain;
-  return value;
 }
 function __mpf_sparse_assign(value, selectors, replacement, base, linear, scalarExpansion,
                              plannedSelectionShape, plannedResultShape) {
@@ -1121,13 +1182,11 @@ function __mpf_sparse_assign(value, selectors, replacement, base, linear, scalar
       if (storedRow < changedRow) {
         rowIndices.push(storedRow); values.push(matrix.values[stored++]);
       } else if (changedRow < storedRow) {
-        const keep = matrix.valueDomain === __mpf_sparse_value_logical
-          ? changed.value : changed.value !== 0;
+        const keep = __mpf_sparse_nonzero(changed.value, matrix.valueDomain);
         if (keep) { rowIndices.push(changedRow); values.push(changed.value); }
         ++update;
       } else {
-        const keep = matrix.valueDomain === __mpf_sparse_value_logical
-          ? changed.value : changed.value !== 0;
+        const keep = __mpf_sparse_nonzero(changed.value, matrix.valueDomain);
         if (keep) { rowIndices.push(changedRow); values.push(changed.value); }
         ++stored; ++update;
       }

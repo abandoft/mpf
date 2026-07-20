@@ -850,7 +850,13 @@ class Renderer final {
         indentation();
         emit_variable_name(statement.symbol_id, statement.name, statement.plan.target_access);
         output_ << " = ";
+        if (statement.plan.assignment_value == javascript::lir::AssignmentValueForm::copy_array) {
+          output_ << "__mpf_copy_array(";
+        }
         emit_expression(statement.expression);
+        if (statement.plan.assignment_value == javascript::lir::AssignmentValueForm::copy_array) {
+          output_ << ')';
+        }
         output_ << ";\n";
         break;
       case javascript::lir::StatementForm::declaration_array:
@@ -864,7 +870,13 @@ class Renderer final {
         indentation();
         emit_variable_name(statement.symbol_id, statement.name, statement.plan.target_access);
         output_ << " = ";
+        if (statement.plan.assignment_value == javascript::lir::AssignmentValueForm::copy_array) {
+          output_ << "__mpf_copy_array(";
+        }
         emit_expression(statement.expression);
+        if (statement.plan.assignment_value == javascript::lir::AssignmentValueForm::copy_array) {
+          output_ << ')';
+        }
         output_ << ";\n";
         break;
       case javascript::lir::StatementForm::multi_pattern: {
@@ -892,13 +904,19 @@ class Renderer final {
         output_ << ";\n";
         break;
       case javascript::lir::StatementForm::indexed_element_assignment:
-      case javascript::lir::StatementForm::indexed_section_assignment:
+      case javascript::lir::StatementForm::indexed_section_assignment: {
+        const auto& mutation_target = statement.target_expression.children[0];
         indentation();
+        if (statement.plan.mutation_ownership ==
+            javascript::lir::MutationOwnership::replace_with_result) {
+          emit_expression(mutation_target);
+          output_ << " = ";
+        }
         if (statement.plan.sparse_mutation.valid()) {
           const auto deletion =
               semantic::sparse_mutation_is_deletion(statement.plan.sparse_mutation.kind);
           output_ << (deletion ? "__mpf_sparse_erase(" : "__mpf_sparse_assign(");
-          emit_expression(statement.target_expression.children[0]);
+          emit_expression(mutation_target);
           output_ << ", [";
           for (std::size_t index = 1; index < statement.target_expression.children.size();
                ++index) {
@@ -933,7 +951,7 @@ class Renderer final {
           output_ << (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow
                           ? "__mpf_grow("
                           : "__mpf_erase(");
-          emit_expression(statement.target_expression.children[0]);
+          emit_expression(mutation_target);
           output_ << ", [";
           for (std::size_t index = 1; index < statement.target_expression.children.size();
                ++index) {
@@ -959,7 +977,7 @@ class Renderer final {
         } else if (statement.plan.form ==
                    javascript::lir::StatementForm::indexed_section_assignment) {
           output_ << "__mpf_set_section(";
-          emit_expression(statement.target_expression.children[0]);
+          emit_expression(mutation_target);
           output_ << ", [";
           for (std::size_t index = 1; index < statement.target_expression.children.size();
                ++index) {
@@ -974,7 +992,7 @@ class Renderer final {
                   << ", " << (statement.plan.resizable_section ? "true" : "false") << ");\n";
         } else {
           output_ << "__mpf_set(";
-          emit_expression(statement.target_expression.children[0]);
+          emit_expression(mutation_target);
           output_ << ", [";
           for (std::size_t index = 1; index < statement.target_expression.children.size();
                ++index) {
@@ -989,6 +1007,7 @@ class Renderer final {
                   << ");\n";
         }
         break;
+      }
       case javascript::lir::StatementForm::print_empty:
       case javascript::lir::StatementForm::print_value:
       case javascript::lir::StatementForm::print_tuple:
@@ -1217,6 +1236,19 @@ class Renderer final {
         }
         output_ << ") {\n";
         ++indent_;
+        for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
+          if (index >= statement.function_abi.parameters.size() ||
+              statement.function_abi.parameters[index] !=
+                  javascript::lir::ParameterPassing::value_copy) {
+            continue;
+          }
+          indentation();
+          const auto parameter = mangler_->name(index < statement.parameter_symbols.size()
+                                                    ? statement.parameter_symbols[index]
+                                                    : SymbolId{},
+                                                statement.parameters[index]);
+          output_ << parameter << " = __mpf_copy_array(" << parameter << ");\n";
+        }
         emit_scope_declarations(statement.function_scope);
         emit_statements(statement.body);
         if (!statement.plan.return_names.empty()) {

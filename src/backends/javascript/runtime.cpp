@@ -3,6 +3,7 @@
 #include <ostream>
 
 #include "complex_matrix_runtime.hpp"
+#include "complex_sparse_runtime.hpp"
 #include "matrix_runtime.hpp"
 #include "sparse_arithmetic_runtime.hpp"
 #include "sparse_matrix_runtime.hpp"
@@ -29,6 +30,9 @@ class RuntimeEmitter final {
         break;
       case javascript::lir::RuntimeFragment::sparse_matrices:
         emit_javascript_sparse_matrix_runtime(output_);
+        break;
+      case javascript::lir::RuntimeFragment::complex_sparse:
+        emit_javascript_complex_sparse_runtime(output_);
         break;
       case javascript::lir::RuntimeFragment::sparse_power:
         emit_javascript_sparse_power_runtime(output_);
@@ -358,6 +362,13 @@ class RuntimeEmitter final {
            "    current = current.length === 0 ? null : current[0];\n"
            "  }\n"
            "  return shape;\n"
+           "}\n"
+           "function __mpf_copy_array(values) {\n"
+           "  if (!Array.isArray(values)) return values;\n"
+           "  const result = values.map((value) => Array.isArray(value) "
+           "? __mpf_copy_array(value) : value);\n"
+           "  const recorded = values[__mpf_shape_tag];\n"
+           "  return Array.isArray(recorded) ? __mpf_record_shape(result, recorded) : result;\n"
            "}\n"
            "function __mpf_matlab_runtime_shape(values, name) {\n"
            "  if (!Array.isArray(values)) return [];\n"
