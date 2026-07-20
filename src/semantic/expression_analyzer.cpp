@@ -67,7 +67,7 @@ std::optional<semantic::SparseValueDomain> matlab_sparse_value_domain(
   const auto type =
       facts.inferred_type == ValueType::list ? facts.element_type : facts.inferred_type;
   const auto numeric_type = expression_numeric_type(facts);
-  if (!numeric_type.present() || numeric_type.complexity != NumericComplexity::real) {
+  if (!numeric_type.present()) {
     return std::nullopt;
   }
   if (type == ValueType::boolean && numeric_type.value_class == NumericClass::logical) {
@@ -76,7 +76,9 @@ std::optional<semantic::SparseValueDomain> matlab_sparse_value_domain(
   if ((type == ValueType::integer || type == ValueType::real) &&
       (numeric_type.value_class == NumericClass::signed_integer ||
        numeric_type.value_class == NumericClass::binary64)) {
-    return semantic::SparseValueDomain::finite_real;
+    return numeric_type.complexity == NumericComplexity::complex
+               ? semantic::SparseValueDomain::finite_complex
+               : semantic::SparseValueDomain::finite_real;
   }
   return std::nullopt;
 }
@@ -2298,7 +2300,7 @@ ValueType Analyzer::analyze_call(Expression& expression) {
             !known_shape(argument.shape) || !value_domain.has_value() ||
             !array_storage_known(argument.array_storage)) {
           diagnose(expression.location.line, "MPF2054",
-                   "sparse(A) requires a statically shaped real or logical rank-2 dense or CSC "
+                   "sparse(A) requires a statically shaped numeric or logical rank-2 dense or CSC "
                    "array");
           return facts.inferred_type = ValueType::unknown;
         }
@@ -2324,10 +2326,13 @@ ValueType Analyzer::analyze_call(Expression& expression) {
           const auto& argument = semantic(semantics_, expression.children[index]);
           const auto count = matlab_sparse_argument_count(argument);
           const auto argument_domain = matlab_sparse_value_domain(argument);
-          if (!count.has_value() || !argument_domain.has_value()) {
+          const bool valid_index_domain =
+              index == 3U || (argument_domain.has_value() &&
+                              *argument_domain != semantic::SparseValueDomain::finite_complex);
+          if (!count.has_value() || !argument_domain.has_value() || !valid_index_domain) {
             diagnose(expression.location.line, "MPF2054",
-                     "sparse triplets require statically sized real numeric or logical scalars "
-                     "or arrays");
+                     "sparse triplets require statically sized real indices and numeric or "
+                     "logical stored values");
             return facts.inferred_type = ValueType::unknown;
           }
           if (index == 3U) value_domain = argument_domain;
@@ -2392,8 +2397,11 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       facts.inferred_type = ValueType::list;
       facts.numeric_type = no_numeric_type;
       const bool logical = construction.value_domain == semantic::SparseValueDomain::logical;
+      const bool complex = construction.value_domain == semantic::SparseValueDomain::finite_complex;
       facts.element_type = logical ? ValueType::boolean : ValueType::real;
-      facts.element_numeric_type = logical ? logical_numeric_type : real_numeric_type;
+      facts.element_numeric_type = logical   ? logical_numeric_type
+                                   : complex ? complex_numeric_type
+                                             : real_numeric_type;
       facts.shape = construction.result_shape;
       facts.array_storage = ArrayStorageFormat::sparse_csc;
       return facts.inferred_type;
@@ -2409,7 +2417,7 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       if (argument.inferred_type != ValueType::list || argument.shape.size() != 2U ||
           !value_domain.has_value() || !array_storage_known(argument.array_storage)) {
         diagnose(expression.location.line, "MPF2054",
-                 "full requires a real or logical rank-2 dense or CSC array with known storage");
+                 "full requires a numeric or logical rank-2 dense or CSC array with known storage");
         return facts.inferred_type = ValueType::unknown;
       }
       facts.inferred_type = ValueType::list;
@@ -2444,11 +2452,8 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       const auto& argument = semantic(semantics_, expression.children[1]);
       const auto type = argument.inferred_type == ValueType::list ? argument.element_type
                                                                   : argument.inferred_type;
-      const auto numeric_type = expression_numeric_type(argument);
-      if ((type != ValueType::unknown && !numeric(type) && type != ValueType::boolean) ||
-          numeric_type.complexity == NumericComplexity::complex) {
-        diagnose(expression.location.line, "MPF2054",
-                 "nnz currently requires a real numeric or logical value");
+      if (type != ValueType::unknown && !numeric(type) && type != ValueType::boolean) {
+        diagnose(expression.location.line, "MPF2054", "nnz requires a numeric or logical value");
       }
       facts.numeric_type = integer_numeric_type;
       facts.array_storage = ArrayStorageFormat::none;
@@ -2781,7 +2786,7 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
       (program_.language != SourceLanguage::matlab ||
        !static_rank_two_shape(container_facts.shape) || !matlab_sparse_value(container_facts))) {
     diagnose(expression.location.line, "MPF2054",
-             "sparse indexing requires a statically shaped real or logical rank-2 CSC array");
+             "sparse indexing requires a statically shaped numeric or logical rank-2 CSC array");
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
   if (container_facts.inferred_type != ValueType::list &&
@@ -3259,14 +3264,16 @@ void Analyzer::analyze_sparse_mutation(Statement& statement, const ValueType val
   }
 
   const auto& replacement_facts = semantic(semantics_, statement.expression);
-  const auto replacement_type =
-      value_type == ValueType::list ? replacement_facts.element_type : value_type;
-  const auto replacement_numeric = expression_numeric_type(replacement_facts);
-  if ((replacement_type != ValueType::boolean && replacement_type != ValueType::integer &&
-       replacement_type != ValueType::real) ||
-      !replacement_numeric.present() || replacement_numeric.complexity != NumericComplexity::real) {
+  const auto target_domain = matlab_sparse_value_domain(container_facts);
+  const auto replacement_domain = matlab_sparse_value_domain(replacement_facts);
+  const bool complex_target = target_domain == semantic::SparseValueDomain::finite_complex;
+  const bool compatible_domain =
+      target_domain.has_value() && replacement_domain.has_value() &&
+      (complex_target || *replacement_domain != semantic::SparseValueDomain::finite_complex);
+  if (!compatible_domain) {
     diagnose(statement.line, "MPF2054",
-             "sparse indexed assignment requires real numeric or logical replacement values");
+             "sparse indexed assignment replacement is incompatible with the target value "
+             "domain");
     return;
   }
   if (value_type == ValueType::list &&
@@ -3574,7 +3581,7 @@ ValueType Analyzer::analyze_reshape(Expression& expression) {
   if (!matlab || !matlab_sparse_value(source_facts) || source_facts.shape.size() != 2U ||
       !source_size.has_value()) {
     diagnose(expression.location.line, "MPF2054",
-             "sparse RESHAPE requires a statically shaped real or logical Matlab CSC matrix");
+             "sparse RESHAPE requires a statically shaped numeric or logical Matlab CSC matrix");
     return facts.inferred_type = ValueType::unknown;
   }
   std::size_t folded_columns = 1U;

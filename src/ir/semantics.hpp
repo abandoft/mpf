@@ -513,12 +513,13 @@ enum class SparseConstructionKind : std::uint8_t {
 // Sparse storage alone does not identify the Matlab value class: an empty CSC matrix can be
 // either double or logical.  Keep the value domain and duplicate-triplet rule explicit so no
 // later stage attempts to infer either property from stored values.
-enum class SparseValueDomain : std::uint8_t { none, finite_real, logical };
+enum class SparseValueDomain : std::uint8_t { none, finite_real, finite_complex, logical };
 enum class SparseDuplicatePolicy : std::uint8_t { none, sum, logical_any };
 
 [[nodiscard]] constexpr bool valid_sparse_stored_value_type(
     const ValueType type, const NumericType numeric_type) noexcept {
   return (type == ValueType::real && numeric_type == real_numeric_type) ||
+         (type == ValueType::real && numeric_type == complex_numeric_type) ||
          (type == ValueType::boolean && numeric_type == logical_numeric_type);
 }
 
@@ -530,6 +531,7 @@ enum class SparseDuplicatePolicy : std::uint8_t { none, sum, logical_any };
            duplicate_policy == SparseDuplicatePolicy::none;
   }
   if (value_domain != SparseValueDomain::finite_real &&
+      value_domain != SparseValueDomain::finite_complex &&
       value_domain != SparseValueDomain::logical) {
     return false;
   }
