@@ -408,7 +408,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
            << statement.plan.targets.size() << " assignment-leaves "
            << statement.plan.assignment_leaves.size() << " selectors "
            << statement.plan.selectors.size() << " returns " << statement.plan.return_names.size()
-           << '\n';
+           << " exception-handler-line " << statement.exception_handler_line << '\n';
     dump_target_expression(output, statement.expression, depth + 1U);
     dump_target_expression(output, statement.secondary_expression, depth + 1U);
     dump_target_expression(output, statement.tertiary_expression, depth + 1U);
@@ -428,7 +428,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v45 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v46 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

@@ -521,6 +521,8 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
         selector, ids, program, resolve_binding, call_sites));
   }
   result.default_case = source.default_case;
+  result.has_exception_handler = source.has_exception_handler;
+  result.exception_handler_line = source.exception_handler_line;
   result.body.reserve(source.body.size());
   for (const auto statement : source.body) {
     result.body.push_back(lower_lir_statement<LirStatement, LirExpression, LirSelector>(
