@@ -52,6 +52,9 @@ mpf_add_differential_case(
   matlab-sparse-scalar-product matlab examples/matlab/sparse_scalar_product.m
   "4 -8 12 -0.5 1 -1.5 1 1 1 3 0")
 mpf_add_differential_case(
+  matlab-sparse-arithmetic matlab examples/matlab/sparse_arithmetic.m
+  "1 3 4 0 -3 -4 4 6 10 4 6 11 12 9 8 14 18 15 26 1 1 0 1 0 0 1 1 1 0 0")
+mpf_add_differential_case(
   matlab-sparse-elementwise-product matlab examples/matlab/sparse_elementwise_product.m
   "4 9 150 150 9 240 300 24 0 1 1 1 1 1")
 mpf_add_differential_case(
