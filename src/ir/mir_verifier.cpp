@@ -458,8 +458,7 @@ bool valid_matrix_shapes(const Program& program, const MatrixOperationPlan& plan
     case semantic::MatrixOperation::integer_power:
       return plan.solve == semantic::MatrixSolveKind::none && !plan.right_shape.valid() &&
              semantic::valid_matrix_power_storage_contract(
-                 plan.storage_policy, plan.left_storage, plan.right_storage,
-                 plan.result_storage) &&
+                 plan.storage_policy, plan.left_storage, plan.right_storage, plan.result_storage) &&
              (plan.storage_policy != semantic::MatrixStoragePolicy::sparse_csc_power ||
               plan.numeric_domain == semantic::MatrixNumericDomain::real) &&
              left->extents[0] == left->extents[1] && result->extents == left->extents;
@@ -499,9 +498,8 @@ bool valid_sparse_arithmetic_shapes(const Program& program, const SparseArithmet
     return false;
   }
   return semantic::valid_sparse_arithmetic_contract(
-      plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage,
-      plan.right_storage, plan.result_storage, left_extents, right_extents, result->extents,
-      plan.axes);
+      plan.operation, plan.storage_policy, plan.shape_source, plan.left_storage, plan.right_storage,
+      plan.result_storage, left_extents, right_extents, result->extents, plan.axes);
 }
 
 bool valid_sparse_logical_shapes(const Program& program, const SparseLogicalPlan& plan,
@@ -1038,8 +1036,7 @@ void verify_expression(const Expression& expression, const Program& program,
                 "expression sparse arithmetic attributes have an invalid operator, broadcast, "
                 "storage, numeric, or result contract");
     }
-  } else if (sparse_arithmetic.storage_policy !=
-                 semantic::SparseArithmeticStoragePolicy::none ||
+  } else if (sparse_arithmetic.storage_policy != semantic::SparseArithmeticStoragePolicy::none ||
              sparse_arithmetic.shape_source != semantic::BroadcastShapeSource::static_extents ||
              sparse_arithmetic.left_storage != ArrayStorageFormat::none ||
              sparse_arithmetic.right_storage != ArrayStorageFormat::none ||
@@ -1151,6 +1148,9 @@ void verify_expression(const Expression& expression, const Program& program,
         expression.kind != ExpressionKind::binary || expression_attributes->broadcast.valid ||
         matrix.operation != matrix_operation_for_operator(expression_attributes->operation) ||
         !expected_domain.has_value() || matrix.numeric_domain != *expected_domain ||
+        !semantic::matrix_result_numeric_contract(
+            matrix.operation, matrix.numeric_domain,
+            element_numeric_type(program, expression.type_id)) ||
         left == nullptr || right == nullptr ||
         matrix.left_storage != array_storage(program, left->type_id) ||
         matrix.right_storage != array_storage(program, right->type_id) ||

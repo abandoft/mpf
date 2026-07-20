@@ -230,8 +230,7 @@ bool valid_matrix_shapes(const MatrixOperationPlan& plan) noexcept {
     case semantic::MatrixOperation::integer_power:
       return plan.solve == semantic::MatrixSolveKind::none && plan.right_shape.empty() &&
              semantic::valid_matrix_power_storage_contract(
-                 plan.storage_policy, plan.left_storage, plan.right_storage,
-                 plan.result_storage) &&
+                 plan.storage_policy, plan.left_storage, plan.right_storage, plan.result_storage) &&
              (plan.storage_policy != semantic::MatrixStoragePolicy::sparse_csc_power ||
               plan.numeric_domain == semantic::MatrixNumericDomain::real) &&
              plan.left_shape[0] == plan.left_shape[1] && plan.result_shape == plan.left_shape;
@@ -704,8 +703,7 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
                 "sparse arithmetic plan has an invalid operator, broadcast, storage, numeric, "
                 "or result contract");
     }
-  } else if (sparse_arithmetic.storage_policy !=
-                 semantic::SparseArithmeticStoragePolicy::none ||
+  } else if (sparse_arithmetic.storage_policy != semantic::SparseArithmeticStoragePolicy::none ||
              sparse_arithmetic.shape_source != semantic::BroadcastShapeSource::static_extents ||
              sparse_arithmetic.left_storage != ArrayStorageFormat::none ||
              sparse_arithmetic.right_storage != ArrayStorageFormat::none ||
@@ -832,6 +830,8 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
         expression.kind != ExpressionKind::binary || facts->broadcast.valid ||
         matrix.operation != matrix_operation_for_operator(expression.operation) ||
         !expected_domain.has_value() || matrix.numeric_domain != *expected_domain ||
+        !semantic::matrix_result_numeric_contract(matrix.operation, matrix.numeric_domain,
+                                                  facts->element_numeric_type) ||
         left == nullptr || right == nullptr || matrix.left_storage != left->array_storage ||
         matrix.right_storage != right->array_storage ||
         facts->array_storage != matrix.result_storage || facts->shape != matrix.result_shape ||

@@ -426,8 +426,7 @@ bool valid_matrix_shapes(const lir::MatrixOperationPlan& plan,
     case semantic::MatrixOperation::integer_power:
       return plan.solve == semantic::MatrixSolveKind::none && plan.right_shape.empty() &&
              semantic::valid_matrix_power_storage_contract(
-                 plan.storage_policy, plan.left_storage, plan.right_storage,
-                 plan.result_storage) &&
+                 plan.storage_policy, plan.left_storage, plan.right_storage, plan.result_storage) &&
              (plan.storage_policy != semantic::MatrixStoragePolicy::sparse_csc_power ||
               plan.numeric_domain == semantic::MatrixNumericDomain::real) &&
              plan.left_shape[0] == plan.left_shape[1] && plan.result_shape == plan.left_shape;
@@ -1504,6 +1503,9 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
        (expression.array_operation != semantic::ArrayOperation::matlab ||
         expression.broadcast.valid || !expected_matrix_domain.has_value() ||
         expression.matrix_operation.numeric_domain != *expected_matrix_domain ||
+        !semantic::matrix_result_numeric_contract(expression.matrix_operation.operation,
+                                                  expression.matrix_operation.numeric_domain,
+                                                  expression.element_numeric_type) ||
         expression.children.size() != 2U ||
         expression.matrix_operation.left_storage != expression.children[0].array_storage ||
         expression.matrix_operation.right_storage != expression.children[1].array_storage ||

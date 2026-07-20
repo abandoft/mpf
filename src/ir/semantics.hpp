@@ -165,8 +165,7 @@ enum class SparseArithmeticStoragePolicy : std::uint8_t {
   if (!left_supported || !right_supported || (!left_sparse && !right_sparse)) {
     return ArrayStorageFormat::none;
   }
-  return left_sparse && right_sparse ? ArrayStorageFormat::sparse_csc
-                                     : ArrayStorageFormat::dense;
+  return left_sparse && right_sparse ? ArrayStorageFormat::sparse_csc : ArrayStorageFormat::dense;
 }
 
 [[nodiscard]] constexpr SparseArithmeticStoragePolicy sparse_arithmetic_storage_policy(
@@ -175,9 +174,8 @@ enum class SparseArithmeticStoragePolicy : std::uint8_t {
   if (result == ArrayStorageFormat::sparse_csc) {
     return SparseArithmeticStoragePolicy::preserve_sparse;
   }
-  return result == ArrayStorageFormat::dense
-             ? SparseArithmeticStoragePolicy::materialize_dense
-             : SparseArithmeticStoragePolicy::none;
+  return result == ArrayStorageFormat::dense ? SparseArithmeticStoragePolicy::materialize_dense
+                                             : SparseArithmeticStoragePolicy::none;
 }
 
 template <typename Shape, typename Axes>
@@ -415,14 +413,21 @@ enum class MatrixFactorizationPolicy : std::uint8_t {
 // Matrix arithmetic must not infer its numeric domain from a target representation. The semantic
 // plan fixes whether a kernel consumes real or complex values before target-specific lowering.
 enum class MatrixNumericDomain : std::uint8_t { none, real, complex };
+
+[[nodiscard]] constexpr bool matrix_result_numeric_contract(const MatrixOperation operation,
+                                                            const MatrixNumericDomain domain,
+                                                            const NumericType result) noexcept {
+  if (!result.known() || domain == MatrixNumericDomain::none) return false;
+  const auto expected_complexity =
+      domain == MatrixNumericDomain::complex ? NumericComplexity::complex : NumericComplexity::real;
+  if (result.complexity != expected_complexity) return false;
+  return operation != MatrixOperation::integer_power ||
+         result.value_class == NumericClass::binary64;
+}
 // Matrix exponent admissibility is a source-language contract. Dense Matlab matrix power accepts
 // signed safe integers in the current subset, while a sparse base accepts only nonnegative real
 // integers. Targets must validate the selected policy instead of inferring it from a helper name.
-enum class MatrixExponentPolicy : std::uint8_t {
-  none,
-  safe_integer,
-  nonnegative_safe_integer
-};
+enum class MatrixExponentPolicy : std::uint8_t { none, safe_integer, nonnegative_safe_integer };
 // Square Matlab division examines runtime coefficient values before selecting a numerical kernel.
 // Keeping this policy explicit prevents target lowering from silently adding or removing structure
 // detection based on helper spelling. Sparse representations require a separate storage policy.
@@ -482,8 +487,8 @@ enum class MatrixStoragePolicy : std::uint8_t {
 }
 
 [[nodiscard]] constexpr bool valid_matrix_power_storage_contract(
-    const MatrixStoragePolicy policy, const ArrayStorageFormat left,
-    const ArrayStorageFormat right, const ArrayStorageFormat result) noexcept {
+    const MatrixStoragePolicy policy, const ArrayStorageFormat left, const ArrayStorageFormat right,
+    const ArrayStorageFormat result) noexcept {
   if (right != ArrayStorageFormat::none) return false;
   if (left == ArrayStorageFormat::sparse_csc) {
     return policy == MatrixStoragePolicy::sparse_csc_power &&
@@ -728,8 +733,8 @@ template <typename Shape>
       (left == ArrayStorageFormat::sparse_csc || right == ArrayStorageFormat::sparse_csc)) {
     return MatrixStoragePolicy::sparse_csc_multiply;
   }
-  if (operation == MatrixOperation::integer_power &&
-      left == ArrayStorageFormat::sparse_csc && right == ArrayStorageFormat::none) {
+  if (operation == MatrixOperation::integer_power && left == ArrayStorageFormat::sparse_csc &&
+      right == ArrayStorageFormat::none) {
     return MatrixStoragePolicy::sparse_csc_power;
   }
   if (operation != MatrixOperation::none && array_storage_known(left) &&
