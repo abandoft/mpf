@@ -1,0 +1,13 @@
+disp command
+display 'quoted command'
+value = classify(1);
+disp(value)
+return
+disp(999)
+function output = classify(input)
+  output = 0;
+  if input > 0
+    output = 42;
+    return
+  end
+end
