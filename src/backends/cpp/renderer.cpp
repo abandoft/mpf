@@ -1305,6 +1305,17 @@ class Renderer final {
                   << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
                   << ", " << (statement.plan.indexed_mutation.linear ? "true" : "false") << ", "
                   << statement.plan.indexed_mutation.axis << ')';
+        } else if (statement.plan.indexed_replacement.valid()) {
+          output_ << "mpf_runtime::matlab_assign_section(";
+          emit_expression(statement.target_expression.children[0]);
+          output_ << ", ";
+          emit_selector_tuple(statement.target_expression);
+          output_ << ", " << statement.target_expression.plan.index_base << ", "
+                  << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
+                  << ", ";
+          emit_expression(statement.expression);
+          output_ << ", " << (statement.plan.indexed_mutation.linear ? "true" : "false") << ", "
+                  << static_cast<int>(statement.plan.indexed_replacement.conformability) << ')';
         } else if (statement.plan.form == cpp::lir::StatementForm::indexed_section_assignment) {
           emit_section_assignment(statement.target_expression, statement.expression,
                                   statement.plan.flatten_replacement,
