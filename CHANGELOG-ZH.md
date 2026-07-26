@@ -1,3 +1,16 @@
+## 0.7.6
+
+- Matlab 稠密 section assignment 现可接受非 singleton 维度与所选 shape 一致的行或列 replacement。
+- 标量值与单元素数组均可扩展到选中的 Matlab section。
+- Matlab 线性 section assignment 会按列主序验证 replacement 元素数量，包括矩阵形 numeric selector。
+- 未知 shape 的 local-function 参数执行全冒号赋值时，现会在 runtime 检查 conformability。
+- 未知数组 shape 上的全冒号 selector 现被识别为保持 shape，不再被误判为可能扩容。
+- runtime dispatch 会区分标量扩展、线性数组 replacement 与多维数组 replacement。
+- 动态 replacement shape 会在修改目标数组的任何元素前完成验证。
+- 动态线性数量或多维 shape 不相容时，会报告稳定且聚焦的 runtime 错误。
+- 生成的 JavaScript 与 C++17 会彼此独立地实现相同赋值合同。
+- source map 会保留静态与动态检查的 Matlab section-assignment 源码位置。
+
 ## 0.7.5
 
 - Matlab `try`/`catch` 现可转译为 JavaScript 与 C++17 的原生结构化异常处理。

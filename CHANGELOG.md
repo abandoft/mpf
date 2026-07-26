@@ -1,3 +1,16 @@
+## 0.7.6
+
+- Matlab dense section assignment now accepts row and column replacements whose non-singleton dimensions match the selected shape.
+- Scalar values and one-element arrays can expand across a selected Matlab section.
+- Linear Matlab section assignment validates replacement element counts in column-major order, including matrix-shaped numeric selectors.
+- Full-colon assignment through dynamically shaped local-function parameters now uses runtime conformability checks.
+- Full-colon selectors on unknown array shapes are recognized as shape-preserving instead of being treated as possible growth.
+- Runtime dispatch distinguishes scalar expansion from linear and multidimensional array replacement.
+- Dynamic replacement shapes are validated before any element of the target array is modified.
+- Incompatible dynamic linear counts and multidimensional shapes report stable, focused runtime errors.
+- Generated JavaScript and C++17 implement the same assignment contract independently.
+- Source maps retain static and dynamically checked Matlab section-assignment locations.
+
 ## 0.7.5
 
 - Matlab `try`/`catch` now translates to native structured exception handling in JavaScript and C++17.

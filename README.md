@@ -31,6 +31,11 @@ A modern, high-performance multilingual transpilation framework. MPF converts su
 
 Matlab function and script `return` are supported; function exits preserve declared single or multiple outputs. Command syntax accepts one or more character-vector arguments for supported local functions and built-ins, preserves Matlab quoting and operator-spacing rules, and stores value-producing results in `ans`; `disp` and `display` retain their one-argument requirement. Structured exceptions support one `catch` clause with an optional binding, nested handlers, `error(message)`, `error(identifier, message)`, the caught exception's `identifier`/`message`, and `rethrow`. Bare no-argument commands, qualified/package commands, external path resolution, `arguments` blocks, and the remaining `MException` object model remain outside the supported subset.
 
+Dense Matlab section assignment supports scalar and one-element-array expansion, linear element-count
+matching, singleton-axis-equivalent row/column shapes, and runtime validation for full-colon writes
+through dynamically shaped local-function parameters. Dynamic mismatches fail before the target array
+is modified; the general dynamic NDArray/view ABI remains under development.
+
 Language names are limited to `matlab`, `python`, `fortran`, and `typescript`; output targets are limited to `javascript` and `cpp`. `cpp` is the target name, and the current generated language standard is C++17.
 
 See the [language support matrix](docs/LANGUAGE_SUPPORT.md) for the complete set of supported syntax, semantics, and limitations. See the [product plan](docs/MATLAB_TO_JAVASCRIPT.md) for the Matlab-to-JavaScript maturity analysis, completion criteria, and dedicated checklist, and the [project roadmap](TODO.md) for cross-language work.
@@ -126,7 +131,7 @@ cmake --install build/release --prefix build/stage
 Find the exact current version in another project:
 
 ```cmake
-find_package(mpf 0.7.5 EXACT CONFIG REQUIRED COMPONENTS core cpp)
+find_package(mpf 0.7.6 EXACT CONFIG REQUIRED COMPONENTS core cpp)
 target_link_libraries(my_application PRIVATE mpf::mpf)
 ```
 
@@ -154,7 +159,7 @@ int main() {
 }
 ```
 
-The installed package provides the `core`, `javascript`, and `cpp` components; the `mpf::core`, `mpf::backend-javascript`, and `mpf::backend-cpp` targets; and the unified `mpf::mpf` entry point. See [`examples/embedding`](examples/embedding) for a complete integration example; configure it with `-DMPF_REQUIRED_VERSION=0.7.5` so the consumer keeps exact-version matching.
+The installed package provides the `core`, `javascript`, and `cpp` components; the `mpf::core`, `mpf::backend-javascript`, and `mpf::backend-cpp` targets; and the unified `mpf::mpf` entry point. See [`examples/embedding`](examples/embedding) for a complete integration example; configure it with `-DMPF_REQUIRED_VERSION=0.7.6` so the consumer keeps exact-version matching.
 
 MPF 0.x installs static libraries deliberately. A supported shared-library ABI will require an explicit symbol-export, allocator/ownership, and version-negotiation contract; setting `BUILD_SHARED_LIBS` does not silently expose the current internal C++ ABI.
 
