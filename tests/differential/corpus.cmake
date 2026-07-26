@@ -169,6 +169,12 @@ mpf_add_differential_case(
   matlab-shape-mutation matlab examples/matlab/shape_mutation.m
   "0 9 8 6 30 6 9 3 1 99 0 9 7 30 2 5 9")
 mpf_add_differential_case(
+  matlab-assignment-conformability matlab examples/matlab/assignment_conformability.m
+  "9 8 12 12 11 6 13 15 14 16")
+mpf_add_differential_case(
+  matlab-dynamic-assignment-conformability matlab
+  examples/matlab/dynamic_assignment_conformability.m "9 6 5 5 1 3 2 4")
+mpf_add_differential_case(
   matlab-empty-arrays matlab examples/matlab/empty_arrays.m "0 0 3 7 5 0 5 0 5 0 5 0 4 9")
 
 mpf_add_differential_case(fortran-loops fortran examples/fortran/loops.f90 "12 -1")
