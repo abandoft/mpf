@@ -3211,11 +3211,19 @@ void Analyzer::analyze_indexed_mutation(Statement& statement, const ValueType va
   bool runtime_shape = !input_shape_known;
   bool may_grow = false;
   if (contract.linear) {
+    const auto selector_kind = target_facts.index_selectors[0];
+    const bool shape_preserving_selector = full_slice(target.children[1]) ||
+                                           selector_kind == semantic::IndexSelectorKind::logical ||
+                                           selector_kind == semantic::IndexSelectorKind::empty;
     const auto current_size = static_element_count(input_shape).value_or(dynamic_extent);
     const auto required =
-        selector_required_extent(target.children[1], target_facts.index_selectors[0], current_size);
-    runtime_shape = runtime_shape || !required.has_value();
-    may_grow = runtime_shape || (current_size != dynamic_extent && *required > current_size);
+        shape_preserving_selector
+            ? std::optional<std::size_t>{current_size}
+            : selector_required_extent(target.children[1], selector_kind, current_size);
+    runtime_shape = runtime_shape || (!shape_preserving_selector && !required.has_value());
+    may_grow = !shape_preserving_selector &&
+               (runtime_shape || (current_size != dynamic_extent && required.has_value() &&
+                                  *required > current_size));
     if (may_grow && !runtime_shape) {
       const auto required_size = *required;
       if (input_shape.size() == 1U) {
@@ -3247,10 +3255,16 @@ void Analyzer::analyze_indexed_mutation(Statement& statement, const ValueType va
     }
   } else {
     for (std::size_t position = 0; position < selector_count; ++position) {
+      const auto selector_kind = target_facts.index_selectors[position];
+      if (full_slice(target.children[position + 1U]) ||
+          selector_kind == semantic::IndexSelectorKind::logical ||
+          selector_kind == semantic::IndexSelectorKind::empty) {
+        continue;
+      }
       const auto current_extent =
           position < input_shape.size() ? input_shape[position] : dynamic_extent;
-      const auto required = selector_required_extent(
-          target.children[position + 1U], target_facts.index_selectors[position], current_extent);
+      const auto required =
+          selector_required_extent(target.children[position + 1U], selector_kind, current_extent);
       if (!required.has_value() || current_extent == dynamic_extent) {
         runtime_shape = true;
         may_grow = true;
@@ -3355,11 +3369,13 @@ void Analyzer::analyze_sparse_mutation(Statement& statement, const ValueType val
 }
 
 void Analyzer::analyze_section_assignment(Statement& statement, const ValueType value_type) {
+  auto& statement_facts = semantic(semantics_, statement);
   auto& target = statement.target_expression;
   auto& target_facts = semantic(semantics_, target);
   const bool replacement_is_list = value_type == ValueType::list;
+  const auto& replacement_facts = semantic(semantics_, statement.expression);
   const auto replacement_element =
-      replacement_is_list ? semantic(semantics_, statement.expression).element_type : value_type;
+      replacement_is_list ? replacement_facts.element_type : value_type;
   if (program_.language == SourceLanguage::python && !replacement_is_list) {
     diagnose(statement.line, "MPF2031",
              "Python slice assignment requires a list replacement in the current subset");
@@ -3370,9 +3386,20 @@ void Analyzer::analyze_section_assignment(Statement& statement, const ValueType 
     diagnose(statement.line, "MPF2020", "section assignment changes the array element type");
   }
 
+  if (program_.language == SourceLanguage::matlab &&
+      statement_facts.indexed_mutation.kind == semantic::IndexedMutationKind::overwrite) {
+    statement_facts.replacement_selection_shape = target_facts.shape;
+    statement_facts.replacement_value_shape =
+        replacement_is_list ? replacement_facts.shape : std::vector<std::size_t>{};
+    statement_facts.indexed_replacement = semantic::indexed_replacement_contract(
+        statement_facts.indexed_mutation.linear, replacement_is_list,
+        value_type == ValueType::unknown, statement_facts.replacement_selection_shape,
+        statement_facts.replacement_value_shape);
+  }
+
   if (replacement_is_list) {
-    const auto normalized_replacement = assignment_shape(
-        semantic(semantics_, statement.expression).shape, target_facts.shape.size());
+    const auto normalized_replacement =
+        assignment_shape(replacement_facts.shape, target_facts.shape.size());
     if (program_.language == SourceLanguage::python) {
       bool extended_slice = false;
       for (std::size_t index = 1; index < target.children.size(); ++index) {
@@ -3398,9 +3425,19 @@ void Analyzer::analyze_section_assignment(Statement& statement, const ValueType 
                      [](const std::size_t extent) { return extent != 1U; });
         return result;
       };
+      const auto selection_count = checked_element_count(target_facts.shape);
       const auto replacement_count = checked_element_count(normalized_replacement);
-      if ((!replacement_count.has_value() || *replacement_count != 1U) &&
-          nonsingleton(target_facts.shape) != nonsingleton(normalized_replacement)) {
+      const bool scalar_expansion = replacement_count.has_value() && *replacement_count == 1U;
+      const bool conformable =
+          program_.language == SourceLanguage::matlab
+              ? semantic::valid_indexed_replacement_contract(
+                    statement_facts.indexed_replacement,
+                    statement_facts.replacement_selection_shape,
+                    statement_facts.replacement_value_shape)
+              : scalar_expansion ||
+                    (selection_count.has_value() && replacement_count.has_value() &&
+                     nonsingleton(target_facts.shape) == nonsingleton(normalized_replacement));
+      if (!conformable) {
         diagnose(statement.line, "MPF2031",
                  "section assignment replacement shape is not conformable with the selected shape");
       }

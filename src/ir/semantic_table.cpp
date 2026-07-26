@@ -1079,6 +1079,37 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
                replacement->array_storage == ArrayStorageFormat::sparse_csc);
         }
         const bool deletion = facts->indexed_mutation.kind == semantic::IndexedMutationKind::erase;
+        const bool expected_replacement_contract =
+            source_language == SourceLanguage::matlab &&
+            facts->indexed_mutation.kind == semantic::IndexedMutationKind::overwrite &&
+            target != nullptr && replacement != nullptr &&
+            std::any_of(target->index_selectors.begin(), target->index_selectors.end(),
+                        semantic::selector_preserves_dimension);
+        const auto replacement_contract =
+            expected_replacement_contract
+                ? semantic::indexed_replacement_contract(
+                      facts->indexed_mutation.linear, replacement->inferred_type == ValueType::list,
+                      replacement->inferred_type == ValueType::unknown, target->shape,
+                      replacement->inferred_type == ValueType::list ? replacement->shape
+                                                                    : std::vector<std::size_t>{})
+                : semantic::IndexedReplacementContract{};
+        if (expected_replacement_contract != facts->indexed_replacement.valid()) {
+          add_error(diagnostics, {statement.line, 1}, stage,
+                    "indexed replacement identity disagrees with the Matlab section assignment");
+        } else if (facts->indexed_replacement.valid() &&
+                   (!semantic::same_indexed_replacement_contract(facts->indexed_replacement,
+                                                                 replacement_contract) ||
+                    target == nullptr || replacement == nullptr ||
+                    facts->replacement_selection_shape != target->shape ||
+                    facts->replacement_value_shape != (replacement->inferred_type == ValueType::list
+                                                           ? replacement->shape
+                                                           : std::vector<std::size_t>{}) ||
+                    !semantic::valid_indexed_replacement_contract(
+                        facts->indexed_replacement, facts->replacement_selection_shape,
+                        facts->replacement_value_shape))) {
+          add_error(diagnostics, {statement.line, 1}, stage,
+                    "Matlab indexed replacement has an invalid conformability contract");
+        }
         const bool expected_sparse_plan =
             sparse_target && (deletion || supported_replacement) &&
             (facts->indexed_mutation.kind == semantic::IndexedMutationKind::overwrite ||
@@ -1129,6 +1160,8 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
       }
     } else if (facts->indexed_mutation.valid() || !facts->mutation_input_shape.empty() ||
                !facts->mutation_result_shape.empty() || facts->sparse_mutation.valid() ||
+               facts->indexed_replacement.valid() || !facts->replacement_selection_shape.empty() ||
+               !facts->replacement_value_shape.empty() ||
                facts->sparse_mutation.replacement != semantic::SparseReplacementKind::none ||
                facts->sparse_mutation.duplicate_policy !=
                    semantic::SparseDuplicateWritePolicy::none ||

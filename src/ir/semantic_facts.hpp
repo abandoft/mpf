@@ -266,6 +266,9 @@ struct StatementFacts {
   semantic::IndexedMutationContract indexed_mutation;
   std::vector<std::size_t> mutation_input_shape;
   std::vector<std::size_t> mutation_result_shape;
+  semantic::IndexedReplacementContract indexed_replacement;
+  std::vector<std::size_t> replacement_selection_shape;
+  std::vector<std::size_t> replacement_value_shape;
   SparseMutationPlan sparse_mutation;
 };
 
