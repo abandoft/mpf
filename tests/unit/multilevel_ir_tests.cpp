@@ -3751,6 +3751,140 @@ TEST_CASE("target LIR verifiers reject corrupted indexed mutation shapes") {
   REQUIRE(!diagnostics.empty());
 }
 
+TEST_CASE("Matlab indexed replacement conformability remains typed through every IR layer") {
+  using Conformability = mpf::detail::semantic::IndexedReplacementConformability;
+  using ShapeSource = mpf::detail::semantic::IndexedReplacementShapeSource;
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "matrix = [1 2 3; 4 5 6];\n"
+                              "matrix(:, 1) = [7 8];\n"
+                              "matrix(1, :) = [9; 10; 11];\n"
+                              "matrix(:, 2) = [12];\n"
+                              "linear = [1 2 3 4];\n"
+                              "linear([1 2; 3 4]) = [13; 14; 15; 16];\n"
+                              "result = replace_dynamic(matrix, [13 14 15; 16 17 18]);\n"
+                              "function result = replace_dynamic(values, replacement)\n"
+                              "  values(:, :) = replacement;\n"
+                              "  result = values;\n"
+                              "end\n",
+                              "assignment_conformability.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+
+  const auto contract_count = [&](const Conformability expected, const ShapeSource shape_source) {
+    return std::count_if(analysis.semantics.statements.begin(), analysis.semantics.statements.end(),
+                         [&](const auto& facts) {
+                           return facts.indexed_replacement.conformability == expected &&
+                                  facts.indexed_replacement.shape_source == shape_source;
+                         });
+  };
+  REQUIRE(contract_count(Conformability::nonsingleton_shape, ShapeSource::static_extents) == 2U);
+  REQUIRE(contract_count(Conformability::scalar_expansion, ShapeSource::static_extents) == 1U);
+  REQUIRE(contract_count(Conformability::linear_element_count, ShapeSource::static_extents) == 1U);
+  REQUIRE(contract_count(Conformability::runtime_dispatch, ShapeSource::runtime_values) == 1U);
+
+  auto contradictory_hir = analysis.semantics;
+  const auto dynamic_hir =
+      std::find_if(contradictory_hir.statements.begin(), contradictory_hir.statements.end(),
+                   [&](const auto& facts) {
+                     return facts.indexed_replacement.shape_source == ShapeSource::runtime_values;
+                   });
+  REQUIRE(dynamic_hir != contradictory_hir.statements.end());
+  dynamic_hir->indexed_replacement.shape_source = ShapeSource::static_extents;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, contradictory_hir,
+                                              "replacement-contract-corruption")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  REQUIRE(mpf::detail::mir::verify(mir.program, "replacement-contract").empty());
+  const auto mir_dump = mpf::detail::dump_mir(mir.program);
+  REQUIRE(mir_dump.find("conformability=1") != std::string::npos);
+  REQUIRE(mir_dump.find("conformability=4 replacement-shape-source=1") != std::string::npos);
+
+  auto contradictory_mir = mir.program;
+  const auto dynamic_mir = std::find_if(
+      contradictory_mir.attributes.statements.begin() + 1,
+      contradictory_mir.attributes.statements.end(), [&](const auto& attributes) {
+        return attributes.indexed_replacement.contract.shape_source == ShapeSource::runtime_values;
+      });
+  REQUIRE(dynamic_mir != contradictory_mir.attributes.statements.end());
+  dynamic_mir->indexed_replacement.contract.shape_source = ShapeSource::static_extents;
+  REQUIRE(!mpf::detail::mir::verify(contradictory_mir, "replacement-plan-corruption").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  for (const auto& dump : {javascript.artifact->debug_dump(), cpp.artifact->debug_dump()}) {
+    REQUIRE(dump.find("replacement-conformability 1") != std::string::npos);
+    REQUIRE(dump.find("replacement-conformability 4 replacement-shape-source 1") !=
+            std::string::npos);
+  }
+}
+
+TEST_CASE("target LIR verifiers reject corrupted Matlab indexed replacement shapes") {
+  using Conformability = mpf::detail::semantic::IndexedReplacementConformability;
+  using Mutation = mpf::detail::semantic::IndexedMutationKind;
+  using MutationShapeSource = mpf::detail::semantic::IndexedMutationShapeSource;
+  using ReplacementShapeSource = mpf::detail::semantic::IndexedReplacementShapeSource;
+  using Selector = mpf::detail::semantic::IndexSelectorKind;
+  const auto has_replacement_diagnostic = [](const std::vector<mpf::Diagnostic>& diagnostics) {
+    return std::any_of(diagnostics.begin(), diagnostics.end(), [](const auto& diagnostic) {
+      return diagnostic.message.find("indexed replacement contract") != std::string::npos;
+    });
+  };
+
+  mpf::detail::javascript::lir::SemanticProgram javascript;
+  javascript.source_language = mpf::SourceLanguage::matlab;
+  javascript.statements.resize(1);
+  auto& javascript_statement = javascript.statements.front();
+  javascript_statement.kind = mpf::detail::StatementKind::indexed_assignment;
+  javascript_statement.indexed_mutation = {Mutation::overwrite, MutationShapeSource::preserve,
+                                           false};
+  javascript_statement.mutation_input_shape = {2, 2};
+  javascript_statement.mutation_result_shape = {2, 2};
+  javascript_statement.target_expression.kind = mpf::detail::ExpressionKind::index;
+  javascript_statement.target_expression.inferred_type = mpf::detail::ValueType::list;
+  javascript_statement.target_expression.shape = {2, 1};
+  javascript_statement.target_expression.index_selectors = {Selector::slice, Selector::scalar};
+  javascript_statement.expression.inferred_type = mpf::detail::ValueType::list;
+  javascript_statement.expression.shape = {1, 2};
+  javascript_statement.indexed_replacement = {Conformability::nonsingleton_shape,
+                                              ReplacementShapeSource::static_extents};
+  javascript_statement.replacement_selection_shape = {3, 1};
+  javascript_statement.replacement_value_shape = {1, 2};
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(has_replacement_diagnostic(diagnostics));
+
+  mpf::detail::cpp::lir::SemanticProgram cpp;
+  cpp.source_language = mpf::SourceLanguage::matlab;
+  cpp.statements.resize(1);
+  auto& cpp_statement = cpp.statements.front();
+  cpp_statement.kind = mpf::detail::StatementKind::indexed_assignment;
+  cpp_statement.indexed_mutation = {Mutation::overwrite, MutationShapeSource::preserve, false};
+  cpp_statement.mutation_input_shape = {2, 2};
+  cpp_statement.mutation_result_shape = {2, 2};
+  cpp_statement.target_expression.kind = mpf::detail::ExpressionKind::index;
+  cpp_statement.target_expression.inferred_type = mpf::detail::ValueType::list;
+  cpp_statement.target_expression.shape = {2, 1};
+  cpp_statement.target_expression.index_selectors = {Selector::slice, Selector::scalar};
+  cpp_statement.expression.inferred_type = mpf::detail::ValueType::list;
+  cpp_statement.expression.shape = {1, 2};
+  cpp_statement.indexed_replacement = {Conformability::nonsingleton_shape,
+                                       ReplacementShapeSource::static_extents};
+  cpp_statement.replacement_selection_shape = {3, 1};
+  cpp_statement.replacement_value_shape = {1, 2};
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(has_replacement_diagnostic(diagnostics));
+}
+
 TEST_CASE("Matlab dynamic end extent plans remain typed through every lowering layer") {
   auto lowered =
       lower_source(mpf::SourceLanguage::matlab,
@@ -4014,7 +4148,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v31") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v32") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -4025,7 +4159,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v37") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v38") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -5547,9 +5681,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v46") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v47") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v46") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v47") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
