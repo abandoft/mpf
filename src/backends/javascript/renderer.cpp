@@ -988,6 +988,21 @@ class Renderer final {
           output_ << ", ";
           emit_optional_shape(statement.plan.mutation_result_shape);
           output_ << ");\n";
+        } else if (statement.plan.indexed_replacement.valid()) {
+          output_ << "__mpf_matlab_assign_section(";
+          emit_expression(mutation_target);
+          output_ << ", [";
+          for (std::size_t index = 1; index < statement.target_expression.children.size();
+               ++index) {
+            if (index != 1) output_ << ", ";
+            emit_selector_descriptor(statement.target_expression, index);
+          }
+          output_ << "], ";
+          emit_expression(statement.expression);
+          output_ << ", " << statement.target_expression.plan.index_base << ", "
+                  << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
+                  << ", " << (statement.plan.indexed_mutation.linear ? "true" : "false") << ", "
+                  << static_cast<int>(statement.plan.indexed_replacement.conformability) << ");\n";
         } else if (statement.plan.form ==
                    javascript::lir::StatementForm::indexed_section_assignment) {
           output_ << "__mpf_set_section(";
