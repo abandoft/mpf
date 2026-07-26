@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
+#include <optional>
 
 #include "compiler/array_storage.hpp"
 #include "compiler/expression_ast.hpp"
@@ -786,6 +788,121 @@ struct IndexedMutationContract {
            kind == IndexedMutationKind::erase;
   }
 };
+
+// Matlab indexed replacement compatibility is independent from whether the target storage grows.
+// The analyzer decides the source-language rule once; MIR and target LIRs carry it without
+// reconstructing assignment semantics from selector syntax.
+enum class IndexedReplacementConformability : std::uint8_t {
+  none,
+  scalar_expansion,
+  linear_element_count,
+  nonsingleton_shape,
+  runtime_dispatch
+};
+
+enum class IndexedReplacementShapeSource : std::uint8_t { static_extents, runtime_values };
+
+struct IndexedReplacementContract {
+  IndexedReplacementConformability conformability{IndexedReplacementConformability::none};
+  IndexedReplacementShapeSource shape_source{IndexedReplacementShapeSource::static_extents};
+
+  [[nodiscard]] constexpr bool valid() const noexcept {
+    return conformability != IndexedReplacementConformability::none;
+  }
+};
+
+template <typename Shape>
+[[nodiscard]] bool indexed_replacement_shape_known(const Shape& shape) noexcept {
+  constexpr auto dynamic = std::numeric_limits<std::size_t>::max();
+  return !shape.empty() && std::find(shape.begin(), shape.end(), dynamic) == shape.end();
+}
+
+template <typename Shape>
+[[nodiscard]] std::optional<std::size_t> indexed_replacement_element_count(
+    const Shape& shape) noexcept {
+  constexpr auto dynamic = std::numeric_limits<std::size_t>::max();
+  std::size_t count = 1U;
+  for (const auto extent : shape) {
+    if (extent == dynamic ||
+        (extent != 0U && count > std::numeric_limits<std::size_t>::max() / extent)) {
+      return std::nullopt;
+    }
+    count *= extent;
+  }
+  return count;
+}
+
+template <typename Shape>
+[[nodiscard]] IndexedReplacementContract indexed_replacement_contract(
+    const bool linear, const bool replacement_is_list, const bool replacement_type_unknown,
+    const Shape& selection_shape, const Shape& value_shape) noexcept {
+  IndexedReplacementContract result;
+  const auto replacement_count = replacement_type_unknown ? std::nullopt
+                                 : !replacement_is_list   ? std::optional<std::size_t>{1U}
+                                 : value_shape.empty()
+                                     ? std::nullopt
+                                     : indexed_replacement_element_count(value_shape);
+  if (!replacement_count.has_value()) {
+    result.conformability = IndexedReplacementConformability::runtime_dispatch;
+    result.shape_source = IndexedReplacementShapeSource::runtime_values;
+  } else if (*replacement_count == 1U) {
+    result.conformability = IndexedReplacementConformability::scalar_expansion;
+    result.shape_source = IndexedReplacementShapeSource::static_extents;
+  } else {
+    result.conformability = linear ? IndexedReplacementConformability::linear_element_count
+                                   : IndexedReplacementConformability::nonsingleton_shape;
+    result.shape_source = indexed_replacement_shape_known(selection_shape) &&
+                                  indexed_replacement_shape_known(value_shape)
+                              ? IndexedReplacementShapeSource::static_extents
+                              : IndexedReplacementShapeSource::runtime_values;
+  }
+  return result;
+}
+
+[[nodiscard]] constexpr bool same_indexed_replacement_contract(
+    const IndexedReplacementContract left, const IndexedReplacementContract right) noexcept {
+  return left.conformability == right.conformability && left.shape_source == right.shape_source;
+}
+
+template <typename Shape>
+[[nodiscard]] bool valid_indexed_replacement_contract(const IndexedReplacementContract& replacement,
+                                                      const Shape& selection_shape,
+                                                      const Shape& value_shape) noexcept {
+  if (!replacement.valid()) return selection_shape.empty() && value_shape.empty();
+  if (replacement.conformability == IndexedReplacementConformability::scalar_expansion) {
+    if (value_shape.empty()) return true;
+    const auto count = indexed_replacement_element_count(value_shape);
+    return count.has_value() && *count == 1U;
+  }
+  if (replacement.conformability == IndexedReplacementConformability::runtime_dispatch) {
+    return replacement.shape_source == IndexedReplacementShapeSource::runtime_values;
+  }
+  if (selection_shape.empty() || value_shape.empty()) {
+    return replacement.shape_source == IndexedReplacementShapeSource::runtime_values;
+  }
+  if (replacement.shape_source == IndexedReplacementShapeSource::runtime_values) {
+    return !indexed_replacement_shape_known(selection_shape) ||
+           !indexed_replacement_shape_known(value_shape);
+  }
+  if (!indexed_replacement_shape_known(selection_shape) ||
+      !indexed_replacement_shape_known(value_shape)) {
+    return false;
+  }
+  if (replacement.conformability == IndexedReplacementConformability::linear_element_count) {
+    return indexed_replacement_element_count(selection_shape) ==
+           indexed_replacement_element_count(value_shape);
+  }
+  if (replacement.conformability == IndexedReplacementConformability::nonsingleton_shape) {
+    Shape selected;
+    Shape value;
+    std::copy_if(selection_shape.begin(), selection_shape.end(), std::back_inserter(selected),
+                 [](const std::size_t extent) { return extent != 1U; });
+    std::copy_if(value_shape.begin(), value_shape.end(), std::back_inserter(value),
+                 [](const std::size_t extent) { return extent != 1U; });
+    return selected == value;
+  }
+  return false;
+}
 
 template <typename Extents>
 [[nodiscard]] bool valid_indexed_mutation_shapes(const IndexedMutationContract& contract,
