@@ -462,6 +462,9 @@ struct StatementPlan {
   semantic::IndexedMutationContract indexed_mutation;
   std::vector<std::size_t> mutation_input_shape;
   std::vector<std::size_t> mutation_result_shape;
+  semantic::IndexedReplacementContract indexed_replacement;
+  std::vector<std::size_t> replacement_selection_shape;
+  std::vector<std::size_t> replacement_value_shape;
   SparseMutationPlan sparse_mutation;
   std::string array_default;
   std::vector<std::size_t> array_shape;
@@ -646,6 +649,9 @@ struct Statement {
   semantic::IndexedMutationContract indexed_mutation;
   std::vector<std::size_t> mutation_input_shape;
   std::vector<std::size_t> mutation_result_shape;
+  semantic::IndexedReplacementContract indexed_replacement;
+  std::vector<std::size_t> replacement_selection_shape;
+  std::vector<std::size_t> replacement_value_shape;
   SparseMutationPlan sparse_mutation;
   std::vector<CaseSelector> case_selectors;
   bool default_case{false};

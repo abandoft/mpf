@@ -371,6 +371,14 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
 template <typename Statement>
 void dump_target_statements(std::ostream& output, const std::vector<Statement>& statements,
                             const std::size_t depth) {
+  const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
+    output << '[';
+    for (std::size_t axis = 0; axis < shape.size(); ++axis) {
+      if (axis != 0U) output << ',';
+      output << shape[axis];
+    }
+    output << ']';
+  };
   for (const auto& statement : statements) {
     output << std::string(depth * 2U, ' ') << "stmt %l" << statement.id.value() << " origin %h"
            << statement.origin.value() << " kind " << static_cast<int>(statement.kind) << " line "
@@ -400,7 +408,15 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
            << (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::erase
                    ? statement.plan.indexed_mutation.axis
                    : 0U)
-           << " sparse-mutation " << static_cast<int>(statement.plan.sparse_mutation.kind)
+           << " replacement-conformability "
+           << static_cast<int>(statement.plan.indexed_replacement.conformability)
+           << " replacement-shape-source "
+           << static_cast<int>(statement.plan.indexed_replacement.shape_source)
+           << " replacement-selection-shape ";
+    dump_shape(statement.plan.replacement_selection_shape);
+    output << " replacement-value-shape ";
+    dump_shape(statement.plan.replacement_value_shape);
+    output << " sparse-mutation " << static_cast<int>(statement.plan.sparse_mutation.kind)
            << " sparse-replacement " << static_cast<int>(statement.plan.sparse_mutation.replacement)
            << " sparse-duplicate "
            << static_cast<int>(statement.plan.sparse_mutation.duplicate_policy) << " sparse-zero "
@@ -428,7 +444,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v46 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v47 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

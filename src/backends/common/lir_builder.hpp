@@ -495,6 +495,15 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
       shape != nullptr) {
     result.mutation_result_shape = shape->extents;
   }
+  result.indexed_replacement = attributes.indexed_replacement.contract;
+  if (const auto* shape = mir::shape(program, attributes.indexed_replacement.selection_shape);
+      shape != nullptr) {
+    result.replacement_selection_shape = shape->extents;
+  }
+  if (const auto* shape = mir::shape(program, attributes.indexed_replacement.value_shape);
+      shape != nullptr) {
+    result.replacement_value_shape = shape->extents;
+  }
   const auto& sparse = attributes.sparse_mutation;
   result.sparse_mutation.kind = sparse.kind;
   result.sparse_mutation.replacement = sparse.replacement;
