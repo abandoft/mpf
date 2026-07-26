@@ -1,6 +1,6 @@
 # 诊断与 CLI 契约
 
-MPF 当前为库调用、命令行、IDE 和 CI 使用同一个诊断模型；本文描述 0.7.5 源码树的唯一契约。每条诊断在构造时即包含 code、severity、消息、源文件身份以及完整的 1-based UTF-8 code-point range；renderer 不接收缺失结束位置的旧结构，也不合成兼容范围。
+MPF 当前为库调用、命令行、IDE 和 CI 使用同一个诊断模型；本文描述 0.7.6 源码树的唯一契约。每条诊断在构造时即包含 code、severity、消息、源文件身份以及完整的 1-based UTF-8 code-point range；renderer 不接收缺失结束位置的旧结构，也不合成兼容范围。
 
 ## 文本输出
 
@@ -133,7 +133,13 @@ TypeScript statement lexer 诊断使用 `MPF19xx`：`MPF1901` 表示 block comme
 | `MPF2052` | Matlab `all`/`any` 的 operand、`dim`/`vecdim` 或未知 rank reduction contract 无法静态保持 |
 | `MPF2053` | Matlab complex 操作超出已交付的 binary64 scalar/element-wise array、dense matrix 与 complex sparse storage/arithmetic/matrix-product lifecycle，例如 complex comparison/logical/reduction、complex sparse scalar-product/element-wise/power/solve，或 `complex`/projection intrinsic 参数不满足当前标量 contract |
 | `MPF2054` | Matlab sparse 操作超出静态 real/logical/complex rank-2 canonical CSC storage 子集，例如尚未实现的 rectangular solve、complex sparse scalar-product/element-wise/power/solve 或动态 source shape，或 constructor/index/mutation/reshape/product/arithmetic/logical/reduction/power storage、shape 与 value-domain contract 无法保持；已支持的 matrix product、`+`/`-`、`~`/`&`/`|` 要求可静态验证 shape/domain 或 compatible-size 与 preserve-sparse/materialize-dense 计划，complex sparse product 与 `+`/`-` 还要求 finite-complex value-domain plan，`all`/`any` 要求静态 axis/shape 及 preserve-sparse/scalar-full 计划，方阵 `^` 要求非负 ECMAScript-safe integer exponent；非有限 scalar/result 由目标 runtime 稳定拒绝 |
-| `MPF2056` | Matlab exception binding 访问了当前合同之外的 `MException` 属性；0.7.5 仅授权 `identifier` 与 `message` |
+| `MPF2056` | Matlab exception binding 访问了当前合同之外的 `MException` 属性；0.7.6 仅授权 `identifier` 与 `message` |
 | `MPF2057` | Matlab `error` 或 `rethrow` 的参数数量或类型不满足当前异常合同 |
 
 语义分析和 capability validator 必须在 emitter 前产生这些错误；失败结果不应包含可被误认为成功输出的目标代码。新增或重新定义稳定 code 时必须同步本表、测试和 changelog。
+
+无法在编译期决定的 Matlab indexed replacement 由生成 runtime 复核。线性元素数不相容稳定包含
+`MPF Matlab linear assignment replacement element count mismatch`，多维非 singleton shape
+不相容稳定包含 `MPF Matlab section assignment replacement shape mismatch`；JavaScript 与 C++17
+使用相同文本，并在任何目标写入前完成验证。这些是所生成程序的运行时异常，不是 `mpfc` 编译诊断，
+因此不占用 `MPF20xx` code。

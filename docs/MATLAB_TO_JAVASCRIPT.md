@@ -172,7 +172,11 @@ HIR v3、Semantic v31、MIR v37 与双目标 LIR v46 交付 `try`/单一 `catch 
 block 使用显式 exceptional CFG edge/region，catch binding 是类型化 exception storage，正常路径与异常路径按
 确定赋值规则合流。`error(message)`、`error(identifier,message)`、`MException.identifier`/`message`
 及 `rethrow` 由 JavaScript/C++ 独立按需 runtime 执行，嵌套区域采用最内层 handler，并为 `catch` 单独保留
-source-map 位置。一般 NDArray 表示与跨函数动态 shape 数据流、裸无参数/限定名/外部 command 解析、
+source-map 位置。0.7.6 以 `IndexedReplacementContract`、Semantic v32、MIR v38 和双目标
+LIR v47 固化 Matlab 稠密 section replacement 的 scalar expansion、线性 numel、非 singleton
+shape 与 runtime dispatch。全冒号 selector 即使面对未知形状函数参数也明确保持目标 shape，不再
+误入 growth 路径；两个目标会先从实际值恢复 selection/replacement shape，完成动态标量或数组分派并
+在任何写入前拒绝不相容替换。一般 NDArray 表示与非全区段跨函数动态 shape 数据流、裸无参数/限定名/外部 command 解析、
 `arguments`、`MException` 构造/`throw`/cause/stack/correction、格式化 `error`、cell/struct/string
 仍不在当前可保持边界。因此文档、版本说明和 CLI
 必须继续使用“已验证子集”的表述。
@@ -231,7 +235,8 @@ P0 完成前，产品定位保持“实验性已验证子集”。以下顺序�
 - [x] 实现动态 `end` 的 axis/linear extent 解析；一般动态 bounds 与跨函数 shape 数据流仍待建设
 - [x] 实现 vector/matrix/N 维单轴 indexed deletion 与多轴自动 growth；支持 scalar/range/numeric selector、vector 线性语义、运行时标量 selector 和间隙默认值；按 Matlab null-assignment 规则，非 vector 线性删除与多个非 colon selector 属于非法源码并以 `MPF2050` 失败关闭，动态函数参数另在双目标 runtime 复核 vector shape
 - [x] 建立 `[]` 的 `0×0` double 语义、静态零 extent array-literal/reshape/transpose/broadcast/section/growth plan 和 JavaScript shape descriptor
-- [ ] 建立可跨函数传播不可结构恢复 shape 的统一动态 NDArray ABI，并完成一般 assignment conformability
+- [x] 以 `IndexedReplacementContract` 完成静态与全冒号动态 section replacement conformability：scalar/单元素数组扩展、线性元素数、非 singleton shape、未知函数参数 runtime dispatch、写入前验证，以及 Semantic v32→MIR v38→双目标 LIR v47 的逐层损坏拒绝
+- [ ] 建立可跨函数传播不可结构恢复 shape 的统一动态 NDArray ABI，并补齐非全区段动态 assignment、stride/layout、owner/view 与 copy-on-write
 - [x] 建立 logical/signed-integer/binary64 class 与 real/complex complexity 的正交可验证表示；complex 仅在 binary64 class 上有效
 - [x] 建立静态 real/logical/complex rank-2 canonical CSC 表示（包含零 extent）、dense/CSC conversion/query/count 与方阵 solve storage contract；`0×0` 系数的左右除按显式 shape ABI 保持 dense/CSC shaped-empty 结果
 - [x] 建立静态 real rank-2 CSC 只读 indexing：linear/subscript scalar、storage-preserving linear/submatrix selection、Matlab shape/orientation、direct CSC、O(nnz) full-colon、零 extent source/result、双目标独立 runtime 与逐层损坏计划拒绝
@@ -302,6 +307,7 @@ P0 完成前，产品定位保持“实验性已验证子集”。以下顺序�
 - [x] 0.7.3 增加第 40 项 Matlab return/command 编译场景，覆盖多函数输出早退、脚本控制区和 command-form lexer/parser，并设置独立 latency/throughput/arena/generated-size 预算
 - [x] 0.7.4 增加独立 Matlab 通用 command 编译场景，覆盖多参数、引号/运算符消歧、`ans` value/discard、分支与多输出首值，并设置独立 latency/throughput/arena/generated-size 预算
 - [x] 0.7.5 增加独立 Matlab exception-control 编译场景，覆盖具名/无名及嵌套 handler，并设置独立 latency/throughput/arena/generated-size 预算
+- [x] 0.7.6 增加独立 Matlab assignment-conformability 编译场景，覆盖 row/column、单元素扩展与重复 section 写入，并设置独立 latency/throughput/arena/generated-size 预算
 - [ ] 性能门禁继续覆盖大 dense array 执行、matrix multiply/section runtime、冷启动和运行时包体积
 - [ ] 发布报告自动生成 Matlab feature manifest、reference 版本、差分 case 数、已知限制和性能变化
 - [ ] P0 全部完成且连续发布门禁稳定后，才评估从“实验性子集”提升产品成熟度标记
@@ -351,8 +357,9 @@ P0 完成前，产品定位保持“实验性已验证子集”。以下顺序�
 - [x] 0.7.3 return/command 第一纵切面：函数/脚本裸 `return`、声明输出 SymbolId、双目标 LIR v43 return form、JavaScript module control plan、碰撞安全 label、`disp`/`display` 单 character-vector command syntax、源码映射、差分、fuzz、性能和计划损坏拒绝完成
 - [x] 0.7.4 command 第二纵切面：独立 scanner、多参数 character vector、引号/运算符空格消歧、`ImplicitResultPolicy`、`ans` 确定赋值、Semantic v30、MIR v36、双目标 LIR v45 value/discard、多输出首值、C++ 重赋值/控制流类型失败关闭、源码映射、差分、fuzz、性能与损坏计划拒绝完成
 - [x] 0.7.5 exception 纵切面：Matlab AST v4/HIR v3、类型化 exception、MIR v37 exceptional edge/region 与 `catch_exception`、双目标 LIR v46 `try_catch`、按需 runtime、`error`/`rethrow`、嵌套、确定赋值、源码映射、差分、fuzz、性能与损坏计划拒绝完成
+- [x] 0.7.6 assignment conformability 第一纵切面：`IndexedReplacementContract` 贯穿 Semantic v32、MIR v38 与双目标 LIR v47，覆盖 row/column singleton 等价、单元素数组扩展、线性 numel、未知参数 runtime dispatch、全冒号保持 shape、事务式拒错、源码映射、差分、fuzz 与性能
 - [ ] P0-A：继续补齐 R2024 裸无参数及限定名/package/class command、外部 path/project 解析、`arguments` block、完整 `MException`/`throw`/格式化 `error`，并为未支持语法提供精确恢复与诊断
-- [ ] P0-B：交付可跨函数携带动态 rank、零 extent、shape、layout 与 value ownership 的统一 NDArray ABI
+- [ ] P0-B：在已交付的 assignment conformability 纵切面上继续交付可跨函数携带动态 rank、零 extent、shape、stride/layout 与 value ownership 的统一 NDArray ABI
 - [ ] P0-C：依次交付 char/string、cell、struct，再扩展 table/datetime 等高频对象语义
 - [ ] P0-D：补齐 workspace、closure、function handle、`nargin`/`nargout`、`varargin`/`varargout`、`global`/`persistent`
 - [ ] P0-E：建立系统 intrinsic catalog、项目依赖图与 toolbox compatibility report
