@@ -266,6 +266,38 @@ std::string matlab_shape_mutation_workload(const std::size_t rounds) {
   return source;
 }
 
+std::string matlab_assignment_conformability_workload(const std::size_t width,
+                                                      const std::size_t rounds) {
+  std::string source = "matrix = [";
+  for (std::size_t row = 0; row < width; ++row) {
+    if (row != 0U) source += "; ";
+    for (std::size_t column = 0; column < width; ++column) {
+      if (column != 0U) source += ' ';
+      source += std::to_string(row * width + column + 1U);
+    }
+  }
+  source += "];\nrow = [";
+  for (std::size_t index = 0; index < width; ++index) {
+    if (index != 0U) source += ' ';
+    source += std::to_string(index + 1U);
+  }
+  source += "];\ncolumn = [";
+  for (std::size_t index = 0; index < width; ++index) {
+    if (index != 0U) source += "; ";
+    source += std::to_string(width - index);
+  }
+  source += "];\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    const auto column_index = round % width + 1U;
+    const auto row_index = (round * 3U) % width + 1U;
+    source += "matrix(:, " + std::to_string(column_index) + ") = row;\n";
+    source += "matrix(" + std::to_string(row_index) + ", :) = column;\n";
+    source += "matrix(:, " + std::to_string((column_index + 1U) % width + 1U) + ") = [1];\n";
+  }
+  source += "disp(matrix(1, 1) + matrix(end, end))\n";
+  return source;
+}
+
 std::string matlab_empty_array_workload(const std::size_t rounds) {
   std::string source;
   for (std::size_t round = 0; round < rounds; ++round) {
@@ -1214,6 +1246,8 @@ int main() {
       {"matlab-dynamic-broadcast", matlab_dynamic_broadcast_workload(32),
        mpf::SourceLanguage::matlab},
       {"matlab-shape-mutation", matlab_shape_mutation_workload(32), mpf::SourceLanguage::matlab},
+      {"matlab-assignment-conformability", matlab_assignment_conformability_workload(24, 32),
+       mpf::SourceLanguage::matlab},
       {"matlab-empty-arrays", matlab_empty_array_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-complex-kernel", matlab_complex_workload(24, 24), mpf::SourceLanguage::matlab},
       {"matlab-complex-matrix-kernel", matlab_complex_matrix_workload(24),
