@@ -294,6 +294,13 @@ if(TARGET mpfc)
     matlab-dynamic-broadcast-mismatch tests/fixtures/matlab_dynamic_broadcast_mismatch.m
     "broadcast sizes are incompatible" matlab)
   mpf_add_generated_runtime_failure_test(
+    matlab-dynamic-assignment-mismatch tests/fixtures/matlab_dynamic_assignment_mismatch.m
+    "section assignment replacement shape mismatch" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-dynamic-linear-assignment-mismatch
+    tests/fixtures/matlab_dynamic_linear_assignment_mismatch.m
+    "linear assignment replacement element count mismatch" matlab)
+  mpf_add_generated_runtime_failure_test(
     matlab-dynamic-linear-delete-matrix tests/fixtures/matlab_dynamic_linear_delete_matrix.m
     "linear indexed deletion requires a row or column vector" matlab)
   mpf_add_generated_runtime_failure_test(
