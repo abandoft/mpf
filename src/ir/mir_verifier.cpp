@@ -1616,6 +1616,53 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
         const auto* target = expression(program, statement.target_expression);
         const auto* target_attributes = attributes(program, statement.target_expression);
         const auto* replacement = expression(program, statement.expression);
+        const auto& replacement_plan = statement_attributes->indexed_replacement;
+        const auto* selection_shape = shape(program, replacement_plan.selection_shape);
+        const auto* replacement_shape = shape(program, replacement_plan.value_shape);
+        const auto* target_shape = target == nullptr ? nullptr : shape(program, target->shape_id);
+        const auto* replacement_expression_shape =
+            replacement == nullptr ? nullptr : shape(program, replacement->shape_id);
+        const bool deletion = mutation.contract.kind == semantic::IndexedMutationKind::erase;
+        const bool expected_replacement =
+            program.source_language == SourceLanguage::matlab &&
+            mutation.contract.kind == semantic::IndexedMutationKind::overwrite &&
+            target != nullptr && target_attributes != nullptr && replacement != nullptr &&
+            std::any_of(target_attributes->index_selectors.begin(),
+                        target_attributes->index_selectors.end(),
+                        semantic::selector_preserves_dimension);
+        const auto expected_replacement_contract =
+            expected_replacement
+                ? semantic::indexed_replacement_contract(
+                      mutation.contract.linear,
+                      value_type(program, replacement->type_id) == ValueType::list,
+                      value_type(program, replacement->type_id) == ValueType::unknown,
+                      target_shape == nullptr ? std::vector<std::size_t>{} : target_shape->extents,
+                      value_type(program, replacement->type_id) == ValueType::list &&
+                              replacement_expression_shape != nullptr
+                          ? replacement_expression_shape->extents
+                          : std::vector<std::size_t>{})
+                : semantic::IndexedReplacementContract{};
+        if (expected_replacement != replacement_plan.valid()) {
+          add_error(diagnostics, {statement.line, 1}, stage,
+                    "indexed replacement identity disagrees with the Matlab section store");
+        } else if (replacement_plan.valid() &&
+                   (!semantic::same_indexed_replacement_contract(replacement_plan.contract,
+                                                                 expected_replacement_contract) ||
+                    selection_shape == nullptr || replacement_shape == nullptr ||
+                    selection_shape->layout != semantic::IndexLayout::column_major ||
+                    replacement_shape->layout != semantic::IndexLayout::column_major ||
+                    target_shape == nullptr || selection_shape->extents != target_shape->extents ||
+                    replacement_expression_shape == nullptr ||
+                    replacement_shape->extents !=
+                        (value_type(program, replacement->type_id) == ValueType::list
+                             ? replacement_expression_shape->extents
+                             : std::vector<std::size_t>{}) ||
+                    !semantic::valid_indexed_replacement_contract(replacement_plan.contract,
+                                                                  selection_shape->extents,
+                                                                  replacement_shape->extents))) {
+          add_error(diagnostics, {statement.line, 1}, stage,
+                    "Matlab indexed replacement has an invalid MIR conformability plan");
+        }
         const auto* sparse_input = shape(program, sparse.input_shape);
         const auto* sparse_selection = shape(program, sparse.selection_shape);
         const auto* sparse_replacement = shape(program, sparse.replacement_shape);
@@ -1627,7 +1674,6 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
           add_error(diagnostics, {statement.line, 1}, stage,
                     "sparse-mutation identity disagrees with the indexed store");
         } else if (sparse.valid()) {
-          const bool deletion = mutation.contract.kind == semantic::IndexedMutationKind::erase;
           const auto expected_kind =
               deletion
                   ? (mutation.contract.linear ? semantic::SparseMutationKind::linear_deletion
@@ -1673,7 +1719,11 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
                     "inactive sparse-mutation plan retains MIR state");
         }
       } else if (mutation.contract.valid() || mutation.input_shape.valid() ||
-                 mutation.result_shape.valid() || statement_attributes->sparse_mutation.valid() ||
+                 mutation.result_shape.valid() ||
+                 statement_attributes->indexed_replacement.valid() ||
+                 statement_attributes->indexed_replacement.selection_shape.valid() ||
+                 statement_attributes->indexed_replacement.value_shape.valid() ||
+                 statement_attributes->sparse_mutation.valid() ||
                  statement_attributes->sparse_mutation.replacement !=
                      semantic::SparseReplacementKind::none ||
                  statement_attributes->sparse_mutation.duplicate_policy !=

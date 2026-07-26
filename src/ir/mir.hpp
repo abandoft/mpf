@@ -496,6 +496,14 @@ struct IndexedMutationPlan {
   ShapeId result_shape{};
 };
 
+struct IndexedReplacementPlan {
+  semantic::IndexedReplacementContract contract;
+  ShapeId selection_shape{};
+  ShapeId value_shape{};
+
+  [[nodiscard]] bool valid() const noexcept { return contract.valid(); }
+};
+
 struct SparseMutationPlan {
   semantic::SparseMutationKind kind{semantic::SparseMutationKind::none};
   semantic::SparseReplacementKind replacement{semantic::SparseReplacementKind::none};
@@ -525,6 +533,7 @@ struct StatementAttributes {
   AssignmentPattern target_pattern;
   std::vector<TargetAttributes> targets;
   IndexedMutationPlan indexed_mutation;
+  IndexedReplacementPlan indexed_replacement;
   SparseMutationPlan sparse_mutation;
 };
 

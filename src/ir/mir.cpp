@@ -213,6 +213,13 @@ class Builder final {
         result_attributes.indexed_mutation.result_shape =
             intern_shape(semantic_facts->mutation_result_shape, column_major);
       }
+      result_attributes.indexed_replacement.contract = semantic_facts->indexed_replacement;
+      if (semantic_facts->indexed_replacement.valid()) {
+        result_attributes.indexed_replacement.selection_shape =
+            intern_shape(semantic_facts->replacement_selection_shape, true);
+        result_attributes.indexed_replacement.value_shape =
+            intern_shape(semantic_facts->replacement_value_shape, true);
+      }
       const auto& sparse = semantic_facts->sparse_mutation;
       result_attributes.sparse_mutation.kind = sparse.kind;
       result_attributes.sparse_mutation.replacement = sparse.replacement;
