@@ -1662,6 +1662,9 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
       result.indexed_mutation = statement.indexed_mutation;
       result.mutation_input_shape = statement.mutation_input_shape;
       result.mutation_result_shape = statement.mutation_result_shape;
+      result.indexed_replacement = statement.indexed_replacement;
+      result.replacement_selection_shape = statement.replacement_selection_shape;
+      result.replacement_value_shape = statement.replacement_value_shape;
       result.sparse_mutation = statement.sparse_mutation;
       if (result.sparse_mutation.valid()) {
         result.mutation_ownership = lir::MutationOwnership::replace_with_result;
@@ -1806,6 +1809,10 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
       left.indexed_mutation.axis != right.indexed_mutation.axis ||
       left.mutation_input_shape != right.mutation_input_shape ||
       left.mutation_result_shape != right.mutation_result_shape ||
+      left.indexed_replacement.conformability != right.indexed_replacement.conformability ||
+      left.indexed_replacement.shape_source != right.indexed_replacement.shape_source ||
+      left.replacement_selection_shape != right.replacement_selection_shape ||
+      left.replacement_value_shape != right.replacement_value_shape ||
       left.sparse_mutation.kind != right.sparse_mutation.kind ||
       left.sparse_mutation.replacement != right.sparse_mutation.replacement ||
       left.sparse_mutation.duplicate_policy != right.sparse_mutation.duplicate_policy ||
@@ -1939,6 +1946,37 @@ void verify_statements(const std::vector<lir::Statement>& statements,
         add_error(diagnostics, {statement.line, 1},
                   "JavaScript LIR indexed mutation contract is inconsistent");
       }
+      const bool expected_replacement =
+          source_language == SourceLanguage::matlab &&
+          statement.indexed_mutation.kind == semantic::IndexedMutationKind::overwrite &&
+          std::any_of(statement.target_expression.index_selectors.begin(),
+                      statement.target_expression.index_selectors.end(),
+                      semantic::selector_preserves_dimension);
+      const auto replacement_contract =
+          expected_replacement ? semantic::indexed_replacement_contract(
+                                     statement.indexed_mutation.linear,
+                                     statement.expression.inferred_type == ValueType::list,
+                                     statement.expression.inferred_type == ValueType::unknown,
+                                     statement.target_expression.shape,
+                                     statement.expression.inferred_type == ValueType::list
+                                         ? statement.expression.shape
+                                         : std::vector<std::size_t>{})
+                               : semantic::IndexedReplacementContract{};
+      if (expected_replacement != statement.indexed_replacement.valid() ||
+          (statement.indexed_replacement.valid() &&
+           (!semantic::same_indexed_replacement_contract(statement.indexed_replacement,
+                                                         replacement_contract) ||
+            statement.replacement_selection_shape != statement.target_expression.shape ||
+            statement.replacement_value_shape !=
+                (statement.expression.inferred_type == ValueType::list
+                     ? statement.expression.shape
+                     : std::vector<std::size_t>{}) ||
+            !semantic::valid_indexed_replacement_contract(statement.indexed_replacement,
+                                                          statement.replacement_selection_shape,
+                                                          statement.replacement_value_shape)))) {
+        add_error(diagnostics, {statement.line, 1},
+                  "JavaScript LIR indexed replacement contract is inconsistent");
+      }
       const auto& sparse = statement.sparse_mutation;
       const bool expected_sparse = statement.target_expression.sparse_index.valid();
       if (expected_sparse != sparse.valid()) {
@@ -1983,7 +2021,9 @@ void verify_statements(const std::vector<lir::Statement>& statements,
                   "JavaScript LIR inactive sparse mutation retains state");
       }
     } else if (statement.indexed_mutation.valid() || !statement.mutation_input_shape.empty() ||
-               !statement.mutation_result_shape.empty() || statement.sparse_mutation.valid() ||
+               !statement.mutation_result_shape.empty() || statement.indexed_replacement.valid() ||
+               !statement.replacement_selection_shape.empty() ||
+               !statement.replacement_value_shape.empty() || statement.sparse_mutation.valid() ||
                statement.sparse_mutation.replacement != semantic::SparseReplacementKind::none ||
                statement.sparse_mutation.duplicate_policy !=
                    semantic::SparseDuplicateWritePolicy::none ||
