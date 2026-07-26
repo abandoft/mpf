@@ -2449,12 +2449,44 @@ TEST_CASE("Matlab and Fortran section assignment support block vector and scalar
     REQUIRE(javascript.success());
     REQUIRE(cpp.success());
     REQUIRE(javascript.code.find("__mpf_set_section") != std::string::npos);
-    REQUIRE(cpp.code.find("mpf_runtime::assign_block(matrix") != std::string::npos);
-    REQUIRE(cpp.code.find("mpf_runtime::assign_column(matrix") != std::string::npos);
     if (language == mpf::SourceLanguage::matlab) {
-      REQUIRE(cpp.code.find("mpf_runtime::assign_linear_section_column_major(matrix") !=
-              std::string::npos);
+      REQUIRE(javascript.code.find("__mpf_matlab_assign_section(matrix") != std::string::npos);
+      REQUIRE(cpp.code.find("mpf_runtime::matlab_assign_section(matrix") != std::string::npos);
+      for (std::size_t line = 2U; line <= 6U; ++line) {
+        REQUIRE(std::any_of(javascript.source_map.segments.begin(),
+                            javascript.source_map.segments.end(),
+                            [line](const auto& segment) { return segment.original_line == line; }));
+        REQUIRE(std::any_of(cpp.source_map.segments.begin(), cpp.source_map.segments.end(),
+                            [line](const auto& segment) { return segment.original_line == line; }));
+      }
+    } else {
+      REQUIRE(cpp.code.find("mpf_runtime::assign_block(matrix") != std::string::npos);
+      REQUIRE(cpp.code.find("mpf_runtime::assign_column(matrix") != std::string::npos);
     }
+  }
+}
+
+TEST_CASE("Matlab dynamic indexed replacement selects a runtime conformability contract") {
+  const std::string source =
+      "matrix = [1 2; 3 4];\n"
+      "replacement = [5 6; 7 8];\n"
+      "result = replace_all(matrix, replacement);\n"
+      "function result = replace_all(input, replacement)\n"
+      "  input(:, :) = replacement;\n"
+      "  result = input;\n"
+      "end\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("__mpf_matlab_assign_section(input") != std::string::npos);
+  REQUIRE(javascript.code.find(", false, 4);") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_assign_section(input") != std::string::npos);
+  REQUIRE(cpp.code.find(", false, 4);") != std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 5U; }));
   }
 }
 
