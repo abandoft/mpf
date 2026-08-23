@@ -62,15 +62,28 @@ int probe_matlab(const std::string_view source) noexcept {
 
 constexpr std::string_view extensions[]{".m"};
 constexpr SourceIntrinsicBinding intrinsic_bindings[]{
-    {"all", IntrinsicId::logical_all},           {"any", IntrinsicId::logical_any},
-    {"complex", IntrinsicId::complex_value},     {"conj", IntrinsicId::conjugate},
-    {"error", IntrinsicId::matlab_error},        {"full", IntrinsicId::matlab_full},
-    {"i", IntrinsicId::imaginary_unit},          {"imag", IntrinsicId::imaginary_part},
-    {"issparse", IntrinsicId::matlab_is_sparse}, {"j", IntrinsicId::imaginary_unit},
-    {"length", IntrinsicId::matlab_length},      {"nnz", IntrinsicId::matlab_nonzero_count},
-    {"numel", IntrinsicId::element_count},       {"real", IntrinsicId::real_part},
-    {"reshape", IntrinsicId::reshape},           {"rethrow", IntrinsicId::matlab_rethrow},
-    {"sparse", IntrinsicId::matlab_sparse}};
+    {"MException", IntrinsicId::matlab_exception},
+    {"addCause", IntrinsicId::matlab_add_cause},
+    {"all", IntrinsicId::logical_all},
+    {"any", IntrinsicId::logical_any},
+    {"complex", IntrinsicId::complex_value},
+    {"conj", IntrinsicId::conjugate},
+    {"error", IntrinsicId::matlab_error},
+    {"full", IntrinsicId::matlab_full},
+    {"getReport", IntrinsicId::matlab_get_report},
+    {"i", IntrinsicId::imaginary_unit},
+    {"imag", IntrinsicId::imaginary_part},
+    {"issparse", IntrinsicId::matlab_is_sparse},
+    {"j", IntrinsicId::imaginary_unit},
+    {"length", IntrinsicId::matlab_length},
+    {"nnz", IntrinsicId::matlab_nonzero_count},
+    {"numel", IntrinsicId::element_count},
+    {"real", IntrinsicId::real_part},
+    {"reshape", IntrinsicId::reshape},
+    {"rethrow", IntrinsicId::matlab_rethrow},
+    {"sparse", IntrinsicId::matlab_sparse},
+    {"throw", IntrinsicId::matlab_throw},
+    {"throwAsCaller", IntrinsicId::matlab_throw_as_caller}};
 constexpr FrontendFeatureSet features{
     static_cast<std::uint64_t>(FrontendFeature::language_versioning) |
     static_cast<std::uint64_t>(FrontendFeature::structured_control_flow) |
