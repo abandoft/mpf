@@ -298,6 +298,45 @@ std::string matlab_assignment_conformability_workload(const std::size_t width,
   return source;
 }
 
+std::string matlab_dynamic_section_assignment_workload(const std::size_t rounds) {
+  std::string source =
+      "matrix = [1 2; 3 4];\n"
+      "cube = reshape([1 2 3 4 5 6 7 8], 2, 2, 2);\n";
+  for (std::size_t round = 0; round < rounds; ++round) {
+    const auto suffix = std::to_string(round);
+    source += "overwritten_" + suffix + " = replace_column(matrix, 2, [8; 9]);\n";
+    source += "grown_" + suffix + " = replace_column(matrix, 3, [5; 6]);\n";
+    source += "spread_" + suffix + " = replace_column(matrix, [2 4], [5 7; 6 8]);\n";
+    source += "masked_" + suffix + " = replace_column(matrix, [true false], [15; 16]);\n";
+    source += "ranged_" + suffix + " = replace_range(matrix, 2, 4, [9 11 13; 10 12 14]);\n";
+    source += "cube_" + suffix + " = replace_page(cube, 3, [9 11; 10 12]);\n";
+    source += "guarded_" + suffix + " = reject_column(matrix, 3, [1 2 3]);\n";
+  }
+  source +=
+      "disp(overwritten_0(1, 2) + grown_0(2, 3) + spread_0(1, 4) + "
+      "masked_0(2, 1) + ranged_0(2, 4) + cube_0(2, 2, 3) + guarded_0(2, 2))\n"
+      "function result = replace_column(input, column, replacement)\n"
+      "input(:, column) = replacement;\n"
+      "result = input;\n"
+      "end\n"
+      "function result = reject_column(input, column, replacement)\n"
+      "try\n"
+      "input(:, column) = replacement;\n"
+      "catch\n"
+      "end\n"
+      "result = input;\n"
+      "end\n"
+      "function result = replace_range(input, first, last, replacement)\n"
+      "input(:, first:last) = replacement;\n"
+      "result = input;\n"
+      "end\n"
+      "function result = replace_page(input, page, replacement)\n"
+      "input(:, :, page) = replacement;\n"
+      "result = input;\n"
+      "end\n";
+  return source;
+}
+
 std::string matlab_empty_array_workload(const std::size_t rounds) {
   std::string source;
   for (std::size_t round = 0; round < rounds; ++round) {
@@ -1247,6 +1286,8 @@ int main() {
        mpf::SourceLanguage::matlab},
       {"matlab-shape-mutation", matlab_shape_mutation_workload(32), mpf::SourceLanguage::matlab},
       {"matlab-assignment-conformability", matlab_assignment_conformability_workload(24, 32),
+       mpf::SourceLanguage::matlab},
+      {"matlab-dynamic-section-assignment", matlab_dynamic_section_assignment_workload(32),
        mpf::SourceLanguage::matlab},
       {"matlab-empty-arrays", matlab_empty_array_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-complex-kernel", matlab_complex_workload(24, 24), mpf::SourceLanguage::matlab},
