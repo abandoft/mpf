@@ -56,6 +56,23 @@ void dump_representation_details(std::ostream& output, const Plan& plan, int) {
 template <typename Plan>
 void dump_representation_details(std::ostream&, const Plan&, long) {}
 
+template <typename Plan>
+using TargetArgumentDefaultDetails =
+    decltype(std::declval<const Plan&>().argument_defaults, void());
+
+template <typename Plan, TargetArgumentDefaultDetails<Plan>* = nullptr>
+void dump_argument_default_details(std::ostream& output, const Plan& plan, int) {
+  output << " argument-defaults [";
+  for (std::size_t index = 0U; index < plan.argument_defaults.size(); ++index) {
+    if (index != 0U) output << ',';
+    output << static_cast<int>(plan.argument_defaults[index]);
+  }
+  output << ']';
+}
+
+template <typename Plan>
+void dump_argument_default_details(std::ostream&, const Plan&, long) {}
+
 template <typename Expression>
 void dump_target_expression(std::ostream& output, const Expression& expression,
                             const std::size_t depth) {
@@ -367,6 +384,26 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     }
     output << ']';
   }
+  if (!expression.argument_boundaries.empty()) {
+    output << " argument-boundaries [";
+    for (std::size_t index = 0; index < expression.argument_boundaries.size(); ++index) {
+      if (index != 0U) output << ',';
+      const auto& boundary = expression.argument_boundaries[index];
+      output << '{' << static_cast<int>(boundary.conversion) << ':'
+             << static_cast<int>(boundary.class_constraint) << ":rank=" << boundary.validated_rank
+             << ":dims=";
+      if (!boundary.dimensions_declared) output << '-';
+      for (std::size_t axis = 0U; axis < boundary.dimensions.size(); ++axis) {
+        if (axis != 0U) output << '/';
+        if (boundary.dimensions[axis].any)
+          output << ':';
+        else
+          output << boundary.dimensions[axis].extent;
+      }
+      output << '}';
+    }
+    output << ']';
+  }
   output << '\n';
   for (const auto& child : expression.children) {
     dump_target_expression(output, child, depth + 1U);
@@ -429,7 +466,31 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
            << statement.plan.targets.size() << " assignment-leaves "
            << statement.plan.assignment_leaves.size() << " selectors "
            << statement.plan.selectors.size() << " returns " << statement.plan.return_names.size()
-           << " exception-handler-line " << statement.exception_handler_line << '\n';
+           << " exception-handler-line " << statement.exception_handler_line;
+    dump_argument_default_details(output, statement.plan, 0);
+    output << " argument-validations [";
+    for (std::size_t validation = 0U; validation < statement.argument_validations.size();
+         ++validation) {
+      if (validation != 0U) output << ',';
+      const auto& plan = statement.argument_validations[validation];
+      output << '{' << static_cast<int>(plan.direction) << ':' << plan.ordinal << ':'
+             << static_cast<int>(plan.class_constraint) << ":dims=";
+      if (!plan.dimensions_declared) output << '-';
+      for (std::size_t axis = 0U; axis < plan.dimensions.size(); ++axis) {
+        if (axis != 0U) output << '/';
+        if (plan.dimensions[axis].any)
+          output << ':';
+        else
+          output << plan.dimensions[axis].extent;
+      }
+      output << ":validators=";
+      for (std::size_t validator = 0U; validator < plan.validators.size(); ++validator) {
+        if (validator != 0U) output << '/';
+        output << static_cast<int>(plan.validators[validator]);
+      }
+      output << ":default=" << plan.has_default << ":rank=" << plan.validated_rank << '}';
+    }
+    output << "]\n";
     dump_target_expression(output, statement.expression, depth + 1U);
     dump_target_expression(output, statement.secondary_expression, depth + 1U);
     dump_target_expression(output, statement.tertiary_expression, depth + 1U);
@@ -449,7 +510,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v49 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v51 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";
