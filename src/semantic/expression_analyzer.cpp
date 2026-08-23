@@ -401,6 +401,7 @@ std::size_t sparse_selector_count(const Expression& selector, const hir::Express
     case semantic::IndexSelectorKind::slice:
     case semantic::IndexSelectorKind::numeric:
       return static_element_count(facts.shape).value_or(dynamic_extent);
+    case semantic::IndexSelectorKind::runtime: return dynamic_extent;
   }
   return dynamic_extent;
 }
@@ -494,6 +495,7 @@ std::optional<std::size_t> selector_erased_count(const Expression& selector,
       values.erase(std::unique(values.begin(), values.end()), values.end());
       return values.size();
     }
+    case semantic::IndexSelectorKind::runtime: return std::nullopt;
   }
   return std::nullopt;
 }
@@ -2940,6 +2942,20 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
     }
     const auto index_type = analyze_expression(index);
     const auto& index_facts = semantic(semantics_, index);
+    if (program_.language == SourceLanguage::matlab && allow_matlab_growth &&
+        index_type == ValueType::unknown) {
+      has_expanding_selector = true;
+      exact_region = false;
+      index_selectors.push_back(semantic::IndexSelectorKind::runtime);
+      result_shape.push_back(dynamic_extent);
+      if (sparse_source) {
+        diagnose(index.location.line, "MPF2054",
+                 "sparse indexing requires a statically typed scalar, numeric, logical, or "
+                 "empty selector");
+        invalid_sparse_selector = true;
+      }
+      continue;
+    }
     if (program_.language == SourceLanguage::matlab && index_type == ValueType::list) {
       has_expanding_selector = true;
       exact_region = false;
@@ -3281,7 +3297,8 @@ void Analyzer::analyze_indexed_mutation(Statement& statement, const ValueType va
   }
 
   if (!may_grow) return;
-  contract.kind = semantic::IndexedMutationKind::grow;
+  contract.kind = runtime_shape ? semantic::IndexedMutationKind::overwrite_or_grow
+                                : semantic::IndexedMutationKind::grow;
   contract.shape_source = runtime_shape ? semantic::IndexedMutationShapeSource::runtime_selectors
                                         : semantic::IndexedMutationShapeSource::static_extents;
   if (runtime_shape) {
@@ -3387,7 +3404,7 @@ void Analyzer::analyze_section_assignment(Statement& statement, const ValueType 
   }
 
   if (program_.language == SourceLanguage::matlab &&
-      statement_facts.indexed_mutation.kind == semantic::IndexedMutationKind::overwrite) {
+      semantic::indexed_mutation_accepts_replacement(statement_facts.indexed_mutation.kind)) {
     statement_facts.replacement_selection_shape = target_facts.shape;
     statement_facts.replacement_value_shape =
         replacement_is_list ? replacement_facts.shape : std::vector<std::size_t>{};

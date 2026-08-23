@@ -1599,6 +1599,24 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
       }
       const auto& mutation = statement_attributes->indexed_mutation;
       if (statement.kind == StatementKind::indexed_assignment) {
+        const auto* target = expression(program, statement.target_expression);
+        const auto* target_attributes = attributes(program, statement.target_expression);
+        if (program.source_language == SourceLanguage::matlab && target != nullptr &&
+            target_attributes != nullptr && target->kind == ExpressionKind::index &&
+            target_attributes->index_selectors.size() + 1U == target->children.size()) {
+          for (std::size_t selector = 0U; selector < target_attributes->index_selectors.size();
+               ++selector) {
+            const auto* selector_expression = expression(program, target->children[selector + 1U]);
+            if (selector_expression != nullptr &&
+                value_type(program, selector_expression->type_id) == ValueType::unknown &&
+                target_attributes->index_selectors[selector] !=
+                    semantic::IndexSelectorKind::runtime) {
+              add_error(diagnostics, {statement.line, 1}, stage,
+                        "Matlab indexed assignment has an invalid runtime selector plan");
+              break;
+            }
+          }
+        }
         const auto* input_shape = shape(program, mutation.input_shape);
         const auto* result_shape = shape(program, mutation.result_shape);
         if (!mutation.contract.valid() || input_shape == nullptr || result_shape == nullptr ||
@@ -1613,8 +1631,6 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
                     "indexed assignment has an invalid shape-mutation plan");
         }
         const auto& sparse = statement_attributes->sparse_mutation;
-        const auto* target = expression(program, statement.target_expression);
-        const auto* target_attributes = attributes(program, statement.target_expression);
         const auto* replacement = expression(program, statement.expression);
         const auto& replacement_plan = statement_attributes->indexed_replacement;
         const auto* selection_shape = shape(program, replacement_plan.selection_shape);
@@ -1625,7 +1641,7 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
         const bool deletion = mutation.contract.kind == semantic::IndexedMutationKind::erase;
         const bool expected_replacement =
             program.source_language == SourceLanguage::matlab &&
-            mutation.contract.kind == semantic::IndexedMutationKind::overwrite &&
+            semantic::indexed_mutation_accepts_replacement(mutation.contract.kind) &&
             target != nullptr && target_attributes != nullptr && replacement != nullptr &&
             std::any_of(target_attributes->index_selectors.begin(),
                         target_attributes->index_selectors.end(),

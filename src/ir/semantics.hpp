@@ -760,7 +760,7 @@ template <typename Shape>
 }
 // Per-subscript execution contract. Keeping selector identity explicit avoids deriving Matlab
 // indexing semantics again in each target backend.
-enum class IndexSelectorKind : std::uint8_t { scalar, slice, numeric, logical, empty };
+enum class IndexSelectorKind : std::uint8_t { scalar, slice, numeric, logical, empty, runtime };
 
 // Runtime source for Matlab's contextual `end` value. An axis extent is resolved against the
 // current selector dimension; a linear extent is resolved against the column-major element count.
@@ -769,7 +769,14 @@ enum class IndexExtentSource : std::uint8_t { none, runtime_axis, runtime_linear
 // Analyzer-owned contract for a write through an index expression. Shape-changing writes are
 // represented explicitly so MIR, target LIRs, and emitters never have to rediscover source
 // language mutation semantics from syntax.
-enum class IndexedMutationKind : std::uint8_t { none, overwrite, resize, grow, erase };
+enum class IndexedMutationKind : std::uint8_t {
+  none,
+  overwrite,
+  resize,
+  grow,
+  erase,
+  overwrite_or_grow
+};
 enum class IndexedMutationShapeSource : std::uint8_t {
   preserve,
   static_extents,
@@ -785,9 +792,15 @@ struct IndexedMutationContract {
   [[nodiscard]] constexpr bool valid() const noexcept { return kind != IndexedMutationKind::none; }
   [[nodiscard]] constexpr bool changes_shape() const noexcept {
     return kind == IndexedMutationKind::resize || kind == IndexedMutationKind::grow ||
-           kind == IndexedMutationKind::erase;
+           kind == IndexedMutationKind::erase || kind == IndexedMutationKind::overwrite_or_grow;
   }
 };
+
+[[nodiscard]] constexpr bool indexed_mutation_accepts_replacement(
+    const IndexedMutationKind kind) noexcept {
+  return kind == IndexedMutationKind::overwrite || kind == IndexedMutationKind::grow ||
+         kind == IndexedMutationKind::overwrite_or_grow;
+}
 
 // Matlab indexed replacement compatibility is independent from whether the target storage grows.
 // The analyzer decides the source-language rule once; MIR and target LIRs carry it without
@@ -916,10 +929,23 @@ template <typename Extents>
   if (contract.kind == IndexedMutationKind::resize) {
     return contract.shape_source == IndexedMutationShapeSource::runtime_selectors;
   }
+  if (contract.kind == IndexedMutationKind::overwrite_or_grow) {
+    if (contract.shape_source != IndexedMutationShapeSource::runtime_selectors) return false;
+    bool runtime_shape = false;
+    for (std::size_t axis = 0; axis < input.size(); ++axis) {
+      runtime_shape = runtime_shape || input[axis] == dynamic || result[axis] == dynamic;
+      if (input[axis] != dynamic && result[axis] != dynamic && result[axis] < input[axis]) {
+        return false;
+      }
+    }
+    return runtime_shape;
+  }
   if (contract.shape_source == IndexedMutationShapeSource::preserve) return false;
   if (contract.kind == IndexedMutationKind::grow) {
-    bool changed = contract.shape_source == IndexedMutationShapeSource::runtime_selectors;
+    if (contract.shape_source != IndexedMutationShapeSource::static_extents) return false;
+    bool changed = false;
     for (std::size_t axis = 0; axis < input.size(); ++axis) {
+      if (input[axis] == dynamic || result[axis] == dynamic) return false;
       if (input[axis] != dynamic && result[axis] != dynamic && result[axis] < input[axis]) {
         return false;
       }

@@ -111,7 +111,8 @@ std::optional<semantic::IndexSelectorKind> expected_index_selector(
     const Expression& selector, const SemanticTable& table) noexcept {
   if (selector.kind == ExpressionKind::slice) return semantic::IndexSelectorKind::slice;
   const auto* facts = table.expression(selector.id);
-  if (facts == nullptr || facts->inferred_type == ValueType::unknown) return std::nullopt;
+  if (facts == nullptr) return std::nullopt;
+  if (facts->inferred_type == ValueType::unknown) return std::nullopt;
   if (facts->inferred_type != ValueType::list) return semantic::IndexSelectorKind::scalar;
   if (std::find(facts->shape.begin(), facts->shape.end(), 0U) != facts->shape.end()) {
     return semantic::IndexSelectorKind::empty;
@@ -1043,6 +1044,23 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
                 "assignment target semantic arity disagrees with HIR");
     }
     if (statement.kind == StatementKind::indexed_assignment) {
+      const auto* target_facts = table.expression(statement.target_expression.id);
+      if (source_language == SourceLanguage::matlab && target_facts != nullptr &&
+          statement.target_expression.kind == ExpressionKind::index &&
+          target_facts->index_selectors.size() + 1U ==
+              statement.target_expression.children.size()) {
+        for (std::size_t selector = 0U; selector < target_facts->index_selectors.size();
+             ++selector) {
+          const auto* selector_facts =
+              table.expression(statement.target_expression.children[selector + 1U].id);
+          if (selector_facts != nullptr && selector_facts->inferred_type == ValueType::unknown &&
+              target_facts->index_selectors[selector] != semantic::IndexSelectorKind::runtime) {
+            add_error(diagnostics, {statement.line, 1}, stage,
+                      "Matlab indexed assignment has an invalid runtime selector contract");
+            break;
+          }
+        }
+      }
       if (facts->indexed_mutation.valid() &&
           (facts->mutation_input_shape.empty() || facts->mutation_result_shape.empty() ||
            facts->mutation_input_shape.size() != facts->mutation_result_shape.size() ||
@@ -1081,7 +1099,7 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
         const bool deletion = facts->indexed_mutation.kind == semantic::IndexedMutationKind::erase;
         const bool expected_replacement_contract =
             source_language == SourceLanguage::matlab &&
-            facts->indexed_mutation.kind == semantic::IndexedMutationKind::overwrite &&
+            semantic::indexed_mutation_accepts_replacement(facts->indexed_mutation.kind) &&
             target != nullptr && replacement != nullptr &&
             std::any_of(target->index_selectors.begin(), target->index_selectors.end(),
                         semantic::selector_preserves_dimension);
