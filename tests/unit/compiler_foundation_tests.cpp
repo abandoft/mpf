@@ -60,6 +60,16 @@ const mpf::detail::python::ast::Expression& python_expression(
   return program.expressions[record.index];
 }
 
+const mpf::detail::matlab::ast::Statement& matlab_statement(
+    const mpf::detail::matlab::ast::Program& program, const mpf::detail::AstNodeId id) {
+  REQUIRE(id.valid());
+  REQUIRE(id.value() < program.records.size());
+  const auto& record = program.records[id.value()];
+  REQUIRE(record.kind == mpf::detail::AstNodeKind::statement);
+  REQUIRE(record.index < program.statements.size());
+  return program.statements[record.index];
+}
+
 }  // namespace
 
 TEST_CASE("numeric side-table contracts distinguish dynamic scalars from nonnumeric values") {
@@ -481,6 +491,50 @@ TEST_CASE("Matlab command scanner diagnoses unterminated quoted arguments") {
   REQUIRE(!result.lines.front().command->terminated);
   REQUIRE(result.diagnostics.size() == 1U);
   REQUIRE(result.diagnostics.front().code == "MPF1701");
+}
+
+TEST_CASE("Matlab arguments blocks build language-owned declarations and defaults") {
+  const mpf::detail::SourceText source(
+      "function output = scale(values, factor)\n"
+      "arguments (Input)\n"
+      "values (1,:) double {mustBeNumeric, mustBeFinite}\n"
+      "factor (1,1) double {mustBePositive} = 2\n"
+      "end\n"
+      "arguments (Output)\n"
+      "output (1,:) double {mustBeFinite}\n"
+      "end\n"
+      "output = values .* factor\n"
+      "end\n",
+      "arguments.m");
+  auto parsed = mpf::detail::parse_with_frontend(mpf::detail::matlab_frontend(), source);
+  REQUIRE(parsed.diagnostics.empty());
+  const auto* program = std::get_if<mpf::detail::matlab::ast::Program>(&parsed.ast);
+  REQUIRE(program != nullptr);
+  REQUIRE(program->roots.size() == 1U);
+  const auto& function = matlab_statement(*program, program->roots.front());
+  REQUIRE(function.kind == mpf::detail::StatementKind::function);
+  REQUIRE(function.argument_declarations.size() == 3U);
+  REQUIRE(function.parameter_defaults.size() == 2U);
+
+  const auto& values = function.argument_declarations[0];
+  REQUIRE(values.name == "values");
+  REQUIRE(values.direction == mpf::detail::ArgumentDirection::input);
+  REQUIRE(values.dimensions_declared);
+  REQUIRE(values.dimensions.size() == 2U);
+  REQUIRE(!values.dimensions[0].any);
+  REQUIRE(values.dimensions[0].extent == 1U);
+  REQUIRE(values.dimensions[1].any);
+  REQUIRE(values.class_constraint == mpf::detail::ArgumentClassConstraint::matlab_double);
+  REQUIRE((values.validators == std::vector{mpf::detail::ArgumentValidator::numeric,
+                                            mpf::detail::ArgumentValidator::finite}));
+
+  const auto& factor = function.argument_declarations[1];
+  REQUIRE(factor.has_default);
+  REQUIRE(function.parameter_defaults[1].valid());
+  const auto& output = function.argument_declarations[2];
+  REQUIRE(output.direction == mpf::detail::ArgumentDirection::output);
+  REQUIRE(!output.has_default);
+  REQUIRE(mpf::detail::matlab_frontend().verify(parsed.ast).empty());
 }
 
 TEST_CASE("Fortran statement lexer preserves declarations delimiters and contextual names") {

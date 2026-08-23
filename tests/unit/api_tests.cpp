@@ -92,6 +92,74 @@ TEST_CASE("language versions round-trip and gate version-specific syntax") {
   result = mpf::Transpiler{}.transpile("const answer: number = 42;\n", options);
   REQUIRE(!result.success());
   REQUIRE(result.diagnostics.front().code == "MPF1201");
+
+  const std::string matlab_input_arguments =
+      "function output = identity(input)\n"
+      "arguments\n"
+      "input (1,1) double\n"
+      "end\n"
+      "output = input\n"
+      "end\n";
+  options.language = mpf::SourceLanguage::matlab;
+  options.language_version = {2019, 1};
+  result = mpf::Transpiler{}.transpile(matlab_input_arguments, options);
+  REQUIRE(!result.success());
+  REQUIRE(
+      std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+                  [](const mpf::Diagnostic& diagnostic) { return diagnostic.code == "MPF1201"; }));
+  options.language_version = {2019, 2};
+  REQUIRE(mpf::Transpiler{}.transpile(matlab_input_arguments, options).success());
+
+  const std::string matlab_output_arguments =
+      "function output = identity(input)\n"
+      "arguments (Input)\n"
+      "input (1,1) double\n"
+      "end\n"
+      "arguments (Output)\n"
+      "output (1,1) double\n"
+      "end\n"
+      "output = input\n"
+      "end\n";
+  options.language_version = {2022, 1};
+  result = mpf::Transpiler{}.transpile(matlab_output_arguments, options);
+  REQUIRE(!result.success());
+  REQUIRE(
+      std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+                  [](const mpf::Diagnostic& diagnostic) { return diagnostic.code == "MPF1201"; }));
+  options.language_version = {2022, 2};
+  REQUIRE(mpf::Transpiler{}.transpile(matlab_output_arguments, options).success());
+
+  const std::string matlab_r2020b_validator =
+      "function output = identity(input)\n"
+      "arguments\n"
+      "input (1,:) double {mustBeVector}\n"
+      "end\n"
+      "output = input\n"
+      "end\n";
+  options.language_version = {2020, 1};
+  result = mpf::Transpiler{}.transpile(matlab_r2020b_validator, options);
+  REQUIRE(!result.success());
+  REQUIRE(
+      std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+                  [](const mpf::Diagnostic& diagnostic) { return diagnostic.code == "MPF1201"; }));
+  options.language_version = {2020, 2};
+  REQUIRE(mpf::Transpiler{}.transpile(matlab_r2020b_validator, options).success());
+
+  const std::string matlab_r2024b_validator =
+      "function output = identity(input)\n"
+      "arguments\n"
+      "input (1,:) double {mustBeRow}\n"
+      "end\n"
+      "output = input\n"
+      "end\n";
+  options.language_version = {2024, 1};
+  result = mpf::Transpiler{}.transpile(matlab_r2024b_validator, options);
+  REQUIRE(!result.success());
+  REQUIRE(
+      std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+                  [](const mpf::Diagnostic& diagnostic) { return diagnostic.code == "MPF1201"; }));
+  options.language_version = {2024, 2};
+  REQUIRE(mpf::Transpiler{}.transpile(matlab_r2024b_validator, options).success());
 }
 
 TEST_CASE("filename extension selects the frontend") {
