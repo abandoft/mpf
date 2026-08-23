@@ -263,6 +263,11 @@ void analyze_statements(const mir::Program& program, const std::vector<MirStatem
     if (statement.kind == StatementKind::try_statement) {
       result.runtime.require(lir::RuntimeFeature::exception_handling);
     }
+    if (!statement.argument_validations.empty()) {
+      result.runtime.require(lir::RuntimeFeature::argument_validation);
+      result.runtime.require(lir::RuntimeFeature::arrays);
+      result.runtime.require(lir::RuntimeFeature::complex_numbers);
+    }
     if ((statement.kind == StatementKind::if_statement ||
          statement.kind == StatementKind::while_loop) &&
         result.source_semantics.truthiness == mpf::detail::semantic::Truthiness::dynamic) {
@@ -394,13 +399,28 @@ void verify_expression(const lir::Expression& expression, const std::size_t node
     add_error(diagnostics, expression.location,
               "JavaScript LIR call has an invalid argument transfer plan");
   }
+  if (expression.argument_boundaries.size() != expression.argument_transfers.size()) {
+    add_error(diagnostics, expression.location,
+              "JavaScript LIR call has an invalid boundary-conversion plan");
+  }
   for (std::size_t index = 0; index < expression.argument_transfers.size(); ++index) {
     const auto transfer = expression.argument_transfers[index];
+    const auto boundary = index < expression.argument_boundaries.size()
+                              ? expression.argument_boundaries[index]
+                              : ArgumentCallBoundary{};
     const auto& argument = expression.children[index + 1U];
     if ((transfer == ArgumentTransfer::omitted) !=
         (argument.kind == ExpressionKind::omitted_argument)) {
       add_error(diagnostics, expression.location,
                 "JavaScript LIR omitted argument disagrees with its transfer plan");
+    }
+    if (!valid_argument_call_boundary(boundary)) {
+      add_error(diagnostics, expression.location,
+                "JavaScript LIR call has a malformed boundary-conversion plan");
+    }
+    if (transfer == ArgumentTransfer::omitted && !(boundary == ArgumentCallBoundary{})) {
+      add_error(diagnostics, expression.location,
+                "JavaScript LIR omitted argument retains a boundary conversion");
     }
     if (argument_transfer_copies(transfer) && !contains_slice(argument)) {
       add_error(diagnostics, expression.location,

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <ostream>
 
+#include "argument_validation_runtime.hpp"
 #include "complex_matrix_runtime.hpp"
 #include "complex_sparse_runtime.hpp"
 #include "exception_runtime.hpp"
@@ -62,6 +63,9 @@ class RuntimeEmitter final {
           break;
         case javascript::lir::RuntimeFragment::exception_handling:
           emit_javascript_exception_runtime(output_);
+          break;
+        case javascript::lir::RuntimeFragment::argument_validation:
+          emit_javascript_argument_validation_runtime(output_);
           break;
       }
     }

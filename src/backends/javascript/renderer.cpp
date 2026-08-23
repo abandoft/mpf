@@ -1,5 +1,6 @@
 #include "renderer.hpp"
 
+#include <iomanip>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -89,6 +90,73 @@ class Renderer final {
         output_ << shape[axis];
     }
     output_ << ']';
+  }
+
+  void emit_argument_dimensions(const ArgumentValidationPlan& plan) {
+    output_ << '[';
+    for (std::size_t axis = 0U; axis < plan.dimensions.size(); ++axis) {
+      if (axis != 0U) output_ << ", ";
+      if (plan.dimensions[axis].any)
+        output_ << "-1";
+      else
+        output_ << plan.dimensions[axis].extent;
+    }
+    output_ << ']';
+  }
+
+  void emit_argument_validators(const ArgumentValidationPlan& plan) {
+    output_ << '[';
+    for (std::size_t index = 0U; index < plan.validators.size(); ++index) {
+      if (index != 0U) output_ << ", ";
+      output_ << static_cast<unsigned>(plan.validators[index]);
+    }
+    output_ << ']';
+  }
+
+  void emit_argument_validation(const std::string& value, const std::string& source_name,
+                                const ArgumentValidationPlan& plan) {
+    indentation();
+    output_ << value << " = __mpf_validate_argument(" << value << ", " << std::quoted(source_name)
+            << ", " << std::quoted(plan.direction == ArgumentDirection::input ? "input" : "output")
+            << ", ";
+    emit_argument_dimensions(plan);
+    output_ << ", " << static_cast<unsigned>(plan.class_constraint) << ", ";
+    emit_argument_validators(plan);
+    output_ << ");\n";
+  }
+
+  void emit_input_argument_validations(const Statement& statement) {
+    for (const auto& plan : statement.argument_validations) {
+      if (plan.direction != ArgumentDirection::input || plan.ordinal >= statement.parameters.size())
+        continue;
+      const auto parameter = mangler_->name(plan.ordinal < statement.parameter_symbols.size()
+                                                ? statement.parameter_symbols[plan.ordinal]
+                                                : SymbolId{},
+                                            statement.parameters[plan.ordinal]);
+      if (plan.has_default) {
+        mark({plan.line, 1U}, statement.origin);
+        indentation();
+        output_ << "if (" << parameter << " === undefined) " << parameter << " = ";
+        emit_expression(statement.parameter_defaults[plan.ordinal]);
+        output_ << ";\n";
+      }
+      mark({plan.line, 1U}, statement.origin);
+      emit_argument_validation(parameter, statement.parameters[plan.ordinal], plan);
+    }
+  }
+
+  void emit_output_argument_validations(const Statement& statement) {
+    for (const auto& plan : statement.argument_validations) {
+      if (plan.direction != ArgumentDirection::output ||
+          plan.ordinal >= statement.return_names.size())
+        continue;
+      const auto output = mangler_->name(plan.ordinal < statement.return_symbols.size()
+                                             ? statement.return_symbols[plan.ordinal]
+                                             : SymbolId{},
+                                         statement.return_names[plan.ordinal]);
+      mark({plan.line, 1U}, statement.origin);
+      emit_argument_validation(output, statement.return_names[plan.ordinal], plan);
+    }
   }
 
   void emit_sparse_index(const Expression& expression) {
@@ -1070,6 +1138,7 @@ class Renderer final {
         break;
       case javascript::lir::StatementForm::return_void:
       case javascript::lir::StatementForm::return_value:
+        if (active_function_ != nullptr) emit_output_argument_validations(*active_function_);
         indentation();
         output_ << "return";
         if (statement.plan.form == javascript::lir::StatementForm::return_value) {
@@ -1079,6 +1148,7 @@ class Renderer final {
         output_ << ";\n";
         break;
       case javascript::lir::StatementForm::return_outputs:
+        if (active_function_ != nullptr) emit_output_argument_validations(*active_function_);
         indentation();
         if (statement.plan.return_names.size() == 1U) {
           output_ << "return "
@@ -1343,6 +1413,9 @@ class Renderer final {
         }
         output_ << ") {\n";
         ++indent_;
+        const auto* previous_function = active_function_;
+        active_function_ = &statement;
+        emit_input_argument_validations(statement);
         for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
           if (index >= statement.function_abi.parameters.size() ||
               statement.function_abi.parameters[index] !=
@@ -1359,6 +1432,7 @@ class Renderer final {
         emit_scope_declarations(statement.function_scope);
         emit_statements(statement.body);
         if (!statement.plan.return_names.empty()) {
+          emit_output_argument_validations(statement);
           indentation();
           if (statement.plan.return_names.size() == 1) {
             output_ << "return "
@@ -1381,6 +1455,7 @@ class Renderer final {
             output_ << "];\n";
           }
         }
+        active_function_ = previous_function;
         --indent_;
         indentation();
         output_ << "}\n";
@@ -1436,6 +1511,7 @@ class Renderer final {
   const std::string* script_label_{nullptr};
   std::unique_ptr<IdentifierMangler> mangler_;
   std::vector<std::string> loop_completion_flags_;
+  const Statement* active_function_{nullptr};
   std::vector<RenderMarker> markers_;
 };
 

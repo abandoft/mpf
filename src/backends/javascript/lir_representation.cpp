@@ -1966,6 +1966,36 @@ void verify_statements(const std::vector<lir::Statement>& statements,
                        const bool in_function = false) {
   for (const auto& statement : statements) {
     const bool nested_in_function = in_function || statement.kind == StatementKind::function;
+    if (!statement.argument_validations.empty()) {
+      if (source_language != SourceLanguage::matlab || statement.kind != StatementKind::function ||
+          !valid_argument_validation_inventory(statement.argument_validations,
+                                               statement.parameters.size(),
+                                               statement.return_names.size())) {
+        add_error(diagnostics, {statement.line, 1},
+                  "JavaScript LIR argument validation inventory is malformed");
+      }
+      for (const auto& plan : statement.argument_validations) {
+        const auto& types = plan.direction == ArgumentDirection::input ? statement.parameter_types
+                                                                       : statement.return_types;
+        const auto& shapes = plan.direction == ArgumentDirection::input ? statement.parameter_shapes
+                                                                        : statement.return_shapes;
+        const auto expected_rank = plan.ordinal < types.size() &&
+                                           types[plan.ordinal] == ValueType::list &&
+                                           plan.ordinal < shapes.size()
+                                       ? shapes[plan.ordinal].size()
+                                       : 0U;
+        if (plan.validated_rank != expected_rank) {
+          add_error(diagnostics, {statement.line, 1},
+                    "JavaScript LIR argument validation rank disagrees with its formal ABI");
+        }
+        if (plan.direction == ArgumentDirection::input && plan.has_default &&
+            (plan.ordinal >= statement.parameter_defaults.size() ||
+             !statement.parameter_defaults[plan.ordinal].valid())) {
+          add_error(diagnostics, {statement.line, 1},
+                    "JavaScript LIR optional argument has no default expression");
+        }
+      }
+    }
     const auto nested_context =
         statement.kind == StatementKind::function ? function_context(statement) : context;
     const auto& expression_context =
@@ -2154,6 +2184,22 @@ void plan_lir_representation(lir::SemanticProgram& program) {
 
 void verify_lir_representation(const lir::SemanticProgram& program,
                                std::vector<Diagnostic>& diagnostics) {
+  const auto has_argument_validation = [](const auto& self,
+                                          const std::vector<lir::Statement>& statements) -> bool {
+    for (const auto& statement : statements) {
+      if (!statement.argument_validations.empty() || self(self, statement.body) ||
+          self(self, statement.alternative))
+        return true;
+    }
+    return false;
+  };
+  const bool validation = has_argument_validation(has_argument_validation, program.statements);
+  if (validation != program.runtime.contains(lir::RuntimeFeature::argument_validation) ||
+      (validation && (!program.runtime.contains(lir::RuntimeFeature::arrays) ||
+                      !program.runtime.contains(lir::RuntimeFeature::complex_numbers)))) {
+    add_error(diagnostics, {1, 1},
+              "JavaScript LIR argument validation runtime requirements are inconsistent");
+  }
   verify_statements(program.statements, program.emission, {}, program.source_language, diagnostics);
   const auto expected = build_source_segment_plan(program.statements, program.node_count);
   if (!same_source_segment_plan(program.source_segments, expected)) {

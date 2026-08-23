@@ -69,6 +69,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::exception_handling)) {
     result.push_back(lir::RuntimeFragment::exception_handling);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::argument_validation)) {
+    result.push_back(lir::RuntimeFragment::argument_validation);
+  }
   return result;
 }
 

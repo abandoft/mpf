@@ -8,6 +8,7 @@
 
 #include "backends/common/artifact.hpp"
 #include "backends/common/identifier_mangler.hpp"
+#include "compiler/argument_validation.hpp"
 #include "compiler/assignment_pattern.hpp"
 #include "compiler/binding.hpp"
 #include "compiler/call_contract.hpp"
@@ -31,6 +32,7 @@ enum class RuntimeFeature : std::uint8_t {
   sparse_arithmetic,
   sparse_reductions,
   exception_handling,
+  argument_validation,
   runtime_selectors,
   matlab_section_assignment,
   count
@@ -503,6 +505,7 @@ enum class RuntimeFragment : std::uint8_t {
   sparse_reductions,
   scalar_division,
   exception_handling,
+  argument_validation,
   runtime_selectors,
   matlab_section_assignment
 };
@@ -564,6 +567,7 @@ struct Expression {
   std::size_t requested_outputs{1};
   bool multi_output_call{false};
   std::vector<ArgumentTransfer> argument_transfers;
+  std::vector<ArgumentCallBoundary> argument_boundaries;
   std::vector<std::string> argument_names;
   bool procedure_has_result{false};
   std::size_t index_base{0};
@@ -628,6 +632,7 @@ struct Statement {
   std::vector<SymbolId> parameter_symbols;
   std::vector<ParameterKind> parameter_kinds;
   std::vector<Expression> parameter_defaults;
+  std::vector<ArgumentValidationPlan> argument_validations;
   std::vector<ParameterIntent> parameter_intents;
   std::vector<bool> parameter_optional;
   std::vector<ValueType> parameter_types;
