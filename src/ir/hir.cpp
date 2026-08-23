@@ -86,6 +86,18 @@ void verify_statements(const std::vector<Statement>& statements, const std::size
       add_error(diagnostics, {statement.line, 1}, stage,
                 "try statement and exception-handler presence are inconsistent");
     }
+    if (!statement.argument_declarations.empty()) {
+      if (statement.kind != StatementKind::function) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "arguments declarations belong only to function HIR nodes");
+      }
+      for (const auto& declaration : statement.argument_declarations) {
+        if (!valid_argument_declaration_syntax(declaration)) {
+          add_error(diagnostics, {statement.line, 1}, stage,
+                    "function carries a malformed arguments declaration");
+        }
+      }
+    }
     const auto verify_optional = [&](const Expression& expression, const bool present,
                                      const char* name) {
       if (present && !expression.valid()) {

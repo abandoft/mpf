@@ -163,6 +163,7 @@ class HirLowerer final {
     for (const auto value : node.parameter_defaults) {
       result.parameter_defaults.push_back(expression(value));
     }
+    result.argument_declarations = std::move(node.argument_declarations);
     result.return_names = std::move(node.return_names);
     result.target_names = std::move(node.target_names);
     result.has_target_pattern = node.has_target_pattern;
@@ -309,6 +310,31 @@ std::vector<Diagnostic> verify_typed_ast(const ArenaProgram<Tag>& ast,
         node.has_expression) {
       add_error({node.line, 1},
                 "Matlab output-return AST node cannot also carry a value expression");
+    }
+    if (!node.argument_declarations.empty()) {
+      if (expected != SourceLanguage::matlab || node.kind != StatementKind::function) {
+        add_error({node.line, 1},
+                  "frontend AST arguments declarations belong only to Matlab functions");
+      }
+      for (const auto& declaration : node.argument_declarations) {
+        if (!valid_argument_declaration_syntax(declaration)) {
+          add_error({node.line, 1}, "frontend AST arguments declaration is malformed");
+        }
+        const auto& names =
+            declaration.direction == ArgumentDirection::input ? node.parameters : node.return_names;
+        const auto found = std::find(names.begin(), names.end(), declaration.name);
+        if (found == names.end()) {
+          add_error({node.line, 1}, "frontend AST arguments declaration names no formal argument");
+          continue;
+        }
+        if (declaration.has_default) {
+          const auto ordinal = static_cast<std::size_t>(std::distance(names.begin(), found));
+          if (ordinal >= node.parameter_defaults.size() ||
+              !node.parameter_defaults[ordinal].valid()) {
+            add_error({node.line, 1}, "frontend AST optional argument has no default expression");
+          }
+        }
+      }
     }
     if (node.implicit_result != semantic::ImplicitResultPolicy::none &&
         (expected != SourceLanguage::matlab || node.kind != StatementKind::expression ||

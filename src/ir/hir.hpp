@@ -6,6 +6,7 @@
 #include <string_view>
 #include <vector>
 
+#include "compiler/argument_validation.hpp"
 #include "compiler/expression_ast.hpp"
 #include "compiler/statement_kind.hpp"
 #include "ids.hpp"
@@ -55,6 +56,7 @@ struct Statement {
   std::vector<std::string> parameters;
   std::vector<ParameterKind> parameter_kinds;
   std::vector<Expression> parameter_defaults;
+  std::vector<ArgumentDeclarationSyntax> argument_declarations;
   std::vector<std::string> return_names;
   std::vector<std::string> target_names;
   bool has_target_pattern{false};

@@ -12,6 +12,7 @@
 
 #include "frontends/common/ast_builder.hpp"
 #include "frontends/common/parser_support.hpp"
+#include "frontends/matlab/argument_block.hpp"
 #include "frontends/matlab/expression_lexer.hpp"
 
 namespace mpf::detail {
@@ -286,6 +287,27 @@ class Parser final {
       frontend::unsupported(diagnostics_, line_number, "malformed Matlab function signature");
     }
     ++index_;
+    auto arguments = parse_matlab_argument_blocks(lines_, index_, version_);
+    index_ = arguments.next_line;
+    diagnostics_.insert(diagnostics_.end(), std::make_move_iterator(arguments.diagnostics.begin()),
+                        std::make_move_iterator(arguments.diagnostics.end()));
+    if (arguments.present) {
+      statement.parameter_defaults.resize(statement.parameters.size());
+      for (auto& declaration : arguments.declarations) {
+        if (declaration.syntax.has_default) {
+          const auto parameter = std::find(statement.parameters.begin(), statement.parameters.end(),
+                                           declaration.syntax.name);
+          if (parameter != statement.parameters.end()) {
+            const auto ordinal =
+                static_cast<std::size_t>(std::distance(statement.parameters.begin(), parameter));
+            statement.parameter_defaults[ordinal] =
+                builder_.parse_expression(declaration.default_source, SourceLanguage::matlab,
+                                          declaration.syntax.line, diagnostics_);
+          }
+        }
+        statement.argument_declarations.push_back(std::move(declaration.syntax));
+      }
+    }
     function_returns_.push_back(statement.return_names);
     statement.body = parse_block();
     function_returns_.pop_back();

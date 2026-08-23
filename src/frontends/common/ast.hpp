@@ -7,6 +7,7 @@
 #include <variant>
 #include <vector>
 
+#include "compiler/argument_validation.hpp"
 #include "compiler/assignment_pattern.hpp"
 #include "compiler/expression_ast.hpp"
 #include "compiler/statement_kind.hpp"
@@ -104,6 +105,7 @@ struct ArenaStatement {
   std::vector<std::string> parameters;
   std::vector<ParameterKind> parameter_kinds;
   std::vector<AstNodeId> parameter_defaults;
+  std::vector<ArgumentDeclarationSyntax> argument_declarations;
   std::vector<ParameterIntent> parameter_intents;
   std::vector<bool> parameter_optional;
   std::vector<ValueType> parameter_types;
