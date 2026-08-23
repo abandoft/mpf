@@ -1,0 +1,10 @@
+function output = normalize(input)
+arguments
+input (2,3) double {mustBeFinite}
+end
+arguments (Output)
+output (1,:) double {mustBeNonempty, mustBeRow}
+end
+output = input(1,:);
+end
+disp(sum(normalize(4)))

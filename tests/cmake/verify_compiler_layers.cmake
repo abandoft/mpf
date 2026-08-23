@@ -1587,6 +1587,14 @@ if(NOT cpp_lir_contract MATCHES "concrete_type" OR
   message(FATAL_ERROR "cpp LIR does not own expression type and comparison representation")
 endif()
 
+if(NOT cpp_lir_contract MATCHES "ArgumentDefaultForm" OR
+   NOT cpp_lir_contract MATCHES "argument_defaults" OR
+   NOT cpp_renderer_contract MATCHES "statement\\.plan\\.argument_defaults" OR
+   cpp_renderer_contract MATCHES "convert_default")
+  message(FATAL_ERROR
+    "cpp LIR does not exclusively own Matlab optional-default conversion lowering")
+endif()
+
 if(NOT cpp_lir_contract MATCHES "TranslationUnitPlan" OR
    NOT cpp_lir_contract MATCHES "standard_headers" OR
    NOT cpp_lir_contract MATCHES "forward_declarations" OR
