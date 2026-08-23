@@ -1,3 +1,18 @@
+## 0.7.9
+
+- Matlab 函数现可使用 R2019b 引入的 positional input `arguments` block。
+- Matlab 函数现可使用 R2022b 起提供的 `arguments (Output)` block 验证命名输出。
+- argument declaration 现支持固定维度和不受限维度，并可描述显式 N 维 shape。
+- `double`、`logical` 和字符向量 class constraint 会在转译后函数体执行前生效。
+- 标量值可扩展到声明的 argument dimension，相容的行或列输入也会在保持 Matlab 元素顺序的前提下规范化。
+- positional 可选输入现可声明 default，并会在前序参数完成转换与验证后按自上而下的顺序求值。
+- 现支持 23 个标准 validator，覆盖数值域、符号与有限性、shape、空值、文本和合法变量名。
+- 命名输出会在正常返回和提前返回前执行验证。
+- 生成的 JavaScript 与 C++17 会彼此独立地执行相同的输入、default、转换、validator 和输出合同。
+- argument-validation runtime 仅在转译程序实际使用该能力时装载。
+- 未支持的 name-value、`Repeating`、parameterized/custom validator 和无法精确表示的 class conversion 现会给出聚焦诊断，不再生成近似代码。
+- source map 会保留 argument declaration、default expression、validation site 和完成转换的 call boundary。
+
 ## 0.7.8
 
 - Matlab `MException(identifier, message, ...)` 现可使用格式化的标量消息值构造可捕获异常对象。

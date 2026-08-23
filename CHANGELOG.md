@@ -1,3 +1,18 @@
+## 0.7.9
+
+- Matlab functions can now use positional input `arguments` blocks introduced in R2019b.
+- Matlab functions can validate named outputs with `arguments (Output)` blocks available from R2022b.
+- Argument declarations now support fixed and unrestricted dimensions across explicit N-dimensional shapes.
+- `double`, `logical`, and character-vector class constraints are enforced before translated function bodies run.
+- Scalar values can expand to declared argument dimensions, and compatible row or column inputs are normalized without changing Matlab element order.
+- Optional positional inputs can declare defaults that are evaluated from top to bottom after earlier arguments have been converted and validated.
+- Twenty-three standard validators are available for numeric domains, sign and finiteness, shape, emptiness, text, and valid variable names.
+- Output values are validated before both normal and early function returns.
+- Generated JavaScript and C++17 independently apply the same input, default, conversion, validator, and output contracts.
+- Argument-validation runtime support is included only when a translated program uses it.
+- Unsupported name-value, `Repeating`, parameterized, custom, and unrepresentable class-conversion forms now stop with focused diagnostics instead of producing approximate code.
+- Source maps preserve argument declarations, default expressions, validation sites, and converted call boundaries.
+
 ## 0.7.8
 
 - Matlab `MException(identifier, message, ...)` now creates catchable exception objects with formatted scalar message values.
