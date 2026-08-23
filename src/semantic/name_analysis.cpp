@@ -279,9 +279,6 @@ class NameAnalyzer final {
       switch (statement.kind) {
         case StatementKind::function: {
           add_definition(statement.id, scope, statement.name, NameRole::declaration, 0);
-          for (const auto& expression : statement.parameter_defaults) {
-            bind_expression(expression, scope);
-          }
           const auto child_scope = result_.names.function_scope(statement.id);
           for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
             add_definition(statement.id, child_scope, statement.parameters[index],
@@ -290,6 +287,10 @@ class NameAnalyzer final {
           for (std::size_t index = 0; index < statement.return_names.size(); ++index) {
             add_definition(statement.id, child_scope, statement.return_names[index],
                            NameRole::result, index);
+          }
+          for (const auto& expression : statement.parameter_defaults) {
+            bind_expression(expression,
+                            program_.language == SourceLanguage::matlab ? child_scope : scope);
           }
           bind_statements(statement.body, child_scope);
           bind_statements(statement.alternative, child_scope);
@@ -482,7 +483,9 @@ void verify_statements(const hir::Program& program, const std::vector<hir::State
                            diagnostics);
       }
       for (const auto& expression : statement.parameter_defaults) {
-        verify_expression(expression, scope, names, resident, stage, diagnostics);
+        verify_expression(expression,
+                          program.language == SourceLanguage::matlab ? function_scope : scope,
+                          names, resident, stage, diagnostics);
       }
       verify_statements(program, statement.body, function_scope, names, resident, stage,
                         diagnostics);

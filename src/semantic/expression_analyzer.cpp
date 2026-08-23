@@ -2126,6 +2126,42 @@ void Analyzer::normalize_python_arguments(Expression& expression, const Statemen
   semantic(semantics_, expression).argument_names.assign(function.parameters.size(), {});
 }
 
+void Analyzer::normalize_matlab_arguments(Expression& expression, const Statement& function) {
+  const auto actual_count = expression.children.size() - 1U;
+  if (actual_count > function.parameters.size()) {
+    diagnose(expression.location.line, "MPF2034",
+             "function '" + function.name + "' expects at most " +
+                 std::to_string(function.parameters.size()) + " input arguments but received " +
+                 std::to_string(actual_count));
+    return;
+  }
+  std::vector<HirNodeId> original_children;
+  original_children.reserve(expression.children.size());
+  for (const auto& child : expression.children) original_children.push_back(child.id);
+  const auto& facts = semantic(semantics_, function);
+  expression.children.reserve(function.parameters.size() + 1U);
+  for (std::size_t index = actual_count; index < function.parameters.size(); ++index) {
+    const bool optional =
+        index < facts.parameter_optional.size() && facts.parameter_optional[index];
+    if (!optional) {
+      diagnose(expression.location.line, "MPF2034",
+               "required Matlab parameter '" + function.parameters[index] +
+                   "' is missing in call to '" + function.name + "'");
+    }
+    Expression omitted;
+    omitted.kind = ExpressionKind::omitted_argument;
+    omitted.location = expression.location;
+    register_expression(omitted);
+    expression.children.push_back(std::move(omitted));
+  }
+  structure_changed_ =
+      structure_changed_ || expression.children.size() != original_children.size() ||
+      !std::equal(expression.children.begin(), expression.children.end(), original_children.begin(),
+                  original_children.end(),
+                  [](const Expression& child, const HirNodeId id) { return child.id == id; });
+  semantic(semantics_, expression).argument_names.assign(function.parameters.size(), {});
+}
+
 ValueType Analyzer::analyze_call(Expression& expression) {
   if (expression.children.empty())
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
@@ -2163,6 +2199,9 @@ ValueType Analyzer::analyze_call(Expression& expression) {
   }
   if (program_.language == SourceLanguage::fortran && called_function != nullptr) {
     normalize_fortran_arguments(expression, *called_function);
+  } else if (program_.language == SourceLanguage::matlab && called_function != nullptr &&
+             !semantic(semantics_, *called_function).argument_validations.empty()) {
+    normalize_matlab_arguments(expression, *called_function);
   } else if (program_.semantics.emit_parameter_defaults && called_function != nullptr) {
     normalize_python_arguments(expression, *called_function);
   } else if (program_.language == SourceLanguage::fortran &&

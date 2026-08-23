@@ -118,6 +118,7 @@ class Analyzer final {
                              std::vector<const Expression*>& returns) const;
   void infer_python_tuple_returns(Statement& function) const;
   void infer_python_sequence_metadata(Statement& function) const;
+  void analyze_matlab_argument_declarations(Statement& function);
   void analyze_function(Statement& function);
   [[nodiscard]] ValueType collect_return_type(const std::vector<Statement>& statements,
                                               bool& has_value, bool& has_empty,
@@ -135,6 +136,7 @@ class Analyzer final {
   [[nodiscard]] ValueType analyze_comparison_chain(Expression& expression);
   [[nodiscard]] ValueType analyze_conditional(Expression& expression);
   void normalize_fortran_arguments(Expression& expression, const Statement& function);
+  void normalize_matlab_arguments(Expression& expression, const Statement& function);
   void normalize_python_arguments(Expression& expression, const Statement& function);
   [[nodiscard]] ValueType analyze_call(Expression& expression);
   [[nodiscard]] ValueType analyze_index(Expression& expression,

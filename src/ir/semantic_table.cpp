@@ -1089,6 +1089,72 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
       add_error(diagnostics, {statement.line, 1}, stage,
                 "function parameter semantic arity disagrees with HIR");
     }
+    const bool owns_argument_declarations = source_language == SourceLanguage::matlab &&
+                                            statement.kind == StatementKind::function &&
+                                            !statement.argument_declarations.empty();
+    if (!facts->argument_validations.empty()) {
+      if (!analyzed || !owns_argument_declarations) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "argument validation side table is attached to the wrong HIR function stage");
+      }
+      std::vector<bool> input_plans(parameters, false);
+      std::vector<bool> output_plans(statement.return_names.size(), false);
+      for (const auto& plan : facts->argument_validations) {
+        if (!valid_argument_validation_plan(plan, parameters, statement.return_names.size())) {
+          add_error(diagnostics, {statement.line, 1}, stage,
+                    "argument validation side-table plan is malformed");
+          continue;
+        }
+        auto& seen_plan = plan.direction == ArgumentDirection::input ? input_plans : output_plans;
+        if (seen_plan[plan.ordinal]) {
+          add_error(diagnostics, {statement.line, 1}, stage,
+                    "argument validation side-table plan is duplicated");
+        }
+        seen_plan[plan.ordinal] = true;
+      }
+    }
+    if (analyzed && owns_argument_declarations) {
+      std::vector<ArgumentValidationPlan> expected_plans;
+      std::vector<bool> expected_inputs(parameters, false);
+      std::vector<bool> expected_outputs(statement.return_names.size(), false);
+      bool source_inventory_valid = true;
+      for (const auto& declaration : statement.argument_declarations) {
+        const auto& names = declaration.direction == ArgumentDirection::input
+                                ? statement.parameters
+                                : statement.return_names;
+        const auto found = std::find(names.begin(), names.end(), declaration.name);
+        if (!valid_argument_declaration_syntax(declaration) || found == names.end()) {
+          source_inventory_valid = false;
+          continue;
+        }
+        const auto ordinal = static_cast<std::size_t>(std::distance(names.begin(), found));
+        auto& declaration_seen =
+            declaration.direction == ArgumentDirection::input ? expected_inputs : expected_outputs;
+        if (declaration_seen[ordinal]) {
+          source_inventory_valid = false;
+          continue;
+        }
+        declaration_seen[ordinal] = true;
+        const auto& types = declaration.direction == ArgumentDirection::input
+                                ? facts->parameter_types
+                                : facts->return_types;
+        const auto& shapes = declaration.direction == ArgumentDirection::input
+                                 ? facts->parameter_shapes
+                                 : facts->return_shapes;
+        const auto validated_rank =
+            ordinal < types.size() && types[ordinal] == ValueType::list && ordinal < shapes.size()
+                ? shapes[ordinal].size()
+                : 0U;
+        expected_plans.push_back({ordinal, declaration.line, declaration.direction,
+                                  declaration.dimensions_declared, declaration.dimensions,
+                                  declaration.class_constraint, declaration.validators,
+                                  declaration.has_default, validated_rank});
+      }
+      if (source_inventory_valid && facts->argument_validations != expected_plans) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "argument validation side-table inventory disagrees with HIR declarations");
+      }
+    }
     const auto returns = statement.return_names.size();
     if (returns != 0U &&
         (statement.kind != StatementKind::function &&

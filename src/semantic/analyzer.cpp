@@ -1785,7 +1785,191 @@ void Analyzer::infer_python_sequence_metadata(Statement& function) const {
   semantic(semantics_, function).return_sequence_elements = first.elements;
 }
 
+void Analyzer::analyze_matlab_argument_declarations(Statement& function) {
+  if (program_.language != SourceLanguage::matlab || function.argument_declarations.empty()) {
+    return;
+  }
+  auto& facts = semantic(semantics_, function);
+  facts.argument_validations.clear();
+  facts.parameter_optional.assign(function.parameters.size(), false);
+  facts.parameter_types.assign(function.parameters.size(), ValueType::unknown);
+  facts.parameter_numeric_types.assign(function.parameters.size(), unknown_numeric_type);
+  facts.parameter_element_types.assign(function.parameters.size(), ValueType::unknown);
+  facts.parameter_element_numeric_types.assign(function.parameters.size(), unknown_numeric_type);
+  facts.parameter_array_storage.assign(function.parameters.size(), ArrayStorageFormat::none);
+  facts.parameter_shapes.assign(function.parameters.size(), {});
+  facts.return_types.resize(function.return_names.size(), ValueType::unknown);
+  facts.return_numeric_types.resize(function.return_names.size(), unknown_numeric_type);
+  facts.return_element_types.resize(function.return_names.size(), ValueType::unknown);
+  facts.return_element_numeric_types.resize(function.return_names.size(), unknown_numeric_type);
+  facts.return_array_storage.resize(function.return_names.size(), ArrayStorageFormat::none);
+  facts.return_shapes.resize(function.return_names.size());
+
+  std::vector<bool> declared_inputs(function.parameters.size(), false);
+  std::vector<bool> declared_outputs(function.return_names.size(), false);
+  bool has_inputs = false;
+  bool has_outputs = false;
+  bool optional_seen = false;
+  std::size_t previous_input = 0U;
+  std::size_t previous_output = 0U;
+  bool first_input = true;
+  bool first_output = true;
+  for (const auto& declaration : function.argument_declarations) {
+    const auto& names = declaration.direction == ArgumentDirection::input ? function.parameters
+                                                                          : function.return_names;
+    const auto found = std::find(names.begin(), names.end(), declaration.name);
+    if (found == names.end()) {
+      diagnose(declaration.line, "MPF2060",
+               "Matlab arguments declaration '" + declaration.name +
+                   "' is not present in the function " +
+                   (declaration.direction == ArgumentDirection::input ? "input" : "output") +
+                   " signature");
+      continue;
+    }
+    const auto ordinal = static_cast<std::size_t>(std::distance(names.begin(), found));
+    auto& declared =
+        declaration.direction == ArgumentDirection::input ? declared_inputs : declared_outputs;
+    if (declared[ordinal]) {
+      diagnose(declaration.line, "MPF2060",
+               "Matlab arguments declaration '" + declaration.name + "' is duplicated");
+      continue;
+    }
+    declared[ordinal] = true;
+    auto& previous =
+        declaration.direction == ArgumentDirection::input ? previous_input : previous_output;
+    auto& first = declaration.direction == ArgumentDirection::input ? first_input : first_output;
+    if (!first && ordinal <= previous) {
+      diagnose(declaration.line, "MPF2060",
+               "Matlab arguments declarations must follow function signature order");
+    }
+    previous = ordinal;
+    first = false;
+    has_inputs = has_inputs || declaration.direction == ArgumentDirection::input;
+    has_outputs = has_outputs || declaration.direction == ArgumentDirection::output;
+    if (declaration.direction == ArgumentDirection::input) {
+      if (optional_seen && !declaration.has_default) {
+        diagnose(declaration.line, "MPF2060",
+                 "required Matlab positional arguments cannot follow optional arguments");
+      }
+      optional_seen = optional_seen || declaration.has_default;
+      facts.parameter_optional[ordinal] = declaration.has_default;
+    }
+
+    std::vector<std::size_t> shape;
+    if (declaration.dimensions_declared) {
+      shape.reserve(declaration.dimensions.size());
+      for (const auto dimension : declaration.dimensions) {
+        shape.push_back(dimension.any ? dynamic_extent : dimension.extent);
+      }
+    }
+    const bool scalar_shape = declaration.dimensions_declared &&
+                              std::all_of(shape.begin(), shape.end(),
+                                          [](const std::size_t extent) { return extent == 1U; });
+    ValueType type = ValueType::unknown;
+    NumericType numeric_type = unknown_numeric_type;
+    ValueType element_type = ValueType::unknown;
+    NumericType element_numeric_type = unknown_numeric_type;
+    ArrayStorageFormat storage = ArrayStorageFormat::none;
+    if (declaration.class_constraint == ArgumentClassConstraint::matlab_char) {
+      const bool representable =
+          !declaration.dimensions_declared || (shape.size() == 2U && shape[0] == 1U);
+      if (!representable) {
+        diagnose(declaration.line, "MPF2060",
+                 "Matlab char arguments currently require a character-vector shape '(1,:)'");
+      }
+      type = ValueType::string;
+      numeric_type = no_numeric_type;
+      shape.clear();
+    } else if (declaration.class_constraint == ArgumentClassConstraint::matlab_double ||
+               declaration.class_constraint == ArgumentClassConstraint::matlab_logical) {
+      if (!declaration.dimensions_declared) {
+        diagnose(declaration.line, "MPF2060",
+                 "Matlab numeric/logical arguments currently require an explicit rank in the "
+                 "scalar/NDArray ABI");
+      }
+      const auto scalar_type =
+          declaration.class_constraint == ArgumentClassConstraint::matlab_double
+              ? ValueType::real
+              : ValueType::boolean;
+      const auto scalar_numeric =
+          declaration.class_constraint == ArgumentClassConstraint::matlab_double
+              // Matlab `double` constrains the storage class but not real/complex complexity.
+              // Keep complexity dynamic so the JavaScript backend selects complex-aware plans;
+              // the C++ capability boundary may reject cases its static ABI cannot represent.
+              ? unknown_numeric_type
+              : logical_numeric_type;
+      if (scalar_shape) {
+        type = scalar_type;
+        numeric_type = scalar_numeric;
+        shape.clear();
+      } else {
+        type = ValueType::list;
+        numeric_type = no_numeric_type;
+        element_type = scalar_type;
+        element_numeric_type = scalar_numeric;
+        storage = ArrayStorageFormat::dense;
+      }
+    } else if (scalar_shape) {
+      // The target ABI represents every Matlab 1-by-1 value as a scalar even when the
+      // declaration has no class constraint.  Keep the formal shape consistent with
+      // `validated_rank == 0`; the source dimensions remain in the validation plan.
+      shape.clear();
+    } else if (declaration.dimensions_declared) {
+      type = ValueType::list;
+      numeric_type = no_numeric_type;
+      storage = ArrayStorageFormat::dense;
+    }
+
+    ArgumentValidationPlan plan;
+    plan.ordinal = ordinal;
+    plan.line = declaration.line;
+    plan.direction = declaration.direction;
+    plan.dimensions_declared = declaration.dimensions_declared;
+    plan.dimensions = declaration.dimensions;
+    plan.class_constraint = declaration.class_constraint;
+    plan.validators = declaration.validators;
+    plan.has_default = declaration.has_default;
+    plan.validated_rank = type == ValueType::list ? shape.size() : 0U;
+    facts.argument_validations.push_back(std::move(plan));
+
+    if (declaration.direction == ArgumentDirection::input) {
+      facts.parameter_types[ordinal] = type;
+      facts.parameter_numeric_types[ordinal] = numeric_type;
+      facts.parameter_element_types[ordinal] = element_type;
+      facts.parameter_element_numeric_types[ordinal] = element_numeric_type;
+      facts.parameter_array_storage[ordinal] = storage;
+      facts.parameter_shapes[ordinal] = std::move(shape);
+    } else {
+      facts.return_types[ordinal] = type;
+      facts.return_numeric_types[ordinal] = numeric_type;
+      facts.return_element_types[ordinal] = element_type;
+      facts.return_element_numeric_types[ordinal] = element_numeric_type;
+      facts.return_array_storage[ordinal] = storage;
+      facts.return_shapes[ordinal] = std::move(shape);
+    }
+  }
+  if (has_inputs) {
+    for (std::size_t index = 0; index < declared_inputs.size(); ++index) {
+      if (!declared_inputs[index]) {
+        diagnose(function.line, "MPF2060",
+                 "Matlab input argument '" + function.parameters[index] +
+                     "' is missing from the arguments blocks");
+      }
+    }
+  }
+  if (has_outputs) {
+    for (std::size_t index = 0; index < declared_outputs.size(); ++index) {
+      if (!declared_outputs[index]) {
+        diagnose(function.line, "MPF2060",
+                 "Matlab output argument '" + function.return_names[index] +
+                     "' is missing from the output arguments blocks");
+      }
+    }
+  }
+}
+
 void Analyzer::analyze_function(Statement& function) {
+  analyze_matlab_argument_declarations(function);
   if (program_.semantics.emit_parameter_defaults) {
     if (function.parameter_kinds.size() < function.parameters.size()) {
       function.parameter_kinds.resize(function.parameters.size(),
@@ -1850,25 +2034,64 @@ void Analyzer::analyze_function(Statement& function) {
     }
   }
   for (std::size_t index = 0; index < function.parameters.size(); ++index) {
+    if (program_.language == SourceLanguage::matlab && index < function.parameter_defaults.size() &&
+        function.parameter_defaults[index].valid()) {
+      analyze_expression(function.parameter_defaults[index]);
+    }
     const auto annotated_type = index < semantic(semantics_, function).parameter_types.size()
                                     ? semantic(semantics_, function).parameter_types[index]
                                     : ValueType::unknown;
+    const bool analyzed_default = (program_.semantics.emit_parameter_defaults ||
+                                   program_.language == SourceLanguage::matlab) &&
+                                  index < function.parameter_defaults.size() &&
+                                  function.parameter_defaults[index].valid();
     const auto default_type =
-        program_.semantics.emit_parameter_defaults && index < function.parameter_defaults.size() &&
-                function.parameter_defaults[index].valid()
-            ? semantic(semantics_, function.parameter_defaults[index]).inferred_type
-            : ValueType::unknown;
+        analyzed_default ? semantic(semantics_, function.parameter_defaults[index]).inferred_type
+                         : ValueType::unknown;
     const auto default_numeric =
-        program_.semantics.emit_parameter_defaults && index < function.parameter_defaults.size() &&
-                function.parameter_defaults[index].valid()
-            ? semantic(semantics_, function.parameter_defaults[index]).numeric_type
-            : unknown_numeric_type;
+        analyzed_default ? semantic(semantics_, function.parameter_defaults[index]).numeric_type
+                         : unknown_numeric_type;
     const auto default_storage =
-        program_.semantics.emit_parameter_defaults && index < function.parameter_defaults.size() &&
-                function.parameter_defaults[index].valid()
-            ? semantic(semantics_, function.parameter_defaults[index]).array_storage
-            : ArrayStorageFormat::none;
-    const auto type = join_types(annotated_type, default_type);
+        analyzed_default ? semantic(semantics_, function.parameter_defaults[index]).array_storage
+                         : ArrayStorageFormat::none;
+    const auto validation =
+        program_.language == SourceLanguage::matlab
+            ? std::find_if(semantic(semantics_, function).argument_validations.begin(),
+                           semantic(semantics_, function).argument_validations.end(),
+                           [&](const ArgumentValidationPlan& plan) {
+                             return plan.direction == ArgumentDirection::input &&
+                                    plan.ordinal == index;
+                           })
+            : semantic(semantics_, function).argument_validations.end();
+    const bool validated_argument =
+        validation != semantic(semantics_, function).argument_validations.end();
+    const bool declared_class =
+        validated_argument && validation->class_constraint != ArgumentClassConstraint::none;
+    if (analyzed_default && declared_class) {
+      const auto& default_facts = semantic(semantics_, function.parameter_defaults[index]);
+      const auto scalar_type =
+          default_type == ValueType::list ? default_facts.element_type : default_type;
+      const bool numeric_or_logical = scalar_type == ValueType::integer ||
+                                      scalar_type == ValueType::real ||
+                                      scalar_type == ValueType::boolean;
+      const bool convertible =
+          ((validation->class_constraint == ArgumentClassConstraint::matlab_double ||
+            validation->class_constraint == ArgumentClassConstraint::matlab_logical) &&
+           numeric_or_logical) ||
+          (validation->class_constraint == ArgumentClassConstraint::matlab_char &&
+           default_type == ValueType::string);
+      if (!convertible) {
+        diagnose(function.parameter_defaults[index].location.line, "MPF2061",
+                 "current Matlab arguments support cannot preserve the declared class "
+                 "conversion for default value '" +
+                     function.parameters[index] + "'");
+      }
+    }
+    // Matlab validates and converts a default before the function body observes it.  A declared
+    // class therefore owns the post-validation ABI; joining the pre-conversion default type here
+    // would corrupt the Analyzer side table and leak source syntax into MIR/target signatures.
+    const auto type =
+        validated_argument ? annotated_type : join_types(annotated_type, default_type);
     const auto element_type = index < semantic(semantics_, function).parameter_element_types.size()
                                   ? semantic(semantics_, function).parameter_element_types[index]
                                   : ValueType::unknown;
@@ -1883,8 +2106,11 @@ void Analyzer::analyze_function(Statement& function) {
     auto& parameter_state = definition_state(function, NameRole::parameter, index);
     parameter_state.numeric_type =
         index < semantic(semantics_, function).parameter_numeric_types.size()
-            ? join_numeric_types(semantic(semantics_, function).parameter_numeric_types[index],
-                                 default_numeric)
+            ? (validated_argument
+                   ? semantic(semantics_, function).parameter_numeric_types[index]
+                   : join_numeric_types(
+                         semantic(semantics_, function).parameter_numeric_types[index],
+                         default_numeric))
             : default_numeric;
     if (!parameter_state.numeric_type.known() && type != ValueType::unknown) {
       parameter_state.numeric_type = default_numeric_type(type);
@@ -1898,8 +2124,11 @@ void Analyzer::analyze_function(Statement& function) {
     }
     parameter_state.array_storage =
         index < semantic(semantics_, function).parameter_array_storage.size()
-            ? join_array_storage_formats(
-                  semantic(semantics_, function).parameter_array_storage[index], default_storage)
+            ? (validated_argument
+                   ? semantic(semantics_, function).parameter_array_storage[index]
+                   : join_array_storage_formats(
+                         semantic(semantics_, function).parameter_array_storage[index],
+                         default_storage))
             : default_storage;
     if (type == ValueType::list && parameter_state.array_storage == ArrayStorageFormat::none) {
       parameter_state.array_storage = ArrayStorageFormat::unknown;

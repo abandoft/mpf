@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "compiler/argument_validation.hpp"
 #include "compiler/assignment_pattern.hpp"
 #include "ids.hpp"
 #include "semantics.hpp"
@@ -247,6 +248,7 @@ struct StatementFacts {
   bool allow_negative_index{false};
   std::vector<ParameterIntent> parameter_intents;
   std::vector<bool> parameter_optional;
+  std::vector<ArgumentValidationPlan> argument_validations;
   std::vector<ValueType> parameter_types;
   std::vector<NumericType> parameter_numeric_types;
   std::vector<ValueType> parameter_element_types;
