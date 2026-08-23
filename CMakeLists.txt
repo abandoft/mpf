@@ -187,6 +187,7 @@ if(MPF_ENABLE_JAVASCRIPT_BACKEND)
     src/backends/javascript/complex_matrix_runtime.cpp
     src/backends/javascript/complex_sparse_runtime.cpp
     src/backends/javascript/emitter.cpp
+    src/backends/javascript/exception_runtime.cpp
     src/backends/javascript/lir_planning.cpp
     src/backends/javascript/lir_representation.cpp
     src/backends/javascript/lowering.cpp
