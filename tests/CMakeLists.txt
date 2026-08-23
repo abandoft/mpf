@@ -304,6 +304,18 @@ if(TARGET mpfc)
     matlab-dynamic-growth-assignment-mismatch
     tests/fixtures/matlab_dynamic_growth_assignment_mismatch.m
     "section assignment replacement shape mismatch" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-exception-invalid-identifier
+    tests/fixtures/matlab_exception_invalid_identifier.m
+    "exception identifier is invalid" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-exception-missing-format-value
+    tests/fixtures/matlab_exception_missing_format_value.m
+    "format argument is missing" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-exception-invalid-report-option
+    tests/fixtures/matlab_exception_invalid_report_option.m
+    "report detail must be" matlab)
   mpf_add_generated_plan_rejection_test(
     matlab-dynamic-growth-mutation-plan
     tests/fixtures/matlab_dynamic_growth_assignment_mismatch.m
