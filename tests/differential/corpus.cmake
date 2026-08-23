@@ -37,6 +37,9 @@ mpf_add_differential_case(matlab-function-graph matlab examples/matlab/function_
 mpf_add_differential_case(matlab-switch-case matlab examples/matlab/switch_case.m "42")
 mpf_add_differential_case(
   matlab-try-catch matlab examples/matlab/try_catch.m "MPF:Expected nested 42")
+mpf_add_differential_case(
+  matlab-exception-objects matlab examples/matlab/exception_objects.m
+  "Value +0007 Caused by: Cause 3 hex=0x002a fixed=00003.50 exp=1.250e+01 general=12.5 alternate=12.50 char=A text=hel percent=% MPF:Bad Value +0007 Value +0007 Caused by: Cause 3 MPF:Formatted Error 0009 pong")
 mpf_add_differential_case(matlab-operators matlab examples/matlab/operators.m "101")
 mpf_add_differential_case(matlab-matrix-solve matlab examples/matlab/matrix_solve.m "35.4")
 mpf_add_differential_case(
