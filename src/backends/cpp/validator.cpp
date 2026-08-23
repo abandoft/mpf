@@ -48,6 +48,79 @@ bool representable_type(const mir::Program& program, const TypeId id) {
                      [&](const TypeId element) { return representable_type(program, element); });
 }
 
+bool cpp_boundary_conversion_representable(const mir::Program& program,
+                                           const mir::CallSite::Argument& argument) {
+  if (!valid_argument_call_boundary(argument.boundary)) return false;
+  if (argument.boundary.conversion == ArgumentBoundaryConversion::none) return true;
+  if (!argument.type.valid() || !argument.shape.valid() || !argument.validated_type.valid() ||
+      !argument.validated_shape.valid()) {
+    return false;
+  }
+  const auto actual = mir::value_type(program, argument.type);
+  const auto scalar =
+      actual == ValueType::list ? mir::element_type(program, argument.type) : actual;
+  const auto actual_numeric = actual == ValueType::list
+                                  ? mir::element_numeric_type(program, argument.type)
+                                  : mir::numeric_type(program, argument.type);
+  const auto validated = mir::value_type(program, argument.validated_type);
+  const auto validated_numeric = validated == ValueType::list
+                                     ? mir::element_numeric_type(program, argument.validated_type)
+                                     : mir::numeric_type(program, argument.validated_type);
+  const bool scalar_numeric =
+      scalar == ValueType::integer || scalar == ValueType::real || scalar == ValueType::boolean;
+  if (actual_numeric.complexity == NumericComplexity::complex &&
+      validated_numeric.complexity != NumericComplexity::complex) {
+    return false;
+  }
+  if (has_argument_boundary_conversion(argument.boundary.conversion,
+                                       ArgumentBoundaryConversion::matlab_class)) {
+    switch (argument.boundary.class_constraint) {
+      case ArgumentClassConstraint::matlab_double:
+      case ArgumentClassConstraint::matlab_logical:
+        if (!scalar_numeric) return false;
+        break;
+      case ArgumentClassConstraint::matlab_char:
+      case ArgumentClassConstraint::none: return false;
+    }
+  }
+  if (has_argument_boundary_conversion(argument.boundary.conversion,
+                                       ArgumentBoundaryConversion::matlab_size)) {
+    if (actual != ValueType::list && !scalar_numeric) return false;
+    if ((argument.boundary.validated_rank == 0U) != (validated != ValueType::list)) return false;
+  }
+  return true;
+}
+
+bool cpp_default_conversion_representable(const mir::Program& program,
+                                          const mir::Statement& statement,
+                                          const ArgumentValidationPlan& validation) {
+  if (validation.direction != ArgumentDirection::input || !validation.has_default) return true;
+  if (validation.ordinal >= statement.parameter_defaults.size()) return false;
+  const auto* expression =
+      mir::expression(program, statement.parameter_defaults[validation.ordinal]);
+  if (expression == nullptr) return false;
+  const auto actual = mir::value_type(program, expression->type_id);
+  const auto scalar =
+      actual == ValueType::list ? mir::element_type(program, expression->type_id) : actual;
+  const auto numeric = actual == ValueType::list
+                           ? mir::element_numeric_type(program, expression->type_id)
+                           : mir::numeric_type(program, expression->type_id);
+  const bool scalar_numeric =
+      scalar == ValueType::integer || scalar == ValueType::real || scalar == ValueType::boolean;
+  switch (validation.class_constraint) {
+    case ArgumentClassConstraint::matlab_double:
+    case ArgumentClassConstraint::matlab_logical:
+      return scalar_numeric && numeric.complexity != NumericComplexity::complex;
+    case ArgumentClassConstraint::matlab_char: return actual == ValueType::string;
+    case ArgumentClassConstraint::none:
+      // An optional C++17 parameter needs one concrete owning type.  A size-only Matlab
+      // declaration deliberately leaves its element class dynamic, so the current static ABI
+      // cannot materialize its default without a dynamic entry adapter.
+      return !validation.dimensions_declared && actual != ValueType::unknown;
+  }
+  return false;
+}
+
 bool representable_recursive_return(const mir::Program& program, const mir::Function& function,
                                     const mir::Statement& statement) {
   if (function.result_types.empty()) return true;
@@ -625,6 +698,30 @@ std::vector<Diagnostic> validate_cpp_capabilities(const mir::Program& program,
   if (!diagnostics.empty()) return diagnostics;
 
   FunctionReturnTypes function_returns;
+  for (const auto& call : program.calls) {
+    const auto* instruction =
+        call.instruction.valid() && call.instruction.value() < program.instructions.size()
+            ? &program.instructions[call.instruction.value()]
+            : nullptr;
+    const auto line = instruction == nullptr ? 1U : instruction->location.line;
+    for (const auto& argument : call.arguments) {
+      if (!cpp_boundary_conversion_representable(program, argument)) {
+        add_error(diagnostics, line, "MPF2061",
+                  "C++17 cannot yet represent this Matlab class conversion at a function "
+                  "boundary");
+      }
+    }
+  }
+  for (std::size_t index = 1U; index < program.statements.size(); ++index) {
+    const auto& statement = program.statements[index];
+    for (const auto& validation : statement.argument_validations) {
+      if (!cpp_default_conversion_representable(program, statement, validation)) {
+        add_error(diagnostics, validation.line, "MPF2061",
+                  "C++17 cannot yet represent this Matlab default-value conversion without a "
+                  "dynamic argument adapter");
+      }
+    }
+  }
   for (const auto root : program.roots) {
     const auto* function = mir::statement(program, root);
     if (function == nullptr || function->kind != StatementKind::function) continue;

@@ -8,6 +8,7 @@
 
 #include "backends/common/artifact.hpp"
 #include "backends/common/identifier_mangler.hpp"
+#include "compiler/argument_validation.hpp"
 #include "compiler/assignment_pattern.hpp"
 #include "compiler/binding.hpp"
 #include "compiler/call_contract.hpp"
@@ -33,6 +34,7 @@ enum class RuntimeFeature : std::uint8_t {
   sparse_arithmetic,
   sparse_reductions,
   exception_handling,
+  argument_validation,
   runtime_selectors,
   matlab_section_assignment,
   count
@@ -223,6 +225,7 @@ enum class WritebackForm : std::uint8_t { none, section };
 struct CallArgumentPlan {
   CallArgumentForm form{CallArgumentForm::value};
   WritebackForm writeback{WritebackForm::none};
+  ArgumentCallBoundary boundary;
 };
 
 enum class IndexForm : std::uint8_t {
@@ -457,6 +460,17 @@ struct ExpressionPlan {
 
 enum class ConditionForm : std::uint8_t { direct, runtime_truthy, matlab_all_nonzero };
 
+// Target-owned lowering selected before serialization.  The source validation plan describes
+// Matlab semantics; this enum describes the concrete C++17 expression form used to materialize an
+// omitted positional argument.
+enum class ArgumentDefaultForm : std::uint8_t {
+  none,
+  direct,
+  matlab_double,
+  matlab_logical,
+  matlab_size
+};
+
 enum class StatementForm : std::uint8_t {
   discard,
   declaration_initializer,
@@ -524,6 +538,7 @@ struct StatementPlan {
   std::vector<AssignmentLeafPlan> assignment_leaves;
   std::vector<SelectorForm> selectors;
   std::vector<std::string> return_names;
+  std::vector<ArgumentDefaultForm> argument_defaults;
 };
 
 enum class RuntimeFragment : std::uint8_t {
@@ -539,6 +554,7 @@ enum class RuntimeFragment : std::uint8_t {
   sparse_arithmetic,
   sparse_reductions,
   exception_handling,
+  argument_validation,
   runtime_selectors,
   matlab_section_assignment
 };
@@ -606,6 +622,7 @@ struct Expression {
   std::size_t requested_outputs{1};
   bool multi_output_call{false};
   std::vector<ArgumentTransfer> argument_transfers;
+  std::vector<ArgumentCallBoundary> argument_boundaries;
   std::vector<std::string> argument_names;
   bool procedure_has_result{false};
   std::size_t index_base{0};
@@ -670,6 +687,7 @@ struct Statement {
   std::vector<SymbolId> parameter_symbols;
   std::vector<ParameterKind> parameter_kinds;
   std::vector<Expression> parameter_defaults;
+  std::vector<ArgumentValidationPlan> argument_validations;
   std::vector<ParameterIntent> parameter_intents;
   std::vector<bool> parameter_optional;
   std::vector<ValueType> parameter_types;

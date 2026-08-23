@@ -1,5 +1,6 @@
 #include "renderer.hpp"
 
+#include <iomanip>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -118,6 +119,119 @@ class Renderer final {
 
   static int precedence(const Expression& expression) noexcept {
     return expression.plan.precedence;
+  }
+
+  void emit_argument_dimensions(const ArgumentValidationPlan& plan) {
+    emit_argument_dimensions(plan.dimensions);
+  }
+
+  void emit_argument_dimensions(const std::vector<ArgumentDimensionConstraint>& dimensions) {
+    output_ << "std::vector<std::int64_t>{";
+    for (std::size_t axis = 0U; axis < dimensions.size(); ++axis) {
+      if (axis != 0U) output_ << ", ";
+      if (dimensions[axis].any)
+        output_ << "-1";
+      else
+        output_ << "static_cast<std::int64_t>(" << dimensions[axis].extent << ')';
+    }
+    output_ << '}';
+  }
+
+  void emit_argument_validators(const ArgumentValidationPlan& plan) {
+    output_ << "std::vector<std::uint8_t>{";
+    for (std::size_t index = 0U; index < plan.validators.size(); ++index) {
+      if (index != 0U) output_ << ", ";
+      output_ << static_cast<unsigned>(plan.validators[index]) << 'U';
+    }
+    output_ << '}';
+  }
+
+  void emit_argument_validation(const std::string& value, const std::string& source_name,
+                                const ArgumentValidationPlan& plan) {
+    indentation();
+    output_ << "mpf_runtime::validate_argument(" << value << ", " << std::quoted(source_name)
+            << ", " << std::quoted(plan.direction == ArgumentDirection::input ? "input" : "output")
+            << ", ";
+    emit_argument_dimensions(plan);
+    output_ << ", " << static_cast<unsigned>(plan.class_constraint) << "U, ";
+    emit_argument_validators(plan);
+    output_ << ");\n";
+  }
+
+  void emit_argument_size_normalization(const std::string& value,
+                                        const ArgumentValidationPlan& plan,
+                                        const std::size_t rank) {
+    if (!plan.dimensions_declared || rank == 0U) return;
+    indentation();
+    output_ << "mpf_runtime::normalize_argument_size<" << rank << ">(" << value << ", ";
+    emit_argument_dimensions(plan.dimensions);
+    output_ << ");\n";
+  }
+
+  void emit_input_argument_validations(const Statement& statement) {
+    for (std::size_t validation = 0U; validation < statement.argument_validations.size();
+         ++validation) {
+      const auto& plan = statement.argument_validations[validation];
+      if (plan.direction != ArgumentDirection::input || plan.ordinal >= statement.parameters.size())
+        continue;
+      const auto parameter = mangler_->name(plan.ordinal < statement.parameter_symbols.size()
+                                                ? statement.parameter_symbols[plan.ordinal]
+                                                : SymbolId{},
+                                            statement.parameters[plan.ordinal]);
+      const bool optional = plan.ordinal < statement.function_abi.parameters.size() &&
+                            statement.function_abi.parameters[plan.ordinal].passing ==
+                                cpp::lir::ParameterPassing::optional_reference;
+      if (plan.has_default) {
+        mark({plan.line, 1U}, statement.origin);
+        indentation();
+        output_ << parameter << ".resolve([&]() { return ";
+        const auto default_form = statement.plan.argument_defaults[validation];
+        const bool converts_default = default_form != cpp::lir::ArgumentDefaultForm::direct;
+        switch (default_form) {
+          case cpp::lir::ArgumentDefaultForm::matlab_double:
+            output_ << "mpf_runtime::convert_argument_double<";
+            break;
+          case cpp::lir::ArgumentDefaultForm::matlab_logical:
+            output_ << "mpf_runtime::convert_argument_logical<";
+            break;
+          case cpp::lir::ArgumentDefaultForm::matlab_size:
+            output_ << "mpf_runtime::convert_argument_size<";
+            break;
+          case cpp::lir::ArgumentDefaultForm::none:
+            throw std::logic_error("verified cpp optional argument has no default lowering form");
+          case cpp::lir::ArgumentDefaultForm::direct: break;
+        }
+        if (converts_default) {
+          output_ << plan.validated_rank << ">(";
+        }
+        emit_expression(statement.parameter_defaults[plan.ordinal]);
+        if (converts_default) {
+          output_ << ", ";
+          emit_argument_dimensions(plan.dimensions);
+          output_ << ')';
+        }
+        output_ << "; });\n";
+      }
+      mark({plan.line, 1U}, statement.origin);
+      const auto value = optional ? parameter + ".value()" : parameter;
+      emit_argument_size_normalization(value, plan, plan.validated_rank);
+      emit_argument_validation(value, statement.parameters[plan.ordinal], plan);
+    }
+  }
+
+  void emit_output_argument_validations(const Statement& statement) {
+    for (const auto& plan : statement.argument_validations) {
+      if (plan.direction != ArgumentDirection::output ||
+          plan.ordinal >= statement.return_names.size())
+        continue;
+      const auto output = mangler_->name(plan.ordinal < statement.return_symbols.size()
+                                             ? statement.return_symbols[plan.ordinal]
+                                             : SymbolId{},
+                                         statement.return_names[plan.ordinal]);
+      mark({plan.line, 1U}, statement.origin);
+      emit_argument_size_normalization(output, plan, plan.validated_rank);
+      emit_argument_validation(output, statement.return_names[plan.ordinal], plan);
+    }
   }
 
   void emit_named_comparison(const std::string& left, const cpp::lir::ComparisonPlan& comparison,
@@ -561,16 +675,42 @@ class Renderer final {
     output_ << '(';
     for (std::size_t index = 1; index < expression.children.size(); ++index) {
       if (index != 1) output_ << ", ";
+      const auto plan_index = index - 1U;
+      const auto* argument_plan = plan_index < expression.plan.call_arguments.size()
+                                      ? &expression.plan.call_arguments[plan_index]
+                                      : nullptr;
+      const auto converted = argument_plan != nullptr &&
+                             argument_plan->boundary.conversion != ArgumentBoundaryConversion::none;
+      if (converted) {
+        switch (argument_plan->boundary.class_constraint) {
+          case ArgumentClassConstraint::matlab_double:
+            output_ << "mpf_runtime::convert_argument_double<";
+            break;
+          case ArgumentClassConstraint::matlab_logical:
+            output_ << "mpf_runtime::convert_argument_logical<";
+            break;
+          case ArgumentClassConstraint::none:
+            output_ << "mpf_runtime::convert_argument_size<";
+            break;
+          case ArgumentClassConstraint::matlab_char:
+            throw std::logic_error("verified cpp call retains an unsupported char conversion");
+        }
+        output_ << argument_plan->boundary.validated_rank << ">(";
+      }
       if (replacements != nullptr && index < replacements->size() &&
           !(*replacements)[index].empty()) {
         output_ << (*replacements)[index];
-      } else if (index - 1U < expression.plan.call_arguments.size() &&
-                 expression.plan.call_arguments[index - 1U].form ==
-                     cpp::lir::CallArgumentForm::forward_optional) {
+      } else if (argument_plan != nullptr &&
+                 argument_plan->form == cpp::lir::CallArgumentForm::forward_optional) {
         output_ << mangler_->name(expression.children[index].symbol_id,
                                   expression.children[index].plan.token);
       } else {
         emit_expression(expression.children[index]);
+      }
+      if (converted) {
+        output_ << ", ";
+        emit_argument_dimensions(argument_plan->boundary.dimensions);
+        output_ << ')';
       }
     }
     output_ << ')';
@@ -973,7 +1113,16 @@ class Renderer final {
     type_probe_ = previous_type_probe;
   }
 
-  void emit_function_signature(const Statement& statement) {
+  bool matlab_parameter_has_default(const Statement& statement,
+                                    const std::size_t ordinal) const noexcept {
+    return std::any_of(statement.argument_validations.begin(), statement.argument_validations.end(),
+                       [&](const ArgumentValidationPlan& plan) {
+                         return plan.direction == ArgumentDirection::input &&
+                                plan.ordinal == ordinal && plan.has_default;
+                       });
+  }
+
+  void emit_function_signature(const Statement& statement, const bool emit_defaults) {
     std::size_t templated_parameters = 0;
     for (const auto& parameter : statement.function_abi.parameters) {
       if (!parameter.template_parameter.empty()) ++templated_parameters;
@@ -1003,10 +1152,14 @@ class Renderer final {
                                       ? statement.parameter_symbols[index]
                                       : SymbolId{},
                                   statement.parameters[index]);
+        if (emit_defaults && matlab_parameter_has_default(statement, index)) {
+          output_ << " = std::nullopt";
+        }
         continue;
       }
       if (parameter.passing == cpp::lir::ParameterPassing::const_reference) output_ << "const ";
-      output_ << parameter.template_parameter;
+      output_ << (parameter.template_parameter.empty() ? parameter.concrete_type
+                                                       : parameter.template_parameter);
       if (parameter.passing == cpp::lir::ParameterPassing::const_reference ||
           parameter.passing == cpp::lir::ParameterPassing::mutable_reference) {
         output_ << '&';
@@ -1016,23 +1169,30 @@ class Renderer final {
                                     ? statement.parameter_symbols[index]
                                     : SymbolId{},
                                 statement.parameters[index]);
+      if (emit_defaults && matlab_parameter_has_default(statement, index)) {
+        output_ << " = std::nullopt";
+      }
     }
     output_ << ')';
   }
 
   void emit_function_declaration(const Statement& statement) {
-    emit_function_signature(statement);
+    emit_function_signature(statement, true);
     output_ << ";\n";
   }
 
   void emit_function(const Statement& statement) {
     const auto function_indent = indent_;
-    emit_function_signature(statement);
+    emit_function_signature(statement, !statement.function_abi.forward_declarable);
     output_ << " {\n";
     indent_ = function_indent + 1;
+    const auto* previous_function = active_function_;
+    active_function_ = &statement;
+    emit_input_argument_validations(statement);
     emit_scope_declarations(statement.function_scope);
     for (const auto& child : statement.body) emit_statement(child);
     if (!statement.plan.return_names.empty()) {
+      emit_output_argument_validations(statement);
       indentation();
       if (statement.plan.return_names.size() == 1) {
         output_ << "return "
@@ -1053,6 +1213,7 @@ class Renderer final {
         output_ << ");\n";
       }
     }
+    active_function_ = previous_function;
     indent_ = function_indent;
     indentation();
     output_ << "}\n";
@@ -1357,6 +1518,7 @@ class Renderer final {
         break;
       case cpp::lir::StatementForm::return_void:
       case cpp::lir::StatementForm::return_value:
+        if (active_function_ != nullptr) emit_output_argument_validations(*active_function_);
         indentation();
         output_ << "return";
         if (statement.plan.form == cpp::lir::StatementForm::return_value) {
@@ -1366,6 +1528,7 @@ class Renderer final {
         output_ << ";\n";
         break;
       case cpp::lir::StatementForm::return_outputs:
+        if (active_function_ != nullptr) emit_output_argument_validations(*active_function_);
         indentation();
         if (statement.plan.return_names.size() == 1U) {
           output_ << "return "
@@ -1657,6 +1820,7 @@ class Renderer final {
   std::vector<const Expression*> expressions_;
   std::unique_ptr<IdentifierMangler> mangler_;
   std::vector<std::string> loop_completion_flags_;
+  const Statement* active_function_{nullptr};
   std::vector<RenderMarker> markers_;
   bool type_probe_{false};
 };

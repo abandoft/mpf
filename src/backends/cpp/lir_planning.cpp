@@ -78,6 +78,9 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::exception_handling)) {
     result.push_back(lir::RuntimeFragment::exception_handling);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::argument_validation)) {
+    result.push_back(lir::RuntimeFragment::argument_validation);
+  }
   return result;
 }
 
@@ -631,10 +634,19 @@ void plan_function_abis(lir::SemanticProgram& program) {
       const auto intent = parameter < statement.parameter_intents.size()
                               ? statement.parameter_intents[parameter]
                               : ParameterIntent::none;
+      const auto validation = std::find_if(
+          statement.argument_validations.begin(), statement.argument_validations.end(),
+          [&](const ArgumentValidationPlan& plan) {
+            return plan.direction == ArgumentDirection::input && plan.ordinal == parameter;
+          });
+      const bool concrete_argument = validation != statement.argument_validations.end() &&
+                                     validation->class_constraint != ArgumentClassConstraint::none;
       if (optional) {
         parameter_abi.passing = lir::ParameterPassing::optional_reference;
       } else {
-        parameter_abi.template_parameter = "T" + std::to_string(parameter);
+        if (!concrete_argument) {
+          parameter_abi.template_parameter = "T" + std::to_string(parameter);
+        }
         if (intent == ParameterIntent::in) {
           parameter_abi.passing = lir::ParameterPassing::const_reference;
         } else if (intent == ParameterIntent::out || intent == ParameterIntent::inout) {
@@ -752,6 +764,13 @@ void verify_function_abi(const lir::SemanticProgram& program, const lir::Stateme
     const auto intent = parameter < statement.parameter_intents.size()
                             ? statement.parameter_intents[parameter]
                             : ParameterIntent::none;
+    const auto validation = std::find_if(
+        statement.argument_validations.begin(), statement.argument_validations.end(),
+        [&](const ArgumentValidationPlan& plan) {
+          return plan.direction == ArgumentDirection::input && plan.ordinal == parameter;
+        });
+    const bool concrete_argument = validation != statement.argument_validations.end() &&
+                                   validation->class_constraint != ArgumentClassConstraint::none;
     auto expected = lir::ParameterPassing::value;
     if (optional) {
       expected = lir::ParameterPassing::optional_reference;
@@ -763,7 +782,9 @@ void verify_function_abi(const lir::SemanticProgram& program, const lir::Stateme
     if (actual.passing != expected ||
         actual.concrete_type != cpp_parameter_type(statement, parameter) ||
         (optional && !actual.template_parameter.empty()) ||
-        (!optional && actual.template_parameter != "T" + std::to_string(parameter))) {
+        (!optional && !concrete_argument &&
+         actual.template_parameter != "T" + std::to_string(parameter)) ||
+        (!optional && concrete_argument && !actual.template_parameter.empty())) {
       add_error(diagnostics, {statement.line, 1}, "cpp LIR parameter passing ABI is inconsistent");
     }
   }

@@ -1187,8 +1187,12 @@ lir::ExpressionPlan expected_expression_plan(
         }
       }
       result.call_arguments.reserve(expression.argument_transfers.size());
-      for (const auto transfer : expression.argument_transfers) {
+      for (std::size_t index = 0U; index < expression.argument_transfers.size(); ++index) {
+        const auto transfer = expression.argument_transfers[index];
         lir::CallArgumentPlan argument;
+        if (index < expression.argument_boundaries.size()) {
+          argument.boundary = expression.argument_boundaries[index];
+        }
         if (argument_transfer_forwards_optional(transfer)) {
           argument.form = lir::CallArgumentForm::forward_optional;
         } else if (argument_transfer_copies(transfer)) {
@@ -1359,7 +1363,8 @@ bool same_comparison(const lir::ComparisonPlan& left, const lir::ComparisonPlan&
 
 bool same_call_argument(const lir::CallArgumentPlan& left,
                         const lir::CallArgumentPlan& right) noexcept {
-  return left.form == right.form && left.writeback == right.writeback;
+  return left.form == right.form && left.writeback == right.writeback &&
+         left.boundary == right.boundary;
 }
 
 bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right) noexcept {
@@ -1869,6 +1874,26 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
                                            const AccessContext& context, const bool in_function) {
   lir::StatementPlan result;
   result.valid = true;
+  result.argument_defaults.reserve(statement.argument_validations.size());
+  for (const auto& validation : statement.argument_validations) {
+    auto form = lir::ArgumentDefaultForm::none;
+    if (validation.direction == ArgumentDirection::input && validation.has_default) {
+      switch (validation.class_constraint) {
+        case ArgumentClassConstraint::matlab_double:
+          form = lir::ArgumentDefaultForm::matlab_double;
+          break;
+        case ArgumentClassConstraint::matlab_logical:
+          form = lir::ArgumentDefaultForm::matlab_logical;
+          break;
+        case ArgumentClassConstraint::matlab_char: form = lir::ArgumentDefaultForm::direct; break;
+        case ArgumentClassConstraint::none:
+          form = validation.dimensions_declared ? lir::ArgumentDefaultForm::matlab_size
+                                                : lir::ArgumentDefaultForm::direct;
+          break;
+      }
+    }
+    result.argument_defaults.push_back(form);
+  }
   switch (statement.kind) {
     case StatementKind::declaration:
       result.form = statement.has_expression ? lir::StatementForm::declaration_initializer
@@ -2063,7 +2088,8 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
       left.character_selector != right.character_selector || left.targets != right.targets ||
       left.target_accesses != right.target_accesses ||
       left.assignment_leaves.size() != right.assignment_leaves.size() ||
-      left.selectors != right.selectors || left.return_names != right.return_names) {
+      left.selectors != right.selectors || left.return_names != right.return_names ||
+      left.argument_defaults != right.argument_defaults) {
     return false;
   }
   for (std::size_t index = 0; index < left.assignment_leaves.size(); ++index) {
@@ -2121,6 +2147,36 @@ void verify_statements(const std::vector<lir::Statement>& statements,
                        const bool in_function = false) {
   for (const auto& statement : statements) {
     const bool nested_in_function = in_function || statement.kind == StatementKind::function;
+    if (!statement.argument_validations.empty()) {
+      if (source_language != SourceLanguage::matlab || statement.kind != StatementKind::function ||
+          !valid_argument_validation_inventory(statement.argument_validations,
+                                               statement.parameters.size(),
+                                               statement.return_names.size())) {
+        add_error(diagnostics, {statement.line, 1},
+                  "cpp LIR argument validation inventory is malformed");
+      }
+      for (const auto& plan : statement.argument_validations) {
+        const auto& types = plan.direction == ArgumentDirection::input ? statement.parameter_types
+                                                                       : statement.return_types;
+        const auto& shapes = plan.direction == ArgumentDirection::input ? statement.parameter_shapes
+                                                                        : statement.return_shapes;
+        const auto expected_rank = plan.ordinal < types.size() &&
+                                           types[plan.ordinal] == ValueType::list &&
+                                           plan.ordinal < shapes.size()
+                                       ? shapes[plan.ordinal].size()
+                                       : 0U;
+        if (plan.validated_rank != expected_rank) {
+          add_error(diagnostics, {statement.line, 1},
+                    "cpp LIR argument validation rank disagrees with its formal ABI");
+        }
+        if (plan.direction == ArgumentDirection::input && plan.has_default &&
+            (plan.ordinal >= statement.parameter_defaults.size() ||
+             !statement.parameter_defaults[plan.ordinal].valid())) {
+          add_error(diagnostics, {statement.line, 1},
+                    "cpp LIR optional argument has no default expression");
+        }
+      }
+    }
     const auto nested_context =
         statement.kind == StatementKind::function ? function_context(statement) : context;
     const auto& expression_context =
@@ -2308,6 +2364,20 @@ void plan_lir_representation(lir::SemanticProgram& program) {
 
 void verify_lir_representation(const lir::SemanticProgram& program,
                                std::vector<Diagnostic>& diagnostics) {
+  const auto has_argument_validation = [](const auto& self,
+                                          const std::vector<lir::Statement>& statements) -> bool {
+    for (const auto& statement : statements) {
+      if (!statement.argument_validations.empty() || self(self, statement.body) ||
+          self(self, statement.alternative))
+        return true;
+    }
+    return false;
+  };
+  const bool validation = has_argument_validation(has_argument_validation, program.statements);
+  if (validation != program.runtime.contains(lir::RuntimeFeature::argument_validation)) {
+    add_error(diagnostics, {1, 1},
+              "cpp LIR argument validation runtime requirement is inconsistent");
+  }
   verify_statements(program.statements, program.emission, {}, program.source_language, diagnostics);
   const auto expected = build_source_segment_plan(program.statements, program.node_count);
   if (!same_source_segment_plan(program.source_segments, expected)) {

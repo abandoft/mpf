@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <ostream>
 
+#include "argument_validation_runtime.hpp"
 #include "complex_matrix_runtime.hpp"
 #include "complex_sparse_runtime.hpp"
 #include "exception_runtime.hpp"
@@ -55,6 +56,9 @@ class RuntimeEmitter final {
     const bool include_exception_handling =
         std::find(fragments.begin(), fragments.end(),
                   cpp::lir::RuntimeFragment::exception_handling) != fragments.end();
+    const bool include_argument_validation =
+        std::find(fragments.begin(), fragments.end(),
+                  cpp::lir::RuntimeFragment::argument_validation) != fragments.end();
     const bool include_runtime_selectors =
         std::find(fragments.begin(), fragments.end(),
                   cpp::lir::RuntimeFragment::runtime_selectors) != fragments.end();
@@ -63,6 +67,7 @@ class RuntimeEmitter final {
                   cpp::lir::RuntimeFragment::matlab_section_assignment) != fragments.end();
     output_ << "namespace " << runtime_namespace << " {\n";
     if (include_exception_handling) emit_cpp_exception_runtime(output_);
+    if (include_argument_validation) emit_cpp_argument_validation_runtime(output_);
     output_
         << "template <typename T> class optional_argument {\n"
            " public:\n"
@@ -99,6 +104,11 @@ class RuntimeEmitter final {
            "*pointer_; }\n"
            "  const T& value() const {\n"
            "    if (pointer_ == nullptr) throw std::bad_optional_access{};\n"
+           "    return *pointer_;\n"
+           "  }\n"
+           "  template <typename F> T& resolve(F&& fallback) {\n"
+           "    if (pointer_ == nullptr) { owned_.emplace(std::forward<F>(fallback)()); "
+           "pointer_ = &owned_.value(); }\n"
            "    return *pointer_;\n"
            "  }\n"
            " private:\n"
