@@ -24,7 +24,7 @@ A modern, high-performance multilingual transpilation framework. MPF converts su
 
 | Input language | Recognized extensions | Current capabilities |
 |---|---|---|
-| Matlab | `.m` | Scripts and local functions, conditionals/loops/scalar `switch`, single-handler `try`/`catch`, catch bindings, `error`/`rethrow`, element-wise N-D `~`/`&`/`|`, scalar short-circuit `&&`/`||`, array condition truthiness, shape-aware `all`/`any` logical reductions, real and complex scalars/arrays, shape-preserving `0×0` and zero-extent arrays, static N-D and local-function runtime-shape implicit expansion, array comparisons, static and runtime-sized `end`, ordered/repeated/empty numeric and linear/per-dimension logical selectors, vector/matrix/N-D growth and single-axis deletion, ordinary/conjugate transpose, sections, `reshape`, complex element-wise arithmetic, two-dimensional real/complex matrix multiplication, structure-aware real square solves, Hermitian-positive-definite/dense complex square solves, rank-aware real/complex rectangular solves, all R2024 `sparse` call forms for statically shaped rank-2 inputs, with real/logical values plus complex dense and triplet values (zero-matrix construction remains double), numeric/complex duplicate summation and logical duplicate `any`, type-preserving sparse scalar/linear/submatrix selection plus indexed assignment, growth, deletion, reshape, transpose/`full`/query/count, square solves including `0×0` coefficients and shape-preserving empty results, finite-real or complex sparse×sparse/sparse×dense/dense×sparse matrix multiplication, bidirectional sparse/scalar scaling, compatible-size sparse `.*` scalar/dense/sparse multiplication, compatible-size real/logical/complex sparse `+`/`-` with sparse-sparse typed CSC preservation and mixed dense materialization, static rank-2 sparse logical `~`/`&`/`|` with Matlab storage rules (`~S`, sparse AND, and sparse-sparse OR stay CSC; mixed OR materializes dense), static real/logical rank-2 sparse `all`/`any` reductions (non-scalar results stay logical CSC; total results are full logical scalars), nonnegative-safe-integer real/logical sparse square power preserving CSC, safe-integer dense real/complex square matrix power, and multiple-output functions |
+| Matlab | `.m` | Scripts and local functions, conditionals/loops/scalar `switch`, single-handler `try`/`catch`, catch bindings, `error`/`rethrow`, element-wise N-D `~`/`&`/`|`, scalar short-circuit `&&`/`||`, array condition truthiness, shape-aware `all`/`any` logical reductions, real and complex scalars/arrays, shape-preserving `0×0` and zero-extent arrays, static N-D and local-function runtime-shape implicit expansion, array comparisons, static and runtime-sized `end`, ordered/repeated/empty numeric and linear/per-dimension logical selectors, vector/matrix/N-D growth and single-axis deletion, runtime scalar/numeric/logical/range assignment selectors with transactional overwrite-or-grow, ordinary/conjugate transpose, sections, `reshape`, complex element-wise arithmetic, two-dimensional real/complex matrix multiplication, structure-aware real square solves, Hermitian-positive-definite/dense complex square solves, rank-aware real/complex rectangular solves, all R2024 `sparse` call forms for statically shaped rank-2 inputs, with real/logical values plus complex dense and triplet values (zero-matrix construction remains double), numeric/complex duplicate summation and logical duplicate `any`, type-preserving sparse scalar/linear/submatrix selection plus indexed assignment, growth, deletion, reshape, transpose/`full`/query/count, square solves including `0×0` coefficients and shape-preserving empty results, finite-real or complex sparse×sparse/sparse×dense/dense×sparse matrix multiplication, bidirectional sparse/scalar scaling, compatible-size sparse `.*` scalar/dense/sparse multiplication, compatible-size real/logical/complex sparse `+`/`-` with sparse-sparse typed CSC preservation and mixed dense materialization, static rank-2 sparse logical `~`/`&`/`|` with Matlab storage rules (`~S`, sparse AND, and sparse-sparse OR stay CSC; mixed OR materializes dense), static real/logical rank-2 sparse `all`/`any` reductions (non-scalar results stay logical CSC; total results are full logical scalars), nonnegative-safe-integer real/logical sparse square power preserving CSC, safe-integer dense real/complex square matrix power, and multiple-output functions |
 | Python | `.py`, `.pyw` | Functions and parameters, conditionals and loops, lists/tuples, unpacking, comparison chains, multidimensional arrays, indexing, and slicing |
 | Fortran | `.f`, `.for`, `.ftn`, `.f77`, `.f90`, and others | Free/fixed form, functions/subroutines, `INTENT`/`OPTIONAL`, arrays and sections, and `SELECT CASE` |
 | TypeScript | `.ts`, `.mts`, `.cts` | Typed scalars and arrays, functions, block scope, conditionals, `while`, and standard C-style `for` loops |
@@ -32,9 +32,11 @@ A modern, high-performance multilingual transpilation framework. MPF converts su
 Matlab function and script `return` are supported; function exits preserve declared single or multiple outputs. Command syntax accepts one or more character-vector arguments for supported local functions and built-ins, preserves Matlab quoting and operator-spacing rules, and stores value-producing results in `ans`; `disp` and `display` retain their one-argument requirement. Structured exceptions support one `catch` clause with an optional binding, nested handlers, `error(message)`, `error(identifier, message)`, the caught exception's `identifier`/`message`, and `rethrow`. Bare no-argument commands, qualified/package commands, external path resolution, `arguments` blocks, and the remaining `MException` object model remain outside the supported subset.
 
 Dense Matlab section assignment supports scalar and one-element-array expansion, linear element-count
-matching, singleton-axis-equivalent row/column shapes, and runtime validation for full-colon writes
-through dynamically shaped local-function parameters. Dynamic mismatches fail before the target array
-is modified; the general dynamic NDArray/view ABI remains under development.
+matching, singleton-axis-equivalent row/column shapes, and runtime validation through dynamically
+shaped local-function parameters. Non-full dynamic targets accept scalar, numeric-array, logical-array,
+and range selectors for linear or multidimensional overwrite, growth, single-axis deletion, and N-D
+page growth. Both targets validate the selector and replacement before committing; the general
+zero-extent/stride/view/ownership NDArray ABI remains under development.
 
 Language names are limited to `matlab`, `python`, `fortran`, and `typescript`; output targets are limited to `javascript` and `cpp`. `cpp` is the target name, and the current generated language standard is C++17.
 
@@ -131,7 +133,7 @@ cmake --install build/release --prefix build/stage
 Find the exact current version in another project:
 
 ```cmake
-find_package(mpf 0.7.6 EXACT CONFIG REQUIRED COMPONENTS core cpp)
+find_package(mpf 0.7.7 EXACT CONFIG REQUIRED COMPONENTS core cpp)
 target_link_libraries(my_application PRIVATE mpf::mpf)
 ```
 
@@ -159,7 +161,7 @@ int main() {
 }
 ```
 
-The installed package provides the `core`, `javascript`, and `cpp` components; the `mpf::core`, `mpf::backend-javascript`, and `mpf::backend-cpp` targets; and the unified `mpf::mpf` entry point. See [`examples/embedding`](examples/embedding) for a complete integration example; configure it with `-DMPF_REQUIRED_VERSION=0.7.6` so the consumer keeps exact-version matching.
+The installed package provides the `core`, `javascript`, and `cpp` components; the `mpf::core`, `mpf::backend-javascript`, and `mpf::backend-cpp` targets; and the unified `mpf::mpf` entry point. See [`examples/embedding`](examples/embedding) for a complete integration example; configure it with `-DMPF_REQUIRED_VERSION=0.7.7` so the consumer keeps exact-version matching.
 
 MPF 0.x installs static libraries deliberately. A supported shared-library ABI will require an explicit symbol-export, allocator/ownership, and version-negotiation contract; setting `BUILD_SHARED_LIBS` does not silently expose the current internal C++ ABI.
 

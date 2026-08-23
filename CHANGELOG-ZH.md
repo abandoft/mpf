@@ -1,3 +1,16 @@
+## 0.7.7
+
+- 通过动态类型 local-function 参数执行 Matlab indexed assignment 时，现支持 scalar、numeric-array、logical-array 和 range selector。
+- 动态线性赋值现会根据 selector 的运行时值选择覆盖或扩容，并保持 Matlab 列主序。
+- 动态多维赋值现可覆盖已有 section，或扩展行、列及更高维 page。
+- 运行时 numeric selector 会保持源码顺序与重复位置，logical selector 则会在修改前验证实际 extent。
+- 动态 null assignment 现可删除合法的 vector selection 或单个数组轴，并拒绝含义不明确的矩阵线性删除。
+- 运行时 conformability 现覆盖 scalar expansion、线性元素数量匹配，以及扩容时的多维 non-singleton shape 匹配。
+- 扩容赋值会在提交前验证 selector 边界、selection shape、replacement shape 与 result shape；失败时保持原值不变。
+- 生成的 JavaScript 与 C++17 会彼此独立地实现相同的动态赋值与失败回滚合同。
+- runtime selector 与 dense section-assignment 支持仅在实际需要时装载，无关的 sparse mutation 产物不再携带这些 helper。
+- source map 与聚焦的 runtime error 现覆盖动态覆盖、扩容、删除及非法 replacement 路径。
+
 ## 0.7.6
 
 - Matlab 稠密 section assignment 现可接受非 singleton 维度与所选 shape 一致的行或列 replacement。

@@ -1,3 +1,16 @@
+## 0.7.7
+
+- Matlab indexed assignment through dynamically typed local-function parameters now accepts scalar, numeric-array, logical-array, and range selectors.
+- Dynamic linear assignment now chooses overwrite or growth from the selector's runtime value while preserving Matlab column-major order.
+- Dynamic multidimensional assignment can overwrite existing sections or grow rows, columns, and higher-dimensional pages.
+- Runtime numeric selectors preserve source order and repeated positions, while logical selectors validate their actual extent before mutation.
+- Dynamic null assignment can delete a valid vector selection or one selected array axis and rejects ambiguous linear deletion from matrices.
+- Runtime conformability now covers scalar expansion, linear element-count matching, and multidimensional non-singleton shape matching during growth.
+- Growing assignment validates selector bounds, selected shape, replacement shape, and result shape before committing, leaving the original value unchanged on failure.
+- Generated JavaScript and C++17 independently implement the same dynamic assignment and rollback contract.
+- Runtime selector and dense section-assignment support is emitted only when needed, so unrelated sparse mutation output does not carry those helpers.
+- Source maps and focused runtime errors now cover dynamic overwrite, growth, deletion, and invalid replacement paths.
+
 ## 0.7.6
 
 - Matlab dense section assignment now accepts row and column replacements whose non-singleton dimensions match the selected shape.
