@@ -376,6 +376,55 @@ TEST_CASE("Matlab function output becomes a JavaScript return value") {
   REQUIRE(result.code.find("return y;") != std::string::npos);
 }
 
+TEST_CASE("Matlab arguments lower defaults conversion validation and output contracts per target") {
+  const std::string source =
+      "function output = scale(values, factor)\n"
+      "arguments (Input)\n"
+      "values (1,:) double {mustBeNumeric, mustBeFinite}\n"
+      "factor (1,1) double {mustBePositive} = 2\n"
+      "end\n"
+      "arguments (Output)\n"
+      "output (1,:) double {mustBeFinite}\n"
+      "end\n"
+      "output = values .* factor\n"
+      "end\n";
+  const auto javascript = transpile(source, mpf::SourceLanguage::matlab);
+  const auto cpp = transpile(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+
+  REQUIRE(javascript.code.find("function __mpf_validate_argument") != std::string::npos);
+  REQUIRE(javascript.code.find("const converted = Number(item)") == std::string::npos);
+  REQUIRE(javascript.code.find("values = __mpf_validate_argument(values, \"values\", \"input\", "
+                               "[1, -1], 1, [0, 4]);") != std::string::npos);
+  REQUIRE(javascript.code.find("if (factor === undefined) factor = 2;") != std::string::npos);
+  REQUIRE(javascript.code.find("output = __mpf_validate_argument(output, \"output\", \"output\", "
+                               "[1, -1], 1, [4]);") != std::string::npos);
+
+  REQUIRE(cpp.code.find("mpf_runtime::optional_argument<double> factor = std::nullopt") !=
+          std::string::npos);
+  REQUIRE(
+      cpp.code.find("factor.resolve([&]() { return mpf_runtime::convert_argument_double<0>(2, ") !=
+      std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::validate_argument(values, \"values\", \"input\"") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::validate_argument(output, \"output\", \"output\"") !=
+          std::string::npos);
+
+  for (const auto* result : {&javascript, &cpp}) {
+    for (const auto declaration_line : {3U, 4U, 7U}) {
+      REQUIRE(std::any_of(
+          result->source_map.segments.begin(), result->source_map.segments.end(),
+          [&](const auto& segment) { return segment.original_line == declaration_line; }));
+    }
+  }
+
+  const auto plain = transpile("function output = identity(input)\noutput = input\nend\n",
+                               mpf::SourceLanguage::matlab);
+  REQUIRE(plain.success());
+  REQUIRE(plain.code.find("function __mpf_validate_argument") == std::string::npos);
+}
+
 TEST_CASE("Matlab early return preserves single and multiple declared outputs") {
   const std::string source =
       "single = choose(1);\n"

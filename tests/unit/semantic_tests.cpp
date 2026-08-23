@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <string>
+#include <string_view>
 
 #include "mpf/transpiler.hpp"
 #include "test_framework.hpp"
@@ -24,6 +25,15 @@ mpf::TranspileResult matlab(const std::string& source,
   return mpf::Transpiler{}.transpile(source, options);
 }
 
+bool has_diagnostic(const mpf::TranspileResult& result, const std::string_view code,
+                    const std::string_view message = {}) {
+  return std::any_of(
+      result.diagnostics.begin(), result.diagnostics.end(), [&](const mpf::Diagnostic& diagnostic) {
+        return diagnostic.code == code &&
+               (message.empty() || diagnostic.message.find(message) != std::string::npos);
+      });
+}
+
 }  // namespace
 
 TEST_CASE("semantic analysis rejects undefined identifiers") {
@@ -38,6 +48,167 @@ TEST_CASE("semantic analysis rejects use before definite assignment") {
   const auto result = python("print(value)\nvalue = 1\n");
   REQUIRE(!result.success());
   REQUIRE(result.diagnostics.front().code == "MPF2003");
+}
+
+TEST_CASE("Matlab arguments declarations reject invalid positional contracts without internals") {
+  const auto duplicated = matlab(
+      "function output = identity(input)\n"
+      "arguments\n"
+      "input (1,1) double\n"
+      "input (1,1) double\n"
+      "end\n"
+      "output = input\n"
+      "end\n");
+  REQUIRE(!duplicated.success());
+  REQUIRE(has_diagnostic(duplicated, "MPF2060", "duplicated"));
+  REQUIRE(!has_diagnostic(duplicated, "MPF0005"));
+
+  const auto missing = matlab(
+      "function output = add(left, right)\n"
+      "arguments\n"
+      "left (1,1) double\n"
+      "end\n"
+      "output = left + right\n"
+      "end\n");
+  REQUIRE(!missing.success());
+  REQUIRE(has_diagnostic(missing, "MPF2060", "right"));
+
+  const auto required_after_optional = matlab(
+      "function output = add(left, right)\n"
+      "arguments\n"
+      "left (1,1) double = 1\n"
+      "right (1,1) double\n"
+      "end\n"
+      "output = left + right\n"
+      "end\n");
+  REQUIRE(!required_after_optional.success());
+  REQUIRE(has_diagnostic(required_after_optional, "MPF2060", "cannot follow optional"));
+
+  const auto forward_default = matlab(
+      "function output = add(left, right)\n"
+      "arguments\n"
+      "left (1,1) double = right\n"
+      "right (1,1) double = 1\n"
+      "end\n"
+      "output = left + right\n"
+      "end\n");
+  REQUIRE(!forward_default.success());
+  REQUIRE(has_diagnostic(forward_default, "MPF2003", "right"));
+}
+
+TEST_CASE("Matlab arguments declarations fail closed at unsupported grammar boundaries") {
+  const auto repeating = matlab(
+      "function output = collect(input)\n"
+      "arguments (Repeating)\n"
+      "input\n"
+      "end\n"
+      "output = input\n"
+      "end\n");
+  REQUIRE(!repeating.success());
+  REQUIRE(has_diagnostic(repeating, "MPF1200", "repeating arguments"));
+
+  const auto parameterized_validator = matlab(
+      "function output = bounded(input)\n"
+      "arguments\n"
+      "input (1,1) double {mustBeGreaterThan(input, 0)}\n"
+      "end\n"
+      "output = input\n"
+      "end\n");
+  REQUIRE(!parameterized_validator.success());
+  REQUIRE(has_diagnostic(parameterized_validator, "MPF1200", "parameterized"));
+
+  const auto output_default = matlab(
+      "function output = identity(input)\n"
+      "arguments (Input)\n"
+      "input (1,1) double\n"
+      "end\n"
+      "arguments (Output)\n"
+      "output (1,1) double = 0\n"
+      "end\n"
+      "output = input\n"
+      "end\n");
+  REQUIRE(!output_default.success());
+  REQUIRE(has_diagnostic(output_default, "MPF1200", "cannot declare default"));
+}
+
+TEST_CASE("Matlab arguments reject target boundary conversions that are not exact") {
+  const std::string character_to_numeric =
+      "output = numeric_codes('12');\n"
+      "function output = numeric_codes(value)\n"
+      "arguments\n"
+      "value (1,:) double\n"
+      "end\n"
+      "output = value\n"
+      "end\n";
+  const std::string numeric_to_character =
+      "output = character_codes([65 66]);\n"
+      "function output = character_codes(value)\n"
+      "arguments\n"
+      "value (1,:) char\n"
+      "end\n"
+      "output = value\n"
+      "end\n";
+  for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+    for (const auto* source : {&character_to_numeric, &numeric_to_character}) {
+      const auto result = matlab(*source, target);
+      REQUIRE(!result.success());
+      REQUIRE(result.code.empty());
+      REQUIRE(has_diagnostic(result, "MPF2061", "function boundary"));
+    }
+  }
+
+  const std::string unsupported_default =
+      "output = character_default();\n"
+      "function output = character_default(value)\n"
+      "arguments\n"
+      "value (1,:) char = 65\n"
+      "end\n"
+      "output = value\n"
+      "end\n";
+  for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+    const auto result = matlab(unsupported_default, target);
+    REQUIRE(!result.success());
+    REQUIRE(result.code.empty());
+    REQUIRE(has_diagnostic(result, "MPF2061", "default value"));
+    REQUIRE(!has_diagnostic(result, "MPF0005"));
+  }
+
+  const std::string dynamic_size_default =
+      "output = shaped_default();\n"
+      "function output = shaped_default(value)\n"
+      "arguments\n"
+      "value (1,:) = [1 2]\n"
+      "end\n"
+      "output = value\n"
+      "end\n";
+  const auto javascript = matlab(dynamic_size_default);
+  const auto cpp = matlab(dynamic_size_default, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(!cpp.success());
+  REQUIRE(cpp.code.empty());
+  REQUIRE(has_diagnostic(cpp, "MPF2061", "dynamic argument adapter"));
+}
+
+TEST_CASE("Matlab validated calls normalize omitted arguments and reject invalid arity") {
+  const std::string function =
+      "function output = add(left, right)\n"
+      "arguments\n"
+      "left (1,1) double\n"
+      "right (1,1) double = left\n"
+      "end\n"
+      "output = left + right\n"
+      "end\n";
+  const auto optional = matlab("disp(add(21))\n" + function);
+  REQUIRE(optional.success());
+  REQUIRE(optional.code.find("add(21, undefined)") != std::string::npos);
+
+  const auto missing = matlab("disp(add())\n" + function);
+  REQUIRE(!missing.success());
+  REQUIRE(has_diagnostic(missing, "MPF2034", "left"));
+
+  const auto excess = matlab("disp(add(1, 2, 3))\n" + function);
+  REQUIRE(!excess.success());
+  REQUIRE(has_diagnostic(excess, "MPF2034", "at most 2"));
 }
 
 TEST_CASE("semantic analysis rejects zero and non-integer Python range steps") {

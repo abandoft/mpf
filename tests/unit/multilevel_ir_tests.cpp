@@ -6,6 +6,7 @@
 #include <type_traits>
 
 #include "backends/common/conformance.hpp"
+#include "backends/common/lir_builder.hpp"
 #include "backends/common/registry.hpp"
 #include "backends/cpp/lir.hpp"
 #include "backends/cpp/lir_planning.hpp"
@@ -267,6 +268,149 @@ TEST_CASE("Matlab binary operator identity remains typed through HIR and MIR") {
   REQUIRE(array_operation != missing_array_semantics.attributes.expressions.end());
   array_operation->array_operation = mpf::detail::semantic::ArrayOperation::native;
   REQUIRE(!mpf::detail::mir::verify(missing_array_semantics, "missing-array-semantics").empty());
+}
+
+TEST_CASE("Matlab arguments contracts remain typed through semantic MIR and target LIR") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "function output = scale(values, factor)\n"
+                              "arguments (Input)\n"
+                              "values (1,:) double {mustBeNumeric, mustBeFinite}\n"
+                              "factor (1,1) double {mustBePositive} = 2\n"
+                              "end\n"
+                              "arguments (Output)\n"
+                              "output (1,:) double {mustBeFinite}\n"
+                              "end\n"
+                              "output = values .* factor\n"
+                              "end\n",
+                              "arguments.m");
+  REQUIRE(lowered.program.statements.size() == 1U);
+  const auto function_id = lowered.program.statements.front().id;
+  REQUIRE(lowered.program.statements.front().argument_declarations.size() == 3U);
+
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  const auto* facts = analysis.semantics.statement(function_id);
+  REQUIRE(facts != nullptr);
+  REQUIRE(facts->argument_validations.size() == 3U);
+  REQUIRE(facts->argument_validations[0].direction == mpf::detail::ArgumentDirection::input);
+  REQUIRE(facts->argument_validations[0].ordinal == 0U);
+  REQUIRE(facts->argument_validations[0].validated_rank == 2U);
+  REQUIRE(facts->argument_validations[0].dimensions[1].any);
+  REQUIRE((facts->argument_validations[0].validators ==
+           std::vector{mpf::detail::ArgumentValidator::numeric,
+                       mpf::detail::ArgumentValidator::finite}));
+  REQUIRE(facts->argument_validations[1].has_default);
+  REQUIRE(facts->argument_validations[1].validated_rank == 0U);
+  REQUIRE(facts->argument_validations[2].direction == mpf::detail::ArgumentDirection::output);
+  REQUIRE(mpf::detail::dump_semantics(analysis.semantics).find("argument-validations=[{0:0") !=
+          std::string::npos);
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  const auto mir_function = std::find_if(
+      mir.program.statements.begin() + 1, mir.program.statements.end(),
+      [](const auto& statement) { return statement.kind == mpf::detail::StatementKind::function; });
+  REQUIRE(mir_function != mir.program.statements.end());
+  REQUIRE(mir_function->argument_validations.size() == 3U);
+  REQUIRE(mpf::detail::dump_mir(mir.program).find("argument-validations=[{0:0") !=
+          std::string::npos);
+  auto invalid_mir = mir.program;
+  const auto invalid_function = std::find_if(
+      invalid_mir.statements.begin() + 1, invalid_mir.statements.end(),
+      [](const auto& statement) { return statement.kind == mpf::detail::StatementKind::function; });
+  REQUIRE(invalid_function != invalid_mir.statements.end());
+  invalid_function->argument_validations.push_back(invalid_function->argument_validations.front());
+  REQUIRE(!mpf::detail::mir::verify(invalid_mir, "corrupt-arguments").empty());
+  invalid_mir = mir.program;
+  const auto invalid_rank_function = std::find_if(
+      invalid_mir.statements.begin() + 1, invalid_mir.statements.end(),
+      [](const auto& statement) { return statement.kind == mpf::detail::StatementKind::function; });
+  REQUIRE(invalid_rank_function != invalid_mir.statements.end());
+  invalid_rank_function->argument_validations.front().validated_rank = 1U;
+  REQUIRE(!mpf::detail::mir::verify(invalid_mir, "corrupt-argument-rank").empty());
+
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact->debug_dump().find("argument-validations [{0:0:1") !=
+          std::string::npos);
+  REQUIRE(cpp.artifact->debug_dump().find("argument-validations [{0:0:1") != std::string::npos);
+
+  const auto resolve_javascript = [](const mpf::detail::HirNodeId, const mpf::detail::IntrinsicId) {
+    return mpf::detail::CodeBinding{};
+  };
+  auto javascript_lir = mpf::detail::lower_structured_lir<
+      mpf::detail::javascript::lir::SemanticProgram, mpf::detail::javascript::lir::Statement,
+      mpf::detail::javascript::lir::Expression, mpf::detail::javascript::lir::CaseSelector>(
+      mir.program, resolve_javascript);
+  javascript_lir->source_language = mpf::SourceLanguage::matlab;
+  javascript_lir->runtime.require(
+      mpf::detail::javascript::lir::RuntimeFeature::argument_validation);
+  javascript_lir->runtime.require(mpf::detail::javascript::lir::RuntimeFeature::arrays);
+  javascript_lir->runtime.require(mpf::detail::javascript::lir::RuntimeFeature::complex_numbers);
+  mpf::detail::javascript::plan_lir_resources(*javascript_lir, mpf::TranspileOptions{});
+  mpf::detail::javascript::plan_lir_representation(*javascript_lir);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(*javascript_lir, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript_lir->statements.front().argument_validations.front().validated_rank = 1U;
+  mpf::detail::javascript::verify_lir_representation(*javascript_lir, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  const auto resolve_cpp = [](const mpf::detail::HirNodeId, const mpf::detail::IntrinsicId) {
+    return mpf::detail::CodeBinding{};
+  };
+  auto cpp_lir = mpf::detail::lower_structured_lir<
+      mpf::detail::cpp::lir::SemanticProgram, mpf::detail::cpp::lir::Statement,
+      mpf::detail::cpp::lir::Expression, mpf::detail::cpp::lir::CaseSelector>(mir.program,
+                                                                              resolve_cpp);
+  cpp_lir->source_language = mpf::SourceLanguage::matlab;
+  cpp_lir->runtime.require(mpf::detail::cpp::lir::RuntimeFeature::argument_validation);
+  mpf::detail::cpp::plan_lir_resources(*cpp_lir, mpf::TranspileOptions{});
+  mpf::detail::cpp::plan_lir_representation(*cpp_lir);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(*cpp_lir, diagnostics);
+  REQUIRE(diagnostics.empty());
+  REQUIRE(cpp_lir->statements.front().plan.argument_defaults.size() == 3U);
+  REQUIRE(cpp_lir->statements.front().plan.argument_defaults[0] ==
+          mpf::detail::cpp::lir::ArgumentDefaultForm::none);
+  REQUIRE(cpp_lir->statements.front().plan.argument_defaults[1] ==
+          mpf::detail::cpp::lir::ArgumentDefaultForm::matlab_double);
+  auto invalid_defaults = *cpp_lir;
+  invalid_defaults.statements.front().plan.argument_defaults[1] =
+      mpf::detail::cpp::lir::ArgumentDefaultForm::direct;
+  mpf::detail::cpp::verify_lir_representation(invalid_defaults, diagnostics);
+  REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  cpp_lir->statements.front().argument_validations.front().validated_rank = 1U;
+  mpf::detail::cpp::verify_lir_representation(*cpp_lir, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  auto untyped_scalar = lower_source(mpf::SourceLanguage::matlab,
+                                     "function output = check(input)\n"
+                                     "arguments\n"
+                                     "input (1,1) {mustBeReal}\n"
+                                     "end\n"
+                                     "output = input\n"
+                                     "end\n",
+                                     "untyped-scalar-argument.m");
+  const auto untyped_function_id = untyped_scalar.program.statements.front().id;
+  auto untyped_analysis =
+      mpf::detail::analyze_program(untyped_scalar.program, std::move(untyped_scalar.semantics));
+  REQUIRE(untyped_analysis.empty());
+  const auto* untyped_facts = untyped_analysis.semantics.statement(untyped_function_id);
+  REQUIRE(untyped_facts != nullptr);
+  REQUIRE(untyped_facts->parameter_shapes.size() == 1U);
+  REQUIRE(untyped_facts->parameter_shapes.front().empty());
+  REQUIRE(untyped_facts->argument_validations.front().validated_rank == 0U);
+  auto untyped_mir = mpf::detail::mir::lower_from_hir(std::move(untyped_scalar.program),
+                                                      std::move(untyped_analysis.semantics),
+                                                      untyped_analysis.names);
+  REQUIRE(untyped_mir.diagnostics.empty());
 }
 
 TEST_CASE("Matlab numeric class and complexity remain typed through every IR layer") {
@@ -4245,7 +4389,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v34") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v35") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -4256,7 +4400,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v40") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v41") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -5935,9 +6079,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v49") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v51") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v49") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v51") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
