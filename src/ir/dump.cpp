@@ -117,6 +117,32 @@ void dump_flags(std::ostringstream& output, const std::vector<bool>& flags) {
   output << ']';
 }
 
+void dump_argument_validations(std::ostringstream& output,
+                               const std::vector<ArgumentValidationPlan>& plans) {
+  output << '[';
+  for (std::size_t index = 0U; index < plans.size(); ++index) {
+    if (index != 0U) output << ',';
+    const auto& plan = plans[index];
+    output << '{' << enum_value(plan.direction) << ':' << plan.ordinal << ':'
+           << enum_value(plan.class_constraint) << ":dims=";
+    if (!plan.dimensions_declared) output << '-';
+    for (std::size_t axis = 0U; axis < plan.dimensions.size(); ++axis) {
+      if (axis != 0U) output << '/';
+      if (plan.dimensions[axis].any)
+        output << ':';
+      else
+        output << plan.dimensions[axis].extent;
+    }
+    output << ":validators=";
+    for (std::size_t validator = 0U; validator < plan.validators.size(); ++validator) {
+      if (validator != 0U) output << '/';
+      output << enum_value(plan.validators[validator]);
+    }
+    output << ":default=" << plan.has_default << ":rank=" << plan.validated_rank << '}';
+  }
+  output << ']';
+}
+
 void dump_storage_region(std::ostringstream& output, const StorageRegion& region) {
   output << "{kind=" << enum_value(region.kind) << " shape=[";
   for (std::size_t index = 0; index < region.root_shape.size(); ++index) {
@@ -172,7 +198,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v34 hir-nodes=" << table.hir_node_count
+  output << "semantic-v35 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -424,6 +450,8 @@ std::string dump_semantics(const hir::SemanticTable& table) {
              << " exported=" << facts.exported
              << " implicit-result-value=" << facts.implicit_result_has_value
              << " previous-assigned=" << facts.previous_assigned;
+      output << " argument-validations=";
+      dump_argument_validations(output, facts.argument_validations);
       if (facts.indexed_mutation.valid()) {
         output << " mutation=" << enum_value(facts.indexed_mutation.kind)
                << " shape-source=" << enum_value(facts.indexed_mutation.shape_source)
@@ -447,7 +475,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v40 language=" << enum_value(program.source_language)
+  output << "mir-v41 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -669,6 +697,8 @@ std::string dump_mir(const mir::Program& program) {
     dump_ids(output, statement.alternative, "%mstmt");
     output << " origin=%h" << statement.origin.value()
            << " exception-handler-line=" << statement.exception_handler_line;
+    output << " argument-validations=";
+    dump_argument_validations(output, statement.argument_validations);
     if (attributes != nullptr) {
       output << " procedure-call=" << attributes->procedure_call
              << " implicit-result=" << enum_value(attributes->implicit_result)
@@ -832,8 +862,14 @@ std::string dump_mir(const mir::Program& program) {
     for (std::size_t index = 0; index < call.arguments.size(); ++index) {
       if (index != 0) output << ',';
       const auto& argument = call.arguments[index];
-      output << "{type=!t" << argument.type.value() << " storage=!m" << argument.storage.value()
-             << " root=!m" << argument.root.value() << " intent=" << enum_value(argument.intent)
+      output << "{type=!t" << argument.type.value() << " shape=!s" << argument.shape.value()
+             << " validated=!t" << argument.validated_type.value() << "/!s"
+             << argument.validated_shape.value()
+             << " conversion=" << enum_value(argument.boundary.conversion)
+             << " class=" << enum_value(argument.boundary.class_constraint)
+             << " rank=" << argument.boundary.validated_rank << " storage=!m"
+             << argument.storage.value() << " root=!m" << argument.root.value()
+             << " intent=" << enum_value(argument.intent)
              << " transfer=" << enum_value(argument.transfer)
              << " view=" << enum_value(argument.view)
              << " lifetime=" << enum_value(argument.lifetime) << " writable=" << argument.writable

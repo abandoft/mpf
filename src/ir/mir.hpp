@@ -6,6 +6,7 @@
 #include <string_view>
 #include <vector>
 
+#include "compiler/argument_validation.hpp"
 #include "compiler/assignment_pattern.hpp"
 #include "compiler/call_contract.hpp"
 #include "hir.hpp"
@@ -215,6 +216,9 @@ struct CallSite {
   MirFunctionId callee{};
   struct Argument {
     TypeId type{};
+    ShapeId shape{};
+    TypeId validated_type{};
+    ShapeId validated_shape{};
     StorageId storage{};
     StorageId root{};
     ParameterIntent intent{ParameterIntent::none};
@@ -222,6 +226,7 @@ struct CallSite {
     StorageViewKind view{StorageViewKind::none};
     StorageLifetime lifetime{StorageLifetime::expression};
     StorageRegion region;
+    ArgumentCallBoundary boundary;
     bool writable{false};
   };
 
@@ -275,6 +280,7 @@ struct Statement {
   std::vector<SymbolId> parameter_symbols;
   std::vector<ParameterKind> parameter_kinds;
   std::vector<MirExpressionId> parameter_defaults;
+  std::vector<ArgumentValidationPlan> argument_validations;
   std::vector<std::string> return_names;
   std::vector<SymbolId> return_symbols;
   std::vector<std::string> target_names;

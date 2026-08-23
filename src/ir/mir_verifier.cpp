@@ -276,6 +276,34 @@ bool compatible_shape(const Program& program, const ShapeId actual, const ShapeI
   return true;
 }
 
+bool matlab_argument_size_conversion_required(const Program& program, const TypeId actual_type,
+                                              const ShapeId actual_shape,
+                                              const ArgumentValidationPlan& validation) noexcept {
+  if (!validation.dimensions_declared) return false;
+  const auto value = value_type(program, actual_type);
+  if (value == ValueType::string) return false;
+  std::vector<std::size_t> extents;
+  if (value == ValueType::list) {
+    const auto* shape_data =
+        type_data(program, actual_type) == nullptr
+            ? nullptr
+            : (valid_index(actual_shape, program.shapes) ? &program.shapes[actual_shape.value()]
+                                                         : nullptr);
+    if (shape_data == nullptr || shape_data->dynamic_rank || shape_data->extents.empty()) {
+      return true;
+    }
+    extents = shape_data->extents;
+  } else {
+    extents = {1U, 1U};
+  }
+  if (extents.size() != validation.dimensions.size()) return true;
+  for (std::size_t axis = 0U; axis < extents.size(); ++axis) {
+    const auto expected = validation.dimensions[axis];
+    if (!expected.any && extents[axis] != expected.extent) return true;
+  }
+  return false;
+}
+
 semantic::MatrixOperation matrix_operation_for_operator(const BinaryOperator operation) noexcept {
   switch (operation) {
     case BinaryOperator::multiply: return semantic::MatrixOperation::multiply;
@@ -1896,6 +1924,44 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
     for (const auto expression_id : statement.parameter_defaults) {
       verify_expression_id(expression_id);
     }
+    if (!statement.argument_validations.empty()) {
+      if (program.source_language != SourceLanguage::matlab ||
+          statement.kind != StatementKind::function ||
+          !valid_argument_validation_inventory(statement.argument_validations,
+                                               statement.parameters.size(),
+                                               statement.return_names.size())) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "MIR argument validation inventory is malformed");
+      }
+      const auto function = std::find_if(
+          program.functions.begin() + 1U, program.functions.end(),
+          [&](const Function& candidate) { return candidate.origin == statement.origin; });
+      for (const auto& plan : statement.argument_validations) {
+        if (function != program.functions.end()) {
+          const auto& types = plan.direction == ArgumentDirection::input ? function->parameter_types
+                                                                         : function->result_types;
+          const auto& shapes = plan.direction == ArgumentDirection::input
+                                   ? function->parameter_shapes
+                                   : function->result_shapes;
+          std::size_t expected_rank = 0U;
+          if (plan.ordinal < types.size() && plan.ordinal < shapes.size() &&
+              value_type(program, types[plan.ordinal]) == ValueType::list &&
+              valid_index(shapes[plan.ordinal], program.shapes)) {
+            expected_rank = program.shapes[shapes[plan.ordinal].value()].extents.size();
+          }
+          if (plan.validated_rank != expected_rank) {
+            add_error(diagnostics, {statement.line, 1}, stage,
+                      "MIR argument validation rank disagrees with its function ABI");
+          }
+        }
+        if (plan.direction == ArgumentDirection::input && plan.has_default &&
+            (plan.ordinal >= statement.parameter_defaults.size() ||
+             !statement.parameter_defaults[plan.ordinal].valid())) {
+          add_error(diagnostics, {statement.line, 1}, stage,
+                    "MIR optional argument validation has no default expression");
+        }
+      }
+    }
     for (const auto& selector : statement.case_selectors) {
       verify_expression_id(selector.lower);
       verify_expression_id(selector.upper);
@@ -2518,6 +2584,10 @@ void verify_function_types_and_calls(const Program& program, std::vector<Diagnos
     seen_call_instruction[call.instruction.value()] = true;
     seen_call_origin[call.origin.value()] = true;
     const auto& callee = program.functions[call.callee.value()];
+    const auto callee_statement = std::find_if(
+        program.statements.begin() + 1, program.statements.end(), [&](const Statement& statement) {
+          return statement.kind == StatementKind::function && statement.origin == callee.origin;
+        });
     const auto* signature = type_data(program, callee.signature);
     if (signature == nullptr || signature->kind != TypeKind::function) {
       add_error(diagnostics, instruction.location, stage,
@@ -2553,17 +2623,72 @@ void verify_function_types_and_calls(const Program& program, std::vector<Diagnos
                   "call argument transfer mode disagrees with its intent");
       }
       if (actual.transfer == ArgumentTransfer::omitted) {
-        if (!optional || actual.storage.valid() || actual.root.valid() || actual.writable) {
+        if (!optional || actual.storage.valid() || actual.root.valid() || actual.writable ||
+            actual.validated_type.valid() || actual.validated_shape.valid() ||
+            !(actual.boundary == ArgumentCallBoundary{})) {
           add_error(diagnostics, instruction.location, stage,
                     "omitted call argument has an invalid optional or storage contract");
         }
         continue;
       }
-      if (!valid_index(actual.type, program.types) ||
-          !compatible_type(program, actual.type, signature->parameters[argument])) {
+      ArgumentCallBoundary expected_boundary;
+      TypeId expected_validated_type;
+      ShapeId expected_validated_shape;
+      if (program.source_language == SourceLanguage::matlab &&
+          callee_statement != program.statements.end()) {
+        const auto validation = std::find_if(
+            callee_statement->argument_validations.begin(),
+            callee_statement->argument_validations.end(), [&](const ArgumentValidationPlan& plan) {
+              return plan.direction == ArgumentDirection::input && plan.ordinal == argument;
+            });
+        if (validation != callee_statement->argument_validations.end() &&
+            argument < callee.parameter_types.size() && argument < callee.parameter_shapes.size() &&
+            (validation->class_constraint != ArgumentClassConstraint::none ||
+             validation->dimensions_declared)) {
+          expected_validated_type = callee.parameter_types[argument];
+          expected_validated_shape = callee.parameter_shapes[argument];
+          expected_boundary.class_constraint = validation->class_constraint;
+          expected_boundary.dimensions_declared = validation->dimensions_declared;
+          expected_boundary.dimensions = validation->dimensions;
+          expected_boundary.validated_rank = validation->validated_rank;
+          if (validation->class_constraint != ArgumentClassConstraint::none &&
+              actual.type != expected_validated_type) {
+            expected_boundary.conversion |= ArgumentBoundaryConversion::matlab_class;
+          }
+          if (matlab_argument_size_conversion_required(program, actual.type, actual.shape,
+                                                       *validation)) {
+            expected_boundary.conversion |= ArgumentBoundaryConversion::matlab_size;
+          }
+        }
+      }
+      if (!valid_argument_call_boundary(actual.boundary) ||
+          !(actual.boundary == expected_boundary) ||
+          actual.validated_type != expected_validated_type ||
+          actual.validated_shape != expected_validated_shape) {
+        add_error(diagnostics, instruction.location, stage,
+                  "call argument boundary-conversion contract is inconsistent");
+      }
+      const bool converts_type = has_argument_boundary_conversion(
+          expected_boundary.conversion, ArgumentBoundaryConversion::matlab_class);
+      const bool converts_size = has_argument_boundary_conversion(
+          expected_boundary.conversion, ArgumentBoundaryConversion::matlab_size);
+      if (!valid_index(actual.type, program.types) || !valid_index(actual.shape, program.shapes) ||
+          (!converts_type && !converts_size &&
+           !compatible_type(program, actual.type, signature->parameters[argument]))) {
         add_error(diagnostics, instruction.location, stage,
                   "call argument type disagrees with the callee signature");
         continue;
+      }
+      // A class conversion can also change the representation shape (for example, a Matlab
+      // character vector converted to a numeric row vector).  The target capability validator
+      // decides whether that conversion is representable; comparing the pre-conversion shape to
+      // the validated ABI here would reject a well-formed MIR contract before that boundary.
+      if (expected_validated_shape.valid() && !converts_type && !converts_size &&
+          argument < callee.parameter_shapes.size() &&
+          !compatible_shape(program, actual.shape, callee.parameter_shapes[argument],
+                            callee.parameter_types[argument])) {
+        add_error(diagnostics, instruction.location, stage,
+                  "call argument shape disagrees with the callee signature");
       }
       if (actual.storage.valid()) {
         if (!valid_index(actual.storage, program.storages)) {

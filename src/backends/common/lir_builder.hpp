@@ -269,8 +269,10 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
     const auto* call = call_sites[source.origin.value()];
     if (call != nullptr) {
       result.argument_transfers.reserve(call->arguments.size());
+      result.argument_boundaries.reserve(call->arguments.size());
       for (const auto& argument : call->arguments) {
         result.argument_transfers.push_back(argument.transfer);
+        result.argument_boundaries.push_back(argument.boundary);
       }
     }
   }
@@ -383,6 +385,7 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
     result.parameter_defaults.push_back(
         lower_lir_expression<LirExpression>(program, expression, ids, resolve_binding, call_sites));
   }
+  result.argument_validations = source.argument_validations;
   if (function != nullptr) {
     result.parameter_optional = function->parameter_optional;
     result.parameter_types.reserve(function->parameter_types.size());

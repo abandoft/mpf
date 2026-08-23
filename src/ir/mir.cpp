@@ -112,6 +112,45 @@ class Builder final {
         program_.instructions[call.instruction.value()].callee = call.callee;
       }
       call.arguments = std::move(unresolved.arguments);
+      if (program_.source_language == SourceLanguage::matlab && call.callee.valid() &&
+          call.callee.value() < program_.functions.size()) {
+        const auto& callee = program_.functions[call.callee.value()];
+        const auto statement = std::find_if(
+            program_.statements.begin() + 1, program_.statements.end(),
+            [&](const Statement& candidate) {
+              return candidate.kind == StatementKind::function && candidate.origin == callee.origin;
+            });
+        if (statement != program_.statements.end()) {
+          for (std::size_t index = 0U; index < call.arguments.size(); ++index) {
+            auto& argument = call.arguments[index];
+            if (argument.transfer == ArgumentTransfer::omitted) continue;
+            const auto validation = std::find_if(
+                statement->argument_validations.begin(), statement->argument_validations.end(),
+                [&](const ArgumentValidationPlan& plan) {
+                  return plan.direction == ArgumentDirection::input && plan.ordinal == index;
+                });
+            if (validation != statement->argument_validations.end() &&
+                index < callee.parameter_types.size() && index < callee.parameter_shapes.size() &&
+                (validation->class_constraint != ArgumentClassConstraint::none ||
+                 validation->dimensions_declared)) {
+              argument.validated_type = callee.parameter_types[index];
+              argument.validated_shape = callee.parameter_shapes[index];
+              argument.boundary.class_constraint = validation->class_constraint;
+              argument.boundary.dimensions_declared = validation->dimensions_declared;
+              argument.boundary.dimensions = validation->dimensions;
+              argument.boundary.validated_rank = validation->validated_rank;
+              if (validation->class_constraint != ArgumentClassConstraint::none &&
+                  argument.type != argument.validated_type) {
+                argument.boundary.conversion |= ArgumentBoundaryConversion::matlab_class;
+              }
+              if (validation->dimensions_declared &&
+                  matlab_size_conversion_required(argument, *validation)) {
+                argument.boundary.conversion |= ArgumentBoundaryConversion::matlab_size;
+              }
+            }
+          }
+        }
+      }
       call.result_type = unresolved.result_type;
       call.requested_results = unresolved.requested_results;
       program_.calls.push_back(std::move(call));
@@ -252,6 +291,9 @@ class Builder final {
     result.parameter_defaults.reserve(source.parameter_defaults.size());
     for (auto& expression : source.parameter_defaults) {
       result.parameter_defaults.push_back(lower_expression(std::move(expression)));
+    }
+    if (semantic_facts != nullptr) {
+      result.argument_validations = semantic_facts->argument_validations;
     }
     result.return_names = std::move(source.return_names);
     result.return_symbols.reserve(result.return_names.size());
@@ -1587,6 +1629,7 @@ class Builder final {
                                         const bool optional_forward) const {
     CallSite::Argument result;
     result.type = expression.type_id;
+    result.shape = expression.shape_id;
     result.storage = expression.storage_id;
     result.root = storage_root(result.storage);
     result.intent = intent;
@@ -1601,6 +1644,32 @@ class Builder final {
       result.writable = metadata.writable;
     }
     return result;
+  }
+
+  bool matlab_size_conversion_required(const CallSite::Argument& argument,
+                                       const ArgumentValidationPlan& validation) const {
+    if (!validation.dimensions_declared) return false;
+    const auto actual_type = mir::value_type(program_, argument.type);
+    if (actual_type == ValueType::string) {
+      // Character vectors keep their string ABI; their length remains a runtime validation.
+      return false;
+    }
+    std::vector<std::size_t> actual_extents;
+    if (actual_type == ValueType::list) {
+      const auto* actual_shape = mir::shape(program_, argument.shape);
+      if (actual_shape == nullptr || actual_shape->dynamic_rank || actual_shape->extents.empty()) {
+        return true;
+      }
+      actual_extents = actual_shape->extents;
+    } else {
+      actual_extents = {1U, 1U};
+    }
+    if (actual_extents.size() != validation.dimensions.size()) return true;
+    for (std::size_t axis = 0U; axis < actual_extents.size(); ++axis) {
+      const auto expected = validation.dimensions[axis];
+      if (!expected.any && actual_extents[axis] != expected.extent) return true;
+    }
+    return false;
   }
 
   StorageId storage_for(const SymbolId symbol, const std::string& name, const HirNodeId origin,
