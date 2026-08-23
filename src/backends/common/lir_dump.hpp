@@ -327,6 +327,11 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     }
     output << ']';
   }
+  if (expression.exception.valid()) {
+    output << " exception " << static_cast<int>(expression.exception.operation) << " message "
+           << static_cast<int>(expression.exception.message_form) << " stack "
+           << static_cast<int>(expression.exception.stack_policy);
+  }
   if (expression.plan.broadcast.valid) {
     const auto dump_shape = [&](const std::vector<std::size_t>& shape) {
       output << '[';
@@ -444,7 +449,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v48 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v49 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

@@ -232,6 +232,11 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
     result.reduction.input_storage = attributes.reduction.input_storage;
     result.reduction.result_storage = attributes.reduction.result_storage;
   }
+  if (attributes.exception.valid()) {
+    result.exception.operation = attributes.exception.operation;
+    result.exception.message_form = attributes.exception.message_form;
+    result.exception.stack_policy = attributes.exception.stack_policy;
+  }
   const auto* source_type = mir::type(program, source.type_id);
   if (source_type != nullptr && source_type->kind == mir::TypeKind::tuple) {
     result.tuple_types.reserve(source_type->elements.size());
