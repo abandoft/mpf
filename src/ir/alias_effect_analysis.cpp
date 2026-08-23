@@ -60,7 +60,7 @@ Effect intrinsic_effects(const IntrinsicId intrinsic) noexcept {
     case IntrinsicId::sum: return Effect::may_fail;
     case IntrinsicId::matlab_exception:
     case IntrinsicId::matlab_add_cause:
-    case IntrinsicId::matlab_get_report: return Effect::allocate | Effect::may_fail;
+    case IntrinsicId::matlab_get_report:
     case IntrinsicId::reshape:
     case IntrinsicId::matlab_sparse:
     case IntrinsicId::matlab_full: return Effect::allocate | Effect::may_fail;
