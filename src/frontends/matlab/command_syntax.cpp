@@ -85,7 +85,15 @@ std::optional<MatlabCommandSyntax> scan_matlab_command_syntax(const std::string_
       std::string(source.substr(result.callee_begin, result.callee_end - result.callee_begin));
   if (reserved_command_callee(result.callee)) return std::nullopt;
 
-  if (index >= source.size() || !whitespace(source[index])) return std::nullopt;
+  if (index >= source.size()) return result;
+  auto tail = index;
+  while (tail < source.size() && whitespace(source[tail])) ++tail;
+  if (tail < source.size() && source[tail] == ';') {
+    ++tail;
+    while (tail < source.size() && whitespace(source[tail])) ++tail;
+    if (tail == source.size()) return result;
+  }
+  if (!whitespace(source[index])) return std::nullopt;
   while (index < source.size() && whitespace(source[index])) ++index;
   if (index >= source.size() || source[index] == '=' || source[index] == '(') {
     return std::nullopt;
