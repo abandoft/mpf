@@ -1164,6 +1164,26 @@ std::string matlab_command_syntax_workload(const std::size_t calls) {
   return source;
 }
 
+std::string matlab_argument_validation_workload(const std::size_t calls) {
+  std::string source = "values = [1 2 3 4];\nresult = 0;\n";
+  for (std::size_t index = 0U; index < calls; ++index) {
+    source += "result = result + sum(validated(values));\n";
+  }
+  source +=
+      "disp(result)\n"
+      "function output = validated(input, factor)\n"
+      "arguments (Input)\n"
+      "input (1,:) double {mustBeNumeric, mustBeFinite}\n"
+      "factor (1,1) double {mustBePositive, mustBeInteger} = 2\n"
+      "end\n"
+      "arguments (Output)\n"
+      "output (1,:) double {mustBeFinite, mustBeNonempty}\n"
+      "end\n"
+      "output = input .* factor;\n"
+      "end\n";
+  return source;
+}
+
 std::string matlab_exception_workload(const std::size_t regions) {
   std::string source = "value = 0;\n";
   for (std::size_t index = 0; index < regions; ++index) {
@@ -1372,6 +1392,8 @@ int main() {
        matlab_advanced_structured_square_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-return-command", matlab_return_command_workload(32), mpf::SourceLanguage::matlab},
       {"matlab-command-syntax", matlab_command_syntax_workload(64), mpf::SourceLanguage::matlab},
+      {"matlab-argument-validation", matlab_argument_validation_workload(64),
+       mpf::SourceLanguage::matlab},
       {"matlab-exception-control", matlab_exception_workload(64), mpf::SourceLanguage::matlab},
       {"matlab-exception-objects", matlab_exception_object_workload(64),
        mpf::SourceLanguage::matlab}};

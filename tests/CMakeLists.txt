@@ -55,6 +55,7 @@ if(NOT MPF_ENABLE_SANITIZERS)
       -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/performance/baseline.json
       -DREPORT=${CMAKE_BINARY_DIR}/performance-report.json
       -DPROJECT_VERSION=${PROJECT_VERSION}
+      -DBUILD_CONFIG=$<CONFIG>
       -P ${PROJECT_SOURCE_DIR}/cmake/verify_performance.cmake)
   set_tests_properties(mpf.performance.release-gate PROPERTIES
     LABELS "performance;coverage-excluded"
@@ -67,6 +68,7 @@ add_custom_target(mpf-performance
     -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/performance/baseline.json
     -DREPORT=${CMAKE_BINARY_DIR}/performance-report.json
     -DPROJECT_VERSION=${PROJECT_VERSION}
+    -DBUILD_CONFIG=$<CONFIG>
     -P ${PROJECT_SOURCE_DIR}/cmake/verify_performance.cmake
   DEPENDS mpf-benchmark
   USES_TERMINAL)

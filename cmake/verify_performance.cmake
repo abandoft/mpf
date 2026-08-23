@@ -1,8 +1,14 @@
 cmake_minimum_required(VERSION 3.20)
 
 if(NOT DEFINED BENCHMARK OR NOT DEFINED BASELINE OR NOT DEFINED REPORT OR
-   NOT DEFINED PROJECT_VERSION)
-  message(FATAL_ERROR "BENCHMARK, BASELINE, REPORT and PROJECT_VERSION are required")
+   NOT DEFINED PROJECT_VERSION OR NOT DEFINED BUILD_CONFIG)
+  message(FATAL_ERROR
+    "BENCHMARK, BASELINE, REPORT, PROJECT_VERSION and BUILD_CONFIG are required")
+endif()
+if(NOT BUILD_CONFIG MATCHES "^(Release|RelWithDebInfo)$")
+  message(FATAL_ERROR
+    "performance release gate requires an optimized Release or RelWithDebInfo build; "
+    "received '${BUILD_CONFIG}'")
 endif()
 
 execute_process(
