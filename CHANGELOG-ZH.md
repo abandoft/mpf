@@ -1,3 +1,18 @@
+## 0.7.8
+
+- Matlab `MException(identifier, message, ...)` 现可使用格式化的标量消息值构造可捕获异常对象。
+- 格式化 Matlab `error` 现支持常用整数、浮点数、字符和字符串转换，包括宽度、精度、符号、填充及转义百分号。
+- `throw(exception)` 与 `throwAsCaller(exception)` 现可接收转译后的异常对象，并通过生成的 JavaScript 和 C++17 handler 传播。
+- `rethrow(exception)` 会继续传播原始捕获失败，不会以新异常替换它。
+- `addCause(exception, cause)` 现会在两个目标中返回包含嵌套 cause chain 的不可变异常值。
+- `getReport` 现支持 basic/extended report，以及 `hyperlinks` 的 `default`、`on` 和 `off` 选项。
+- JavaScript 与 C++17 runtime 会彼此独立地保留异常 identifier、message、cause 和原始失败。
+- 未被遮蔽的零输入 Matlab local function 现可使用裸 command syntax 调用。
+- 变量、参数、结果、loop variable、catch binding、global 和 persistent value 仍会遮蔽同名裸 local call。
+- 非法异常 identifier、缺失格式值、不支持的 report option 和非法异常 operand 现会给出聚焦诊断或稳定的生成 runtime 错误。
+- 仅使用异常能力的程序才会装载 exception runtime，无关生成代码不会携带异常 helper。
+- source map 会保留异常构造、格式化、cause/report 操作、throw site、handler 和裸 local command call 的源码位置。
+
 ## 0.7.7
 
 - 通过动态类型 local-function 参数执行 Matlab indexed assignment 时，现支持 scalar、numeric-array、logical-array 和 range selector。

@@ -1,3 +1,18 @@
+## 0.7.8
+
+- Matlab `MException(identifier, message, ...)` now creates catchable exception objects with formatted scalar message values.
+- Formatted Matlab `error` calls now support common integer, floating-point, character, and string conversion forms, including width, precision, signs, padding, and escaped percent characters.
+- `throw(exception)` and `throwAsCaller(exception)` now accept translated exception objects and propagate them through generated JavaScript and C++17 handlers.
+- `rethrow(exception)` continues propagating the original captured failure instead of replacing it with a new exception.
+- `addCause(exception, cause)` now returns an immutable exception value with a nested cause chain in both targets.
+- `getReport` now supports basic and extended reports together with the `hyperlinks` `default`, `on`, and `off` options.
+- Exception identifiers, messages, causes, and original failures are preserved independently by the JavaScript and C++17 runtimes.
+- Unshadowed zero-input local Matlab functions can now be invoked with bare command syntax.
+- Variables, parameters, results, loop variables, catch bindings, globals, and persistent values continue to shadow same-named bare local calls.
+- Invalid exception identifiers, missing formatting values, unsupported report options, and invalid exception operands now fail with focused diagnostics or stable generated-runtime errors.
+- Exception runtime support is emitted only for programs that use it, keeping unrelated generated output free of exception helpers.
+- Source maps retain exception construction, formatting, cause/report operations, throw sites, handlers, and bare local command calls.
+
 ## 0.7.7
 
 - Matlab indexed assignment through dynamically typed local-function parameters now accepts scalar, numeric-array, logical-array, and range selectors.
