@@ -513,6 +513,63 @@ if(NOT index_extent_contract MATCHES "IndexExtentSource" OR
   message(FATAL_ERROR "dynamic index extent is not a typed HIR/MIR contract")
 endif()
 
+if(NOT index_extent_contract MATCHES "IndexSelectorKind" OR
+   NOT index_extent_contract MATCHES "runtime" OR
+   NOT index_extent_contract MATCHES "IndexedMutationKind" OR
+   NOT index_extent_contract MATCHES "overwrite_or_grow" OR
+   NOT index_extent_contract MATCHES "IndexedReplacementContract" OR
+   NOT index_extent_contract MATCHES "indexed_mutation_accepts_replacement" OR
+   NOT hir_extent_contract MATCHES "IndexedMutationContract indexed_mutation" OR
+   NOT hir_extent_contract MATCHES "IndexedReplacementContract indexed_replacement" OR
+   NOT mir_extent_contract MATCHES "IndexedMutationPlan indexed_mutation" OR
+   NOT mir_extent_contract MATCHES "IndexedReplacementPlan indexed_replacement")
+  message(FATAL_ERROR
+    "dynamic Matlab selector, mutation, and replacement identities are not typed through HIR/MIR")
+endif()
+
+file(READ "${SOURCE_DIR}/src/backends/common/lir_builder.hpp" indexed_lir_builder_contract)
+if(NOT indexed_lir_builder_contract MATCHES "indexed_mutation = attributes\.indexed_mutation" OR
+   NOT indexed_lir_builder_contract MATCHES
+     "indexed_replacement = attributes\.indexed_replacement")
+  message(FATAL_ERROR "target LIR builder does not propagate indexed mutation/replacement plans")
+endif()
+foreach(target_lir IN ITEMS src/backends/javascript/lir.hpp src/backends/cpp/lir.hpp)
+  file(READ "${SOURCE_DIR}/${target_lir}" indexed_target_lir_contract)
+  if(NOT indexed_target_lir_contract MATCHES "IndexedMutationContract indexed_mutation" OR
+     NOT indexed_target_lir_contract MATCHES "IndexedReplacementContract indexed_replacement" OR
+     NOT indexed_target_lir_contract MATCHES "replacement_selection_shape" OR
+     NOT indexed_target_lir_contract MATCHES "replacement_value_shape")
+    message(FATAL_ERROR
+      "target LIR does not own indexed mutation/replacement plans: ${target_lir}")
+  endif()
+endforeach()
+foreach(target IN ITEMS javascript cpp)
+  file(READ "${SOURCE_DIR}/src/backends/${target}/runtime.cpp" indexed_runtime_contract)
+  file(READ "${SOURCE_DIR}/src/backends/${target}/renderer.cpp" indexed_renderer_contract)
+  file(READ "${SOURCE_DIR}/src/backends/${target}/lowering.cpp" indexed_lowering_contract)
+  file(READ "${SOURCE_DIR}/src/backends/${target}/lir_planning.cpp" indexed_planning_contract)
+  if(NOT indexed_runtime_contract MATCHES "matlab_assign_section" OR
+     NOT indexed_runtime_contract MATCHES "runtime_selector" OR
+     NOT indexed_lowering_contract MATCHES "RuntimeFeature::runtime_selectors" OR
+     NOT indexed_lowering_contract MATCHES "RuntimeFeature::matlab_section_assignment" OR
+     NOT indexed_planning_contract MATCHES "RuntimeFragment::runtime_selectors" OR
+     NOT indexed_planning_contract MATCHES "RuntimeFragment::matlab_section_assignment" OR
+     NOT indexed_renderer_contract MATCHES "indexed_replacement\.valid" OR
+     NOT indexed_renderer_contract MATCHES "overwrite_or_grow")
+    message(FATAL_ERROR
+      "${target} backend does not serialize runtime-dispatched Matlab replacement plans")
+  endif()
+endforeach()
+file(READ "${SOURCE_DIR}/src/backends/cpp/runtime.cpp" cpp_indexed_runtime_contract)
+if(NOT cpp_indexed_runtime_contract MATCHES "auto staged = values")
+  message(FATAL_ERROR "cpp Matlab growing replacement is not staged transactionally")
+endif()
+file(READ "${SOURCE_DIR}/src/backends/javascript/runtime.cpp" javascript_indexed_runtime_contract)
+if(NOT javascript_indexed_runtime_contract MATCHES "__mpf_copy_array" OR
+   NOT javascript_indexed_runtime_contract MATCHES "targetValues = grows")
+  message(FATAL_ERROR "JavaScript Matlab growing replacement is not staged transactionally")
+endif()
+
 if(NOT index_extent_contract MATCHES "MatrixConditionPolicy" OR
    NOT index_extent_contract MATCHES "matrix_condition_policy" OR
    NOT index_extent_contract MATCHES "square_continue_with_warning" OR
@@ -1492,7 +1549,7 @@ if(NOT javascript_renderer_contract MATCHES "program\\.module" OR
    NOT javascript_renderer_contract MATCHES "body_order" OR
    NOT javascript_renderer_contract MATCHES "control_prelude_order" OR
    NOT javascript_renderer_contract MATCHES "controlled_body_order" OR
-   NOT javascript_renderer_contract MATCHES "emit_javascript_runtime_fragment")
+   NOT javascript_renderer_contract MATCHES "emit_javascript_runtime")
   message(FATAL_ERROR "JavaScript renderer does not consume the module plan")
 endif()
 
