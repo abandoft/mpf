@@ -179,6 +179,94 @@ TEST_CASE("Matlab nested catch can rethrow the original exception") {
   }
 }
 
+TEST_CASE("Matlab exception objects preserve formatting causes reports and throw policy") {
+  const std::string source =
+      "report = '';\n"
+      "cause = MException('MPF:Cause', 'Cause %d', 3);\n"
+      "problem = MException('MPF:Bad', 'Value %+05d', 7);\n"
+      "problem = addCause(problem, cause);\n"
+      "try\n"
+      "  throw(problem)\n"
+      "catch caught\n"
+      "  report = getReport(caught, 'basic');\n"
+      "end\n"
+      "try\n"
+      "  throwAsCaller(problem)\n"
+      "catch caught\n"
+      "  report = getReport(caught, 'extended', 'hyperlinks', 'off');\n"
+      "end\n"
+      "try\n"
+      "  error('MPF:Formatted', 'Error %04d', 9)\n"
+      "catch formatted\n"
+      "  report = formatted.message;\n"
+      "end\n"
+      "disp(report)\n";
+  const auto javascript =
+      transpile_flow(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_flow(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("function __mpf_matlab_exception") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_matlab_add_cause") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_matlab_throw(exception)") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_matlab_throw_as_caller") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_matlab_get_report") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_exception(\"MPF:Bad\", \"Value %+05d\", 7)") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("matlab_make_exception(std::string{\"MPF:Bad\"}, ") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_add_cause(problem, cause)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_throw(problem)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_throw_as_caller(problem)") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_get_report(caught, ") != std::string::npos);
+  const auto unrelated_javascript =
+      transpile_flow("disp(42)\n", mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto unrelated_cpp =
+      transpile_flow("disp(42)\n", mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(unrelated_javascript.success());
+  REQUIRE(unrelated_cpp.success());
+  REQUIRE(unrelated_javascript.code.find("__mpf_matlab_exception") == std::string::npos);
+  REQUIRE(unrelated_cpp.code.find("class matlab_exception") == std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 2U; }));
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 6U; }));
+  }
+}
+
+TEST_CASE("Matlab bare local calls are resolved without converting shadowed variables") {
+  const std::string source =
+      "ping;\n"
+      "function ping\n"
+      "  disp('pong')\n"
+      "end\n";
+  const std::string shadowed =
+      "ping = 7;\n"
+      "ping\n";
+  const std::string parameter_shadow =
+      "result = wrapper(7);\n"
+      "disp(result)\n"
+      "function result = wrapper(ping)\n"
+      "  ping\n"
+      "  result = ping;\n"
+      "end\n"
+      "function ping\n"
+      "  disp('not called')\n"
+      "end\n";
+  for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+    const auto call = transpile_flow(source, mpf::SourceLanguage::matlab, target);
+    const auto variable = transpile_flow(shadowed, mpf::SourceLanguage::matlab, target);
+    const auto parameter = transpile_flow(parameter_shadow, mpf::SourceLanguage::matlab, target);
+    REQUIRE(call.success());
+    REQUIRE(variable.success());
+    REQUIRE(parameter.success());
+    REQUIRE(call.code.find("ping();") != std::string::npos);
+    REQUIRE(variable.code.find("ping();") == std::string::npos);
+    REQUIRE(parameter.code.find("\nping();\n") == std::string::npos);
+    REQUIRE(parameter.code.find("\n    ping();\n") == std::string::npos);
+  }
+}
+
 TEST_CASE("Matlab try catch rejects malformed clauses and unsafe exception uses") {
   const auto missing_catch = transpile_flow("try\n  disp(1)\nend\n", mpf::SourceLanguage::matlab,
                                             mpf::TargetLanguage::javascript);
@@ -194,6 +282,26 @@ TEST_CASE("Matlab try catch rejects malformed clauses and unsafe exception uses"
       transpile_flow("error(1)\n", mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
   const auto invalid_rethrow = transpile_flow("rethrow('bad')\n", mpf::SourceLanguage::matlab,
                                               mpf::TargetLanguage::javascript);
+  const auto invalid_constructor =
+      transpile_flow("problem = MException('invalid', 'message')\n", mpf::SourceLanguage::matlab,
+                     mpf::TargetLanguage::javascript);
+  const auto invalid_throw =
+      transpile_flow("throw(1)\n", mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto invalid_cause =
+      transpile_flow("problem = MException('MPF:Bad', 'message')\nproblem = addCause(problem, 1)\n",
+                     mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto invalid_report = transpile_flow(
+      "problem = MException('MPF:Bad', 'message')\n"
+      "text = getReport(problem, 'verbose', 'hyperlinks', 'off')\n",
+      mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto missing_format_value =
+      transpile_flow("problem = MException('MPF:Bad', 'Value %d')\n", mpf::SourceLanguage::matlab,
+                     mpf::TargetLanguage::javascript);
+  const auto invalid_format_type =
+      transpile_flow("problem = MException('MPF:Bad', 'Value %s', 1)\n",
+                     mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto unsupported_format = transpile_flow(
+      "error('Value %q', 1)\n", mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
   const auto unsupported_property =
       transpile_flow("try\n  error('boom')\ncatch ME\n  disp(ME.cause)\nend\n",
                      mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
@@ -212,6 +320,13 @@ TEST_CASE("Matlab try catch rejects malformed clauses and unsafe exception uses"
   REQUIRE(!repeated_catch.success());
   REQUIRE(!invalid_error.success());
   REQUIRE(!invalid_rethrow.success());
+  REQUIRE(!invalid_constructor.success());
+  REQUIRE(!invalid_throw.success());
+  REQUIRE(!invalid_cause.success());
+  REQUIRE(!invalid_report.success());
+  REQUIRE(!missing_format_value.success());
+  REQUIRE(!invalid_format_type.success());
+  REQUIRE(!unsupported_format.success());
   REQUIRE(!unsupported_property.success());
   REQUIRE(!escaped_binding.success());
   REQUIRE(dynamic_rebind.success());
@@ -222,6 +337,13 @@ TEST_CASE("Matlab try catch rejects malformed clauses and unsafe exception uses"
   REQUIRE(repeated_catch.diagnostics.front().code == "MPF1200");
   REQUIRE(invalid_error.diagnostics.front().code == "MPF2057");
   REQUIRE(invalid_rethrow.diagnostics.front().code == "MPF2057");
+  REQUIRE(invalid_constructor.diagnostics.front().code == "MPF2057");
+  REQUIRE(invalid_throw.diagnostics.front().code == "MPF2057");
+  REQUIRE(invalid_cause.diagnostics.front().code == "MPF2057");
+  REQUIRE(invalid_report.diagnostics.front().code == "MPF2057");
+  REQUIRE(missing_format_value.diagnostics.front().code == "MPF2057");
+  REQUIRE(invalid_format_type.diagnostics.front().code == "MPF2057");
+  REQUIRE(unsupported_format.diagnostics.front().code == "MPF2057");
   REQUIRE(unsupported_property.diagnostics.front().code == "MPF2056");
   REQUIRE(escaped_binding.diagnostics.front().code == "MPF2003");
   REQUIRE(static_rebind.diagnostics.front().code == "MPF2007");
