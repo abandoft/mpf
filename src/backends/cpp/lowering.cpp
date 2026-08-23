@@ -252,6 +252,19 @@ void analyze_statements(const mir::Program& program, const std::vector<MirStatem
     }
     if (statement.kind == StatementKind::indexed_assignment) {
       result.runtime.require(lir::RuntimeFeature::arrays);
+      const auto* statement_attributes = mir::attributes(program, statement_id);
+      if (statement_attributes != nullptr && statement_attributes->indexed_replacement.valid() &&
+          !statement_attributes->sparse_mutation.valid()) {
+        result.runtime.require(lir::RuntimeFeature::matlab_section_assignment);
+      }
+      const auto* target_attributes = mir::attributes(program, statement.target_expression);
+      if (target_attributes != nullptr &&
+          std::find(target_attributes->index_selectors.begin(),
+                    target_attributes->index_selectors.end(),
+                    mpf::detail::semantic::IndexSelectorKind::runtime) !=
+              target_attributes->index_selectors.end()) {
+        result.runtime.require(lir::RuntimeFeature::runtime_selectors);
+      }
     }
     const auto* selector = mir::expression(program, statement.expression);
     if (program.source_language == SourceLanguage::fortran &&

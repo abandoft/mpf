@@ -326,6 +326,11 @@ class Renderer final {
         emit_expression(selector);
         output_ << '}';
         break;
+      case semantic::IndexSelectorKind::runtime:
+        output_ << "mpf_runtime::runtime_selector(";
+        emit_expression(selector);
+        output_ << ')';
+        break;
     }
     if (runtime_extent) output_ << "; }";
   }
@@ -1274,7 +1279,26 @@ class Renderer final {
               output_ << "std::vector<std::size_t>{}";
             output_ << ')';
           }
-        } else if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow) {
+        } else if (statement.plan.indexed_replacement.valid()) {
+          output_ << "mpf_runtime::matlab_assign_section(";
+          emit_expression(statement.target_expression.children[0]);
+          output_ << ", ";
+          emit_selector_tuple(statement.target_expression);
+          output_ << ", " << statement.target_expression.plan.index_base << ", "
+                  << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
+                  << ", ";
+          emit_expression(statement.expression);
+          output_ << ", " << (statement.plan.indexed_mutation.linear ? "true" : "false") << ", "
+                  << static_cast<int>(statement.plan.indexed_replacement.conformability) << ", "
+                  << static_cast<int>(statement.plan.indexed_mutation.kind) << ", ";
+          if (known_static_shape(statement.plan.mutation_result_shape))
+            emit_shape_vector(statement.plan.mutation_result_shape);
+          else
+            output_ << "std::vector<std::size_t>{}";
+          output_ << ')';
+        } else if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow ||
+                   statement.plan.indexed_mutation.kind ==
+                       semantic::IndexedMutationKind::overwrite_or_grow) {
           output_ << (statement.plan.indexed_mutation.linear
                           ? "mpf_runtime::assign_growing_linear_column_major("
                           : "mpf_runtime::assign_growing_section_nd(");
@@ -1305,17 +1329,6 @@ class Renderer final {
                   << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
                   << ", " << (statement.plan.indexed_mutation.linear ? "true" : "false") << ", "
                   << statement.plan.indexed_mutation.axis << ')';
-        } else if (statement.plan.indexed_replacement.valid()) {
-          output_ << "mpf_runtime::matlab_assign_section(";
-          emit_expression(statement.target_expression.children[0]);
-          output_ << ", ";
-          emit_selector_tuple(statement.target_expression);
-          output_ << ", " << statement.target_expression.plan.index_base << ", "
-                  << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
-                  << ", ";
-          emit_expression(statement.expression);
-          output_ << ", " << (statement.plan.indexed_mutation.linear ? "true" : "false") << ", "
-                  << static_cast<int>(statement.plan.indexed_replacement.conformability) << ')';
         } else if (statement.plan.form == cpp::lir::StatementForm::indexed_section_assignment) {
           emit_section_assignment(statement.target_expression, statement.expression,
                                   statement.plan.flatten_replacement,

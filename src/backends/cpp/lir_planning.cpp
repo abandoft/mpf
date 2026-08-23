@@ -37,6 +37,12 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.emission.dynamic_truthiness) {
     result.push_back(lir::RuntimeFragment::dynamic_values);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::runtime_selectors)) {
+    result.push_back(lir::RuntimeFragment::runtime_selectors);
+  }
+  if (program.runtime.contains(lir::RuntimeFeature::matlab_section_assignment)) {
+    result.push_back(lir::RuntimeFragment::matlab_section_assignment);
+  }
   if (program.runtime.contains(lir::RuntimeFeature::scalar_division)) {
     result.push_back(lir::RuntimeFragment::scalar_division);
   }
@@ -140,6 +146,14 @@ void verify_translation_unit(const lir::SemanticProgram& program,
   if (program.runtime.contains(lir::RuntimeFeature::sparse_matrices) &&
       !program.runtime.contains(lir::RuntimeFeature::arrays)) {
     add_error(diagnostics, {1, 1}, "cpp sparse-matrix runtime requires array support");
+  }
+  if (program.runtime.contains(lir::RuntimeFeature::runtime_selectors) &&
+      !program.runtime.contains(lir::RuntimeFeature::arrays)) {
+    add_error(diagnostics, {1, 1}, "cpp runtime-selector support requires array support");
+  }
+  if (program.runtime.contains(lir::RuntimeFeature::matlab_section_assignment) &&
+      !program.runtime.contains(lir::RuntimeFeature::arrays)) {
+    add_error(diagnostics, {1, 1}, "cpp Matlab section-assignment support requires array support");
   }
   if (program.runtime.contains(lir::RuntimeFeature::complex_sparse) &&
       (!program.runtime.contains(lir::RuntimeFeature::complex_numbers) ||
