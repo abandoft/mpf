@@ -6,6 +6,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -118,6 +119,80 @@ bool matlab_all_dimensions_literal(const Expression& expression) {
   const auto quote = expression.value.front();
   return (quote == '\'' || quote == '"') && expression.value.back() == quote &&
          expression.value.substr(1U, expression.value.size() - 2U) == "all";
+}
+
+bool matlab_exception_format_value(const ValueType type) noexcept {
+  return type == ValueType::unknown || type == ValueType::integer || type == ValueType::real ||
+         type == ValueType::boolean || type == ValueType::string;
+}
+
+std::optional<std::string_view> matlab_string_literal_content(const Expression& expression);
+
+struct MatlabExceptionFormat {
+  bool valid{true};
+  std::vector<char> conversions;
+};
+
+std::optional<MatlabExceptionFormat> matlab_exception_literal_format(const Expression& expression) {
+  const auto content = matlab_string_literal_content(expression);
+  if (!content.has_value()) return std::nullopt;
+  MatlabExceptionFormat result;
+  for (std::size_t index = 0U; index < content->size();) {
+    if ((*content)[index] != '%') {
+      ++index;
+      continue;
+    }
+    if (index + 1U < content->size() && (*content)[index + 1U] == '%') {
+      index += 2U;
+      continue;
+    }
+    ++index;
+    while (index < content->size() &&
+           std::string_view{"-+ 0#"}.find((*content)[index]) != std::string_view::npos) {
+      ++index;
+    }
+    while (index < content->size() && (*content)[index] >= '0' && (*content)[index] <= '9') {
+      ++index;
+    }
+    if (index < content->size() && (*content)[index] == '.') {
+      ++index;
+      while (index < content->size() && (*content)[index] >= '0' && (*content)[index] <= '9') {
+        ++index;
+      }
+    }
+    if (index >= content->size() ||
+        std::string_view{"diuoxXfFeEgGcs"}.find((*content)[index]) == std::string_view::npos) {
+      result.valid = false;
+      return result;
+    }
+    result.conversions.push_back((*content)[index++]);
+  }
+  return result;
+}
+
+bool matlab_exception_conversion_accepts(const char conversion, const ValueType type) noexcept {
+  if (type == ValueType::unknown) return true;
+  if (conversion == 's') return type == ValueType::string;
+  if (conversion == 'c') {
+    return type == ValueType::string || type == ValueType::integer || type == ValueType::real ||
+           type == ValueType::boolean;
+  }
+  return type == ValueType::integer || type == ValueType::real || type == ValueType::boolean;
+}
+
+std::optional<std::string_view> matlab_string_literal_content(const Expression& expression) {
+  if (expression.kind != ExpressionKind::string_literal || expression.value.size() < 2U) {
+    return std::nullopt;
+  }
+  const auto quote = expression.value.front();
+  if ((quote != '\'' && quote != '"') || expression.value.back() != quote) return std::nullopt;
+  return std::string_view(expression.value).substr(1U, expression.value.size() - 2U);
+}
+
+std::optional<bool> matlab_literal_is_error_identifier(const Expression& expression) {
+  const auto content = matlab_string_literal_content(expression);
+  if (!content.has_value()) return std::nullopt;
+  return semantic::valid_matlab_exception_identifier(*content);
 }
 
 std::optional<std::vector<std::size_t>> matlab_reduction_dimensions(const Expression& expression) {
@@ -2269,25 +2344,104 @@ ValueType Analyzer::analyze_call(Expression& expression) {
   }
   if (associated_callee.kind == ExpressionKind::identifier &&
       associated_callee_facts.binding == BindingKind::builtin) {
+    if (associated_callee_facts.intrinsic == IntrinsicId::matlab_exception) {
+      auto& facts = semantic(semantics_, expression);
+      const auto argument_count = expression.children.size() - 1U;
+      bool valid = argument_count >= 2U;
+      if (valid) {
+        const auto identifier_type = semantic(semantics_, expression.children[1]).inferred_type;
+        const auto message_type = semantic(semantics_, expression.children[2]).inferred_type;
+        valid = (identifier_type == ValueType::string || identifier_type == ValueType::unknown) &&
+                (message_type == ValueType::string || message_type == ValueType::unknown);
+        const auto identifier = matlab_string_literal_content(expression.children[1]);
+        valid = valid && (!identifier.has_value() ||
+                          semantic::valid_matlab_exception_identifier(*identifier));
+      }
+      for (std::size_t index = 3U; index < expression.children.size(); ++index) {
+        valid = valid && matlab_exception_format_value(
+                             semantic(semantics_, expression.children[index]).inferred_type);
+      }
+      if (valid) {
+        const auto format = matlab_exception_literal_format(expression.children[2]);
+        if (format.has_value()) {
+          valid = format->valid && format->conversions.size() == expression.children.size() - 3U;
+          for (std::size_t index = 0U; valid && index < format->conversions.size(); ++index) {
+            valid = matlab_exception_conversion_accepts(
+                format->conversions[index],
+                semantic(semantics_, expression.children[index + 3U]).inferred_type);
+          }
+        }
+      }
+      if (!valid) {
+        diagnose(expression.location.line, "MPF2057",
+                 "Matlab MException requires an identifier, a message, and optional scalar "
+                 "format values");
+      }
+      facts.exception.operation = semantic::ExceptionOperation::construct;
+      facts.exception.message_form =
+          argument_count == 2U ? semantic::ExceptionMessageForm::identifier_message
+                               : semantic::ExceptionMessageForm::identifier_formatted_message;
+      facts.exception.stack_policy = semantic::ExceptionStackPolicy::none;
+      facts.procedure_has_result = true;
+      facts.numeric_type = no_numeric_type;
+      return facts.inferred_type = ValueType::exception;
+    }
     if (associated_callee_facts.intrinsic == IntrinsicId::matlab_error) {
       auto& facts = semantic(semantics_, expression);
-      const bool valid_arity = expression.children.size() == 2U || expression.children.size() == 3U;
-      bool valid_arguments = valid_arity;
-      for (std::size_t index = 1U; index < expression.children.size(); ++index) {
-        const auto type = semantic(semantics_, expression.children[index]).inferred_type;
-        valid_arguments =
-            valid_arguments && (type == ValueType::string || type == ValueType::unknown);
+      const auto argument_count = expression.children.size() - 1U;
+      bool valid = argument_count >= 1U;
+      if (valid) {
+        const auto first_type = semantic(semantics_, expression.children[1]).inferred_type;
+        valid = first_type == ValueType::string || first_type == ValueType::unknown;
       }
-      if (!valid_arguments) {
+      for (std::size_t index = 2U; index < expression.children.size(); ++index) {
+        valid = valid && matlab_exception_format_value(
+                             semantic(semantics_, expression.children[index]).inferred_type);
+      }
+      const auto literal_identifier =
+          argument_count > 1U ? matlab_literal_is_error_identifier(expression.children[1])
+                              : std::optional<bool>{};
+      if (valid && literal_identifier.has_value()) {
+        const auto format_index = *literal_identifier ? 2U : 1U;
+        const auto value_index = *literal_identifier ? 3U : 2U;
+        const auto format = matlab_exception_literal_format(expression.children[format_index]);
+        if (format.has_value()) {
+          valid = format->valid &&
+                  format->conversions.size() == expression.children.size() - value_index;
+          for (std::size_t index = 0U; valid && index < format->conversions.size(); ++index) {
+            valid = matlab_exception_conversion_accepts(
+                format->conversions[index],
+                semantic(semantics_, expression.children[index + value_index]).inferred_type);
+          }
+        }
+      }
+      if (!valid) {
         diagnose(expression.location.line, "MPF2057",
-                 "Matlab error requires error(message) or error(identifier, message) with "
-                 "character-vector arguments");
+                 "Matlab error requires a character-vector message or identifier/message and "
+                 "optional scalar format values");
+      }
+      facts.exception.operation = semantic::ExceptionOperation::raise_error;
+      facts.exception.stack_policy = semantic::ExceptionStackPolicy::capture_current;
+      if (argument_count == 1U) {
+        facts.exception.message_form = semantic::ExceptionMessageForm::message;
+      } else {
+        if (!literal_identifier.has_value()) {
+          facts.exception.message_form = semantic::ExceptionMessageForm::runtime_dispatch;
+        } else if (*literal_identifier) {
+          facts.exception.message_form =
+              argument_count == 2U ? semantic::ExceptionMessageForm::identifier_message
+                                   : semantic::ExceptionMessageForm::identifier_formatted_message;
+        } else {
+          facts.exception.message_form = semantic::ExceptionMessageForm::formatted_message;
+        }
       }
       facts.procedure_has_result = false;
       facts.numeric_type = no_numeric_type;
       return facts.inferred_type = ValueType::unknown;
     }
-    if (associated_callee_facts.intrinsic == IntrinsicId::matlab_rethrow) {
+    if (associated_callee_facts.intrinsic == IntrinsicId::matlab_throw ||
+        associated_callee_facts.intrinsic == IntrinsicId::matlab_throw_as_caller ||
+        associated_callee_facts.intrinsic == IntrinsicId::matlab_rethrow) {
       auto& facts = semantic(semantics_, expression);
       const bool valid =
           expression.children.size() == 2U &&
@@ -2295,11 +2449,74 @@ ValueType Analyzer::analyze_call(Expression& expression) {
            semantic(semantics_, expression.children[1]).inferred_type == ValueType::unknown);
       if (!valid) {
         diagnose(expression.location.line, "MPF2057",
-                 "Matlab rethrow requires exactly one caught exception argument");
+                 "Matlab throw, throwAsCaller, and rethrow require exactly one MException "
+                 "argument");
       }
+      facts.exception.operation =
+          associated_callee_facts.intrinsic == IntrinsicId::matlab_throw
+              ? semantic::ExceptionOperation::throw_exception
+          : associated_callee_facts.intrinsic == IntrinsicId::matlab_throw_as_caller
+              ? semantic::ExceptionOperation::throw_as_caller
+              : semantic::ExceptionOperation::rethrow_exception;
+      facts.exception.message_form = semantic::ExceptionMessageForm::none;
+      facts.exception.stack_policy =
+          associated_callee_facts.intrinsic == IntrinsicId::matlab_throw
+              ? semantic::ExceptionStackPolicy::capture_current
+          : associated_callee_facts.intrinsic == IntrinsicId::matlab_throw_as_caller
+              ? semantic::ExceptionStackPolicy::capture_caller
+              : semantic::ExceptionStackPolicy::preserve_existing;
       facts.procedure_has_result = false;
       facts.numeric_type = no_numeric_type;
       return facts.inferred_type = ValueType::unknown;
+    }
+    if (associated_callee_facts.intrinsic == IntrinsicId::matlab_add_cause) {
+      auto& facts = semantic(semantics_, expression);
+      bool valid = expression.children.size() == 3U;
+      for (std::size_t index = 1U; index < expression.children.size(); ++index) {
+        const auto type = semantic(semantics_, expression.children[index]).inferred_type;
+        valid = valid && (type == ValueType::exception || type == ValueType::unknown);
+      }
+      if (!valid) {
+        diagnose(expression.location.line, "MPF2057",
+                 "Matlab addCause requires base and cause MException arguments");
+      }
+      facts.exception.operation = semantic::ExceptionOperation::add_cause;
+      facts.procedure_has_result = true;
+      facts.numeric_type = no_numeric_type;
+      return facts.inferred_type = ValueType::exception;
+    }
+    if (associated_callee_facts.intrinsic == IntrinsicId::matlab_get_report) {
+      auto& facts = semantic(semantics_, expression);
+      const auto argument_count = expression.children.size() - 1U;
+      bool valid = argument_count == 1U || argument_count == 2U || argument_count == 4U;
+      if (valid) {
+        const auto exception_type = semantic(semantics_, expression.children[1]).inferred_type;
+        valid = exception_type == ValueType::exception || exception_type == ValueType::unknown;
+      }
+      for (std::size_t index = 2U; index < expression.children.size(); ++index) {
+        const auto type = semantic(semantics_, expression.children[index]).inferred_type;
+        valid = valid && (type == ValueType::string || type == ValueType::unknown);
+      }
+      if (valid && argument_count >= 2U) {
+        const auto detail = matlab_string_literal_content(expression.children[2]);
+        valid = !detail.has_value() || *detail == "basic" || *detail == "extended";
+      }
+      if (valid && argument_count == 4U) {
+        const auto option = matlab_string_literal_content(expression.children[3]);
+        const auto hyperlink = matlab_string_literal_content(expression.children[4]);
+        valid = (!option.has_value() || *option == "hyperlinks") &&
+                (!hyperlink.has_value() || *hyperlink == "default" || *hyperlink == "on" ||
+                 *hyperlink == "off");
+      }
+      if (!valid) {
+        diagnose(expression.location.line, "MPF2057",
+                 "Matlab getReport accepts exception, optional detail, or detail/hyperlinks "
+                 "arguments");
+      }
+      facts.exception.operation = semantic::ExceptionOperation::get_report;
+      facts.procedure_has_result = true;
+      facts.numeric_type = no_numeric_type;
+      return facts.inferred_type = ValueType::string;
     }
     if (associated_callee_facts.intrinsic == IntrinsicId::python_float) {
       if (expression.children.size() != 2) {
