@@ -26,7 +26,7 @@ class Renderer final {
     mangler_ = std::make_unique<IdentifierMangler>(program.identifiers);
     output_ << program.module.banner;
     for (const auto& directive : program.module.directives) output_ << directive << '\n';
-    for (const auto fragment : program.module.runtime_fragments) emit_runtime(fragment);
+    emit_javascript_runtime(output_, program.module.runtime_fragments);
     emit_scope_declarations(program.program_scope);
     if (program.module.wrap_script_control) {
       for (const auto index : program.module.control_prelude_order) {
@@ -46,10 +46,6 @@ class Renderer final {
   }
 
  private:
-  void emit_runtime(const javascript::lir::RuntimeFragment fragment) {
-    emit_javascript_runtime_fragment(output_, fragment);
-  }
-
   static int expression_precedence(const Expression& expression) noexcept {
     return expression.plan.precedence;
   }
@@ -701,6 +697,7 @@ class Renderer final {
         case semantic::IndexSelectorKind::numeric: output_ << "numeric"; break;
         case semantic::IndexSelectorKind::logical: output_ << "logical"; break;
         case semantic::IndexSelectorKind::empty: output_ << "empty"; break;
+        case semantic::IndexSelectorKind::runtime: output_ << "runtime"; break;
         case semantic::IndexSelectorKind::slice: break;
       }
       output_ << "\", value: ";
@@ -960,34 +957,6 @@ class Renderer final {
           }
           emit_optional_shape(statement.plan.sparse_mutation.result_shape);
           output_ << ");\n";
-        } else if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow ||
-                   statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::erase) {
-          output_ << (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow
-                          ? "__mpf_grow("
-                          : "__mpf_erase(");
-          emit_expression(mutation_target);
-          output_ << ", [";
-          for (std::size_t index = 1; index < statement.target_expression.children.size();
-               ++index) {
-            if (index != 1) output_ << ", ";
-            emit_selector_descriptor(statement.target_expression, index);
-          }
-          output_ << "], ";
-          if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow) {
-            emit_expression(statement.expression);
-            output_ << ", ";
-          }
-          output_ << statement.target_expression.plan.index_base << ", "
-                  << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
-                  << ", " << (statement.plan.indexed_mutation.linear ? "true" : "false");
-          if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow) {
-            output_ << ", " << statement.plan.array_default;
-          } else {
-            output_ << ", " << statement.plan.indexed_mutation.axis;
-          }
-          output_ << ", ";
-          emit_optional_shape(statement.plan.mutation_result_shape);
-          output_ << ");\n";
         } else if (statement.plan.indexed_replacement.valid()) {
           output_ << "__mpf_matlab_assign_section(";
           emit_expression(mutation_target);
@@ -1002,7 +971,54 @@ class Renderer final {
           output_ << ", " << statement.target_expression.plan.index_base << ", "
                   << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
                   << ", " << (statement.plan.indexed_mutation.linear ? "true" : "false") << ", "
-                  << static_cast<int>(statement.plan.indexed_replacement.conformability) << ");\n";
+                  << static_cast<int>(statement.plan.indexed_replacement.conformability) << ", "
+                  << static_cast<int>(statement.plan.indexed_mutation.kind) << ", ";
+          if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow ||
+              statement.plan.indexed_mutation.kind ==
+                  semantic::IndexedMutationKind::overwrite_or_grow) {
+            output_ << statement.plan.array_default;
+          } else {
+            output_ << "undefined";
+          }
+          output_ << ", ";
+          emit_optional_shape(statement.plan.mutation_result_shape);
+          output_ << ");\n";
+        } else if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow ||
+                   statement.plan.indexed_mutation.kind ==
+                       semantic::IndexedMutationKind::overwrite_or_grow ||
+                   statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::erase) {
+          output_ << (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow ||
+                              statement.plan.indexed_mutation.kind ==
+                                  semantic::IndexedMutationKind::overwrite_or_grow
+                          ? "__mpf_grow("
+                          : "__mpf_erase(");
+          emit_expression(mutation_target);
+          output_ << ", [";
+          for (std::size_t index = 1; index < statement.target_expression.children.size();
+               ++index) {
+            if (index != 1) output_ << ", ";
+            emit_selector_descriptor(statement.target_expression, index);
+          }
+          output_ << "], ";
+          if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow ||
+              statement.plan.indexed_mutation.kind ==
+                  semantic::IndexedMutationKind::overwrite_or_grow) {
+            emit_expression(statement.expression);
+            output_ << ", ";
+          }
+          output_ << statement.target_expression.plan.index_base << ", "
+                  << (statement.target_expression.plan.allow_negative_index ? "true" : "false")
+                  << ", " << (statement.plan.indexed_mutation.linear ? "true" : "false");
+          if (statement.plan.indexed_mutation.kind == semantic::IndexedMutationKind::grow ||
+              statement.plan.indexed_mutation.kind ==
+                  semantic::IndexedMutationKind::overwrite_or_grow) {
+            output_ << ", " << statement.plan.array_default;
+          } else {
+            output_ << ", " << statement.plan.indexed_mutation.axis;
+          }
+          output_ << ", ";
+          emit_optional_shape(statement.plan.mutation_result_shape);
+          output_ << ");\n";
         } else if (statement.plan.form ==
                    javascript::lir::StatementForm::indexed_section_assignment) {
           output_ << "__mpf_set_section(";

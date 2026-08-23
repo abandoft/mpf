@@ -1,5 +1,6 @@
 #include "runtime.hpp"
 
+#include <algorithm>
 #include <ostream>
 
 #include "complex_matrix_runtime.hpp"
@@ -18,37 +19,48 @@ class RuntimeEmitter final {
  public:
   explicit RuntimeEmitter(std::ostream& output) : output_(output) {}
 
-  void emit(const javascript::lir::RuntimeFragment fragment) {
-    switch (fragment) {
-      case javascript::lir::RuntimeFragment::dynamic_values: emit_python_runtime(); break;
-      case javascript::lir::RuntimeFragment::character_case:
-        emit_fortran_character_runtime();
-        break;
-      case javascript::lir::RuntimeFragment::complex_numbers: emit_complex_runtime(); break;
-      case javascript::lir::RuntimeFragment::arrays: emit_array_runtime(); break;
-      case javascript::lir::RuntimeFragment::complex_matrices:
-        emit_javascript_complex_matrix_runtime(output_);
-        break;
-      case javascript::lir::RuntimeFragment::sparse_matrices:
-        emit_javascript_sparse_matrix_runtime(output_);
-        break;
-      case javascript::lir::RuntimeFragment::complex_sparse:
-        emit_javascript_complex_sparse_runtime(output_);
-        break;
-      case javascript::lir::RuntimeFragment::sparse_product:
-        emit_javascript_sparse_product_runtime(output_);
-        break;
-      case javascript::lir::RuntimeFragment::sparse_power:
-        emit_javascript_sparse_power_runtime(output_);
-        break;
-      case javascript::lir::RuntimeFragment::sparse_arithmetic:
-        emit_javascript_sparse_arithmetic_runtime(output_);
-        break;
-      case javascript::lir::RuntimeFragment::sparse_reductions:
-        emit_javascript_sparse_reduction_runtime(output_);
-        break;
-      case javascript::lir::RuntimeFragment::scalar_division: emit_scalar_division_runtime(); break;
-      case javascript::lir::RuntimeFragment::exception_handling: emit_exception_runtime(); break;
+  void emit(const std::vector<javascript::lir::RuntimeFragment>& fragments) {
+    const bool include_matlab_section_assignment =
+        std::find(fragments.begin(), fragments.end(),
+                  javascript::lir::RuntimeFragment::matlab_section_assignment) != fragments.end();
+    for (const auto fragment : fragments) {
+      switch (fragment) {
+        case javascript::lir::RuntimeFragment::dynamic_values: emit_python_runtime(); break;
+        case javascript::lir::RuntimeFragment::character_case:
+          emit_fortran_character_runtime();
+          break;
+        case javascript::lir::RuntimeFragment::complex_numbers: emit_complex_runtime(); break;
+        case javascript::lir::RuntimeFragment::arrays:
+          emit_array_runtime(include_matlab_section_assignment);
+          break;
+        case javascript::lir::RuntimeFragment::runtime_selectors: emit_runtime_selector(); break;
+        case javascript::lir::RuntimeFragment::matlab_section_assignment: break;
+        case javascript::lir::RuntimeFragment::complex_matrices:
+          emit_javascript_complex_matrix_runtime(output_);
+          break;
+        case javascript::lir::RuntimeFragment::sparse_matrices:
+          emit_javascript_sparse_matrix_runtime(output_);
+          break;
+        case javascript::lir::RuntimeFragment::complex_sparse:
+          emit_javascript_complex_sparse_runtime(output_);
+          break;
+        case javascript::lir::RuntimeFragment::sparse_product:
+          emit_javascript_sparse_product_runtime(output_);
+          break;
+        case javascript::lir::RuntimeFragment::sparse_power:
+          emit_javascript_sparse_power_runtime(output_);
+          break;
+        case javascript::lir::RuntimeFragment::sparse_arithmetic:
+          emit_javascript_sparse_arithmetic_runtime(output_);
+          break;
+        case javascript::lir::RuntimeFragment::sparse_reductions:
+          emit_javascript_sparse_reduction_runtime(output_);
+          break;
+        case javascript::lir::RuntimeFragment::scalar_division:
+          emit_scalar_division_runtime();
+          break;
+        case javascript::lir::RuntimeFragment::exception_handling: emit_exception_runtime(); break;
+      }
     }
   }
 
@@ -338,7 +350,26 @@ class RuntimeEmitter final {
                "}\n";
   }
 
-  void emit_array_runtime() {
+  void emit_runtime_selector() {
+    output_
+        << "function __mpf_runtime_selector(value) {\n"
+           "  if (!Array.isArray(value)) {\n"
+           "    if (!Number.isSafeInteger(value)) throw new TypeError("
+           "\"MPF runtime selector requires a safe integer scalar or numeric/logical array\");\n"
+           "    return { kind: 'scalar', value };\n"
+           "  }\n"
+           "  const flattened = __mpf_flatten_column_major(value);\n"
+           "  if (flattened.length === 0) return { kind: 'empty', value };\n"
+           "  if (flattened.every((item) => typeof item === 'boolean')) "
+           "return { kind: 'logical', value };\n"
+           "  if (flattened.every((item) => Number.isSafeInteger(item))) "
+           "return { kind: 'numeric', value };\n"
+           "  throw new TypeError("
+           "\"MPF runtime selector requires a safe integer scalar or numeric/logical array\");\n"
+           "}\n";
+  }
+
+  void emit_array_runtime(const bool include_matlab_section_assignment) {
     output_
         << "function __mpf_index(values, index, base, allowNegative) {\n"
            "  if (!Number.isSafeInteger(index)) throw new TypeError(\"MPF index must be a safe "
@@ -701,7 +732,9 @@ class RuntimeEmitter final {
            "  return Array.isArray(result) ? __mpf_record_shape(result, shape) : result;\n"
            "}\n"
            "function __mpf_resolve_extent(value, extent) {\n"
-           "  return typeof value === 'function' ? value(extent) : value;\n"
+           "  const resolved = typeof value === 'function' ? value(extent) : value;\n"
+           "  return resolved !== null && typeof resolved === 'object' && "
+           "resolved.kind === 'runtime' ? __mpf_runtime_selector(resolved.value) : resolved;\n"
            "}\n"
            "function __mpf_get(values, indices, base, allowNegative, columnMajor) {\n"
            "  if (columnMajor && indices.length === 1 && Array.isArray(values[0])) {\n"
@@ -940,76 +973,114 @@ class RuntimeEmitter final {
            "  start = Math.max(0, Math.min(start, length));\n"
            "  stop = Math.max(0, Math.min(stop, length));\n"
            "  return [start, Math.max(start, stop)];\n"
-           "}\n"
-           "function __mpf_matlab_assign_section(values, selectors, replacement, base, "
-           "allowNegative, linear, conformability) {\n"
-           "  const shape = __mpf_matlab_runtime_shape(values, 'assignment target');\n"
-           "  if (shape.length === 0) throw new RangeError("
-           "\"MPF Matlab section assignment target must be an array\");\n"
-           "  let axes;\n"
-           "  if (linear) {\n"
-           "    if (selectors.length !== 1) throw new RangeError("
-           "\"MPF Matlab linear assignment requires one selector\");\n"
-           "    const size = __mpf_checked_shape_size(shape);\n"
-           "    axes = [__mpf_selector_indices(size, "
-           "__mpf_resolve_extent(selectors[0], size), base, allowNegative)];\n"
-           "  } else {\n"
-           "    if (selectors.length > shape.length) throw new RangeError("
-           "\"MPF Matlab assignment selector rank mismatch\");\n"
-           "    axes = shape.map((extent, axis) => axis < selectors.length "
-           "? __mpf_selector_indices(extent, "
-           "__mpf_resolve_extent(selectors[axis], extent), base, allowNegative) "
-           ": Array.from({ length: extent }, (_, index) => index));\n"
-           "  }\n"
-           "  const selectionShape = axes.map((axis) => axis.length);\n"
-           "  const selectedSize = __mpf_checked_shape_size(selectionShape);\n"
-           "  const replacements = Array.isArray(replacement) "
-           "? __mpf_flatten_column_major(replacement) : [replacement];\n"
-           "  const replacementShape = Array.isArray(replacement) "
-           "? __mpf_matlab_runtime_shape(replacement, 'assignment replacement') : [];\n"
-           "  if (conformability === 1 || (conformability === 4 && replacements.length === 1)) {\n"
-           "    if (replacements.length !== 1) throw new RangeError("
-           "\"MPF Matlab scalar expansion requires one replacement element\");\n"
-           "  } else if (conformability === 2 || (conformability === 4 && linear)) {\n"
-           "    if (!linear || replacements.length !== selectedSize) throw new RangeError("
-           "\"MPF Matlab linear assignment replacement element count mismatch\");\n"
-           "  } else if (conformability === 3 || conformability === 4) {\n"
-           "    const nonsingleton = (candidate) => candidate.filter((extent) => extent !== 1);\n"
-           "    const selected = nonsingleton(selectionShape);\n"
-           "    const replacementExtents = nonsingleton(replacementShape);\n"
-           "    if (selected.length !== replacementExtents.length || "
-           "selected.some((extent, axis) => extent !== replacementExtents[axis]) || "
-           "replacements.length !== selectedSize) throw new RangeError("
-           "\"MPF Matlab section assignment replacement shape mismatch\");\n"
-           "  } else {\n"
-           "    throw new RangeError(\"MPF Matlab assignment conformability contract is "
-           "invalid\");\n"
-           "  }\n"
-           "  const replacementAt = (position) => "
-           "replacements[(conformability === 1 || "
-           "(conformability === 4 && replacements.length === 1)) ? 0 : position];\n"
-           "  if (linear) {\n"
-           "    axes[0].forEach((target, position) => "
-           "__mpf_set_linear_column_major(values, target, shape, replacementAt(position)));\n"
-           "    return;\n"
-           "  }\n"
-           "  const coordinates = new Array(shape.length).fill(0);\n"
-           "  for (let position = 0; position < selectedSize; ++position) {\n"
-           "    let remaining = position;\n"
-           "    for (let axis = 0; axis < shape.length; ++axis) {\n"
-           "      const extent = selectionShape[axis];\n"
-           "      const selected = extent === 0 ? 0 : remaining % extent;\n"
-           "      remaining = extent === 0 ? 0 : Math.floor(remaining / extent);\n"
-           "      coordinates[axis] = axes[axis][selected];\n"
-           "    }\n"
-           "    let target = 0; let stride = 1;\n"
-           "    for (let axis = 0; axis < shape.length; ++axis) {\n"
-           "      target += coordinates[axis] * stride; stride *= shape[axis];\n"
-           "    }\n"
-           "    __mpf_set_linear_column_major(values, target, shape, replacementAt(position));\n"
-           "  }\n"
-           "}\n"
-           "function __mpf_set_section(values, selectors, replacement, base, allowNegative, "
+           "}\n";
+    if (include_matlab_section_assignment) {
+      output_
+          << "function __mpf_matlab_assign_section(values, selectors, replacement, base, "
+             "allowNegative, linear, conformability, mutation, defaultValue, resultShape) {\n"
+             "  const shape = __mpf_matlab_runtime_shape(values, 'assignment target');\n"
+             "  if (shape.length === 0) throw new RangeError("
+             "\"MPF Matlab section assignment target must be an array\");\n"
+             "  if (mutation !== 1 && mutation !== 3 && mutation !== 5) throw new RangeError("
+             "\"MPF Matlab section assignment mutation contract is invalid\");\n"
+             "  if (selectors.length === 0 || (!linear && selectors.length > shape.length)) "
+             "throw new RangeError(\"MPF Matlab assignment selector rank mismatch\");\n"
+             "  if (linear && selectors.length !== 1) throw new RangeError("
+             "\"MPF Matlab linear assignment requires one selector\");\n"
+             "  const size = __mpf_checked_shape_size(shape);\n"
+             "  const resolved = selectors.map((selector, axis) => "
+             "__mpf_resolve_extent(selector, linear ? size : shape[axis]));\n"
+             "  const grown = shape.slice();\n"
+             "  if (mutation === 3 || mutation === 5) {\n"
+             "    if (defaultValue === undefined) throw new RangeError("
+             "\"MPF Matlab growth default value is missing\");\n"
+             "    if (linear) {\n"
+             "      const required = __mpf_growth_extent(size, resolved[0], base);\n"
+             "      if (shape.length === 1) grown[0] = required;\n"
+             "      else if (shape.length === 2 && shape[0] === 0 && shape[1] === 0) "
+             "{ grown[0] = 1; grown[1] = required; }\n"
+             "      else if (shape.length === 2 && shape[0] === 1) grown[1] = required;\n"
+             "      else if (shape.length === 2 && shape[1] === 1) grown[0] = required;\n"
+             "      else {\n"
+             "        const leading = __mpf_checked_shape_size(shape.slice(0, -1));\n"
+             "        if (leading === 0) throw new RangeError("
+             "\"MPF Matlab linear growth shape is invalid\");\n"
+             "        grown[grown.length - 1] = Math.max(grown[grown.length - 1], "
+             "Math.ceil(required / leading));\n"
+             "      }\n"
+             "    } else resolved.forEach((selector, axis) => { "
+             "grown[axis] = __mpf_growth_extent(shape[axis], selector, base); });\n"
+             "  }\n"
+             "  if (resultShape !== undefined && (grown.length !== resultShape.length || "
+             "grown.some((extent, axis) => extent !== resultShape[axis]))) throw new RangeError("
+             "\"MPF Matlab assignment result shape disagrees with lowering\");\n"
+             "  let axes;\n"
+             "  if (linear) {\n"
+             "    const grownSize = __mpf_checked_shape_size(grown);\n"
+             "    axes = [__mpf_selector_indices(grownSize, resolved[0], base, allowNegative)];\n"
+             "  } else {\n"
+             "    axes = grown.map((extent, axis) => axis < resolved.length "
+             "? __mpf_selector_indices(extent, resolved[axis], base, allowNegative) "
+             ": Array.from({ length: extent }, (_, index) => index));\n"
+             "  }\n"
+             "  const selectionShape = axes.map((axis) => axis.length);\n"
+             "  const selectedSize = __mpf_checked_shape_size(selectionShape);\n"
+             "  const replacements = Array.isArray(replacement) "
+             "? __mpf_flatten_column_major(replacement) : [replacement];\n"
+             "  const replacementShape = Array.isArray(replacement) "
+             "? __mpf_matlab_runtime_shape(replacement, 'assignment replacement') : [];\n"
+             "  if (conformability === 1 || (conformability === 4 && replacements.length === 1)) "
+             "{\n"
+             "    if (replacements.length !== 1) throw new RangeError("
+             "\"MPF Matlab scalar expansion requires one replacement element\");\n"
+             "  } else if (conformability === 2 || (conformability === 4 && linear)) {\n"
+             "    if (!linear || replacements.length !== selectedSize) throw new RangeError("
+             "\"MPF Matlab linear assignment replacement element count mismatch\");\n"
+             "  } else if (conformability === 3 || conformability === 4) {\n"
+             "    const nonsingleton = (candidate) => candidate.filter((extent) => extent !== 1);\n"
+             "    const selected = nonsingleton(selectionShape);\n"
+             "    const replacementExtents = nonsingleton(replacementShape);\n"
+             "    if (selected.length !== replacementExtents.length || "
+             "selected.some((extent, axis) => extent !== replacementExtents[axis]) || "
+             "replacements.length !== selectedSize) throw new RangeError("
+             "\"MPF Matlab section assignment replacement shape mismatch\");\n"
+             "  } else {\n"
+             "    throw new RangeError(\"MPF Matlab assignment conformability contract is "
+             "invalid\");\n"
+             "  }\n"
+             "  const replacementAt = (position) => "
+             "replacements[(conformability === 1 || "
+             "(conformability === 4 && replacements.length === 1)) ? 0 : position];\n"
+             "  const grows = grown.some((extent, axis) => extent !== shape[axis]);\n"
+             "  const targetValues = grows ? __mpf_copy_array(values) : values;\n"
+             "  if (grows) __mpf_resize_nested(targetValues, grown, defaultValue);\n"
+             "  if (linear) {\n"
+             "    axes[0].forEach((target, position) => "
+             "__mpf_set_linear_column_major(targetValues, target, grown, "
+             "replacementAt(position)));\n"
+             "    return __mpf_record_shape(targetValues, resultShape ?? grown);\n"
+             "  }\n"
+             "  const coordinates = new Array(grown.length).fill(0);\n"
+             "  for (let position = 0; position < selectedSize; ++position) {\n"
+             "    let remaining = position;\n"
+             "    for (let axis = 0; axis < grown.length; ++axis) {\n"
+             "      const extent = selectionShape[axis];\n"
+             "      const selected = extent === 0 ? 0 : remaining % extent;\n"
+             "      remaining = extent === 0 ? 0 : Math.floor(remaining / extent);\n"
+             "      coordinates[axis] = axes[axis][selected];\n"
+             "    }\n"
+             "    let target = 0; let stride = 1;\n"
+             "    for (let axis = 0; axis < grown.length; ++axis) {\n"
+             "      target += coordinates[axis] * stride; stride *= grown[axis];\n"
+             "    }\n"
+             "    __mpf_set_linear_column_major(targetValues, target, grown, "
+             "replacementAt(position));\n"
+             "  }\n"
+             "  return __mpf_record_shape(targetValues, resultShape ?? grown);\n"
+             "}\n";
+    }
+    output_
+        << "function __mpf_set_section(values, selectors, replacement, base, allowNegative, "
            "columnMajor, pythonResize) {\n"
            "  if (pythonResize && selectors.length === 1 && selectors[0].kind === 'slice') {\n"
            "    if (!Array.isArray(replacement)) "
@@ -1177,9 +1248,9 @@ class RuntimeEmitter final {
 
 }  // namespace
 
-void emit_javascript_runtime_fragment(std::ostream& output,
-                                      const javascript::lir::RuntimeFragment fragment) {
-  RuntimeEmitter(output).emit(fragment);
+void emit_javascript_runtime(std::ostream& output,
+                             const std::vector<javascript::lir::RuntimeFragment>& fragments) {
+  RuntimeEmitter(output).emit(fragments);
 }
 
 }  // namespace mpf::detail

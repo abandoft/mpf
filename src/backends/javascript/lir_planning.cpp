@@ -36,6 +36,12 @@ std::vector<lir::RuntimeFragment> expected_runtime_fragments(const lir::Semantic
   if (program.runtime.contains(lir::RuntimeFeature::arrays)) {
     result.push_back(lir::RuntimeFragment::arrays);
   }
+  if (program.runtime.contains(lir::RuntimeFeature::runtime_selectors)) {
+    result.push_back(lir::RuntimeFragment::runtime_selectors);
+  }
+  if (program.runtime.contains(lir::RuntimeFeature::matlab_section_assignment)) {
+    result.push_back(lir::RuntimeFragment::matlab_section_assignment);
+  }
   if (program.runtime.contains(lir::RuntimeFeature::complex_matrices)) {
     result.push_back(lir::RuntimeFragment::complex_matrices);
   }
@@ -176,6 +182,16 @@ void verify_module(const lir::SemanticProgram& program, std::vector<Diagnostic>&
   if (program.runtime.contains(lir::RuntimeFeature::sparse_matrices) &&
       !program.runtime.contains(lir::RuntimeFeature::arrays)) {
     add_error(diagnostics, {1, 1}, "JavaScript sparse-matrix runtime requires the array fragment");
+  }
+  if (program.runtime.contains(lir::RuntimeFeature::runtime_selectors) &&
+      !program.runtime.contains(lir::RuntimeFeature::arrays)) {
+    add_error(diagnostics, {1, 1},
+              "JavaScript runtime-selector support requires the array fragment");
+  }
+  if (program.runtime.contains(lir::RuntimeFeature::matlab_section_assignment) &&
+      !program.runtime.contains(lir::RuntimeFeature::arrays)) {
+    add_error(diagnostics, {1, 1},
+              "JavaScript Matlab section-assignment support requires the array fragment");
   }
   if (program.runtime.contains(lir::RuntimeFeature::complex_sparse) &&
       (!program.runtime.contains(lir::RuntimeFeature::complex_numbers) ||
