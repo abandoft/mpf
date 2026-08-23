@@ -21,7 +21,8 @@ std::vector<std::string> required_standard_headers(const lir::SemanticProgram& p
       "<algorithm>",  "<array>",       "<cmath>",  "<cstddef>", "<cstdint>",  "<exception>",
       "<functional>", "<iostream>",    "<limits>", "<numeric>", "<optional>", "<stdexcept>",
       "<string>",     "<type_traits>", "<tuple>",  "<utility>", "<vector>"};
-  if (program.runtime.contains(lir::RuntimeFeature::complex_numbers)) {
+  if (program.runtime.contains(lir::RuntimeFeature::complex_numbers) ||
+      program.runtime.contains(lir::RuntimeFeature::argument_validation)) {
     headers.insert(headers.begin() + 3, "<complex>");
   }
   if (program.runtime.contains(lir::RuntimeFeature::exception_handling)) {

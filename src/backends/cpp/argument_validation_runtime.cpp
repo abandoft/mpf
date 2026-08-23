@@ -414,28 +414,28 @@ void validate_argument(const T& value, const std::string_view name,
       case 6U:
         valid = empty || argument_all(value, [](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
-          if constexpr (std::is_arithmetic_v<Item>) return item > 0;
+          if constexpr (std::is_arithmetic_v<Item>) return static_cast<double>(item) > 0.0;
           return false;
         });
         break;
       case 7U:
         valid = empty || argument_all(value, [](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
-          if constexpr (std::is_arithmetic_v<Item>) return item <= 0;
+          if constexpr (std::is_arithmetic_v<Item>) return static_cast<double>(item) <= 0.0;
           return false;
         });
         break;
       case 8U:
         valid = empty || argument_all(value, [](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
-          if constexpr (std::is_arithmetic_v<Item>) return item >= 0;
+          if constexpr (std::is_arithmetic_v<Item>) return static_cast<double>(item) >= 0.0;
           return false;
         });
         break;
       case 9U:
         valid = empty || argument_all(value, [](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
-          if constexpr (std::is_arithmetic_v<Item>) return item < 0;
+          if constexpr (std::is_arithmetic_v<Item>) return static_cast<double>(item) < 0.0;
           return false;
         });
         break;

@@ -403,6 +403,7 @@ TEST_CASE("Matlab arguments lower defaults conversion validation and output cont
 
   REQUIRE(cpp.code.find("mpf_runtime::optional_argument<double> factor = std::nullopt") !=
           std::string::npos);
+  REQUIRE(cpp.code.find("#include <complex>") != std::string::npos);
   REQUIRE(
       cpp.code.find("factor.resolve([&]() { return mpf_runtime::convert_argument_double<0>(2, ") !=
       std::string::npos);
