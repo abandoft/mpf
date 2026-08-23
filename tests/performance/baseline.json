@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "projectVersion": "0.7.7",
+  "projectVersion": "0.7.8",
   "maxLatencyNanoseconds": 1000000000,
   "minThroughputBytesPerSecond": 10000,
   "maxPeakArenaBytes": 67108864,
@@ -106,6 +106,12 @@
       "maxGeneratedBytes": 524288
     },
     "matlab-exception-control": {
+      "maxLatencyNanoseconds": 250000000,
+      "minThroughputBytesPerSecond": 25000,
+      "maxPeakArenaBytes": 8388608,
+      "maxGeneratedBytes": 524288
+    },
+    "matlab-exception-objects": {
       "maxLatencyNanoseconds": 250000000,
       "minThroughputBytesPerSecond": 25000,
       "maxPeakArenaBytes": 8388608,

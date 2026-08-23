@@ -1182,6 +1182,30 @@ std::string matlab_exception_workload(const std::size_t regions) {
   return source;
 }
 
+std::string matlab_exception_object_workload(const std::size_t regions) {
+  std::string source = "value = 0;\nreport = '';\n";
+  for (std::size_t index = 0; index < regions; ++index) {
+    const auto suffix = std::to_string(index);
+    source += "cause" + suffix + " = MException('MPF:Cause', 'Cause %d', " + suffix + ");\n";
+    source +=
+        "problem" + suffix + " = MException('MPF:Failure', 'Failure %+05d', " + suffix + ");\n";
+    source += "problem" + suffix + " = addCause(problem" + suffix + ", cause" + suffix + ");\n";
+    source += "prepared" + suffix + " = getReport(problem" + suffix +
+              ", 'extended', 'hyperlinks', 'off');\n";
+    source += "try\n  throwAsCaller(problem" + suffix + ")\n";
+    source += "catch caught" + suffix + "\n";
+    source += "  report = getReport(caught" + suffix + ", 'basic');\n";
+    source += "  value = value + length(report) + length(prepared" + suffix + ");\nend\n";
+    source += "ping\n";
+  }
+  source +=
+      "disp(value + ans)\n"
+      "function result = ping\n"
+      "result = 1;\n"
+      "end\n";
+  return source;
+}
+
 std::string source_extension(const mpf::SourceLanguage language) {
   switch (language) {
     case mpf::SourceLanguage::python: return ".py";
@@ -1332,7 +1356,9 @@ int main() {
        matlab_advanced_structured_square_solve_workload(24), mpf::SourceLanguage::matlab},
       {"matlab-return-command", matlab_return_command_workload(32), mpf::SourceLanguage::matlab},
       {"matlab-command-syntax", matlab_command_syntax_workload(64), mpf::SourceLanguage::matlab},
-      {"matlab-exception-control", matlab_exception_workload(64), mpf::SourceLanguage::matlab}};
+      {"matlab-exception-control", matlab_exception_workload(64), mpf::SourceLanguage::matlab},
+      {"matlab-exception-objects", matlab_exception_object_workload(64),
+       mpf::SourceLanguage::matlab}};
   std::vector<Measurement> measurements;
   for (const auto& scenario : scenarios) {
     Measurement measurement;
