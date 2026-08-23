@@ -1,0 +1,6 @@
+cube = reshape([1 2 3 4 5 6 7 8], 2, 2, 2);
+result = replace_page(cube, 3, [9 11; 10 12]);
+function result = replace_page(input, page, replacement)
+input(:, :, page) = replacement;
+result = input;
+end

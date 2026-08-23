@@ -1,0 +1,6 @@
+matrix = [1 2; 3 4];
+result = replace_columns(matrix, [2 4], [5 7; 6 8]);
+function result = replace_columns(input, columns, replacement)
+input(:, columns) = replacement;
+result = input;
+end
