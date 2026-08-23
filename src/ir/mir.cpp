@@ -1058,6 +1058,11 @@ class Builder final {
         result_attributes.reduction.input_storage = semantic_facts->reduction.input_storage;
         result_attributes.reduction.result_storage = semantic_facts->reduction.result_storage;
       }
+      if (semantic_facts->exception.valid()) {
+        result_attributes.exception.operation = semantic_facts->exception.operation;
+        result_attributes.exception.message_form = semantic_facts->exception.message_form;
+        result_attributes.exception.stack_policy = semantic_facts->exception.stack_policy;
+      }
       if (semantic_facts->sparse_construction.valid()) {
         result_attributes.sparse_construction.kind = semantic_facts->sparse_construction.kind;
         result_attributes.sparse_construction.result_shape =

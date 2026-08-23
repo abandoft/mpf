@@ -386,6 +386,58 @@ semantic::ReductionOperation expected_reduction_operation(const Program& program
   return semantic::ReductionOperation::none;
 }
 
+semantic::ExceptionOperation expected_exception_operation(const Program& program,
+                                                          const Expression& expression) noexcept {
+  if (program.source_language != SourceLanguage::matlab ||
+      expression.kind != ExpressionKind::call || expression.children.empty()) {
+    return semantic::ExceptionOperation::none;
+  }
+  const auto* callee = mir::expression(program, expression.children.front());
+  const auto* callee_attributes = callee == nullptr ? nullptr : attributes(program, callee->id);
+  return callee_attributes == nullptr || callee_attributes->binding != BindingKind::builtin
+             ? semantic::ExceptionOperation::none
+             : semantic::exception_operation_for_intrinsic(callee_attributes->intrinsic);
+}
+
+semantic::ExceptionMessageForm expected_exception_message_form(
+    const Program& program, const Expression& expression,
+    const semantic::ExceptionOperation operation) noexcept {
+  const auto argument_count = expression.children.empty() ? 0U : expression.children.size() - 1U;
+  if (operation == semantic::ExceptionOperation::construct) {
+    return argument_count == 2U ? semantic::ExceptionMessageForm::identifier_message
+                                : semantic::ExceptionMessageForm::identifier_formatted_message;
+  }
+  if (operation != semantic::ExceptionOperation::raise_error) {
+    return semantic::ExceptionMessageForm::none;
+  }
+  if (argument_count == 1U) return semantic::ExceptionMessageForm::message;
+  const auto* first =
+      expression.children.size() < 2U ? nullptr : mir::expression(program, expression.children[1]);
+  const auto* first_attributes = first == nullptr ? nullptr : attributes(program, first->id);
+  if (first == nullptr || first_attributes == nullptr ||
+      first->kind != ExpressionKind::string_literal) {
+    return semantic::ExceptionMessageForm::runtime_dispatch;
+  }
+  const bool identifier = semantic::matlab_exception_identifier_literal(first_attributes->spelling);
+  if (!identifier) return semantic::ExceptionMessageForm::formatted_message;
+  return argument_count == 2U ? semantic::ExceptionMessageForm::identifier_message
+                              : semantic::ExceptionMessageForm::identifier_formatted_message;
+}
+
+semantic::ExceptionStackPolicy expected_exception_stack_policy(
+    const semantic::ExceptionOperation operation) noexcept {
+  switch (operation) {
+    case semantic::ExceptionOperation::raise_error:
+    case semantic::ExceptionOperation::throw_exception:
+      return semantic::ExceptionStackPolicy::capture_current;
+    case semantic::ExceptionOperation::throw_as_caller:
+      return semantic::ExceptionStackPolicy::capture_caller;
+    case semantic::ExceptionOperation::rethrow_exception:
+      return semantic::ExceptionStackPolicy::preserve_existing;
+    default: return semantic::ExceptionStackPolicy::none;
+  }
+}
+
 bool static_rank_two(const ShapeData* shape_data) noexcept {
   return shape_data != nullptr && shape_data->extents.size() == 2U &&
          std::find(shape_data->extents.begin(), shape_data->extents.end(), dynamic_extent) ==
@@ -738,6 +790,9 @@ void verify_expression(const Expression& expression, const Program& program,
         retired_attributes->reduction.storage_policy != semantic::ReductionStoragePolicy::none ||
         retired_attributes->reduction.input_storage != ArrayStorageFormat::none ||
         retired_attributes->reduction.result_storage != ArrayStorageFormat::none ||
+        retired_attributes->exception.valid() ||
+        retired_attributes->exception.message_form != semantic::ExceptionMessageForm::none ||
+        retired_attributes->exception.stack_policy != semantic::ExceptionStackPolicy::none ||
         retired_attributes->sparse_construction.valid() ||
         retired_attributes->sparse_construction.result_shape.valid() ||
         !retired_attributes->sparse_construction.triplet_element_counts.empty() ||
@@ -1241,6 +1296,35 @@ void verify_expression(const Expression& expression, const Program& program,
              reduction.result_storage != ArrayStorageFormat::none) {
     add_error(diagnostics, expression.location, stage,
               "inactive logical reduction retains MIR attributes");
+  }
+  const auto& exception = expression_attributes->exception;
+  const auto expected_exception = expected_exception_operation(program, expression);
+  if (exception.operation != expected_exception) {
+    add_error(diagnostics, expression.location, stage,
+              "exception operation disagrees with its MIR source intrinsic");
+  } else if (exception.valid()) {
+    const auto expected_message =
+        expected_exception_message_form(program, expression, expected_exception);
+    const auto expected_stack = expected_exception_stack_policy(expected_exception);
+    const auto result_type = value_type(program, expression.type_id);
+    const auto expected_type = expected_exception == semantic::ExceptionOperation::construct ||
+                                       expected_exception == semantic::ExceptionOperation::add_cause
+                                   ? ValueType::exception
+                               : expected_exception == semantic::ExceptionOperation::get_report
+                                   ? ValueType::string
+                                   : ValueType::unknown;
+    if (!semantic::valid_exception_contract(exception.operation, exception.message_form,
+                                            exception.stack_policy) ||
+        exception.message_form != expected_message || exception.stack_policy != expected_stack ||
+        result_type != expected_type ||
+        numeric_type(program, expression.type_id) != no_numeric_type) {
+      add_error(diagnostics, expression.location, stage,
+                "exception operation has an invalid MIR result, message, or stack contract");
+    }
+  } else if (exception.message_form != semantic::ExceptionMessageForm::none ||
+             exception.stack_policy != semantic::ExceptionStackPolicy::none) {
+    add_error(diagnostics, expression.location, stage,
+              "inactive exception operation retains MIR attributes");
   }
   const auto& sparse_index = expression_attributes->sparse_index;
   const auto expected_sparse_index = expected_sparse_index_kind(program, expression);

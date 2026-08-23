@@ -58,10 +58,15 @@ Effect intrinsic_effects(const IntrinsicId intrinsic) noexcept {
     case IntrinsicId::logical_any:
     case IntrinsicId::matlab_nonzero_count:
     case IntrinsicId::sum: return Effect::may_fail;
+    case IntrinsicId::matlab_exception:
+    case IntrinsicId::matlab_add_cause:
+    case IntrinsicId::matlab_get_report: return Effect::allocate | Effect::may_fail;
     case IntrinsicId::reshape:
     case IntrinsicId::matlab_sparse:
     case IntrinsicId::matlab_full: return Effect::allocate | Effect::may_fail;
     case IntrinsicId::matlab_error:
+    case IntrinsicId::matlab_throw:
+    case IntrinsicId::matlab_throw_as_caller:
     case IntrinsicId::matlab_rethrow: return Effect::may_fail | Effect::control;
     case IntrinsicId::count: break;
   }

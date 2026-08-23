@@ -448,6 +448,16 @@ struct SparseReshapePlan {
   [[nodiscard]] bool valid() const noexcept { return kind != semantic::SparseReshapeKind::none; }
 };
 
+struct ExceptionPlan {
+  semantic::ExceptionOperation operation{semantic::ExceptionOperation::none};
+  semantic::ExceptionMessageForm message_form{semantic::ExceptionMessageForm::none};
+  semantic::ExceptionStackPolicy stack_policy{semantic::ExceptionStackPolicy::none};
+
+  [[nodiscard]] bool valid() const noexcept {
+    return operation != semantic::ExceptionOperation::none;
+  }
+};
+
 struct ExpressionAttributes {
   MirExpressionId origin{};
   std::string spelling;
@@ -466,6 +476,7 @@ struct ExpressionAttributes {
   SparseConstructionPlan sparse_construction;
   SparseIndexPlan sparse_index;
   SparseReshapePlan sparse_reshape;
+  ExceptionPlan exception;
   BindingKind binding{BindingKind::unresolved};
   IntrinsicId intrinsic{IntrinsicId::none};
   std::vector<ShapeId> tuple_shapes;

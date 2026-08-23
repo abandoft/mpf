@@ -172,7 +172,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v33 hir-nodes=" << table.hir_node_count
+  output << "semantic-v34 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -399,6 +399,11 @@ std::string dump_semantics(const hir::SemanticTable& table) {
         output << " result=";
         dump_shape(facts.sparse_reshape.result_shape);
       }
+      if (facts.exception.valid()) {
+        output << " exception=" << enum_value(facts.exception.operation)
+               << " message=" << enum_value(facts.exception.message_form)
+               << " stack=" << enum_value(facts.exception.stack_policy);
+      }
       output << " region=";
       dump_storage_region(output, facts.storage_region);
     } else if (slot.kind == hir::SemanticNodeKind::statement &&
@@ -442,7 +447,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v39 language=" << enum_value(program.source_language)
+  output << "mir-v40 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -640,6 +645,11 @@ std::string dump_mir(const mir::Program& program) {
                << attributes->sparse_reshape.input_shape.value() << " requested=!s"
                << attributes->sparse_reshape.requested_shape.value() << " result=!s"
                << attributes->sparse_reshape.result_shape.value();
+      }
+      if (attributes->exception.valid()) {
+        output << " exception=" << enum_value(attributes->exception.operation)
+               << " message=" << enum_value(attributes->exception.message_form)
+               << " stack=" << enum_value(attributes->exception.stack_policy);
       }
     }
     output << '\n';
