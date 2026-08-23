@@ -24,6 +24,11 @@ std::vector<std::string> required_standard_headers(const lir::SemanticProgram& p
   if (program.runtime.contains(lir::RuntimeFeature::complex_numbers)) {
     headers.insert(headers.begin() + 3, "<complex>");
   }
+  if (program.runtime.contains(lir::RuntimeFeature::exception_handling)) {
+    const auto insertion = std::find(headers.begin(), headers.end(), "<iostream>");
+    headers.insert(insertion, "<iomanip>");
+    headers.insert(std::find(headers.begin(), headers.end(), "<stdexcept>"), "<sstream>");
+  }
   return headers;
 }
 

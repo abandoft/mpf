@@ -138,8 +138,13 @@ void analyze_expression(const mir::Program& program, const MirExpressionId expre
     result.runtime.require(lir::RuntimeFeature::complex_numbers);
   }
   if (attributes.binding == BindingKind::builtin && attributes.intrinsic != IntrinsicId::none) {
-    if (attributes.intrinsic == IntrinsicId::matlab_error ||
-        attributes.intrinsic == IntrinsicId::matlab_rethrow) {
+    if (attributes.intrinsic == IntrinsicId::matlab_exception ||
+        attributes.intrinsic == IntrinsicId::matlab_error ||
+        attributes.intrinsic == IntrinsicId::matlab_throw ||
+        attributes.intrinsic == IntrinsicId::matlab_throw_as_caller ||
+        attributes.intrinsic == IntrinsicId::matlab_rethrow ||
+        attributes.intrinsic == IntrinsicId::matlab_add_cause ||
+        attributes.intrinsic == IntrinsicId::matlab_get_report) {
       result.runtime.require(lir::RuntimeFeature::exception_handling);
     }
     const auto* binding = cpp_code_binding(attributes.intrinsic);

@@ -860,6 +860,7 @@ lir::ExpressionPlan expected_expression_plan(
   if (!expression.valid()) return result;
   result.valid = true;
   result.string_value = expression.inferred_type == ValueType::string;
+  result.exception = expression.exception;
   switch (expression.kind) {
     case ExpressionKind::invalid: break;
     case ExpressionKind::omitted_argument:
@@ -1437,6 +1438,9 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.column_major != right.column_major ||
       left.inclusive_slice_stop != right.inclusive_slice_stop ||
       left.flatten_base != right.flatten_base || left.string_value != right.string_value ||
+      left.exception.operation != right.exception.operation ||
+      left.exception.message_form != right.exception.message_form ||
+      left.exception.stack_policy != right.exception.stack_policy ||
       left.concrete_type != right.concrete_type || left.widen_children != right.widen_children ||
       left.complex_children != right.complex_children || left.input_shape != right.input_shape ||
       left.result_shape != right.result_shape ||
@@ -1539,6 +1543,51 @@ semantic::ReductionOperation expected_reduction_operation(
   return semantic::ReductionOperation::none;
 }
 
+semantic::ExceptionOperation expected_exception_operation(
+    const lir::Expression& expression, const SourceLanguage source_language) noexcept {
+  if (source_language != SourceLanguage::matlab || expression.kind != ExpressionKind::call ||
+      expression.children.empty() || expression.children.front().binding != BindingKind::builtin) {
+    return semantic::ExceptionOperation::none;
+  }
+  return semantic::exception_operation_for_intrinsic(expression.children.front().intrinsic);
+}
+
+semantic::ExceptionMessageForm expected_exception_message_form(
+    const lir::Expression& expression, const semantic::ExceptionOperation operation) noexcept {
+  const auto argument_count = expression.children.empty() ? 0U : expression.children.size() - 1U;
+  if (operation == semantic::ExceptionOperation::construct) {
+    return argument_count == 2U ? semantic::ExceptionMessageForm::identifier_message
+                                : semantic::ExceptionMessageForm::identifier_formatted_message;
+  }
+  if (operation != semantic::ExceptionOperation::raise_error) {
+    return semantic::ExceptionMessageForm::none;
+  }
+  if (argument_count == 1U) return semantic::ExceptionMessageForm::message;
+  if (expression.children.size() < 2U ||
+      expression.children[1].kind != ExpressionKind::string_literal) {
+    return semantic::ExceptionMessageForm::runtime_dispatch;
+  }
+  const bool identifier =
+      semantic::matlab_exception_identifier_literal(expression.children[1].value);
+  if (!identifier) return semantic::ExceptionMessageForm::formatted_message;
+  return argument_count == 2U ? semantic::ExceptionMessageForm::identifier_message
+                              : semantic::ExceptionMessageForm::identifier_formatted_message;
+}
+
+semantic::ExceptionStackPolicy expected_exception_stack_policy(
+    const semantic::ExceptionOperation operation) noexcept {
+  switch (operation) {
+    case semantic::ExceptionOperation::raise_error:
+    case semantic::ExceptionOperation::throw_exception:
+      return semantic::ExceptionStackPolicy::capture_current;
+    case semantic::ExceptionOperation::throw_as_caller:
+      return semantic::ExceptionStackPolicy::capture_caller;
+    case semantic::ExceptionOperation::rethrow_exception:
+      return semantic::ExceptionStackPolicy::preserve_existing;
+    default: return semantic::ExceptionStackPolicy::none;
+  }
+}
+
 void verify_expression(const lir::Expression& expression, const lir::EmissionPlan& emission,
                        const AccessContext& context, const SourceLanguage source_language,
                        std::vector<Diagnostic>& diagnostics, const bool condition_context = false,
@@ -1587,6 +1636,32 @@ void verify_expression(const lir::Expression& expression, const lir::EmissionPla
              expression.reduction.input_storage != ArrayStorageFormat::none ||
              expression.reduction.result_storage != ArrayStorageFormat::none) {
     add_error(diagnostics, expression.location, "cpp LIR inactive logical reduction retains state");
+  }
+  const auto expected_exception = expected_exception_operation(expression, source_language);
+  if (expression.exception.operation != expected_exception) {
+    add_error(diagnostics, expression.location, "cpp LIR exception identity is inconsistent");
+  } else if (expression.exception.valid()) {
+    const auto expected_message = expected_exception_message_form(expression, expected_exception);
+    const auto expected_stack = expected_exception_stack_policy(expected_exception);
+    const auto expected_type = expected_exception == semantic::ExceptionOperation::construct ||
+                                       expected_exception == semantic::ExceptionOperation::add_cause
+                                   ? ValueType::exception
+                               : expected_exception == semantic::ExceptionOperation::get_report
+                                   ? ValueType::string
+                                   : ValueType::unknown;
+    if (!semantic::valid_exception_contract(expression.exception.operation,
+                                            expression.exception.message_form,
+                                            expression.exception.stack_policy) ||
+        expression.exception.message_form != expected_message ||
+        expression.exception.stack_policy != expected_stack ||
+        expression.inferred_type != expected_type || expression.numeric_type != no_numeric_type) {
+      add_error(diagnostics, expression.location,
+                "cpp LIR exception result, message, or stack contract is inconsistent");
+    }
+  } else if (expression.exception.message_form != semantic::ExceptionMessageForm::none ||
+             expression.exception.stack_policy != semantic::ExceptionStackPolicy::none) {
+    add_error(diagnostics, expression.location,
+              "cpp LIR inactive exception operation retains state");
   }
   const auto expected_sparse_index = expected_sparse_index_kind(expression);
   if (expression.sparse_index.kind != expected_sparse_index) {
