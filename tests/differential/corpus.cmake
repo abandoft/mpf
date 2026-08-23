@@ -173,7 +173,11 @@ mpf_add_differential_case(
   "9 8 12 12 11 6 13 15 14 16")
 mpf_add_differential_case(
   matlab-dynamic-assignment-conformability matlab
-  examples/matlab/dynamic_assignment_conformability.m "9 6 5 5 1 3 2 4")
+  examples/matlab/dynamic_assignment_conformability.m
+  "9 6 5 5 1 3 2 4 8 9 6 7 5 5 8 9 0 0 10 11 18 19 2 4 12 13 14 15 16 17 1 3 2 4")
+mpf_add_differential_case(
+  matlab-dynamic-section-mutation matlab examples/matlab/dynamic_section_mutation.m
+  "1 8 3 0 9 7 2 6 1 4 3 6 2 5 1 8 9 10 11 12 1 8")
 mpf_add_differential_case(
   matlab-empty-arrays matlab examples/matlab/empty_arrays.m "0 0 3 7 5 0 5 0 5 0 5 0 4 9")
 
