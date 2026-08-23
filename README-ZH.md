@@ -29,7 +29,9 @@
 | Fortran | `.f`、`.for`、`.ftn`、`.f77`、`.f90` 等 | free/fixed form、function/subroutine、`INTENT`/`OPTIONAL`、数组与 section、`SELECT CASE` |
 | TypeScript | `.ts`、`.mts`、`.cts` | 类型化标量和数组、函数、块作用域、条件、`while`、标准 C 风格 `for` |
 
-Matlab 已支持函数与脚本 `return`，函数提前退出会保持声明的单个或多个输出。command syntax 现可用一个或多个 character-vector 参数调用受支持的本地函数和内建函数，保留 Matlab 引号及运算符空格规则，并把产值结果写入 `ans`；`disp`/`display` 仍要求恰好一个参数，未被遮蔽的零输入 local function 还可使用裸 command form。结构化异常支持单一 `catch`、可选异常 binding、嵌套 handler、格式化 `error`、`MException` 构造、`throw`、`throwAsCaller`、`rethrow`、通过 `addCause` 构造不可变 cause chain、basic/extended `getReport`，以及所捕获异常的 `identifier`/`message`。限定名/package/class command、外部 path 解析、`arguments` block、公开 cause/stack/correction 属性和完整 Matlab 格式化表面仍不在受支持子集内。
+Matlab 已支持函数与脚本 `return`，函数提前退出会保持声明的单个或多个输出。command syntax 现可用一个或多个 character-vector 参数调用受支持的本地函数和内建函数，保留 Matlab 引号及运算符空格规则，并把产值结果写入 `ans`；`disp`/`display` 仍要求恰好一个参数，未被遮蔽的零输入 local function 还可使用裸 command form。结构化异常支持单一 `catch`、可选异常 binding、嵌套 handler、格式化 `error`、`MException` 构造、`throw`、`throwAsCaller`、`rethrow`、通过 `addCause` 构造不可变 cause chain、basic/extended `getReport`，以及所捕获异常的 `identifier`/`message`。
+
+Matlab `arguments` block 已支持 R2019b positional input declaration 与 R2022b output declaration。当前类型化 ABI 覆盖显式 scalar/N 维 shape、`double`、`logical`、character vector、按声明顺序求值的 optional default、输入/输出验证、scalar expansion、行列 reshape，以及 23 个标准无参数 validation function。name-value、`Repeating`、参数化或 custom validator、没有显式可表示 rank 的 numeric/logical declaration，以及一般 char/string 转换仍会明确失败关闭。限定名/package/class command、外部 path 解析、公开 exception cause/stack/correction 属性和完整 Matlab 格式化表面也仍不在受支持子集内。
 
 稠密 Matlab section assignment 支持标量与单元素数组扩展、线性元素数匹配、忽略 singleton
 轴后的行列 shape 等价，以及未知形状 local-function 参数上的动态验证。非全区段动态目标可使用
@@ -132,7 +134,7 @@ cmake --install build/release --prefix build/stage
 在项目中查找当前精确版本：
 
 ```cmake
-find_package(mpf 0.7.8 EXACT CONFIG REQUIRED COMPONENTS core cpp)
+find_package(mpf 0.7.9 EXACT CONFIG REQUIRED COMPONENTS core cpp)
 target_link_libraries(my_application PRIVATE mpf::mpf)
 ```
 
@@ -160,7 +162,7 @@ int main() {
 }
 ```
 
-安装包提供 `core`、`javascript` 和 `cpp` component，以及 `mpf::core`、`mpf::backend-javascript`、`mpf::backend-cpp` 和统一入口 `mpf::mpf`。完整集成示例见 [`examples/embedding`](examples/embedding)；配置时传入 `-DMPF_REQUIRED_VERSION=0.7.8`，以保持精确版本匹配。
+安装包提供 `core`、`javascript` 和 `cpp` component，以及 `mpf::core`、`mpf::backend-javascript`、`mpf::backend-cpp` 和统一入口 `mpf::mpf`。完整集成示例见 [`examples/embedding`](examples/embedding)；配置时传入 `-DMPF_REQUIRED_VERSION=0.7.9`，以保持精确版本匹配。
 
 MPF 0.x 有意只安装静态库。共享库需要先明确符号导出、allocator/所有权和版本协商契约；设置 `BUILD_SHARED_LIBS` 不会把当前内部 C++ ABI 意外暴露为受支持的动态库接口。
 

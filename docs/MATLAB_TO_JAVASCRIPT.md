@@ -13,12 +13,12 @@ renderer、source map 和差分框架能够工作，但还不能安全承载一�
 
 | 维度 | 当前状态 | 商用阻断项 |
 |---|---|---|
-| 源码与语句 | logical statement、注释、续行、脚本、local function、函数/脚本裸 `return`、带参数的 local/builtin command syntax、未遮蔽零输入 local function 裸调用、`ans` value/discard、`disp`/`display` 单 character-vector command form、分支、循环、标量 `switch`、`try`/单一 `catch [exception]`、格式化 `error`、`MException`、`throw`/`throwAsCaller`/`rethrow`、`addCause`/`getReport` | 限定名/package/class command、外部 path/project 解析、`arguments` block、workspace 声明、公开 cause/stack/correction 属性与完整格式化表面、包/类、产生式级 recovery |
+| 源码与语句 | logical statement、注释、续行、脚本、local function、函数/脚本裸 `return`、带参数的 local/builtin command syntax、未遮蔽零输入 local function 裸调用、`ans` value/discard、`disp`/`display` 单 character-vector command form、分支、循环、标量 `switch`、`try`/单一 `catch [exception]`、格式化 `error`、`MException`、`throw`/`throwAsCaller`/`rethrow`、`addCause`/`getReport`，以及 R2019b positional input/R2022b output `arguments` block 纵切面 | 限定名/package/class command、外部 path/project 解析、name-value/`Repeating` arguments、workspace 声明、公开 cause/stack/correction 属性与完整格式化表面、包/类、产生式级 recovery |
 | 表达式 | real/complex 标量与数组算术、imaginary literal、可遮蔽 `i`/`j`、`complex`/`conj`/`real`/`imag`/`abs`、complex 共轭/普通转置；real 关系比较、`~`/`&`/`|` compatible-size N 维逐元素逻辑、scalar `&&`/`||` 与 condition-context `&`/`|` 短路、数组 condition 全元素 truthiness、`all`/`any` 默认/显式/全维逻辑归约、二维 real/complex 矩阵乘法、静态 finite-real/finite-complex rank-2 sparse×sparse/sparse×dense/dense×sparse 矩阵乘法、双向 sparse/scalar 缩放、sparse/dense/scalar compatible-size `.*`、static compatible-size real/logical/complex sparse `+`/`-`、静态 rank-2 sparse logical `~`/`&`/`|` 及非负 safe-integer real/logical CSC 方阵幂、静态稠密实数方阵的 diagonal/upper/lower/pivoted-tridiagonal/symmetric-positive-definite/dense 结构感知求解、稠密 complex 方阵的 Hermitian-positive-definite Cholesky/dense LU 求解、rank-aware real/complex 矩形基本最小二乘求解、静态 real rank-2 CSC 方阵求解（含 `0×0` 系数与 shaped-empty 两侧操作数/结果）及 real/complex safe-integer 方阵幂、R2024 全部 `sparse` 调用形式对静态 real/logical/complex rank-2 值输入（包含零 extent）的构造、普通/共轭转置、scalar/linear/submatrix indexing、indexed assignment/growth/deletion 与列主序 reshape（size vector、维度列表、单个 `[]` 推断及 N 维请求折叠）、`full`/`issparse`/`nnz`、调用、向量/矩阵字面量、静态及运行时 extent 的上下文 `end`、colon/index/section、保序/重复/空 numeric selector、线性及逐维 logical selector | sparse rectangular solve、complex sparse scalar-product/element-wise/power/solve 与动态 sparse shape，complex comparison/logical/reduction，病态方阵特定解选择的精确 Matlab 对齐和非整数矩阵幂 |
 | 稀疏归约 | static real/logical rank-2 CSC `all`/`any` 的默认维度、常量 `dim`/`vecdim`、`'all'`、高于 rank 的 no-op 维度与零 extent；非标量结果保持 canonical logical CSC，全维结果返回 full logical scalar；双目标 O(nnz + output-extent) runtime 按需装载且不物化 dense source | 动态或 complex sparse source、动态 `dim`/`vecdim` 与未知 rank 的维度保持型 sparse reduction |
 | 数据模型 | `NumericClass` 的 logical/signed-integer/binary64 与独立 real/complex complexity、boolean、字符文本的当前子集、矩形嵌套数组、静态 real/logical/complex rank-2 canonical CSC（包含零 extent）与类型化 `SparseConstructionPlan`/`SparseIndexPlan`/`SparseMutationPlan`/`SparseReshapePlan`/`SparseArithmeticPlan`/`SparseElementwisePlan`/`SparseLogicalPlan`/`ReductionStoragePolicy`/`sparse_csc_multiply`/`sparse_csc_scale`/`sparse_csc_power` storage policy 与 `MatrixExponentPolicy`、带不可枚举 shape descriptor 的 JavaScript 零 extent 数组；JavaScript complex object 与 C++ `std::complex<double>` ABI | single/其余整数 class、一般动态 sparse shape、string、cell、struct、table、datetime、对象 |
 | 数组语义 | 1-based、列主序、规范 `0×0` empty、静态零 extent reshape/transpose/broadcast/section/growth、静态 N 维 reshape/section，以及静态 shape 或 local-function runtime rank/extent 的 compatible-size 隐式扩展；complex 数组逐元素/broadcast、索引/写入/reshape/转置；二维 real/complex 矩阵乘法、rank-aware real/complex rectangular solve、real/complex 稠密方阵 solve 与 integer power、广义 selector 读写、vector/matrix/N 维多轴扩容、未知参数的 runtime scalar/numeric/logical/range selector、overwrite-or-grow 动态覆盖/间隙扩容/单轴删除/N 维页扩容，以及 `all`/`any` 的 N 维/零 extent 归约、符合 null-assignment 规则的单轴删除；当前 JavaScript 输出对 dense name-to-name assignment/local-function 参数使用显式 value-copy plan，对可能增长的 dense dynamic section 和 sparse indexed mutation 使用事务式 root replacement；稀疏子集支持全部 R2024 constructor form、scalar expansion、real/complex 重复项求和/抵消、logical 重复项 `any` 聚合、保持值域的 transpose/index/mutation/reshape/`full`、scalar/linear/submatrix indexing、indexed assignment、重复下标 last-write-wins、zero erase、静态扩容与合法 null deletion，并按 Matlab 左除 RHS/右除 LHS、sparse×sparse/mixed matrix product、双向 sparse/scalar 缩放、非负 safe-integer sparse square power、compatible-size sparse `.*` scalar/dense/sparse、static compatible-size sparse `+`/`-` 及 sparse logical storage 规则保持零 extent 与结果 storage；sparse-sparse `+`/`-`、`~S`、sparse AND 与 sparse-sparse OR 保持 CSC，mixed sparse arithmetic 或 mixed OR 物化 dense | 可跨函数携带不可结构恢复 shape 的统一动态 NDArray/typed-array ABI、其余 sparse 操作与非整数幂、完整动态 bounds，以及一般 NDArray/view 的 copy-on-write、escape 和 alias 契约 |
-| 函数 | 文件级 local function、前向调用、单/多输出，以及保持声明输出的函数提前 `return` | `arguments` validation、`nargin`/`nargout`、`varargin`/`varargout`、function handle、anonymous/nested closure、workspace |
+| 函数 | 文件级 local function、前向调用、单/多输出、保持声明输出的函数提前 `return`；显式 scalar/N 维 `double`/`logical`/char-vector arguments、ordered optional default、input/output validation、scalar expansion、row/column reshape、23 个无参数标准 validator | 完整 name-value/`Repeating`/parameterized/custom arguments、动态 rank/class ABI、`nargin`/`nargout`、`varargin`/`varargout`、function handle、anonymous/nested closure、workspace |
 | JavaScript runtime | 内嵌数组、feature-gated complex object/numeric dispatch、checked non-enumerable shape descriptor、canonical CSC 直接 typed triplet construction/sparse transpose/indexing 与事务式 assignment/deletion、CSC×CSC scatter-accumulator、两类 nonzero-driven mixed matrix-product kernel、sparse arithmetic CSC-column merge/mixed dense materialization、五种 sparse element-wise nonzero-driven kernel，以及 sparse logical NOT/AND/OR 的 CSC 候选扫描与 mixed-OR dense materialization、CSC repeated-squaring sparse power、广义 selector/section、动态 selector 分类与 copied-root overwrite-or-grow、zero-extent reshape/broadcast/transpose、结构感知实数方阵/矩形求解、CSC 三对角/行主元 LU 方阵求解、Hermitian/dense complex 方阵与 CPQR 复数矩形求解、real/complex 矩阵幂，以及按需加载的私有-tag 冻结异常记录、常用 scalar 格式化、原始异常、stack policy、不可变 cause chain 和 basic/extended report runtime | 有版本的 Matlab runtime 包、统一 NDArray ABI、其余 sparse runtime、公开 cause/stack/correction 对象、完整格式化/数值兼容层、依赖与许可证审计 |
 | 验证 | Node.js、生成 C++、oracle、source map、专项 fuzz seed、动态增长失败回滚与 mutation-plan 污染拒绝、跨层 storage 损坏事实拒绝、Matlab 编译性能发布阈值 | 授权 Matlab reference runner；真实项目 corpus；运行时性能、数值精度和内存发布阈值 |
 
@@ -185,8 +185,16 @@ LIR v49 固化 exception operation/message-form/stack-policy，交付 `MExceptio
 格式化 `error`、`throw`/`throwAsCaller`/`rethrow`、不可变 `addCause` 和 basic/extended
 `getReport`；异常 runtime 在两个目标内独立实现并按需裁剪。frontend 同时只为未被参数、结果、
 赋值或声明遮蔽的已知零输入 local function 接受裸调用，避免把普通变量表达式误转成 call。
+0.7.9 开发分支以 Matlab AST v5、Semantic v35、MIR v41 和双目标 LIR v51 增加 `arguments`
+declaration/validation 与逐 call boundary contract。JavaScript 和 C++ 分别执行 class/size conversion、
+N 维 scalar expansion、row/column reshape、top-to-bottom default 与 input/output validator；Analyzer
+side table 显式保存 formal representation rank，Emitter 不再从 `ValueType` 反推 ABI。validator
+availability 按官方引入版本失败关闭：R2020b 才开放 `mustBeFloat`、vector/scalar-or-empty、text、
+nonmissing 与 variable-name 组，`mustBeRow`/`mustBeColumn`/`mustBeMatrix` 则要求 R2024b；双目标
+runtime 同步处理 logical、character、empty value、complex-storage realness，以及 R2024b 的 63 字符
+变量名和关键字限制。
 一般 NDArray 表示与不可结构恢复动态零 extent、stride/view/owner/COW、限定名/package/class 与
-外部 path/project command 解析、`arguments`、公开 cause/stack/correction 属性、完整格式化表面、cell/struct/string
+外部 path/project command 解析、完整 name-value/Repeating/parameterized/custom `arguments`、公开 cause/stack/correction 属性、完整格式化表面、cell/struct/string
 仍不在当前可保持边界。因此文档、版本说明和 CLI
 必须继续使用“已验证子集”的表述。
 
@@ -223,7 +231,7 @@ P0 完成前，产品定位保持“实验性已验证子集”。以下顺序�
 - [ ] 完成 `switch/case/otherwise` 的 cell case；标量 numeric/logical/character case 已交付
 - [x] 完成 `try`/单一 `catch [exception]`、无绑定 handler、嵌套、`error`、`rethrow` 和 exception 确定赋值边界
 - [x] 完成 `MException` 构造、常用 scalar 格式化 `error`、`throw`/`throwAsCaller`/`rethrow`、不可变 `addCause`、basic/extended `getReport` 及静态失败关闭边界
-- [ ] 完成 `global`、`persistent`、`arguments` block、公开 cause/stack/correction 对象属性、完整格式化合同和跨平台 stack frame；函数/脚本裸 `return` 已完成
+- [ ] 完成 `global`、`persistent`、name-value/`Repeating`/parameterized/custom `arguments`、动态 rank/class ABI、公开 cause/stack/correction 对象属性、完整格式化合同和跨平台 stack frame；函数/脚本裸 `return` 与 `arguments` 第一纵切面已完成
 - [ ] 对尚未支持的 `classdef`、并行和工具箱语法提供产生式级诊断，不降级为错误表达式
 
 ### 数组与数值语义
@@ -373,7 +381,8 @@ P0 完成前，产品定位保持“实验性已验证子集”。以下顺序�
 - [x] 0.7.6 assignment conformability 第一纵切面：`IndexedReplacementContract` 贯穿 Semantic v32、MIR v38 与双目标 LIR v47，覆盖 row/column singleton 等价、单元素数组扩展、线性 numel、未知参数 runtime dispatch、全冒号保持 shape、事务式拒错、源码映射、差分、fuzz 与性能
 - [x] 0.7.7 assignment conformability 第二纵切面：Semantic v33、MIR v39 与双目标 LIR v48 固化 runtime selector 和 overwrite-or-grow；动态 scalar/numeric/logical/range selector、线性/多维覆盖与间隙扩容、单轴删除、N 维页扩容、JavaScript copied-root、C++ staged-value、失败回滚、runtime-selector/dense-assignment 按需片段及 sparse 产物裁剪、源码映射、差分、fuzz、计划污染拒绝与性能预算完成
 - [x] 0.7.8 exception object 与裸无参 local command 纵切面：Semantic v34、MIR v40 与双目标 LIR v49 固化 operation/message-form/stack-policy；`MException`、常用 scalar 格式化、三类 throw policy、不可变 cause、basic/extended report、按需双目标 runtime、静态/运行期拒错、source map、差分、fuzz、性能和遮蔽回归完成
-- [ ] P0-A：继续补齐 R2024 限定名/package/class command、外部 path/project 解析、`arguments` block、公开 cause/stack/correction 对象、完整格式化合同及未支持语法的精确恢复与诊断
+- [x] 0.7.9 `arguments` 第一纵切面：Matlab AST v5、Semantic v35、MIR v41、双目标 LIR v51、formal rank、class/size boundary、ordered default、input/output validation、N 维 conversion、source map、差分、生成 C++、runtime rejection、fuzz、性能与逐层损坏拒绝完成
+- [ ] P0-A：继续补齐 R2024 限定名/package/class command、外部 path/project 解析、name-value/`Repeating`/parameterized/custom `arguments`、动态 rank/class ABI、公开 cause/stack/correction 对象、完整格式化合同及未支持语法的精确恢复与诊断
 - [ ] P0-B：在两项已交付的 assignment conformability 纵切面上继续交付可跨函数携带不可结构恢复零 extent、动态 rank/shape、stride/layout 与 value ownership 的统一 NDArray ABI
 - [ ] P0-C：依次交付 char/string、cell、struct，再扩展 table/datetime 等高频对象语义
 - [ ] P0-D：补齐 workspace、closure、function handle、`nargin`/`nargout`、`varargin`/`varargout`、`global`/`persistent`

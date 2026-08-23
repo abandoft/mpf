@@ -29,7 +29,9 @@ A modern, high-performance multilingual transpilation framework. MPF converts su
 | Fortran | `.f`, `.for`, `.ftn`, `.f77`, `.f90`, and others | Free/fixed form, functions/subroutines, `INTENT`/`OPTIONAL`, arrays and sections, and `SELECT CASE` |
 | TypeScript | `.ts`, `.mts`, `.cts` | Typed scalars and arrays, functions, block scope, conditionals, `while`, and standard C-style `for` loops |
 
-Matlab function and script `return` are supported; function exits preserve declared single or multiple outputs. Command syntax accepts one or more character-vector arguments for supported local functions and built-ins, preserves Matlab quoting and operator-spacing rules, and stores value-producing results in `ans`; `disp` and `display` retain their one-argument requirement. An unshadowed zero-input local function can also be called in bare command form. Structured exceptions support one `catch` clause with an optional binding, nested handlers, formatted `error`, `MException` construction, `throw`, `throwAsCaller`, `rethrow`, immutable cause chains through `addCause`, basic/extended `getReport`, and the caught exception's `identifier`/`message`. Qualified/package/class commands, external path resolution, `arguments` blocks, public cause/stack/correction properties, and the complete Matlab formatting surface remain outside the supported subset.
+Matlab function and script `return` are supported; function exits preserve declared single or multiple outputs. Command syntax accepts one or more character-vector arguments for supported local functions and built-ins, preserves Matlab quoting and operator-spacing rules, and stores value-producing results in `ans`; `disp` and `display` retain their one-argument requirement. An unshadowed zero-input local function can also be called in bare command form. Structured exceptions support one `catch` clause with an optional binding, nested handlers, formatted `error`, `MException` construction, `throw`, `throwAsCaller`, `rethrow`, immutable cause chains through `addCause`, basic/extended `getReport`, and the caught exception's `identifier`/`message`.
+
+Matlab `arguments` blocks support positional input declarations from R2019b and output declarations from R2022b. The current typed ABI covers explicit scalar/N-dimensional shapes, `double`, `logical`, character vectors, ordered optional defaults, input/output validation, scalar expansion, row/column reshaping, and 23 standard non-parameterized validation functions. Name-value and `Repeating` blocks, parameterized or custom validators, numeric/logical declarations without an explicit representable rank, and general character/string conversion remain fail-closed. Qualified/package/class commands, external path resolution, public exception cause/stack/correction properties, and the complete Matlab formatting surface also remain outside the supported subset.
 
 Dense Matlab section assignment supports scalar and one-element-array expansion, linear element-count
 matching, singleton-axis-equivalent row/column shapes, and runtime validation through dynamically
@@ -133,7 +135,7 @@ cmake --install build/release --prefix build/stage
 Find the exact current version in another project:
 
 ```cmake
-find_package(mpf 0.7.8 EXACT CONFIG REQUIRED COMPONENTS core cpp)
+find_package(mpf 0.7.9 EXACT CONFIG REQUIRED COMPONENTS core cpp)
 target_link_libraries(my_application PRIVATE mpf::mpf)
 ```
 
@@ -161,7 +163,7 @@ int main() {
 }
 ```
 
-The installed package provides the `core`, `javascript`, and `cpp` components; the `mpf::core`, `mpf::backend-javascript`, and `mpf::backend-cpp` targets; and the unified `mpf::mpf` entry point. See [`examples/embedding`](examples/embedding) for a complete integration example; configure it with `-DMPF_REQUIRED_VERSION=0.7.8` so the consumer keeps exact-version matching.
+The installed package provides the `core`, `javascript`, and `cpp` components; the `mpf::core`, `mpf::backend-javascript`, and `mpf::backend-cpp` targets; and the unified `mpf::mpf` entry point. See [`examples/embedding`](examples/embedding) for a complete integration example; configure it with `-DMPF_REQUIRED_VERSION=0.7.9` so the consumer keeps exact-version matching.
 
 MPF 0.x installs static libraries deliberately. A supported shared-library ABI will require an explicit symbol-export, allocator/ownership, and version-negotiation contract; setting `BUILD_SHARED_LIBS` does not silently expose the current internal C++ ABI.
 
