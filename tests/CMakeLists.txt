@@ -287,6 +287,21 @@ if(TARGET mpfc)
 
   include(${CMAKE_CURRENT_SOURCE_DIR}/differential/corpus.cmake)
   mpf_add_generated_cpp_compile_test(matlab-basic examples/matlab/basic.m)
+  mpf_add_generated_cpp_compile_test(matlab-arguments examples/matlab/arguments.m)
+  mpf_add_generated_cpp_compile_test(
+    matlab-argument-conversion examples/matlab/argument_conversion.m)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-validation tests/fixtures/matlab_argument_validation_failure.m
+    "failed mustBePositive" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-invalid-keyword tests/fixtures/matlab_argument_invalid_keyword.m
+    "failed mustBeValidVariableName" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-name-too-long tests/fixtures/matlab_argument_name_too_long.m
+    "failed mustBeValidVariableName" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-complex-not-real tests/fixtures/matlab_argument_complex_not_real.m
+    "failed mustBeReal" matlab)
   mpf_add_generated_runtime_failure_test(
     matlab-dynamic-logical-mismatch tests/fixtures/matlab_dynamic_logical_mismatch.m
     "logical selector shape" matlab)

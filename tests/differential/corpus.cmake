@@ -34,6 +34,10 @@ mpf_add_differential_case(
   "hello two words tail +token \"quoted\" it's here ignored it's here")
 mpf_add_differential_case(matlab-multi-output matlab examples/matlab/multi_output.m "97")
 mpf_add_differential_case(matlab-function-graph matlab examples/matlab/function_graph.m "61")
+mpf_add_differential_case(
+  matlab-arguments matlab examples/matlab/arguments.m "12 42 1 ready 1 2 0")
+mpf_add_differential_case(
+  matlab-argument-conversion matlab examples/matlab/argument_conversion.m "24 2 2")
 mpf_add_differential_case(matlab-switch-case matlab examples/matlab/switch_case.m "42")
 mpf_add_differential_case(
   matlab-try-catch matlab examples/matlab/try_catch.m "MPF:Expected nested 42")
