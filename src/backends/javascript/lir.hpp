@@ -31,6 +31,8 @@ enum class RuntimeFeature : std::uint8_t {
   sparse_arithmetic,
   sparse_reductions,
   exception_handling,
+  runtime_selectors,
+  matlab_section_assignment,
   count
 };
 
@@ -489,7 +491,9 @@ enum class RuntimeFragment : std::uint8_t {
   sparse_arithmetic,
   sparse_reductions,
   scalar_division,
-  exception_handling
+  exception_handling,
+  runtime_selectors,
+  matlab_section_assignment
 };
 
 struct ModulePlan {

@@ -1666,10 +1666,11 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
       result.replacement_selection_shape = statement.replacement_selection_shape;
       result.replacement_value_shape = statement.replacement_value_shape;
       result.sparse_mutation = statement.sparse_mutation;
-      if (result.sparse_mutation.valid()) {
+      if (result.sparse_mutation.valid() || result.indexed_replacement.valid()) {
         result.mutation_ownership = lir::MutationOwnership::replace_with_result;
       }
-      if (statement.indexed_mutation.kind == semantic::IndexedMutationKind::grow) {
+      if (statement.indexed_mutation.kind == semantic::IndexedMutationKind::grow ||
+          statement.indexed_mutation.kind == semantic::IndexedMutationKind::overwrite_or_grow) {
         result.array_default = statement.element_type == ValueType::boolean  ? "false"
                                : statement.element_type == ValueType::string ? "\"\""
                                                                              : "0";
@@ -1940,6 +1941,22 @@ void verify_statements(const std::vector<lir::Statement>& statements,
                 "JavaScript LIR exception-handler source contract is inconsistent");
     }
     if (statement.kind == StatementKind::indexed_assignment) {
+      if (source_language == SourceLanguage::matlab &&
+          statement.target_expression.kind == ExpressionKind::index &&
+          statement.target_expression.index_selectors.size() + 1U ==
+              statement.target_expression.children.size()) {
+        for (std::size_t selector = 0U;
+             selector < statement.target_expression.index_selectors.size(); ++selector) {
+          if (statement.target_expression.children[selector + 1U].inferred_type ==
+                  ValueType::unknown &&
+              statement.target_expression.index_selectors[selector] !=
+                  semantic::IndexSelectorKind::runtime) {
+            add_error(diagnostics, {statement.line, 1},
+                      "JavaScript LIR Matlab indexed assignment runtime selector is inconsistent");
+            break;
+          }
+        }
+      }
       if (!semantic::valid_indexed_mutation_shapes(statement.indexed_mutation,
                                                    statement.mutation_input_shape,
                                                    statement.mutation_result_shape)) {
@@ -1948,7 +1965,7 @@ void verify_statements(const std::vector<lir::Statement>& statements,
       }
       const bool expected_replacement =
           source_language == SourceLanguage::matlab &&
-          statement.indexed_mutation.kind == semantic::IndexedMutationKind::overwrite &&
+          semantic::indexed_mutation_accepts_replacement(statement.indexed_mutation.kind) &&
           std::any_of(statement.target_expression.index_selectors.begin(),
                       statement.target_expression.index_selectors.end(),
                       semantic::selector_preserves_dimension);

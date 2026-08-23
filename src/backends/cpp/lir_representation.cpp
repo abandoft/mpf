@@ -2098,6 +2098,22 @@ void verify_statements(const std::vector<lir::Statement>& statements,
                 "cpp LIR exception-handler source contract is inconsistent");
     }
     if (statement.kind == StatementKind::indexed_assignment) {
+      if (source_language == SourceLanguage::matlab &&
+          statement.target_expression.kind == ExpressionKind::index &&
+          statement.target_expression.index_selectors.size() + 1U ==
+              statement.target_expression.children.size()) {
+        for (std::size_t selector = 0U;
+             selector < statement.target_expression.index_selectors.size(); ++selector) {
+          if (statement.target_expression.children[selector + 1U].inferred_type ==
+                  ValueType::unknown &&
+              statement.target_expression.index_selectors[selector] !=
+                  semantic::IndexSelectorKind::runtime) {
+            add_error(diagnostics, {statement.line, 1},
+                      "cpp LIR Matlab indexed assignment runtime selector is inconsistent");
+            break;
+          }
+        }
+      }
       if (!semantic::valid_indexed_mutation_shapes(statement.indexed_mutation,
                                                    statement.mutation_input_shape,
                                                    statement.mutation_result_shape)) {
@@ -2106,7 +2122,7 @@ void verify_statements(const std::vector<lir::Statement>& statements,
       }
       const bool expected_replacement =
           source_language == SourceLanguage::matlab &&
-          statement.indexed_mutation.kind == semantic::IndexedMutationKind::overwrite &&
+          semantic::indexed_mutation_accepts_replacement(statement.indexed_mutation.kind) &&
           std::any_of(statement.target_expression.index_selectors.begin(),
                       statement.target_expression.index_selectors.end(),
                       semantic::selector_preserves_dimension);
