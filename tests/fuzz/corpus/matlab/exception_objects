@@ -1,0 +1,11 @@
+cause = MException('MPF:Cause', 'Cause %d', 3);
+problem = addCause(MException('MPF:Bad', 'Value %+05d', 7), cause);
+try
+    throwAsCaller(problem)
+catch caught
+    disp(getReport(caught, 'basic', 'hyperlinks', 'off'))
+end
+ping
+function ping
+    disp('pong')
+end
