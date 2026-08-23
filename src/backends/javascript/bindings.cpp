@@ -41,8 +41,13 @@ constexpr std::array<CodeBinding, static_cast<std::size_t>(IntrinsicId::count)> 
     {IntrinsicId::matlab_full, CodeBindingKind::custom, "__mpf_full"},
     {IntrinsicId::matlab_is_sparse, CodeBindingKind::custom, "__mpf_issparse"},
     {IntrinsicId::matlab_nonzero_count, CodeBindingKind::custom, "__mpf_nnz"},
+    {IntrinsicId::matlab_exception, CodeBindingKind::custom, "__mpf_matlab_exception"},
     {IntrinsicId::matlab_error, CodeBindingKind::custom, "__mpf_matlab_error"},
+    {IntrinsicId::matlab_throw, CodeBindingKind::custom, "__mpf_matlab_throw"},
+    {IntrinsicId::matlab_throw_as_caller, CodeBindingKind::custom, "__mpf_matlab_throw_as_caller"},
     {IntrinsicId::matlab_rethrow, CodeBindingKind::custom, "__mpf_matlab_rethrow"},
+    {IntrinsicId::matlab_add_cause, CodeBindingKind::custom, "__mpf_matlab_add_cause"},
+    {IntrinsicId::matlab_get_report, CodeBindingKind::custom, "__mpf_matlab_get_report"},
     {IntrinsicId::present, CodeBindingKind::custom, "present"},
 }};
 

@@ -45,8 +45,13 @@ constexpr std::array<IntrinsicDescriptor, static_cast<std::size_t>(IntrinsicId::
         {IntrinsicId::matlab_full, "matlab_full"},
         {IntrinsicId::matlab_is_sparse, "matlab_is_sparse"},
         {IntrinsicId::matlab_nonzero_count, "matlab_nonzero_count"},
+        {IntrinsicId::matlab_exception, "matlab_exception"},
         {IntrinsicId::matlab_error, "matlab_error"},
+        {IntrinsicId::matlab_throw, "matlab_throw"},
+        {IntrinsicId::matlab_throw_as_caller, "matlab_throw_as_caller"},
         {IntrinsicId::matlab_rethrow, "matlab_rethrow"},
+        {IntrinsicId::matlab_add_cause, "matlab_add_cause"},
+        {IntrinsicId::matlab_get_report, "matlab_get_report"},
         {IntrinsicId::present, "present"},
     }};
 
