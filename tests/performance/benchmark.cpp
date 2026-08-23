@@ -1186,17 +1186,33 @@ std::string matlab_exception_object_workload(const std::size_t regions) {
   std::string source = "value = 0;\nreport = '';\n";
   for (std::size_t index = 0; index < regions; ++index) {
     const auto suffix = std::to_string(index);
-    source += "cause" + suffix + " = MException('MPF:Cause', 'Cause %d', " + suffix + ");\n";
-    source +=
-        "problem" + suffix + " = MException('MPF:Failure', 'Failure %+05d', " + suffix + ");\n";
-    source += "problem" + suffix + " = addCause(problem" + suffix + ", cause" + suffix + ");\n";
-    source += "prepared" + suffix + " = getReport(problem" + suffix +
-              ", 'extended', 'hyperlinks', 'off');\n";
-    source += "try\n  throwAsCaller(problem" + suffix + ")\n";
-    source += "catch caught" + suffix + "\n";
-    source += "  report = getReport(caught" + suffix + ", 'basic');\n";
-    source += "  value = value + length(report) + length(prepared" + suffix + ");\nend\n";
-    source += "ping\n";
+    source.append("cause")
+        .append(suffix)
+        .append(" = MException('MPF:Cause', 'Cause %d', ")
+        .append(suffix)
+        .append(");\nproblem")
+        .append(suffix)
+        .append(" = MException('MPF:Failure', 'Failure %+05d', ")
+        .append(suffix)
+        .append(");\nproblem")
+        .append(suffix)
+        .append(" = addCause(problem")
+        .append(suffix)
+        .append(", cause")
+        .append(suffix)
+        .append(");\nprepared")
+        .append(suffix)
+        .append(" = getReport(problem")
+        .append(suffix)
+        .append(", 'extended', 'hyperlinks', 'off');\ntry\n  throwAsCaller(problem")
+        .append(suffix)
+        .append(")\ncatch caught")
+        .append(suffix)
+        .append("\n  report = getReport(caught")
+        .append(suffix)
+        .append(", 'basic');\n  value = value + length(report) + length(prepared")
+        .append(suffix)
+        .append(");\nend\nping\n");
   }
   source +=
       "disp(value + ans)\n"
