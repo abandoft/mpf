@@ -296,6 +296,55 @@ semantic::ReductionOperation expected_reduction_operation(const Expression& expr
   return semantic::ReductionOperation::none;
 }
 
+semantic::ExceptionOperation expected_exception_operation(const Expression& expression,
+                                                          const SemanticTable& table,
+                                                          const SourceLanguage language) noexcept {
+  if (language != SourceLanguage::matlab || expression.kind != ExpressionKind::call ||
+      expression.children.empty()) {
+    return semantic::ExceptionOperation::none;
+  }
+  const auto* callee = table.expression(expression.children.front().id);
+  return callee == nullptr || callee->binding != BindingKind::builtin
+             ? semantic::ExceptionOperation::none
+             : semantic::exception_operation_for_intrinsic(callee->intrinsic);
+}
+
+semantic::ExceptionMessageForm expected_exception_message_form(
+    const Expression& expression, const semantic::ExceptionOperation operation) noexcept {
+  const auto argument_count = expression.children.empty() ? 0U : expression.children.size() - 1U;
+  if (operation == semantic::ExceptionOperation::construct) {
+    return argument_count == 2U ? semantic::ExceptionMessageForm::identifier_message
+                                : semantic::ExceptionMessageForm::identifier_formatted_message;
+  }
+  if (operation != semantic::ExceptionOperation::raise_error) {
+    return semantic::ExceptionMessageForm::none;
+  }
+  if (argument_count == 1U) return semantic::ExceptionMessageForm::message;
+  if (expression.children.size() < 2U ||
+      expression.children[1].kind != ExpressionKind::string_literal) {
+    return semantic::ExceptionMessageForm::runtime_dispatch;
+  }
+  const auto& spelling = expression.children[1].value;
+  const bool identifier = semantic::matlab_exception_identifier_literal(spelling);
+  if (!identifier) return semantic::ExceptionMessageForm::formatted_message;
+  return argument_count == 2U ? semantic::ExceptionMessageForm::identifier_message
+                              : semantic::ExceptionMessageForm::identifier_formatted_message;
+}
+
+semantic::ExceptionStackPolicy expected_exception_stack_policy(
+    const semantic::ExceptionOperation operation) noexcept {
+  switch (operation) {
+    case semantic::ExceptionOperation::raise_error:
+    case semantic::ExceptionOperation::throw_exception:
+      return semantic::ExceptionStackPolicy::capture_current;
+    case semantic::ExceptionOperation::throw_as_caller:
+      return semantic::ExceptionStackPolicy::capture_caller;
+    case semantic::ExceptionOperation::rethrow_exception:
+      return semantic::ExceptionStackPolicy::preserve_existing;
+    default: return semantic::ExceptionStackPolicy::none;
+  }
+}
+
 std::optional<std::size_t> sparse_argument_count(const ExpressionFacts& facts) noexcept {
   if (facts.inferred_type != ValueType::list) {
     return facts.inferred_type == ValueType::boolean || facts.inferred_type == ValueType::integer ||
@@ -441,6 +490,39 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
                reduction.result_storage != ArrayStorageFormat::none) {
       add_error(diagnostics, expression.location, stage,
                 "inactive logical reduction retains semantic state");
+    }
+  }
+  if (analyzed) {
+    const auto expected_operation =
+        expected_exception_operation(expression, table, source_language);
+    const auto& exception = facts->exception;
+    if (exception.operation != expected_operation) {
+      add_error(diagnostics, expression.location, stage,
+                "exception operation disagrees with the source intrinsic");
+    } else if (exception.valid()) {
+      const auto expected_message = expected_exception_message_form(expression, expected_operation);
+      const auto expected_stack = expected_exception_stack_policy(expected_operation);
+      const bool result_value = expected_operation == semantic::ExceptionOperation::construct ||
+                                expected_operation == semantic::ExceptionOperation::add_cause ||
+                                expected_operation == semantic::ExceptionOperation::get_report;
+      const auto expected_type =
+          expected_operation == semantic::ExceptionOperation::construct ||
+                  expected_operation == semantic::ExceptionOperation::add_cause
+              ? ValueType::exception
+          : expected_operation == semantic::ExceptionOperation::get_report ? ValueType::string
+                                                                           : ValueType::unknown;
+      if (!semantic::valid_exception_contract(exception.operation, exception.message_form,
+                                              exception.stack_policy) ||
+          exception.message_form != expected_message || exception.stack_policy != expected_stack ||
+          facts->procedure_has_result != result_value || facts->inferred_type != expected_type ||
+          facts->numeric_type != no_numeric_type) {
+        add_error(diagnostics, expression.location, stage,
+                  "exception operation has an invalid result, message, or stack contract");
+      }
+    } else if (exception.message_form != semantic::ExceptionMessageForm::none ||
+               exception.stack_policy != semantic::ExceptionStackPolicy::none) {
+      add_error(diagnostics, expression.location, stage,
+                "inactive exception operation retains semantic state");
     }
   }
   if (analyzed) {

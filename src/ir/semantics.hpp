@@ -6,6 +6,7 @@
 #include <iterator>
 #include <limits>
 #include <optional>
+#include <string_view>
 
 #include "compiler/array_storage.hpp"
 #include "compiler/expression_ast.hpp"
@@ -141,6 +142,114 @@ enum class ScopeModel { function, lexical_blocks };
 // This is semantic state, not command-syntax spelling: frontends normalize the call expression
 // before HIR and targets decide independently whether to serialize an assignment or a discard.
 enum class ImplicitResultPolicy : std::uint8_t { none, matlab_ans_if_value };
+
+// Matlab exception operations carry behavior that cannot be reconstructed from a target helper
+// spelling.  In particular, `throw`, `throwAsCaller`, and `rethrow` differ only in stack policy,
+// while `error` and `MException` share formatting rules but differ in whether they transfer
+// control.  Keep those decisions explicit from semantic analysis through target LIR.
+enum class ExceptionOperation : std::uint8_t {
+  none,
+  construct,
+  raise_error,
+  throw_exception,
+  throw_as_caller,
+  rethrow_exception,
+  add_cause,
+  get_report
+};
+
+enum class ExceptionMessageForm : std::uint8_t {
+  none,
+  message,
+  identifier_message,
+  formatted_message,
+  identifier_formatted_message,
+  runtime_dispatch
+};
+
+enum class ExceptionStackPolicy : std::uint8_t {
+  none,
+  capture_current,
+  capture_caller,
+  preserve_existing
+};
+
+[[nodiscard]] constexpr bool valid_matlab_exception_identifier(
+    const std::string_view identifier) noexcept {
+  bool field_start = true;
+  bool separator = false;
+  for (const char source_character : identifier) {
+    const auto character = static_cast<unsigned char>(source_character);
+    if (character == ':') {
+      if (field_start) return false;
+      field_start = true;
+      separator = true;
+      continue;
+    }
+    const bool letter =
+        (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z');
+    const bool digit = character >= '0' && character <= '9';
+    if ((field_start && !letter) || (!field_start && !letter && !digit && character != '_')) {
+      return false;
+    }
+    field_start = false;
+  }
+  return separator && !field_start;
+}
+
+[[nodiscard]] constexpr bool matlab_exception_identifier_literal(
+    const std::string_view spelling) noexcept {
+  if (spelling.size() < 2U || spelling.front() != spelling.back() ||
+      (spelling.front() != '\'' && spelling.front() != '"')) {
+    return false;
+  }
+  return valid_matlab_exception_identifier(spelling.substr(1U, spelling.size() - 2U));
+}
+
+[[nodiscard]] constexpr ExceptionOperation exception_operation_for_intrinsic(
+    const IntrinsicId intrinsic) noexcept {
+  switch (intrinsic) {
+    case IntrinsicId::matlab_exception: return ExceptionOperation::construct;
+    case IntrinsicId::matlab_error: return ExceptionOperation::raise_error;
+    case IntrinsicId::matlab_throw: return ExceptionOperation::throw_exception;
+    case IntrinsicId::matlab_throw_as_caller: return ExceptionOperation::throw_as_caller;
+    case IntrinsicId::matlab_rethrow: return ExceptionOperation::rethrow_exception;
+    case IntrinsicId::matlab_add_cause: return ExceptionOperation::add_cause;
+    case IntrinsicId::matlab_get_report: return ExceptionOperation::get_report;
+    default: return ExceptionOperation::none;
+  }
+}
+
+[[nodiscard]] constexpr bool valid_exception_contract(
+    const ExceptionOperation operation, const ExceptionMessageForm message_form,
+    const ExceptionStackPolicy stack_policy) noexcept {
+  switch (operation) {
+    case ExceptionOperation::none:
+      return message_form == ExceptionMessageForm::none &&
+             stack_policy == ExceptionStackPolicy::none;
+    case ExceptionOperation::construct:
+      return (message_form == ExceptionMessageForm::identifier_message ||
+              message_form == ExceptionMessageForm::identifier_formatted_message) &&
+             stack_policy == ExceptionStackPolicy::none;
+    case ExceptionOperation::raise_error:
+      return message_form != ExceptionMessageForm::none &&
+             stack_policy == ExceptionStackPolicy::capture_current;
+    case ExceptionOperation::throw_exception:
+      return message_form == ExceptionMessageForm::none &&
+             stack_policy == ExceptionStackPolicy::capture_current;
+    case ExceptionOperation::throw_as_caller:
+      return message_form == ExceptionMessageForm::none &&
+             stack_policy == ExceptionStackPolicy::capture_caller;
+    case ExceptionOperation::rethrow_exception:
+      return message_form == ExceptionMessageForm::none &&
+             stack_policy == ExceptionStackPolicy::preserve_existing;
+    case ExceptionOperation::add_cause:
+    case ExceptionOperation::get_report:
+      return message_form == ExceptionMessageForm::none &&
+             stack_policy == ExceptionStackPolicy::none;
+  }
+  return false;
+}
 
 // Per-axis lowering contract for Matlab compatible-size array operations. Matlab aligns
 // dimensions from the first axis and treats missing trailing dimensions as singleton axes.
