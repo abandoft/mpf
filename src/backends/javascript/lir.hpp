@@ -361,6 +361,16 @@ struct SparseMutationPlan {
   [[nodiscard]] bool valid() const noexcept { return kind != semantic::SparseMutationKind::none; }
 };
 
+struct ExceptionPlan {
+  semantic::ExceptionOperation operation{semantic::ExceptionOperation::none};
+  semantic::ExceptionMessageForm message_form{semantic::ExceptionMessageForm::none};
+  semantic::ExceptionStackPolicy stack_policy{semantic::ExceptionStackPolicy::none};
+
+  [[nodiscard]] bool valid() const noexcept {
+    return operation != semantic::ExceptionOperation::none;
+  }
+};
+
 enum class ArrayLiteralForm : std::uint8_t { none, direct, shaped_empty };
 
 struct ArrayLiteralPlan {
@@ -383,6 +393,7 @@ struct ExpressionPlan {
   ReductionPlan reduction;
   SparseIndexPlan sparse_index;
   SparseReshapePlan sparse_reshape;
+  ExceptionPlan exception;
   CallForm call{CallForm::none};
   EvaluationForm evaluation{EvaluationForm::direct};
   CallValueForm call_value{CallValueForm::direct};
@@ -541,6 +552,7 @@ struct Expression {
   SparseConstructionPlan sparse_construction;
   SparseIndexPlan sparse_index;
   SparseReshapePlan sparse_reshape;
+  ExceptionPlan exception;
   std::vector<ValueType> tuple_types;
   std::vector<NumericType> tuple_numeric_types;
   std::vector<ValueType> tuple_element_types;
