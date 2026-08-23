@@ -1342,6 +1342,8 @@ TEST_CASE("Matlab sparse CSC indexed mutation preserves canonical storage and or
   REQUIRE(javascript.code.find("function __mpf_sparse_erase(") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_sparse_assign(A,") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_sparse_erase(A,") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_matlab_assign_section") == std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_runtime_selector") == std::string::npos);
   REQUIRE(javascript.code.find("mpf_runtime::sparse_assign") == std::string::npos);
   REQUIRE(cpp.code.find("void sparse_assign_linear(") != std::string::npos);
   REQUIRE(cpp.code.find("void sparse_assign_subscripts(") != std::string::npos);
@@ -1349,6 +1351,8 @@ TEST_CASE("Matlab sparse CSC indexed mutation preserves canonical storage and or
   REQUIRE(cpp.code.find("mpf_runtime::sparse_assign_linear(A,") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::sparse_assign_subscripts(A,") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::sparse_erase_indexed(A,") != std::string::npos);
+  REQUIRE(cpp.code.find("void matlab_assign_section") == std::string::npos);
+  REQUIRE(cpp.code.find("runtime_selector_type_supported") == std::string::npos);
   REQUIRE(cpp.code.find("__mpf_sparse_assign") == std::string::npos);
   for (const auto* result : {&javascript, &cpp}) {
     for (std::size_t line = 1U; line <= 11U; ++line) {
@@ -1844,8 +1848,11 @@ TEST_CASE("Matlab indexed mutation plans grow and erase vectors matrices and ten
   REQUIRE(cpp.success());
   REQUIRE(javascript.code.find("__mpf_grow") != std::string::npos);
   REQUIRE(javascript.code.find("__mpf_erase") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_assign_section(row") != std::string::npos);
+  REQUIRE(javascript.code.find("__mpf_matlab_assign_section(matrix") != std::string::npos);
   REQUIRE(javascript.code.find("detached = __mpf_copy_array(original)") != std::string::npos);
-  REQUIRE(cpp.code.find("mpf_runtime::assign_growing_linear_column_major") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_assign_section(row") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::matlab_assign_section(matrix") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::assign_growing_section_nd") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::erase_indexed") != std::string::npos);
   REQUIRE(std::any_of(javascript.source_map.segments.begin(), javascript.source_map.segments.end(),
@@ -2452,6 +2459,8 @@ TEST_CASE("Matlab and Fortran section assignment support block vector and scalar
     if (language == mpf::SourceLanguage::matlab) {
       REQUIRE(javascript.code.find("__mpf_matlab_assign_section(matrix") != std::string::npos);
       REQUIRE(cpp.code.find("mpf_runtime::matlab_assign_section(matrix") != std::string::npos);
+      REQUIRE(javascript.code.find("function __mpf_runtime_selector") == std::string::npos);
+      REQUIRE(cpp.code.find("runtime_selector_type_supported") == std::string::npos);
       for (std::size_t line = 2U; line <= 6U; ++line) {
         REQUIRE(std::any_of(javascript.source_map.segments.begin(),
                             javascript.source_map.segments.end(),
@@ -2466,13 +2475,24 @@ TEST_CASE("Matlab and Fortran section assignment support block vector and scalar
   }
 }
 
-TEST_CASE("Matlab dynamic indexed replacement selects a runtime conformability contract") {
+TEST_CASE("Matlab dynamic indexed replacement selects conformability and mutation dispatch") {
   const std::string source =
       "matrix = [1 2; 3 4];\n"
       "replacement = [5 6; 7 8];\n"
       "result = replace_all(matrix, replacement);\n"
+      "grown = replace_column(matrix, 3, [9; 10]);\n"
+      "spread = replace_column(matrix, [2 4], [11 13; 12 14]);\n"
+      "ranged = replace_range(matrix, 2, 4, [15 17 19; 16 18 20]);\n"
       "function result = replace_all(input, replacement)\n"
       "  input(:, :) = replacement;\n"
+      "  result = input;\n"
+      "end\n"
+      "function result = replace_column(input, column, replacement)\n"
+      "  input(:, column) = replacement;\n"
+      "  result = input;\n"
+      "end\n"
+      "function result = replace_range(input, first, last, replacement)\n"
+      "  input(:, first:last) = replacement;\n"
       "  result = input;\n"
       "end\n";
   const auto javascript =
@@ -2481,10 +2501,49 @@ TEST_CASE("Matlab dynamic indexed replacement selects a runtime conformability c
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
   REQUIRE(javascript.code.find("__mpf_matlab_assign_section(input") != std::string::npos);
-  REQUIRE(javascript.code.find(", false, 4);") != std::string::npos);
+  REQUIRE(javascript.code.find(", false, 4, 1, undefined, undefined);") != std::string::npos);
+  REQUIRE(javascript.code.find(", false, 4, 5, 0, undefined);") != std::string::npos);
+  REQUIRE(javascript.code.find("{ kind: \"runtime\", value: column }") != std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::matlab_assign_section(input") != std::string::npos);
-  REQUIRE(cpp.code.find(", false, 4);") != std::string::npos);
+  REQUIRE(cpp.code.find(", false, 4, 1, std::vector<std::size_t>{});") != std::string::npos);
+  REQUIRE(cpp.code.find(", false, 4, 5, std::vector<std::size_t>{});") != std::string::npos);
+  REQUIRE(cpp.code.find("mpf_runtime::runtime_selector(column)") != std::string::npos);
   for (const auto* result : {&javascript, &cpp}) {
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 8U; }));
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 12U; }));
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 16U; }));
+  }
+}
+
+TEST_CASE("Matlab runtime selectors remain scoped to dynamic indexed-assignment targets") {
+  const std::string source =
+      "value = replace_and_read([1 2 3], 2, 9);\n"
+      "disp(value);\n"
+      "function result = replace_and_read(input, index, replacement)\n"
+      "  input(index) = replacement;\n"
+      "  result = input(index);\n"
+      "end\n";
+  const auto javascript =
+      transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::javascript);
+  const auto cpp = transpile_array(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+  REQUIRE(javascript.code.find("{ kind: \"runtime\", value: index }") != std::string::npos);
+  REQUIRE(javascript.code.find("function __mpf_runtime_selector") != std::string::npos);
+  REQUIRE(javascript.code.find("result = __mpf_get(input, [index], 1, false, true);") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("std::make_tuple(mpf_runtime::runtime_selector(index))") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("runtime_selector_type_supported") != std::string::npos);
+  REQUIRE(cpp.code.find(
+              "result = mpf_runtime::index(input, static_cast<std::int64_t>(index), 1, false);") !=
+          std::string::npos);
+  for (const auto* result : {&javascript, &cpp}) {
+    REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 4U; }));
     REQUIRE(std::any_of(result->source_map.segments.begin(), result->source_map.segments.end(),
                         [](const auto& segment) { return segment.original_line == 5U; }));
   }

@@ -301,6 +301,22 @@ if(TARGET mpfc)
     tests/fixtures/matlab_dynamic_linear_assignment_mismatch.m
     "linear assignment replacement element count mismatch" matlab)
   mpf_add_generated_runtime_failure_test(
+    matlab-dynamic-growth-assignment-mismatch
+    tests/fixtures/matlab_dynamic_growth_assignment_mismatch.m
+    "section assignment replacement shape mismatch" matlab)
+  mpf_add_generated_plan_rejection_test(
+    matlab-dynamic-growth-mutation-plan
+    tests/fixtures/matlab_dynamic_growth_assignment_mismatch.m
+    "section assignment mutation contract is invalid" matlab
+    JAVASCRIPT_SEARCH
+      "replacement, 1, false, false, 4, 5, 0, undefined)"
+    JAVASCRIPT_REPLACEMENT
+      "replacement, 1, false, false, 4, 2, 0, undefined)"
+    CPP_SEARCH
+      "replacement, false, 4, 5, std::vector<std::size_t>{})"
+    CPP_REPLACEMENT
+      "replacement, false, 4, 2, std::vector<std::size_t>{})")
+  mpf_add_generated_runtime_failure_test(
     matlab-dynamic-linear-delete-matrix tests/fixtures/matlab_dynamic_linear_delete_matrix.m
     "linear indexed deletion requires a row or column vector" matlab)
   mpf_add_generated_runtime_failure_test(
