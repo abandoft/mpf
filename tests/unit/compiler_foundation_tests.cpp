@@ -441,6 +441,8 @@ TEST_CASE("Matlab command scanner preserves quoting and operator spacing") {
   lines.push_back({7, 95, 0, "invoke \"two words\""});
   lines.push_back({8, 114, 0, "invoke terminal;"});
   lines.push_back({9, 131, 0, "if value'"});
+  lines.push_back({10, 140, 0, "invoke"});
+  lines.push_back({11, 147, 0, "invoke ;"});
   const auto result = mpf::detail::lex_matlab_statements(std::move(lines));
   REQUIRE(result.diagnostics.empty());
   REQUIRE(result.lines[0].command.has_value());
@@ -464,6 +466,10 @@ TEST_CASE("Matlab command scanner preserves quoting and operator spacing") {
   REQUIRE(result.lines[7].command->arguments[0].value == "terminal");
   REQUIRE(!result.lines[8].command.has_value());
   REQUIRE(result.lines[8].tokens[2].kind == mpf::detail::MatlabStatementTokenKind::transpose);
+  REQUIRE(result.lines[9].command.has_value());
+  REQUIRE(result.lines[9].command->arguments.empty());
+  REQUIRE(result.lines[10].command.has_value());
+  REQUIRE(result.lines[10].command->arguments.empty());
 }
 
 TEST_CASE("Matlab command scanner diagnoses unterminated quoted arguments") {

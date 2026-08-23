@@ -4245,7 +4245,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v33") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v34") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -4256,7 +4256,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v39") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v40") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -4391,6 +4391,163 @@ TEST_CASE("Matlab exceptions own verified MIR regions handlers and effects") {
   auto invalid_capture = mir.program;
   invalid_capture.instructions[catch_instruction.value()].storage = {};
   REQUIRE(!mpf::detail::mir::verify(invalid_capture, "invalid-catch-capture").empty());
+}
+
+TEST_CASE("Matlab exception operation contracts remain typed through every IR layer") {
+  auto lowered = lower_source(mpf::SourceLanguage::matlab,
+                              "report = '';\n"
+                              "cause = MException('MPF:Cause', 'Cause %d', 3);\n"
+                              "problem = MException('MPF:Bad', 'Value %+05d', 7);\n"
+                              "problem = addCause(problem, cause);\n"
+                              "prepared = getReport(problem, 'extended', 'hyperlinks', 'off');\n"
+                              "try\n"
+                              "  throw(problem)\n"
+                              "catch caught\n"
+                              "  report = getReport(caught, 'basic');\n"
+                              "end\n"
+                              "try\n"
+                              "  throwAsCaller(problem)\n"
+                              "catch caught\n"
+                              "  report = getReport(caught, 'basic');\n"
+                              "end\n"
+                              "try\n"
+                              "  error('MPF:Formatted', 'Error %04d', 9)\n"
+                              "catch formatted\n"
+                              "  report = formatted.message;\n"
+                              "end\n",
+                              "exception_contract.m");
+  auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
+  REQUIRE(analysis.empty());
+  const auto count_semantic_operation = [&](const auto operation) {
+    return std::count_if(analysis.semantics.expressions.begin(),
+                         analysis.semantics.expressions.end(),
+                         [&](const auto& facts) { return facts.exception.operation == operation; });
+  };
+  REQUIRE(count_semantic_operation(mpf::detail::semantic::ExceptionOperation::construct) == 2);
+  REQUIRE(count_semantic_operation(mpf::detail::semantic::ExceptionOperation::add_cause) == 1);
+  REQUIRE(count_semantic_operation(mpf::detail::semantic::ExceptionOperation::get_report) == 3);
+  REQUIRE(count_semantic_operation(mpf::detail::semantic::ExceptionOperation::throw_as_caller) ==
+          1);
+  REQUIRE(count_semantic_operation(mpf::detail::semantic::ExceptionOperation::throw_exception) ==
+          1);
+  REQUIRE(count_semantic_operation(mpf::detail::semantic::ExceptionOperation::raise_error) == 1);
+  const auto semantic_throw =
+      std::find_if(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                   [](const auto& facts) {
+                     return facts.exception.operation ==
+                            mpf::detail::semantic::ExceptionOperation::throw_as_caller;
+                   });
+  REQUIRE(semantic_throw != analysis.semantics.expressions.end());
+  REQUIRE(semantic_throw->exception.stack_policy ==
+          mpf::detail::semantic::ExceptionStackPolicy::capture_caller);
+  auto invalid_semantics = analysis.semantics;
+  const auto invalid_offset = static_cast<std::size_t>(
+      std::distance(analysis.semantics.expressions.begin(), semantic_throw));
+  invalid_semantics.expressions[invalid_offset].exception.stack_policy =
+      mpf::detail::semantic::ExceptionStackPolicy::capture_current;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, invalid_semantics,
+                                              "invalid-exception-policy")
+               .empty());
+
+  auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
+                                              std::move(analysis.semantics), analysis.names);
+  REQUIRE(mir.diagnostics.empty());
+  const auto mir_throw = std::find_if(
+      mir.program.expressions.begin() + 1, mir.program.expressions.end(), [&](const auto& value) {
+        const auto* attributes = mpf::detail::mir::attributes(
+            static_cast<const mpf::detail::mir::Program&>(mir.program), value.id);
+        return attributes != nullptr &&
+               attributes->exception.operation ==
+                   mpf::detail::semantic::ExceptionOperation::throw_as_caller;
+      });
+  REQUIRE(mir_throw != mir.program.expressions.end());
+  const auto* mir_throw_attributes = mpf::detail::mir::attributes(
+      static_cast<const mpf::detail::mir::Program&>(mir.program), mir_throw->id);
+  REQUIRE(mir_throw_attributes != nullptr);
+  REQUIRE(mir_throw_attributes->exception.stack_policy ==
+          mpf::detail::semantic::ExceptionStackPolicy::capture_caller);
+  const auto effects = mpf::detail::mir::analyze_alias_effects(mir.program);
+  const auto* throw_effects = effects.instruction(mir_throw->instruction);
+  REQUIRE(throw_effects != nullptr);
+  REQUIRE(mpf::detail::mir::has_effect(throw_effects->effects, mpf::detail::mir::Effect::may_fail));
+  REQUIRE(mpf::detail::mir::has_effect(throw_effects->effects, mpf::detail::mir::Effect::control));
+  auto invalid_mir = mir.program;
+  auto* invalid_throw = mpf::detail::mir::attributes(invalid_mir, mir_throw->id);
+  REQUIRE(invalid_throw != nullptr);
+  invalid_throw->exception.operation = mpf::detail::semantic::ExceptionOperation::throw_exception;
+  REQUIRE(!mpf::detail::mir::verify(invalid_mir, "invalid-exception-operation").empty());
+
+  const auto javascript =
+      mpf::detail::javascript::lower(mir.program, effects, mpf::TranspileOptions{});
+  const auto cpp = mpf::detail::cpp::lower(mir.program, effects, mpf::TranspileOptions{});
+  REQUIRE(javascript.diagnostics.empty());
+  REQUIRE(cpp.diagnostics.empty());
+  REQUIRE(javascript.artifact != nullptr);
+  REQUIRE(cpp.artifact != nullptr);
+  for (const auto& dump : {javascript.artifact->debug_dump(), cpp.artifact->debug_dump()}) {
+    REQUIRE(dump.find("exception 1 message 4 stack 0") != std::string::npos);
+    REQUIRE(dump.find("exception 4 message 0 stack 2") != std::string::npos);
+    REQUIRE(dump.find("exception 3 message 0 stack 1") != std::string::npos);
+    REQUIRE(dump.find("exception 2 message 4 stack 1") != std::string::npos);
+    REQUIRE(dump.find("exception 6 message 0 stack 0") != std::string::npos);
+    REQUIRE(dump.find("exception 7 message 0 stack 0") != std::string::npos);
+  }
+
+  mpf::detail::javascript::lir::SemanticProgram javascript_lir;
+  javascript_lir.source_language = mpf::SourceLanguage::matlab;
+  javascript_lir.statements.resize(1);
+  auto& javascript_expression = javascript_lir.statements.front().expression;
+  javascript_lir.statements.front().kind = mpf::detail::StatementKind::expression;
+  javascript_lir.statements.front().has_expression = true;
+  javascript_expression.kind = mpf::detail::ExpressionKind::call;
+  javascript_expression.numeric_type = mpf::detail::no_numeric_type;
+  javascript_expression.exception.operation =
+      mpf::detail::semantic::ExceptionOperation::throw_as_caller;
+  javascript_expression.exception.stack_policy =
+      mpf::detail::semantic::ExceptionStackPolicy::capture_caller;
+  javascript_expression.children.resize(2);
+  javascript_expression.children.front().kind = mpf::detail::ExpressionKind::identifier;
+  javascript_expression.children.front().binding = mpf::detail::BindingKind::builtin;
+  javascript_expression.children.front().intrinsic =
+      mpf::detail::IntrinsicId::matlab_throw_as_caller;
+  javascript_expression.children[1].kind = mpf::detail::ExpressionKind::identifier;
+  javascript_expression.children[1].inferred_type = mpf::detail::ValueType::exception;
+  javascript_expression.children[1].numeric_type = mpf::detail::no_numeric_type;
+  mpf::detail::javascript::plan_lir_representation(javascript_lir);
+  std::vector<mpf::Diagnostic> diagnostics;
+  mpf::detail::javascript::verify_lir_representation(javascript_lir, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript_expression.plan.exception.stack_policy =
+      mpf::detail::semantic::ExceptionStackPolicy::capture_current;
+  mpf::detail::javascript::verify_lir_representation(javascript_lir, diagnostics);
+  REQUIRE(!diagnostics.empty());
+
+  mpf::detail::cpp::lir::SemanticProgram cpp_lir;
+  cpp_lir.source_language = mpf::SourceLanguage::matlab;
+  cpp_lir.statements.resize(1);
+  auto& cpp_expression = cpp_lir.statements.front().expression;
+  cpp_lir.statements.front().kind = mpf::detail::StatementKind::expression;
+  cpp_lir.statements.front().has_expression = true;
+  cpp_expression.kind = mpf::detail::ExpressionKind::call;
+  cpp_expression.numeric_type = mpf::detail::no_numeric_type;
+  cpp_expression.exception.operation = mpf::detail::semantic::ExceptionOperation::throw_as_caller;
+  cpp_expression.exception.stack_policy =
+      mpf::detail::semantic::ExceptionStackPolicy::capture_caller;
+  cpp_expression.children.resize(2);
+  cpp_expression.children.front().kind = mpf::detail::ExpressionKind::identifier;
+  cpp_expression.children.front().binding = mpf::detail::BindingKind::builtin;
+  cpp_expression.children.front().intrinsic = mpf::detail::IntrinsicId::matlab_throw_as_caller;
+  cpp_expression.children[1].kind = mpf::detail::ExpressionKind::identifier;
+  cpp_expression.children[1].inferred_type = mpf::detail::ValueType::exception;
+  cpp_expression.children[1].numeric_type = mpf::detail::no_numeric_type;
+  mpf::detail::cpp::plan_lir_representation(cpp_lir);
+  diagnostics.clear();
+  mpf::detail::cpp::verify_lir_representation(cpp_lir, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp_expression.plan.exception.stack_policy =
+      mpf::detail::semantic::ExceptionStackPolicy::capture_current;
+  mpf::detail::cpp::verify_lir_representation(cpp_lir, diagnostics);
+  REQUIRE(!diagnostics.empty());
 }
 
 TEST_CASE("MIR memory dependence analysis is CFG-aware revision-bound and cacheable") {
@@ -5778,9 +5935,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v48") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v49") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v48") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v49") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
