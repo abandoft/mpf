@@ -3733,6 +3733,18 @@ TEST_CASE("target LIR verifiers reject corrupted indexed mutation shapes") {
   javascript_statement.mutation_result_shape = {2};
   mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
   REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  javascript_statement.indexed_mutation = {Mutation::overwrite_or_grow,
+                                           ShapeSource::runtime_selectors, false};
+  javascript_statement.mutation_input_shape = {std::numeric_limits<std::size_t>::max(),
+                                               std::numeric_limits<std::size_t>::max()};
+  javascript_statement.mutation_result_shape = javascript_statement.mutation_input_shape;
+  mpf::detail::javascript::plan_lir_representation(javascript);
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(diagnostics.empty());
+  javascript_statement.indexed_mutation.shape_source = ShapeSource::static_extents;
+  mpf::detail::javascript::verify_lir_representation(javascript, diagnostics);
+  REQUIRE(!diagnostics.empty());
 
   mpf::detail::cpp::lir::SemanticProgram cpp;
   cpp.source_language = mpf::SourceLanguage::matlab;
@@ -3749,24 +3761,45 @@ TEST_CASE("target LIR verifiers reject corrupted indexed mutation shapes") {
   cpp_statement.mutation_result_shape = {1, 2};
   mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
   REQUIRE(!diagnostics.empty());
+  diagnostics.clear();
+  cpp_statement.indexed_mutation = {Mutation::overwrite_or_grow, ShapeSource::runtime_selectors,
+                                    false};
+  cpp_statement.mutation_input_shape = {std::numeric_limits<std::size_t>::max(),
+                                        std::numeric_limits<std::size_t>::max()};
+  cpp_statement.mutation_result_shape = cpp_statement.mutation_input_shape;
+  mpf::detail::cpp::plan_lir_representation(cpp);
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(diagnostics.empty());
+  cpp_statement.indexed_mutation.kind = Mutation::grow;
+  mpf::detail::cpp::verify_lir_representation(cpp, diagnostics);
+  REQUIRE(!diagnostics.empty());
 }
 
 TEST_CASE("Matlab indexed replacement conformability remains typed through every IR layer") {
   using Conformability = mpf::detail::semantic::IndexedReplacementConformability;
+  using Mutation = mpf::detail::semantic::IndexedMutationKind;
+  using MutationShapeSource = mpf::detail::semantic::IndexedMutationShapeSource;
+  using Selector = mpf::detail::semantic::IndexSelectorKind;
   using ShapeSource = mpf::detail::semantic::IndexedReplacementShapeSource;
-  auto lowered = lower_source(mpf::SourceLanguage::matlab,
-                              "matrix = [1 2 3; 4 5 6];\n"
-                              "matrix(:, 1) = [7 8];\n"
-                              "matrix(1, :) = [9; 10; 11];\n"
-                              "matrix(:, 2) = [12];\n"
-                              "linear = [1 2 3 4];\n"
-                              "linear([1 2; 3 4]) = [13; 14; 15; 16];\n"
-                              "result = replace_dynamic(matrix, [13 14 15; 16 17 18]);\n"
-                              "function result = replace_dynamic(values, replacement)\n"
-                              "  values(:, :) = replacement;\n"
-                              "  result = values;\n"
-                              "end\n",
-                              "assignment_conformability.m");
+  auto lowered =
+      lower_source(mpf::SourceLanguage::matlab,
+                   "matrix = [1 2 3; 4 5 6];\n"
+                   "matrix(:, 1) = [7 8];\n"
+                   "matrix(1, :) = [9; 10; 11];\n"
+                   "matrix(:, 2) = [12];\n"
+                   "linear = [1 2 3 4];\n"
+                   "linear([1 2; 3 4]) = [13; 14; 15; 16];\n"
+                   "result = replace_dynamic(matrix, [13 14 15; 16 17 18]);\n"
+                   "grown = replace_dynamic_column(matrix, 4, [19; 20]);\n"
+                   "function result = replace_dynamic(values, replacement)\n"
+                   "  values(:, :) = replacement;\n"
+                   "  result = values;\n"
+                   "end\n"
+                   "function result = replace_dynamic_column(values, column, replacement)\n"
+                   "  values(:, column) = replacement;\n"
+                   "  result = values;\n"
+                   "end\n",
+                   "assignment_conformability.m");
   auto analysis = mpf::detail::analyze_program(lowered.program, std::move(lowered.semantics));
   REQUIRE(analysis.empty());
 
@@ -3780,7 +3813,47 @@ TEST_CASE("Matlab indexed replacement conformability remains typed through every
   REQUIRE(contract_count(Conformability::nonsingleton_shape, ShapeSource::static_extents) == 2U);
   REQUIRE(contract_count(Conformability::scalar_expansion, ShapeSource::static_extents) == 1U);
   REQUIRE(contract_count(Conformability::linear_element_count, ShapeSource::static_extents) == 1U);
-  REQUIRE(contract_count(Conformability::runtime_dispatch, ShapeSource::runtime_values) == 1U);
+  REQUIRE(contract_count(Conformability::runtime_dispatch, ShapeSource::runtime_values) == 2U);
+
+  const auto dynamic_growth_hir = std::find_if(
+      analysis.semantics.statements.begin(), analysis.semantics.statements.end(),
+      [](const auto& facts) { return facts.indexed_mutation.kind == Mutation::overwrite_or_grow; });
+  REQUIRE(dynamic_growth_hir != analysis.semantics.statements.end());
+  REQUIRE(dynamic_growth_hir->indexed_mutation.shape_source ==
+          MutationShapeSource::runtime_selectors);
+  REQUIRE(dynamic_growth_hir->indexed_replacement.conformability ==
+          Conformability::runtime_dispatch);
+  REQUIRE(std::find(dynamic_growth_hir->mutation_result_shape.begin(),
+                    dynamic_growth_hir->mutation_result_shape.end(),
+                    std::numeric_limits<std::size_t>::max()) !=
+          dynamic_growth_hir->mutation_result_shape.end());
+  REQUIRE(std::any_of(analysis.semantics.expressions.begin(), analysis.semantics.expressions.end(),
+                      [](const auto& facts) {
+                        return facts.index_selectors ==
+                               std::vector{Selector::slice, Selector::runtime};
+                      }));
+
+  auto mutation_corrupted_hir = analysis.semantics;
+  const auto corrupted_growth_hir = std::find_if(
+      mutation_corrupted_hir.statements.begin(), mutation_corrupted_hir.statements.end(),
+      [](const auto& facts) { return facts.indexed_mutation.kind == Mutation::overwrite_or_grow; });
+  REQUIRE(corrupted_growth_hir != mutation_corrupted_hir.statements.end());
+  corrupted_growth_hir->indexed_mutation.kind = Mutation::grow;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, mutation_corrupted_hir,
+                                              "dynamic-mutation-corruption")
+               .empty());
+
+  auto selector_corrupted_hir = analysis.semantics;
+  const auto corrupted_selector_hir = std::find_if(
+      selector_corrupted_hir.expressions.begin(), selector_corrupted_hir.expressions.end(),
+      [](const auto& facts) {
+        return facts.index_selectors == std::vector{Selector::slice, Selector::runtime};
+      });
+  REQUIRE(corrupted_selector_hir != selector_corrupted_hir.expressions.end());
+  corrupted_selector_hir->index_selectors.back() = Selector::scalar;
+  REQUIRE(!mpf::detail::hir::verify_semantics(lowered.program, selector_corrupted_hir,
+                                              "runtime-selector-corruption")
+               .empty());
 
   auto contradictory_hir = analysis.semantics;
   const auto dynamic_hir =
@@ -3801,6 +3874,28 @@ TEST_CASE("Matlab indexed replacement conformability remains typed through every
   const auto mir_dump = mpf::detail::dump_mir(mir.program);
   REQUIRE(mir_dump.find("conformability=1") != std::string::npos);
   REQUIRE(mir_dump.find("conformability=4 replacement-shape-source=1") != std::string::npos);
+  REQUIRE(mir_dump.find("mutation=5") != std::string::npos);
+  REQUIRE(mir_dump.find("selectors=[1,5]") != std::string::npos);
+
+  auto mutation_corrupted_mir = mir.program;
+  const auto corrupted_growth_mir = std::find_if(
+      mutation_corrupted_mir.attributes.statements.begin() + 1,
+      mutation_corrupted_mir.attributes.statements.end(), [](const auto& attributes) {
+        return attributes.indexed_mutation.contract.kind == Mutation::overwrite_or_grow;
+      });
+  REQUIRE(corrupted_growth_mir != mutation_corrupted_mir.attributes.statements.end());
+  corrupted_growth_mir->indexed_mutation.contract.kind = Mutation::grow;
+  REQUIRE(!mpf::detail::mir::verify(mutation_corrupted_mir, "dynamic-mutation-corruption").empty());
+
+  auto selector_corrupted_mir = mir.program;
+  const auto corrupted_selector_mir = std::find_if(
+      selector_corrupted_mir.attributes.expressions.begin() + 1,
+      selector_corrupted_mir.attributes.expressions.end(), [](const auto& attributes) {
+        return attributes.index_selectors == std::vector{Selector::slice, Selector::runtime};
+      });
+  REQUIRE(corrupted_selector_mir != selector_corrupted_mir.attributes.expressions.end());
+  corrupted_selector_mir->index_selectors.back() = Selector::scalar;
+  REQUIRE(!mpf::detail::mir::verify(selector_corrupted_mir, "runtime-selector-corruption").empty());
 
   auto contradictory_mir = mir.program;
   const auto dynamic_mir = std::find_if(
@@ -3822,6 +3917,8 @@ TEST_CASE("Matlab indexed replacement conformability remains typed through every
     REQUIRE(dump.find("replacement-conformability 1") != std::string::npos);
     REQUIRE(dump.find("replacement-conformability 4 replacement-shape-source 1") !=
             std::string::npos);
+    REQUIRE(dump.find("mutation 5") != std::string::npos);
+    REQUIRE(dump.find("selectors [1,5]") != std::string::npos);
   }
 }
 
@@ -4148,7 +4245,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v32") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v33") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -4159,7 +4256,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v38") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v39") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -5681,9 +5778,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v47") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v48") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v47") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v48") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -6115,6 +6212,26 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
                mpf::detail::javascript::lir::RuntimeFragment::arrays}));
   REQUIRE((javascript.module.body_order == std::vector<std::size_t>{0}));
   REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript).empty());
+  auto javascript_runtime_selectors = javascript;
+  javascript_runtime_selectors.runtime.require(
+      mpf::detail::javascript::lir::RuntimeFeature::runtime_selectors);
+  mpf::detail::javascript::plan_lir_resources(javascript_runtime_selectors, options);
+  REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript_runtime_selectors).empty());
+  REQUIRE((javascript_runtime_selectors.module.runtime_fragments ==
+           std::vector<mpf::detail::javascript::lir::RuntimeFragment>{
+               mpf::detail::javascript::lir::RuntimeFragment::dynamic_values,
+               mpf::detail::javascript::lir::RuntimeFragment::arrays,
+               mpf::detail::javascript::lir::RuntimeFragment::runtime_selectors}));
+  javascript_runtime_selectors.runtime.require(
+      mpf::detail::javascript::lir::RuntimeFeature::matlab_section_assignment);
+  mpf::detail::javascript::plan_lir_resources(javascript_runtime_selectors, options);
+  REQUIRE(mpf::detail::javascript::verify_semantic_lir(javascript_runtime_selectors).empty());
+  REQUIRE(javascript_runtime_selectors.module.runtime_fragments.back() ==
+          mpf::detail::javascript::lir::RuntimeFragment::matlab_section_assignment);
+  javascript_runtime_selectors.runtime.bits &=
+      ~(1U << static_cast<std::uint32_t>(mpf::detail::javascript::lir::RuntimeFeature::arrays));
+  mpf::detail::javascript::plan_lir_resources(javascript_runtime_selectors, options);
+  REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript_runtime_selectors).empty());
   javascript.emission.division_by_zero = mpf::detail::semantic::DivisionByZero::ieee754;
   REQUIRE(!mpf::detail::javascript::verify_semantic_lir(javascript).empty());
   javascript.emission.division_by_zero = mpf::detail::semantic::DivisionByZero::exception;
@@ -6196,6 +6313,23 @@ TEST_CASE("target LIR owns module and translation-unit topology") {
   REQUIRE(cpp.translation_unit.entry_error_policy ==
           mpf::detail::cpp::lir::EntryErrorPolicy::report_standard_exception);
   REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp).empty());
+  auto cpp_runtime_selectors = cpp;
+  cpp_runtime_selectors.runtime.require(mpf::detail::cpp::lir::RuntimeFeature::runtime_selectors);
+  mpf::detail::cpp::plan_lir_resources(cpp_runtime_selectors, options);
+  REQUIRE(!mpf::detail::cpp::verify_semantic_lir(cpp_runtime_selectors).empty());
+  cpp_runtime_selectors.runtime.require(mpf::detail::cpp::lir::RuntimeFeature::arrays);
+  mpf::detail::cpp::plan_lir_resources(cpp_runtime_selectors, options);
+  REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp_runtime_selectors).empty());
+  REQUIRE((cpp_runtime_selectors.translation_unit.runtime_fragments ==
+           std::vector<mpf::detail::cpp::lir::RuntimeFragment>{
+               mpf::detail::cpp::lir::RuntimeFragment::core,
+               mpf::detail::cpp::lir::RuntimeFragment::runtime_selectors}));
+  cpp_runtime_selectors.runtime.require(
+      mpf::detail::cpp::lir::RuntimeFeature::matlab_section_assignment);
+  mpf::detail::cpp::plan_lir_resources(cpp_runtime_selectors, options);
+  REQUIRE(mpf::detail::cpp::verify_semantic_lir(cpp_runtime_selectors).empty());
+  REQUIRE(cpp_runtime_selectors.translation_unit.runtime_fragments.back() ==
+          mpf::detail::cpp::lir::RuntimeFragment::matlab_section_assignment);
   auto cpp_complex_sparse = cpp;
   cpp_complex_sparse.runtime.require(mpf::detail::cpp::lir::RuntimeFeature::complex_sparse);
   mpf::detail::cpp::plan_lir_resources(cpp_complex_sparse, options);
