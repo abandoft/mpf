@@ -247,9 +247,12 @@ argument_nested_t<double, Rank> convert_argument_double(
   return convert_argument_impl<double, Rank>(
       value, dimensions, [](const auto& item) {
         using Item = std::decay_t<decltype(item)>;
-        if constexpr (std::is_arithmetic_v<Item>) return static_cast<double>(item);
-        throw std::invalid_argument(
-            "MPF Matlab argument failed double class conversion");
+        if constexpr (std::is_arithmetic_v<Item>) {
+          return static_cast<double>(item);
+        } else {
+          throw std::invalid_argument(
+              "MPF Matlab argument failed double class conversion");
+        }
       });
 }
 
@@ -258,9 +261,12 @@ argument_nested_t<bool, Rank> convert_argument_logical(
     const Source& value, const std::vector<std::int64_t>& dimensions) {
   return convert_argument_impl<bool, Rank>(value, dimensions, [](const auto& item) {
     using Item = std::decay_t<decltype(item)>;
-    if constexpr (std::is_arithmetic_v<Item>) return static_cast<bool>(item);
-    throw std::invalid_argument(
-        "MPF Matlab argument failed logical class conversion");
+    if constexpr (std::is_arithmetic_v<Item>) {
+      return static_cast<bool>(item);
+    } else {
+      throw std::invalid_argument(
+          "MPF Matlab argument failed logical class conversion");
+    }
   });
 }
 
@@ -394,58 +400,77 @@ void validate_argument(const T& value, const std::string_view name,
       case 4U:
         valid = empty || character || argument_all(value, [](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
-          if constexpr (argument_is_complex<Item>::value)
+          if constexpr (argument_is_complex<Item>::value) {
             return std::isfinite(item.real()) && std::isfinite(item.imag());
-          if constexpr (std::is_arithmetic_v<Item>)
+          } else if constexpr (std::is_arithmetic_v<Item>) {
             return std::isfinite(static_cast<double>(item));
-          return false;
+          } else {
+            return false;
+          }
         });
         break;
       case 5U:
         valid = empty || character || argument_all(value, [](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
-          if constexpr (argument_is_complex<Item>::value)
+          if constexpr (argument_is_complex<Item>::value) {
             return !std::isnan(item.real()) && !std::isnan(item.imag());
-          if constexpr (std::is_arithmetic_v<Item>)
+          } else if constexpr (std::is_arithmetic_v<Item>) {
             return !std::isnan(static_cast<double>(item));
-          return false;
+          } else {
+            return false;
+          }
         });
         break;
       case 6U:
         valid = empty || argument_all(value, [](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
-          if constexpr (std::is_arithmetic_v<Item>) return static_cast<double>(item) > 0.0;
-          return false;
+          if constexpr (std::is_arithmetic_v<Item>) {
+            return static_cast<double>(item) > 0.0;
+          } else {
+            return false;
+          }
         });
         break;
       case 7U:
         valid = empty || argument_all(value, [](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
-          if constexpr (std::is_arithmetic_v<Item>) return static_cast<double>(item) <= 0.0;
-          return false;
+          if constexpr (std::is_arithmetic_v<Item>) {
+            return static_cast<double>(item) <= 0.0;
+          } else {
+            return false;
+          }
         });
         break;
       case 8U:
         valid = empty || argument_all(value, [](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
-          if constexpr (std::is_arithmetic_v<Item>) return static_cast<double>(item) >= 0.0;
-          return false;
+          if constexpr (std::is_arithmetic_v<Item>) {
+            return static_cast<double>(item) >= 0.0;
+          } else {
+            return false;
+          }
         });
         break;
       case 9U:
         valid = empty || argument_all(value, [](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
-          if constexpr (std::is_arithmetic_v<Item>) return static_cast<double>(item) < 0.0;
-          return false;
+          if constexpr (std::is_arithmetic_v<Item>) {
+            return static_cast<double>(item) < 0.0;
+          } else {
+            return false;
+          }
         });
         break;
       case 10U:
         valid = empty || argument_all(value, [](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
-          if constexpr (argument_is_complex<Item>::value)
+          if constexpr (argument_is_complex<Item>::value) {
             return item.real() != 0 || item.imag() != 0;
-          if constexpr (std::is_arithmetic_v<Item>) return item != 0;
-          return false;
+          } else if constexpr (std::is_arithmetic_v<Item>) {
+            return item != 0;
+          } else {
+            return false;
+          }
         });
         break;
       case 11U:
@@ -469,10 +494,13 @@ void validate_argument(const T& value, const std::string_view name,
       case 18U:
         valid = argument_all(value, [](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
-          if constexpr (argument_is_complex<Item>::value)
+          if constexpr (argument_is_complex<Item>::value) {
             return !std::isnan(item.real()) && !std::isnan(item.imag());
-          if constexpr (std::is_floating_point_v<Item>) return !std::isnan(item);
-          return true;
+          } else if constexpr (std::is_floating_point_v<Item>) {
+            return !std::isnan(item);
+          } else {
+            return true;
+          }
         });
         break;
       case 19U:
