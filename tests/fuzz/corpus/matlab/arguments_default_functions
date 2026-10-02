@@ -1,0 +1,13 @@
+function output = checked(value)
+arguments
+value (1,1) double {mustBePositive} = seed()
+end
+output = value;
+end
+function output = seed()
+output = leaf();
+end
+function output = leaf()
+output = 42;
+end
+disp(checked());
