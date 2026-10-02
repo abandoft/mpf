@@ -42,6 +42,9 @@ mpf_add_differential_case(
   matlab-argument-default-functions matlab examples/matlab/argument_default_functions.m
   "111 222 7 222 11 13")
 mpf_add_differential_case(
+  matlab-argument-default-control-flow matlab examples/matlab/argument_default_control_flow.m
+  "111 222 7 222 13 6 333 1 0 444 555 MPF:Default 4 1 1 1")
+mpf_add_differential_case(
   matlab-argument-relational-validators matlab
   examples/matlab/argument_relational_validators.m "3 2")
 mpf_add_differential_case(
