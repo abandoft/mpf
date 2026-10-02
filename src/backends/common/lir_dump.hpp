@@ -12,6 +12,17 @@
 
 namespace mpf::detail {
 
+template <typename Output>
+auto dump_output_policy(std::ostream& output, const Output& plan, int)
+    -> decltype(plan.form, void()) {
+  output << "materialization=" << static_cast<unsigned>(plan.form);
+}
+template <typename Output>
+auto dump_output_policy(std::ostream& output, const Output& plan, long)
+    -> decltype(plan.class_opcode, void()) {
+  output << "class=" << static_cast<unsigned>(plan.class_opcode);
+}
+
 template <typename Plan>
 using TargetRepresentationDetails =
     decltype(std::declval<const Plan&>().concrete_type, std::declval<const Plan&>().widen_children,
@@ -619,6 +630,25 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
       }
       output << ']';
     }
+    if (!statement.plan.argument_outputs.empty()) {
+      output << " output-normalization-abi [";
+      for (std::size_t index = 0U; index < statement.plan.argument_outputs.size(); ++index) {
+        if (index != 0U) output << ',';
+        const auto& plan = statement.plan.argument_outputs[index];
+        output << "{declaration=" << plan.declaration << ":ordinal=" << plan.ordinal << ':';
+        dump_output_policy(output, plan, 0);
+        output << ":rank=" << plan.rank << ":dims=";
+        for (std::size_t axis = 0U; axis < plan.dimensions.size(); ++axis) {
+          if (axis != 0U) output << '/';
+          if (plan.dimensions[axis].any)
+            output << '*';
+          else
+            output << plan.dimensions[axis].extent;
+        }
+        output << '}';
+      }
+      output << ']';
+    }
     dump_print_value_details(output, statement.plan, 0);
     output << '\n';
     dump_target_expression(output, statement.expression, depth + 1U);
@@ -640,7 +670,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v57 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v58 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";
