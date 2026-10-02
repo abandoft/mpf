@@ -321,6 +321,7 @@ inline std::string_view argument_validator_name(const std::uint8_t validator) no
     case 24U: return "mustBeGreaterThanOrEqual";
     case 25U: return "mustBeLessThan";
     case 26U: return "mustBeLessThanOrEqual";
+    case 27U: return "mustBeInRange";
     default: return "unknown validator";
   }
 }
@@ -329,14 +330,16 @@ struct argument_validator_operand {
   double value{0.0};
   bool valid{true};
 
+  argument_validator_operand() = default;
   argument_validator_operand(const double number, const bool is_valid = true)
       : value(number), valid(is_valid) {}
 };
 
 struct argument_validator_call {
   std::uint8_t validator{0U};
-  argument_validator_operand operand{0.0};
-  bool has_operand{false};
+  std::array<argument_validator_operand, 2> operands{};
+  std::uint8_t operand_count{0U};
+  std::uint8_t range_boundary{0U};
 };
 
 template <typename T>
@@ -348,6 +351,16 @@ argument_validator_operand argument_validator_threshold(const T& value) {
     // Preserve complex storage identity, including zero imaginary parts. Failure is deferred
     // until this validator runs so earlier validators retain their first-error ordering.
     return {0.0, false};
+  }
+}
+
+template <typename T>
+argument_validator_operand argument_validator_real_component(const T& value) {
+  using Value = std::decay_t<T>;
+  if constexpr (argument_is_complex<Value>::value) {
+    return {static_cast<double>(value.real())};
+  } else {
+    return argument_validator_threshold(value);
   }
 }
 
@@ -412,8 +425,12 @@ void validate_argument(const T& value, const std::string_view name,
     fail("char class validation");
   for (const auto& validator_call : validators) {
     const auto validator = validator_call.validator;
-    const bool parameterized = validator >= 23U && validator <= 26U;
-    if (parameterized != validator_call.has_operand) fail("validator call ABI");
+    const auto expected_operands = validator <= 22U ? 0U : (validator <= 26U ? 1U : 2U);
+    if (validator > 27U || validator_call.operand_count != expected_operands ||
+        validator_call.range_boundary > 3U ||
+        (validator != 27U && validator_call.range_boundary != 0U))
+      fail("validator call ABI");
+    const auto& operand = validator_call.operands[0];
     bool valid = true;
     switch (validator) {
       case 0U: valid = empty || argument_all(value, numeric); break;
@@ -561,45 +578,56 @@ void validate_argument(const T& value, const std::string_view name,
         }
         break;
       case 23U:
-        valid = validator_call.operand.valid && (empty || argument_all(value, [&](const auto& item) {
+        valid = operand.valid && (empty || argument_all(value, [&](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
           if constexpr (std::is_arithmetic_v<Item>) {
-            return static_cast<double>(item) > validator_call.operand.value;
+            return static_cast<double>(item) > operand.value;
           } else {
             return false;
           }
         }));
         break;
       case 24U:
-        valid = validator_call.operand.valid && (empty || argument_all(value, [&](const auto& item) {
+        valid = operand.valid && (empty || argument_all(value, [&](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
           if constexpr (std::is_arithmetic_v<Item>) {
-            return static_cast<double>(item) >= validator_call.operand.value;
+            return static_cast<double>(item) >= operand.value;
           } else {
             return false;
           }
         }));
         break;
       case 25U:
-        valid = validator_call.operand.valid && (empty || argument_all(value, [&](const auto& item) {
+        valid = operand.valid && (empty || argument_all(value, [&](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
           if constexpr (std::is_arithmetic_v<Item>) {
-            return static_cast<double>(item) < validator_call.operand.value;
+            return static_cast<double>(item) < operand.value;
           } else {
             return false;
           }
         }));
         break;
       case 26U:
-        valid = validator_call.operand.valid && (empty || argument_all(value, [&](const auto& item) {
+        valid = operand.valid && (empty || argument_all(value, [&](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
           if constexpr (std::is_arithmetic_v<Item>) {
-            return static_cast<double>(item) <= validator_call.operand.value;
+            return static_cast<double>(item) <= operand.value;
           } else {
             return false;
           }
         }));
         break;
+      case 27U: {
+        const auto& upper = validator_call.operands[1];
+        const auto flags = validator_call.range_boundary;
+        valid = operand.valid && upper.valid && (empty || argument_all(value, [&](const auto& item) {
+          const auto real = argument_validator_real_component(item);
+          return real.valid && ((flags & 1U) != 0U ? real.value > operand.value
+                                                   : real.value >= operand.value) &&
+                 ((flags & 2U) != 0U ? real.value < upper.value : real.value <= upper.value);
+        }));
+        break;
+      }
       default: valid = false; break;
     }
     if (!valid) fail(argument_validator_name(validator));

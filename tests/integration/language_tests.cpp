@@ -396,10 +396,10 @@ TEST_CASE("Matlab arguments lower defaults conversion validation and output cont
   REQUIRE(javascript.code.find("function __mpf_validate_argument") != std::string::npos);
   REQUIRE(javascript.code.find("const converted = Number(item)") == std::string::npos);
   REQUIRE(javascript.code.find("values = __mpf_validate_argument(values, \"values\", \"input\", "
-                               "[1, -1], 1, [0, 4]);") != std::string::npos);
+                               "[1, -1], 1, [0, 4], 2);") != std::string::npos);
   REQUIRE(javascript.code.find("if (factor === undefined) factor = 2;") != std::string::npos);
   REQUIRE(javascript.code.find("output = __mpf_validate_argument(output, \"output\", \"output\", "
-                               "[1, -1], 1, [4]);") != std::string::npos);
+                               "[1, -1], 1, [4], 2);") != std::string::npos);
 
   REQUIRE(cpp.code.find("mpf_runtime::optional_argument<double> factor = std::nullopt") !=
           std::string::npos);
@@ -448,17 +448,17 @@ TEST_CASE(
   REQUIRE(cpp.success());
 
   REQUIRE(javascript.code.find("lower = __mpf_validate_argument(lower, \"lower\", \"input\", "
-                               "[1, 1], 1, [[23, -10.0]]);") != std::string::npos);
+                               "[1, 1], 1, [[23, -10.0]], 0);") != std::string::npos);
   REQUIRE(javascript.code.find("[[23, lower], [26, 10.0]]") != std::string::npos);
   REQUIRE(javascript.code.find("[[24, lower], [25, upper]]") != std::string::npos);
   REQUIRE(javascript.code.find("[[26, upper]]") != std::string::npos);
   REQUIRE(cpp.code.find("struct argument_validator_call") != std::string::npos);
-  REQUIRE(cpp.code.find("argument_validator_call{23U, -10.0, true}") != std::string::npos);
-  REQUIRE(cpp.code.find("argument_validator_call{23U, "
-                        "mpf_runtime::argument_validator_threshold(lower), true}") !=
+  REQUIRE(cpp.code.find("argument_validator_call{23U, {-10.0}, 1U, 0U}") != std::string::npos);
+  REQUIRE(cpp.code.find("argument_validator_call{23U, {"
+                        "mpf_runtime::argument_validator_threshold(lower)}, 1U, 0U}") !=
           std::string::npos);
-  REQUIRE(cpp.code.find("argument_validator_call{25U, "
-                        "mpf_runtime::argument_validator_threshold(upper), true}") !=
+  REQUIRE(cpp.code.find("argument_validator_call{25U, {"
+                        "mpf_runtime::argument_validator_threshold(upper)}, 1U, 0U}") !=
           std::string::npos);
 
   for (const auto* result : {&javascript, &cpp}) {

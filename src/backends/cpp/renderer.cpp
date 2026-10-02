@@ -143,24 +143,29 @@ class Renderer final {
       if (index != 0U) output_ << ", ";
       const auto& validator = calls[index];
       output_ << "mpf_runtime::argument_validator_call{" << static_cast<unsigned>(validator.opcode)
-              << "U, ";
-      if (validator.operands.empty()) {
-        output_ << "0.0, false";
-      } else {
-        const auto& operand = validator.operands.front();
+              << "U, {";
+      for (std::size_t operand_index = 0U; operand_index < validator.operands.size();
+           ++operand_index) {
+        if (operand_index != 0U) output_ << ", ";
+        const auto& operand = validator.operands[operand_index];
         if (operand.form == cpp::lir::ValidatorOperandForm::numeric_literal) {
           output_ << operand.token;
         } else {
-          output_ << "mpf_runtime::argument_validator_threshold(";
+          output_ << (operand.form == cpp::lir::ValidatorOperandForm::parameter_real_component ||
+                              operand.form ==
+                                  cpp::lir::ValidatorOperandForm::optional_parameter_real_component
+                          ? "mpf_runtime::argument_validator_real_component("
+                          : "mpf_runtime::argument_validator_threshold(");
           output_ << mangler_->name(operand.symbol, operand.token);
-          if (operand.form == cpp::lir::ValidatorOperandForm::optional_parameter_value) {
+          if (operand.form == cpp::lir::ValidatorOperandForm::optional_parameter_value ||
+              operand.form == cpp::lir::ValidatorOperandForm::optional_parameter_real_component) {
             output_ << ".value()";
           }
           output_ << ')';
         }
-        output_ << ", true";
       }
-      output_ << '}';
+      output_ << "}, " << validator.operands.size() << "U, "
+              << static_cast<unsigned>(validator.range_boundary) << "U}";
     }
     output_ << '}';
   }
