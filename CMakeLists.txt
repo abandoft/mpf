@@ -137,6 +137,7 @@ add_library(mpf_core STATIC
   src/ir/storage_region.cpp
   src/ir/mir.cpp
   src/ir/mir_optimization.cpp
+  src/ir/mir_copy_propagation.cpp
   src/ir/mir_verifier.cpp
   src/ir/mir_argument_validation.cpp
   src/ir/mir_argument_entry.cpp

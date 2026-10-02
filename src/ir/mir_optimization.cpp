@@ -12,6 +12,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "mir_copy_propagation.hpp"
 #include "mir_opcode.hpp"
 
 namespace mpf::detail::mir {
@@ -176,92 +177,6 @@ std::vector<Diagnostic> canonicalize_shapes(Program& program, OptimizationStatis
     for (auto& shape : program.functions[index].result_shapes) remap_shape(shape, remap);
   }
   program.shapes = std::move(shapes);
-  return {};
-}
-
-void replace_value(Program& program, const ValueId from, const ValueId to) {
-  for (std::size_t index = 1U; index < program.functions.size(); ++index) {
-    auto& function = program.functions[index];
-    if (function.argument_exit.returned == from) function.argument_exit.returned = to;
-    for (auto& flow : function.argument_outputs) {
-      if (flow.selected == from) flow.selected = to;
-      if (flow.result == from) flow.result = to;
-    }
-  }
-  for (std::size_t index = 1U; index < program.functions.size(); ++index)
-    for (auto& flow : program.functions[index].argument_entries) {
-      if (flow.selected == from) flow.selected = to;
-      if (flow.result == from) flow.result = to;
-    }
-  for (std::size_t index = 1U; index < program.functions.size(); ++index)
-    for (auto& flow : program.functions[index].parameter_defaults)
-      if (flow.result == from) flow.result = to;
-  const auto replace = [&](ValueId& value) {
-    if (value == from) value = to;
-  };
-  for (std::size_t index = 1; index < program.instructions.size(); ++index) {
-    for (auto& operand : program.instructions[index].operands) replace(operand);
-  }
-  for (std::size_t index = 1; index < program.blocks.size(); ++index) {
-    auto& terminator = program.blocks[index].terminator;
-    for (auto& operand : terminator.operands) replace(operand);
-    for (auto& edge : terminator.successor_arguments) {
-      for (auto& operand : edge) replace(operand);
-    }
-  }
-}
-
-std::vector<Diagnostic> propagate_block_arguments(Program& program,
-                                                  OptimizationStatistics& statistics) {
-  bool changed = true;
-  while (changed) {
-    changed = false;
-    for (std::size_t target_index = 1; target_index < program.blocks.size() && !changed;
-         ++target_index) {
-      auto& target = program.blocks[target_index];
-      for (std::size_t offset = 0; offset < target.arguments.size(); ++offset) {
-        const auto argument_index = target.arguments.size() - offset - 1U;
-        const auto argument = target.arguments[argument_index];
-        if (!argument.storage.valid()) continue;
-        struct Edge {
-          std::size_t block{0};
-          std::size_t successor{0};
-        };
-        std::vector<Edge> incoming;
-        std::optional<ValueId> common;
-        bool compatible = true;
-        for (std::size_t block_index = 1; block_index < program.blocks.size(); ++block_index) {
-          const auto& terminator = program.blocks[block_index].terminator;
-          for (std::size_t edge = 0; edge < terminator.successors.size(); ++edge) {
-            if (terminator.successors[edge] != target.id) continue;
-            if (edge >= terminator.successor_arguments.size() ||
-                argument_index >= terminator.successor_arguments[edge].size()) {
-              compatible = false;
-              continue;
-            }
-            const auto actual = terminator.successor_arguments[edge][argument_index];
-            if (!common.has_value()) common = actual;
-            if (*common != actual) compatible = false;
-            incoming.push_back({block_index, edge});
-          }
-        }
-        if (!compatible || incoming.empty() || !common.has_value() || !common->valid() ||
-            *common == argument.value) {
-          continue;
-        }
-        replace_value(program, argument.value, *common);
-        for (const auto& edge : incoming) {
-          auto& actuals = program.blocks[edge.block].terminator.successor_arguments[edge.successor];
-          actuals.erase(actuals.begin() + static_cast<std::ptrdiff_t>(argument_index));
-        }
-        target.arguments.erase(target.arguments.begin() +
-                               static_cast<std::ptrdiff_t>(argument_index));
-        ++statistics.propagated_block_arguments;
-        changed = true;
-        break;
-      }
-    }
-  }
   return {};
 }
 
