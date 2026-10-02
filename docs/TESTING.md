@@ -54,7 +54,7 @@ expansion、row/column reshape、23 个无参数 validator、source map、JavaSc
 编译、runtime rejection、fuzz seed 和独立性能 workload 共同覆盖当前纵切面。name-value、
 Repeating、parameterized/custom validator 与动态 rank/class ABI 继续使用负向测试保持失败关闭。
 
-后续开发分支的关系 validator 使用 Matlab AST v7、Semantic v37、MIR v43 与双目标 LIR v53。
+后续开发分支的关系 validator 使用 Matlab AST v8、Semantic v38、MIR v44 与双目标 LIR v54。
 定向测试覆盖四种比较、literal/前序 input/output reference、optional access、source map，以及
 literal/ordinal/formal shape 和目标 opcode/token/symbol/access form 的独立损坏拒绝。双目标
 执行覆盖 strict/非 strict 边界、complex-zero-imag storage、NaN threshold 和首错顺序；另以
@@ -83,6 +83,14 @@ parent。C++ resource verifier 从 LIR 独立重建 graph，拒绝损坏 definit
 `argument_default_functions.m` 在两端执行 defaults 的按需调用和副作用顺序，并另进入严格生成
 C++ 编译与 fuzz；`matlab-default-functions` 性能场景编译 128 个前向 default-call 函数。
 
+validator source-call 回归逐项覆盖 28 个标准候选的上下文 builtin identity、bare/explicit 的
+callee/formal/threshold/quoted-flag AST 所有权、输入/输出 declaration 顺序，以及 missing/reordered/
+foreign/mismatched call、最近 scope 遮蔽、普通 intrinsic 泄漏、semantic marker/source ID、reindex、
+MIR 独立 binding inventory 和双目标私有计划损坏。local function/formal/result/assignment 遮蔽
+在两端都必须给出 `MPF2062`、不产生目标源码，也不能混入内部 `MPF0005`。两个新 fuzz seed
+分别固定 source-call ownership 和同名 validator 遮蔽。尚未以原生 Matlab 执行 custom validator；
+当前合同是阻止标准 spelling 误译，后续必须实现一般 grammar 与真实验证调用 CFG。
+
 生成代码的 compile-only、runtime rejection、plan corruption 与 differential 子构建共享
 `generated_toolchain.cmake`，继承主构建的 compiler/generator/platform/toolset 与显式 macOS
 deployment target。后者同时进入 CMake cache 和 compiler-identification 子进程环境；contract
@@ -91,7 +99,7 @@ deployment target。后者同时进入 CMake cache 和 compiler-identification �
 
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 356 项，零失败 |
+| C++ 单元与集成测试 | 366 项，零失败 |
 | CTest | 当前 dev preset 为 201 项普通测试；包含 121 项 differential、1 项 C++ 单元/集成、63 项生成 runtime 拒绝、6 项生成 C++ 编译，以及 fuzz、架构、发布脚本、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
 | Differential corpus | Python 22、Fortran 19、Matlab 76、TypeScript 4，共 121 个 case |
 | 工具完整环境执行路径 | 287 条程序路径，另有每 case 一条 oracle |
