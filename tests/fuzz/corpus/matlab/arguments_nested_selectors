@@ -1,0 +1,9 @@
+values = [1,2;3,4];
+disp(pick(),values(pick()),values(pick():2),values(1:pick()));
+disp(values(pick(),pick()),pick(),pick());
+function output = pick(value)
+arguments
+value {mustBeFinite} = 1
+end
+output = value;
+end

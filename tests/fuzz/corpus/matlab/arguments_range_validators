@@ -1,0 +1,12 @@
+disp(checked());
+function output = checked(lower,upper,value)
+arguments
+lower (1,1) double = 0
+upper (1,1) double = 10
+value (1,:) double {mustBeFinite(value),mustBeInRange(value,lower,upper,'exclude-lower','exclude-upper')} = 1
+end
+arguments (Output)
+output (1,:) double {mustBeInRange(output,lower,upper,"inclusive")}
+end
+output = value;
+end

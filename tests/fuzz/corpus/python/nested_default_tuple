@@ -1,0 +1,5 @@
+def pick(value=1) -> int:
+    return value
+values = (pick(),pick(),pick(),pick(),pick(),pick(),pick(),pick())
+first,second,third,fourth,fifth,sixth,seventh,eighth = values
+print(first)

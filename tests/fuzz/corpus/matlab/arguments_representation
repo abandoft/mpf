@@ -1,0 +1,8 @@
+disp(sum(checked()));
+disp(length(2),numel(complex(1,2)));
+function output = checked(value)
+arguments
+value (1,:) double {mustBeNumeric(value)} = 1
+end
+output = value;
+end
