@@ -1224,6 +1224,26 @@ std::string matlab_output_exit_workload(const std::size_t functions, const std::
   return source;
 }
 
+std::string matlab_invocation_context_workload(const std::size_t functions) {
+  std::string source;
+  for (std::size_t index = 0U; index < functions; ++index) {
+    const auto suffix = std::to_string(index);
+    const auto name = "counted_" + suffix;
+    source.append(name).append(";\nvalue_").append(suffix).append(" = ").append(name);
+    source.append("();\n[left_").append(suffix).append(",right_").append(suffix);
+    source.append("] = ").append(name).append("();\n");
+  }
+  for (std::size_t index = 0U; index < functions; ++index) {
+    source += "function [first,second] = counted_" + std::to_string(index) +
+              "(input)\n"
+              "arguments\ninput (1,1) double = nargout\nend\n"
+              "arguments (Output)\nfirst (1,1) double {mustBeNonnegative}\n"
+              "second (1,1) double {mustBePositive}\nend\n"
+              "first = input + nargout;\nsecond = nargout() + 10;\nend\n";
+  }
+  return source;
+}
+
 std::string matlab_exception_workload(const std::size_t regions) {
   std::string source = "value = 0;\n";
   for (std::size_t index = 0; index < regions; ++index) {
@@ -1435,6 +1455,8 @@ int main() {
       {"matlab-argument-validation", matlab_argument_validation_workload(64),
        mpf::SourceLanguage::matlab},
       {"matlab-output-exit", matlab_output_exit_workload(32, 8), mpf::SourceLanguage::matlab, 16U},
+      {"matlab-invocation-context", matlab_invocation_context_workload(32),
+       mpf::SourceLanguage::matlab, 16U},
       {"matlab-default-functions", matlab_default_function_workload(128),
        mpf::SourceLanguage::matlab},
       {"matlab-exception-control", matlab_exception_workload(64), mpf::SourceLanguage::matlab},
