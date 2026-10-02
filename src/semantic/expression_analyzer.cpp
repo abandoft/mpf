@@ -662,6 +662,14 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
         return semantic(semantics_, expression).inferred_type;
       }
       const auto intrinsic = use == nullptr ? IntrinsicId::none : use->intrinsic;
+      if (use != nullptr && use->argument_validator.has_value()) {
+        auto& facts = semantic(semantics_, expression);
+        facts.binding = BindingKind::builtin;
+        facts.argument_validator = use->argument_validator;
+        facts.inferred_type = ValueType::function;
+        facts.numeric_type = no_numeric_type;
+        return facts.inferred_type;
+      }
       if (intrinsic != IntrinsicId::none) {
         semantic(semantics_, expression).binding = BindingKind::builtin;
         semantic(semantics_, expression).intrinsic = intrinsic;

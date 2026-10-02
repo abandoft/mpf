@@ -295,6 +295,30 @@ class Builder final {
     if (semantic_facts != nullptr) {
       result.argument_validations = semantic_facts->argument_validations;
     }
+    if (!source.argument_validator_calls.empty()) {
+      std::unordered_map<std::string_view, std::size_t> input_ordinals;
+      std::unordered_map<std::string_view, std::size_t> output_ordinals;
+      for (std::size_t index = 0U; index < result.parameters.size(); ++index)
+        input_ordinals.emplace(result.parameters[index], index);
+      for (std::size_t index = 0U; index < source.return_names.size(); ++index)
+        output_ordinals.emplace(source.return_names[index], index);
+      result.argument_validator_sources.reserve(source.argument_validator_calls.size());
+      for (const auto& invocation : source.argument_validator_calls) {
+        if (invocation.declaration >= source.argument_declarations.size() ||
+            invocation.expression.children.empty())
+          continue;
+        const auto& declaration = source.argument_declarations[invocation.declaration];
+        const auto& ordinals =
+            declaration.direction == ArgumentDirection::input ? input_ordinals : output_ordinals;
+        const auto formal = ordinals.find(declaration.name);
+        const auto* use = names_.reference(invocation.expression.children.front().id);
+        if (formal == ordinals.end() || use == nullptr || !use->argument_validator.has_value())
+          continue;
+        result.argument_validator_sources.push_back(
+            {declaration.direction, formal->second, invocation.validator, *use->argument_validator,
+             invocation.expression.id, invocation.expression.children.front().id});
+      }
+    }
     result.return_names = std::move(source.return_names);
     result.return_symbols.reserve(result.return_names.size());
     for (std::size_t index = 0; index < result.return_names.size(); ++index) {

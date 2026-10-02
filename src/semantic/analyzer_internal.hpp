@@ -119,6 +119,7 @@ class Analyzer final {
   void infer_python_tuple_returns(Statement& function) const;
   void infer_python_sequence_metadata(Statement& function) const;
   void analyze_matlab_argument_declarations(Statement& function);
+  void analyze_matlab_validator_calls(Statement& function, ArgumentDirection direction);
   void analyze_function(Statement& function);
   [[nodiscard]] ValueType collect_return_type(const std::vector<Statement>& statements,
                                               bool& has_value, bool& has_empty,

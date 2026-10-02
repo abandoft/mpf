@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -185,6 +186,7 @@ struct ExpressionFacts {
   NumericType numeric_type{unknown_numeric_type};
   BindingKind binding{BindingKind::unresolved};
   IntrinsicId intrinsic{IntrinsicId::none};
+  std::optional<ArgumentValidator> argument_validator{};
   ValueType element_type{ValueType::unknown};
   NumericType element_numeric_type{unknown_numeric_type};
   ArrayStorageFormat array_storage{ArrayStorageFormat::none};

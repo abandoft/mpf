@@ -1813,7 +1813,12 @@ void Analyzer::analyze_matlab_argument_declarations(Statement& function) {
   std::size_t previous_output = 0U;
   bool first_input = true;
   bool first_output = true;
-  for (const auto& declaration : function.argument_declarations) {
+  std::size_t validator_offset = 0U;
+  for (std::size_t declaration_index = 0U;
+       declaration_index < function.argument_declarations.size(); ++declaration_index) {
+    const auto& declaration = function.argument_declarations[declaration_index];
+    const auto call_offset = validator_offset;
+    validator_offset += declaration.validators.size();
     const auto& names = declaration.direction == ArgumentDirection::input ? function.parameters
                                                                           : function.return_names;
     const auto found = std::find(names.begin(), names.end(), declaration.name);
@@ -1927,9 +1932,28 @@ void Analyzer::analyze_matlab_argument_declarations(Statement& function) {
     plan.dimensions = declaration.dimensions;
     plan.class_constraint = declaration.class_constraint;
     plan.validators.reserve(declaration.validators.size());
-    for (const auto& validator_syntax : declaration.validators) {
+    for (std::size_t validator_index = 0U; validator_index < declaration.validators.size();
+         ++validator_index) {
+      const auto& validator_syntax = declaration.validators[validator_index];
       ArgumentValidatorPlan validator;
       validator.validator = validator_syntax.validator;
+      const auto call_index = call_offset + validator_index;
+      if (call_index < function.argument_validator_calls.size()) {
+        const auto& invocation = function.argument_validator_calls[call_index];
+        validator.source_call = invocation.expression.id;
+        if (!invocation.expression.children.empty()) {
+          const auto& callee = invocation.expression.children.front();
+          validator.source_callee = callee.id;
+          const auto* use = names_.reference(callee.id);
+          if (use == nullptr || use->binding != BindingKind::builtin ||
+              use->argument_validator != validator_syntax.validator) {
+            diagnose(declaration.line, "MPF2062",
+                     "Matlab validator '" + callee.value +
+                         "' resolves to a source binding; user-defined validator execution "
+                         "requires validation-sequence MIR and is not yet supported");
+          }
+        }
+      }
       validator.range_boundary = normalize_argument_range_flags(validator_syntax.range_flags);
       validator.operands.reserve(validator_syntax.operands.size());
       for (const auto& operand_syntax : validator_syntax.operands) {
@@ -2180,6 +2204,9 @@ void Analyzer::analyze_function(Statement& function) {
       parameter_state.array_storage = ArrayStorageFormat::unknown;
     }
   }
+  if (program_.language == SourceLanguage::matlab) {
+    analyze_matlab_validator_calls(function, ArgumentDirection::input);
+  }
   for (std::size_t index = 0; index < function.return_names.size(); ++index) {
     const auto type = index < semantic(semantics_, function).return_types.size()
                           ? semantic(semantics_, function).return_types[index]
@@ -2202,6 +2229,9 @@ void Analyzer::analyze_function(Statement& function) {
   loop_depth_ = saved_loop_depth;
   --function_depth_;
   annotate_types(function.body);
+  if (program_.language == SourceLanguage::matlab) {
+    analyze_matlab_validator_calls(function, ArgumentDirection::output);
+  }
   semantic(semantics_, function).parameter_types.clear();
   semantic(semantics_, function).parameter_numeric_types.clear();
   semantic(semantics_, function).parameter_element_types.clear();

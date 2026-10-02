@@ -8,6 +8,7 @@
 
 #include "compiler/numeric_contract.hpp"
 #include "mir.hpp"
+#include "mir_argument_validation.hpp"
 #include "mir_opcode.hpp"
 
 namespace mpf::detail::mir {
@@ -3103,6 +3104,7 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
     verify_expression(program.expressions[index], program, expression_index, diagnostics, stage);
   }
   verify_statements(program, diagnostics, stage);
+  verify_argument_validator_sources(program, diagnostics, stage);
   verify_expression_ownership(program, diagnostics, stage);
   return diagnostics;
 }

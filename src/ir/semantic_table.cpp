@@ -4,6 +4,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 #include "compiler/numeric_contract.hpp"
@@ -417,7 +418,8 @@ semantic::SparseReshapeKind expected_sparse_reshape_kind(const Expression& expre
 void verify_expression(const Expression& expression, const SemanticTable& table,
                        const SourceLanguage source_language, std::vector<bool>& seen,
                        const std::string_view stage, std::vector<Diagnostic>& diagnostics,
-                       const bool condition_context = false) {
+                       const bool condition_context = false,
+                       const std::optional<ArgumentValidator> validator_context = std::nullopt) {
   if (!expression.valid()) return;
   const auto* facts = table.expression(expression.id);
   if (facts == nullptr || facts->origin != expression.id) {
@@ -427,6 +429,21 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
   }
   seen[expression.id.value()] = true;
   const bool analyzed = stage != "ast-to-hir" && stage != "frontend-seed" && stage != "conformance";
+  if (facts->argument_validator != (analyzed ? validator_context : std::nullopt)) {
+    add_error(diagnostics, expression.location, stage,
+              "contextual validator identity disagrees with its source-owned call");
+  }
+  if (analyzed && validator_context.has_value() &&
+      (facts->intrinsic != IntrinsicId::none ||
+       (expression.kind == ExpressionKind::identifier &&
+        (facts->binding != BindingKind::builtin || facts->inferred_type != ValueType::function)) ||
+       (expression.kind == ExpressionKind::call &&
+        (facts->inferred_type != ValueType::null_value || facts->procedure_has_result)) ||
+       (expression.kind != ExpressionKind::identifier &&
+        expression.kind != ExpressionKind::call))) {
+    add_error(diagnostics, expression.location, stage,
+              "validator source call has invalid value semantics");
+  }
   if (analyzed && !expression_numeric_contract_matches(*facts)) {
     add_error(diagnostics, expression.location, stage,
               "expression numeric metadata is inconsistent (value " +
@@ -1011,8 +1028,11 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
   }
   const bool child_condition = condition_context && expression.kind == ExpressionKind::binary &&
                                logical_composition(expression.operation);
-  for (const auto& child : expression.children) {
-    verify_expression(child, table, source_language, seen, stage, diagnostics, child_condition);
+  for (std::size_t child = 0U; child < expression.children.size(); ++child) {
+    verify_expression(
+        expression.children[child], table, source_language, seen, stage, diagnostics,
+        child_condition,
+        expression.kind == ExpressionKind::call && child == 0U ? validator_context : std::nullopt);
   }
 }
 
@@ -1118,7 +1138,10 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
       std::vector<bool> expected_inputs(parameters, false);
       std::vector<bool> expected_outputs(statement.return_names.size(), false);
       bool source_inventory_valid = true;
+      std::size_t validator_offset = 0U;
       for (const auto& declaration : statement.argument_declarations) {
+        const auto call_offset = validator_offset;
+        validator_offset += declaration.validators.size();
         const auto& names = declaration.direction == ArgumentDirection::input
                                 ? statement.parameters
                                 : statement.return_names;
@@ -1155,9 +1178,22 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
         expected.has_default = declaration.has_default;
         expected.validated_rank = validated_rank;
         expected.validators.reserve(declaration.validators.size());
-        for (const auto& validator_syntax : declaration.validators) {
+        for (std::size_t validator_index = 0U; validator_index < declaration.validators.size();
+             ++validator_index) {
+          const auto& validator_syntax = declaration.validators[validator_index];
           ArgumentValidatorPlan validator;
           validator.validator = validator_syntax.validator;
+          const auto call_index = call_offset + validator_index;
+          if (call_index < statement.argument_validator_calls.size()) {
+            const auto& expression = statement.argument_validator_calls[call_index].expression;
+            validator.source_call = expression.id;
+            if (!expression.children.empty()) {
+              validator.source_callee = expression.children.front().id;
+              const auto* callee = table.expression(validator.source_callee);
+              if (callee == nullptr || callee->binding != BindingKind::builtin)
+                source_inventory_valid = false;
+            }
+          }
           validator.range_boundary = normalize_argument_range_flags(validator_syntax.range_flags);
           validator.operands.reserve(validator_syntax.operands.size());
           for (const auto& operand_syntax : validator_syntax.operands) {
@@ -1402,6 +1438,20 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
     for (const auto& expression : statement.parameter_defaults) {
       verify_expression(expression, table, source_language, seen, stage, diagnostics);
     }
+    for (const auto& call : statement.argument_validator_calls) {
+      std::optional<ArgumentValidator> context;
+      if (call.declaration < statement.argument_declarations.size() &&
+          call.validator < statement.argument_declarations[call.declaration].validators.size() &&
+          !call.expression.children.empty()) {
+        const auto* callee = table.expression(call.expression.children.front().id);
+        if (callee != nullptr && callee->binding == BindingKind::builtin)
+          context = statement.argument_declarations[call.declaration]
+                        .validators[call.validator]
+                        .validator;
+      }
+      verify_expression(call.expression, table, source_language, seen, stage, diagnostics, false,
+                        context);
+    }
     for (const auto& selector : statement.case_selectors) {
       verify_expression(selector.lower, table, source_language, seen, stage, diagnostics);
       verify_expression(selector.upper, table, source_language, seen, stage, diagnostics);
@@ -1445,6 +1495,34 @@ void reindex_statements(std::vector<Statement>& statements, SemanticTable& sourc
     reindex_expression(statement.target_expression, source, result, ids);
     for (auto& expression : statement.parameter_defaults) {
       reindex_expression(expression, source, result, ids);
+    }
+    for (auto& call : statement.argument_validator_calls) {
+      reindex_expression(call.expression, source, result, ids);
+    }
+    // Never retain side-table pointers across recursive reindexing. Rebuild strong origins
+    // from their source owners, rather than assuming old and new dense ID orders coincide.
+    auto* statement_facts = result.statement(statement.id);
+    if (statement_facts != nullptr && !statement.argument_validator_calls.empty()) {
+      std::unordered_map<std::string_view, ArgumentValidationPlan*> input_plans;
+      std::unordered_map<std::string_view, ArgumentValidationPlan*> output_plans;
+      for (auto& plan : statement_facts->argument_validations) {
+        const auto& names = plan.direction == ArgumentDirection::input ? statement.parameters
+                                                                       : statement.return_names;
+        auto& plans = plan.direction == ArgumentDirection::input ? input_plans : output_plans;
+        if (plan.ordinal < names.size()) plans.emplace(names[plan.ordinal], &plan);
+      }
+      for (const auto& call : statement.argument_validator_calls) {
+        if (call.declaration >= statement.argument_declarations.size()) continue;
+        const auto& declaration = statement.argument_declarations[call.declaration];
+        const auto& plans =
+            declaration.direction == ArgumentDirection::input ? input_plans : output_plans;
+        const auto found = plans.find(declaration.name);
+        if (found == plans.end() || call.validator >= found->second->validators.size()) continue;
+        auto& validator = found->second->validators[call.validator];
+        validator.source_call = call.expression.id;
+        validator.source_callee =
+            call.expression.children.empty() ? HirNodeId{} : call.expression.children.front().id;
+      }
     }
     for (auto& selector : statement.case_selectors) {
       reindex_expression(selector.lower, source, result, ids);

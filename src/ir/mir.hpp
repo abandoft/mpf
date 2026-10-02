@@ -260,6 +260,17 @@ struct CaseSelector {
   bool range{false};
 };
 
+// Source identity retained after HIR destruction. This is a verified binding inventory, not a
+// runtime call-site or a claim that validation has already been lowered into entry/exit CFG.
+struct ArgumentValidatorSource {
+  ArgumentDirection direction{ArgumentDirection::input};
+  std::size_t formal{0U};
+  std::size_t validator_index{0U};
+  ArgumentValidator validator{ArgumentValidator::numeric};
+  HirNodeId call{};
+  HirNodeId callee{};
+};
+
 struct Statement {
   MirStatementId id{};
   InstructionId instruction{};
@@ -281,6 +292,7 @@ struct Statement {
   std::vector<ParameterKind> parameter_kinds;
   std::vector<MirExpressionId> parameter_defaults;
   std::vector<ArgumentValidationPlan> argument_validations;
+  std::vector<ArgumentValidatorSource> argument_validator_sources;
   std::vector<std::string> return_names;
   std::vector<SymbolId> return_symbols;
   std::vector<std::string> target_names;

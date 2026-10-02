@@ -135,8 +135,10 @@ add_library(mpf_core STATIC
   src/ir/mir.cpp
   src/ir/mir_optimization.cpp
   src/ir/mir_verifier.cpp
+  src/ir/mir_argument_validation.cpp
   src/semantic/analyzer.cpp
   src/semantic/expression_analyzer.cpp
+  src/semantic/argument_validator_analysis.cpp
   src/semantic/flow_analysis.cpp
   src/semantic/function_dependencies.cpp
   src/semantic/name_analysis.cpp
