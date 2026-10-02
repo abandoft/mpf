@@ -1,0 +1,32 @@
+[first, second] = partial();
+disp(first);
+disp(second);
+try
+    selected = invalid_unused();
+    disp(selected);
+catch exception
+    disp(exception.message);
+end
+try
+    invalid_unused();
+catch exception
+    disp(exception.identifier);
+end
+function [first, second, third] = partial()
+arguments (Output)
+first (1,1) double {mustBePositive}
+second (1,1) logical {mustBeNonzero}
+third (1,2) double {mustBePositive}
+end
+first = 4;
+second = 2;
+third = [8,9];
+end
+function [first, second] = invalid_unused()
+arguments (Output)
+first (1,1) double {mustBePositive}
+second (1,1) double {mustBePositive}
+end
+first = 4;
+second = -1;
+end
