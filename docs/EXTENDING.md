@@ -1,6 +1,16 @@
 # 扩展前端、后端与代码绑定
 
-当前 side-table/LIR schema 为 Semantic v35、MIR v41 和双目标 LIR v51。新增带 section
+新增参数化 argument validator 必须先扩展源 `ArgumentValidatorSyntax`/operand arity，再由
+Analyzer 形成 target-neutral `ArgumentValidatorPlan`。literal 必须经有限 binary64 normalization；
+formal reference 必须遵循 declaration visibility，并由 Semantic/MIR/目标 LIR 使用各层的
+type/shape 证据验证 scalar ABI。目标 `argument_validation_plan` 必须独立固化 opcode、token、
+`SymbolId` 和目标访问 form，C++ optional access 不得延后到 renderer 决定。负向测试须分别篡改
+源 operand、literal、ordinal、array/scalar binding、目标 opcode/token/symbol/access form；双目标
+执行须覆盖 declared-order first error、logical/complex/NaN/empty、默认参数、IEEE rounding、
+signed zero、subnormal 和 locale independence。未知 grammar 或 runtime object contract 必须拒绝，
+不能借用 renderer 拼接源码表达式补齐。
+
+当前 side-table/LIR schema 为 Semantic v36、MIR v42 和双目标 LIR v52。新增带 section
 replacement 的源语言或目标时，必须显式产生并消费 `IndexedReplacementContract`：conformability、
 static/runtime shape source、selection/value shape 都是必填事实；类别未知的 Matlab 赋值 selector
 必须使用 `runtime` identity，覆盖或扩容运行时未决时必须使用 `overwrite_or_grow` mutation。目标
@@ -12,7 +22,7 @@ fuzz 和性能预算。
 
 当前源码树使用对称的 descriptor/registry 架构接入四种内置源语言和两个输出目标。当前核心驱动执行“选择 descriptor → 创建 parser session → parser 直接构造语言 arena AST → AST verifier → AST→窄 HIR + semantic seed → HIR/seed verifier → NameTable/FlowTable → Analyzer + normalized storage-region/numeric side table → flat MIR value/operation arena + revision-bound expression/statement/instruction attributes + lazy/memory/exception CFG → 共享 MIR 默认优化 + 逐 pass verifier → 优化后区域化 alias/effect → CFG memory-dependence fixed point + verifier → capability/legalization → 私有 semantic plan/LIR → LIR verifier/dump → printer”，不按具体语言或目标硬编码分派。TypeScript 证明了同一扩展边界既可承载独立 token stream/arena 和 explicit export policy，也可通过 semantic profile 选择 lexical-block scope model，而无需修改 emitter 分派。新增源语言只负责产生同一 `MemoryAccess`、`NumericType` 和 `ArrayStorageFormat`、`ReductionPlan`（含 reduction storage policy）、`MatrixOperationPlan`（含 storage 与 exponent policy）、`SparseConstructionPlan`（含 sparse value domain/duplicate policy）、`SparseIndexPlan`、`SparseMutationPlan`、`SparseReshapePlan`、`SparseElementwisePlan`、`SparseArithmeticPlan` 与 `SparseLogicalPlan` contract；matrix storage policy 同时区分稠密、CSC 系数、CSC 矩阵乘法、CSC 标量缩放和 CSC 方阵幂。RAW/WAR/WAW、unknown barrier 与 loop-carried 分析继续由公共 MIR 层统一完成，前端和目标后端都不得复制。当前 descriptor contract 面向同一源码树中的编译期组件，只接受 canonical name，并且不承诺跨版本 C++ 布局或动态库插件 ABI。
 
-本页记录当前可执行的 frontend API v7/backend API v6 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、direct arena builder、窄 HIR v3 + frontend semantic seed、Analyzer 直写 side table、profile 驱动 `NameScopeEdges`、独立 flow/alias-effect、MIR resident instruction + ID arena、共享默认优化、call argument borrow/copy/optional-forward/normalized-region contract、按 `InstructionId` 稠密的区域化 `MemoryAccess`、当前普通与异常控制结构 CFG、`SymbolId` target inventory、LIR v51 lexical `ScopePlan`、scalar-division/zero-denominator policy、Matlab array-literal/broadcast/reduction/indexed-replacement shape source 与 sparse-construction/sparse-index/sparse-mutation/sparse-reshape/sparse-elementwise/sparse-arithmetic/sparse-logical plan、matrix-operation/numeric-domain/solve/condition-policy/factorization-policy/structure-policy/storage-policy/exponent-policy plan、逐下标 selector/extent identity、目标 runtime shape/integer 调用 ABI 与 Semantic v35→MIR v41→LIR v51 的 numeric/storage/mutation/replacement contract、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；静态已知 shape 的同根 N 维 selector overlap 与直接/跨调用 memory effect 已由公共 Analyzer/MIR/alias 层完成，动态 `end` 使用强类型 runtime-axis/runtime-linear contract，Matlab local-function compatible-size 使用 runtime-operands broadcast contract，shape-changing write 统一声明整个 aggregate root 的写 effect。
+本页记录当前可执行的 frontend API v7/backend API v6 接入方式以及尚未完成的动态插件 contract。语言 AST artifact、direct arena builder、窄 HIR v3 + frontend semantic seed、Analyzer 直写 side table、profile 驱动 `NameScopeEdges`、独立 flow/alias-effect、MIR resident instruction + ID arena、共享默认优化、call argument borrow/copy/optional-forward/normalized-region contract、按 `InstructionId` 稠密的区域化 `MemoryAccess`、当前普通与异常控制结构 CFG、`SymbolId` target inventory、LIR v52 lexical `ScopePlan`、scalar-division/zero-denominator policy、Matlab array-literal/broadcast/reduction/indexed-replacement shape source 与 sparse-construction/sparse-index/sparse-mutation/sparse-reshape/sparse-elementwise/sparse-arithmetic/sparse-logical plan、matrix-operation/numeric-domain/solve/condition-policy/factorization-policy/structure-policy/storage-policy/exponent-policy plan、逐下标 selector/extent identity、目标 runtime shape/integer 调用 ABI 与 Semantic v36→MIR v42→LIR v52 的 numeric/storage/mutation/replacement contract、目标 lowering 和纯 serialized-chunk emitter 已实际进入生产路径；静态已知 shape 的同根 N 维 selector overlap 与直接/跨调用 memory effect 已由公共 Analyzer/MIR/alias 层完成，动态 `end` 使用强类型 runtime-axis/runtime-linear contract，Matlab local-function compatible-size 使用 runtime-operands broadcast contract，shape-changing write 统一声明整个 aggregate root 的写 effect。
 
 新增源语言 return form 时，frontend 必须明确值返回、声明输出返回与 program/script termination 的身份；函数结果在 name analysis 中绑定为 `SymbolId` 序列，不能交给后端按拼写重新查找。目标 representation 必须选择自己的 statement form，并在需要模块级控制包裹时把 prelude、受控 body、hoisted declaration 与内部 label 全部写入 module plan；renderer 不得扫描源语句决定包裹边界。
 
