@@ -1931,6 +1931,7 @@ void Analyzer::analyze_matlab_argument_declarations(Statement& function) {
     for (const auto& validator_syntax : declaration.validators) {
       ArgumentValidatorPlan validator;
       validator.validator = validator_syntax.validator;
+      validator.range_boundary = normalize_argument_range_flags(validator_syntax.range_flags);
       validator.operands.reserve(validator_syntax.operands.size());
       for (const auto& operand_syntax : validator_syntax.operands) {
         ArgumentValidatorOperandPlan operand;

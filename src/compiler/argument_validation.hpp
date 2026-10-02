@@ -73,16 +73,34 @@ enum class ArgumentValidator : std::uint8_t {
   greater_than,
   greater_than_or_equal,
   less_than,
-  less_than_or_equal
+  less_than_or_equal,
+  in_range
 };
 
 enum class ArgumentValidatorOperandKind : std::uint8_t { numeric_literal, input_argument };
+
+// Exclusion bits are cumulative when Matlab supplies two bound flags. The source spelling
+// remains in the AST; semantic construction normalizes it once for both target backends.
+enum class ArgumentRangeBoundary : std::uint8_t {
+  inclusive = 0U,
+  exclude_lower = 1U,
+  exclude_upper = 2U,
+  exclusive = 3U
+};
+
+[[nodiscard]] inline ArgumentRangeBoundary normalize_argument_range_flags(
+    const std::vector<ArgumentRangeBoundary>& flags) noexcept {
+  std::uint8_t exclusions = 0U;
+  for (const auto flag : flags) exclusions |= static_cast<std::uint8_t>(flag);
+  return static_cast<ArgumentRangeBoundary>(exclusions);
+}
 
 [[nodiscard]] constexpr std::optional<std::size_t> argument_validator_operand_count(
     const ArgumentValidator validator) noexcept {
   const auto ordinal = static_cast<std::uint8_t>(validator);
   if (ordinal <= static_cast<std::uint8_t>(ArgumentValidator::valid_variable_name)) return 0U;
   if (ordinal <= static_cast<std::uint8_t>(ArgumentValidator::less_than_or_equal)) return 1U;
+  if (validator == ArgumentValidator::in_range) return 2U;
   return std::nullopt;
 }
 
@@ -101,6 +119,7 @@ struct ArgumentValidatorOperandSyntax {
 struct ArgumentValidatorSyntax {
   ArgumentValidator validator{ArgumentValidator::numeric};
   std::vector<ArgumentValidatorOperandSyntax> operands;
+  std::vector<ArgumentRangeBoundary> range_flags{};
 };
 
 // Analyzer-owned validator operand.  Source names never cross this boundary: references are
@@ -115,6 +134,7 @@ struct ArgumentValidatorOperandPlan {
 struct ArgumentValidatorPlan {
   ArgumentValidator validator{ArgumentValidator::numeric};
   std::vector<ArgumentValidatorOperandPlan> operands;
+  ArgumentRangeBoundary range_boundary{ArgumentRangeBoundary::inclusive};
 };
 
 struct ArgumentDimensionConstraint {
@@ -181,7 +201,8 @@ struct ArgumentCallBoundary {
 
 [[nodiscard]] inline bool operator==(const ArgumentValidatorSyntax& left,
                                      const ArgumentValidatorSyntax& right) noexcept {
-  return left.validator == right.validator && left.operands == right.operands;
+  return left.validator == right.validator && left.operands == right.operands &&
+         left.range_flags == right.range_flags;
 }
 
 [[nodiscard]] inline bool operator==(const ArgumentValidatorOperandPlan& left,
@@ -192,7 +213,8 @@ struct ArgumentCallBoundary {
 
 [[nodiscard]] inline bool operator==(const ArgumentValidatorPlan& left,
                                      const ArgumentValidatorPlan& right) noexcept {
-  return left.validator == right.validator && left.operands == right.operands;
+  return left.validator == right.validator && left.operands == right.operands &&
+         left.range_boundary == right.range_boundary;
 }
 
 [[nodiscard]] inline bool operator==(const ArgumentValidationPlan& left,
@@ -263,6 +285,14 @@ struct ArgumentCallBoundary {
   for (const auto& validator : declaration.validators) {
     const auto operand_count = argument_validator_operand_count(validator.validator);
     if (!operand_count.has_value() || validator.operands.size() != *operand_count) return false;
+    if (validator.range_flags.size() > 2U ||
+        (validator.validator != ArgumentValidator::in_range && !validator.range_flags.empty()))
+      return false;
+    for (const auto flag : validator.range_flags) {
+      if (static_cast<std::uint8_t>(flag) >
+          static_cast<std::uint8_t>(ArgumentRangeBoundary::exclusive))
+        return false;
+    }
     for (const auto& operand : validator.operands) {
       if (operand.value.empty() ||
           (operand.kind != ArgumentValidatorOperandKind::numeric_literal &&
@@ -291,6 +321,11 @@ struct ArgumentCallBoundary {
   for (const auto& validator : plan.validators) {
     const auto operand_count = argument_validator_operand_count(validator.validator);
     if (!operand_count.has_value() || validator.operands.size() != *operand_count) return false;
+    if (static_cast<std::uint8_t>(validator.range_boundary) >
+            static_cast<std::uint8_t>(ArgumentRangeBoundary::exclusive) ||
+        (validator.validator != ArgumentValidator::in_range &&
+         validator.range_boundary != ArgumentRangeBoundary::inclusive))
+      return false;
     for (const auto& operand : validator.operands) {
       if (operand.kind == ArgumentValidatorOperandKind::numeric_literal) {
         const auto normalized = normalize_argument_numeric_literal(operand.numeric_literal);
