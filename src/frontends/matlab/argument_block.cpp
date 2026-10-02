@@ -122,7 +122,8 @@ std::optional<ValidatorDefinition> argument_validator(const std::string_view nam
        {ArgumentValidator::greater_than_or_equal, arguments_release, "R2019b", 1U}},
       {"mustBeLessThan", {ArgumentValidator::less_than, arguments_release, "R2019b", 1U}},
       {"mustBeLessThanOrEqual",
-       {ArgumentValidator::less_than_or_equal, arguments_release, "R2019b", 1U}}};
+       {ArgumentValidator::less_than_or_equal, arguments_release, "R2019b", 1U}},
+      {"mustBeInRange", {ArgumentValidator::in_range, validator_expansion_release, "R2020b", 2U}}};
   const auto found = validators.find(name);
   return found == validators.end() ? std::nullopt
                                    : std::optional<ValidatorDefinition>{found->second};
@@ -172,6 +173,96 @@ bool parse_dimensions(const MatlabStatementLine& line, std::size_t& cursor,
     return false;
   }
   cursor = closing + 1U;
+  return true;
+}
+
+std::optional<ArgumentValidatorOperandSyntax> parse_validator_threshold(
+    const MatlabStatementLine& line, const std::size_t first, const std::size_t last,
+    std::vector<Diagnostic>& diagnostics) {
+  ArgumentValidatorOperandSyntax operand;
+  if (first + 1U == last && line.tokens[first].kind == Kind::identifier) {
+    operand.kind = ArgumentValidatorOperandKind::input_argument;
+    operand.value = line.tokens[first].text;
+    return operand;
+  }
+  const bool unsigned_number = first + 1U == last && line.tokens[first].kind == Kind::number;
+  const bool signed_number = first + 2U == last && line.tokens[first].kind == Kind::other &&
+                             (line.tokens[first].text == "+" || line.tokens[first].text == "-") &&
+                             line.tokens[first + 1U].kind == Kind::number;
+  if (!unsigned_number && !signed_number) {
+    diagnose(diagnostics, line.source.number,
+             "parameterized Matlab validators currently require a scalar numeric literal or "
+             "earlier scalar input argument");
+    return std::nullopt;
+  }
+  operand.value =
+      (signed_number ? line.tokens[first].text : std::string{}) + line.tokens[last - 1U].text;
+  if (!valid_argument_numeric_literal(operand.value)) {
+    diagnose(diagnostics, line.source.number,
+             "parameterized Matlab validators require a decimal scalar threshold literal");
+    return std::nullopt;
+  }
+  return operand;
+}
+
+std::optional<ArgumentRangeBoundary> parse_range_flag(const MatlabStatementLine& line,
+                                                      const std::size_t first,
+                                                      const std::size_t last) {
+  if (first + 1U != last || line.tokens[first].kind != Kind::string_literal) return std::nullopt;
+  const auto& token = line.tokens[first].text;
+  if (token.size() < 2U) return std::nullopt;
+  const auto value = std::string_view(token).substr(1U, token.size() - 2U);
+  if (value == "inclusive") return ArgumentRangeBoundary::inclusive;
+  if (value == "exclusive") return ArgumentRangeBoundary::exclusive;
+  if (value == "exclude-lower") return ArgumentRangeBoundary::exclude_lower;
+  if (value == "exclude-upper") return ArgumentRangeBoundary::exclude_upper;
+  return std::nullopt;
+}
+
+bool parse_validator_call(const MatlabStatementLine& line, const std::size_t opening,
+                          const std::size_t closing, const std::size_t operand_count,
+                          const std::string_view argument_name, ArgumentValidatorSyntax& validator,
+                          std::vector<Diagnostic>& diagnostics) {
+  std::vector<std::pair<std::size_t, std::size_t>> arguments;
+  auto first = opening + 1U;
+  for (auto token = first; token < closing; ++token) {
+    if (is_opening(line.tokens[token].kind)) {
+      token = matching_token(line, token);
+    } else if (line.tokens[token].kind == Kind::comma) {
+      arguments.emplace_back(first, token);
+      first = token + 1U;
+    }
+  }
+  arguments.emplace_back(first, closing);
+  const auto expected = 1U + operand_count;
+  const auto maximum = expected + (validator.validator == ArgumentValidator::in_range ? 2U : 0U);
+  if (arguments.size() < expected || arguments.size() > maximum) {
+    diagnose(diagnostics, line.source.number, "Matlab validator call has incorrect operand arity");
+    return false;
+  }
+  const auto& value = arguments.front();
+  if (value.first + 1U != value.second || line.tokens[value.first].kind != Kind::identifier ||
+      line.tokens[value.first].text != argument_name) {
+    diagnose(diagnostics, line.source.number,
+             "Matlab validator call must name the declared argument first");
+    return false;
+  }
+  for (std::size_t index = 1U; index < expected; ++index) {
+    const auto operand = parse_validator_threshold(line, arguments[index].first,
+                                                   arguments[index].second, diagnostics);
+    if (!operand.has_value()) return false;
+    validator.operands.push_back(*operand);
+  }
+  for (auto index = expected; index < arguments.size(); ++index) {
+    const auto flag = parse_range_flag(line, arguments[index].first, arguments[index].second);
+    if (!flag.has_value()) {
+      diagnose(diagnostics, line.source.number,
+               "Matlab mustBeInRange flags must be literal inclusive, exclusive, exclude-lower, "
+               "or exclude-upper text");
+      return false;
+    }
+    validator.range_flags.push_back(*flag);
+  }
   return true;
 }
 
@@ -227,53 +318,15 @@ bool parse_validators(const MatlabStatementLine& line, std::size_t& cursor,
                  "Matlab arguments validator call has no matching right parenthesis");
         return false;
       }
-      if (definition->explicit_operand_count != 1U) {
-        diagnose(diagnostics, line.source.number,
-                 "explicit calls to this Matlab arguments validator are not yet supported");
+      if (!parse_validator_call(line, token, call_closing, definition->explicit_operand_count,
+                                declaration.syntax.name, validator, diagnostics))
         return false;
-      }
-      const auto first = token + 1U;
-      if (first + 2U >= call_closing || line.tokens[first].kind != Kind::identifier ||
-          line.tokens[first].text != declaration.syntax.name ||
-          line.tokens[first + 1U].kind != Kind::comma) {
-        diagnose(diagnostics, line.source.number,
-                 "parameterized Matlab validator must name the declared argument first");
-        return false;
-      }
-      const auto operand_first = first + 2U;
-      ArgumentValidatorOperandSyntax operand;
-      if (operand_first + 1U == call_closing &&
-          line.tokens[operand_first].kind == Kind::identifier) {
-        operand.kind = ArgumentValidatorOperandKind::input_argument;
-        operand.value = line.tokens[operand_first].text;
-      } else {
-        const bool unsigned_number =
-            operand_first + 1U == call_closing && line.tokens[operand_first].kind == Kind::number;
-        const bool signed_number =
-            operand_first + 2U == call_closing && line.tokens[operand_first].kind == Kind::other &&
-            (line.tokens[operand_first].text == "+" || line.tokens[operand_first].text == "-") &&
-            line.tokens[operand_first + 1U].kind == Kind::number;
-        if (!unsigned_number && !signed_number) {
-          diagnose(diagnostics, line.source.number,
-                   "parameterized Matlab relational validators currently require a scalar "
-                   "numeric literal or earlier scalar input argument");
-          return false;
-        }
-        operand.kind = ArgumentValidatorOperandKind::numeric_literal;
-        operand.value = (signed_number ? line.tokens[operand_first].text : std::string{}) +
-                        line.tokens[call_closing - 1U].text;
-        if (!valid_argument_numeric_literal(operand.value)) {
-          diagnose(diagnostics, line.source.number,
-                   "parameterized Matlab validators require a decimal scalar threshold literal");
-          return false;
-        }
-      }
-      validator.operands.push_back(std::move(operand));
       token = call_closing + 1U;
     } else if (definition->explicit_operand_count != 0U) {
-      diagnose(diagnostics, line.source.number,
-               "Matlab validator '" + validator_name +
-                   "' requires the validated argument and a scalar threshold operand");
+      diagnose(
+          diagnostics, line.source.number,
+          "Matlab validator '" + validator_name +
+              "' requires an explicit call with the validated argument and threshold operands");
       return false;
     }
     declaration.syntax.validators.push_back(std::move(validator));
