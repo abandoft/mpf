@@ -7,6 +7,7 @@ add_executable(mpf-tests
   unit/argument_entry_flow_tests.cpp
   unit/argument_exit_flow_tests.cpp
   unit/output_demand_tests.cpp
+  unit/copy_propagation_tests.cpp
   unit/argument_grammar_tests.cpp
   unit/argument_range_tests.cpp
   unit/argument_representation_tests.cpp
