@@ -160,6 +160,14 @@ add_test(NAME mpf.fuzz.corpus-contract
     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_fuzz_corpus.cmake)
 set_tests_properties(mpf.fuzz.corpus-contract PROPERTIES LABELS "infrastructure;fuzz" TIMEOUT 30)
 
+add_test(NAME mpf.matlab-reference.verifier-contract
+  COMMAND ${CMAKE_COMMAND}
+    -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/matlab-reference-contract
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_matlab_reference_contract.cmake)
+set_tests_properties(mpf.matlab-reference.verifier-contract PROPERTIES
+  LABELS "infrastructure;matlab" TIMEOUT 30)
+
 add_test(NAME mpf.format.toolchain-contract
   COMMAND ${CMAKE_COMMAND}
     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_format_toolchain.cmake)
