@@ -1207,6 +1207,23 @@ std::string matlab_argument_validation_workload(const std::size_t calls) {
   return source;
 }
 
+std::string matlab_output_exit_workload(const std::size_t functions, const std::size_t returns) {
+  std::string source = "disp(output_0(1,2));\n";
+  for (std::size_t function = 0U; function < functions; ++function) {
+    source += "function [first,second] = output_" + std::to_string(function) + "(limit,flag)\n";
+    source +=
+        "arguments\nlimit (1,1) double\nflag (1,1) double\nend\n"
+        "arguments (Output)\nfirst (1,1) double {mustBePositive,mustBeLessThan(first,limit)}\n"
+        "second (1,1) logical {mustBeNonzero}\nend\nfirst = 1.0;\nsecond = 2;\n"
+        "limit = 999.0;\ntry\n";
+    for (std::size_t branch = 0U; branch < returns; ++branch)
+      source += "if flag == " + std::to_string(branch) +
+                "\nfirst = " + std::to_string(branch + 1U) + ".0;\nreturn;\nend\n";
+    source += "catch\nfirst = 3.0;\nend\nend\n";
+  }
+  return source;
+}
+
 std::string matlab_exception_workload(const std::size_t regions) {
   std::string source = "value = 0;\n";
   for (std::size_t index = 0; index < regions; ++index) {
@@ -1417,6 +1434,7 @@ int main() {
       {"matlab-command-syntax", matlab_command_syntax_workload(64), mpf::SourceLanguage::matlab},
       {"matlab-argument-validation", matlab_argument_validation_workload(64),
        mpf::SourceLanguage::matlab},
+      {"matlab-output-exit", matlab_output_exit_workload(32, 8), mpf::SourceLanguage::matlab, 16U},
       {"matlab-default-functions", matlab_default_function_workload(128),
        mpf::SourceLanguage::matlab},
       {"matlab-exception-control", matlab_exception_workload(64), mpf::SourceLanguage::matlab},
