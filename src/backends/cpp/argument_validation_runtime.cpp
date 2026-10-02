@@ -224,9 +224,20 @@ template <typename Scalar, std::size_t Rank, typename Source, typename Convert>
 argument_nested_t<Scalar, Rank> convert_argument_impl(
     const Source& value, const std::vector<std::int64_t>& dimensions,
     const Convert& convert) {
+  if constexpr (Rank == 0U &&
+                (std::is_arithmetic_v<Source> || argument_is_complex<Source>::value)) {
+    if (dimensions.empty() ||
+        (dimensions.size() == 2U && (dimensions[0] < 0 || dimensions[0] == 1) &&
+         (dimensions[1] < 0 || dimensions[1] == 1)))
+      return convert(value);
+  }
   std::vector<std::size_t> source_shape;
   argument_shape(value, source_shape);
   const auto target_shape = resolve_argument_shape(source_shape, dimensions);
+  if constexpr (Rank > 0U &&
+                std::is_same_v<std::decay_t<Source>, argument_nested_t<Scalar, Rank>>) {
+    if (target_shape.size() == Rank && source_shape == target_shape) return value;
+  }
   const auto source_values = argument_flatten_column_major(value, source_shape);
   using SourceScalar = argument_scalar_t<Source>;
   const auto target_size = argument_size(target_shape);
