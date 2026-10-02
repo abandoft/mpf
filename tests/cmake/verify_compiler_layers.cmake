@@ -124,6 +124,20 @@ endforeach()
 if(NOT EXISTS "${SOURCE_DIR}/src/frontends/common/ast_builder.hpp")
   message(FATAL_ERROR "direct language AST builder is missing")
 endif()
+foreach(invocation_component IN ITEMS
+    src/ir/invocation_context.hpp
+    src/ir/mir_invocation_context.cpp
+    src/ir/mir_invocation_context.hpp
+    src/semantic/matlab_bare_calls.cpp
+    src/semantic/matlab_bare_calls.hpp
+    src/backends/common/invocation_sources.hpp)
+  if(NOT EXISTS "${SOURCE_DIR}/${invocation_component}")
+    message(FATAL_ERROR "invocation context component is missing: ${invocation_component}")
+  endif()
+endforeach()
+mpf_assert_file_excludes("src/frontends/matlab/statement_parser.cpp"
+  "local_zero_input_functions_|assigned_names"
+  "Matlab parser restored spelling-based bare call binding")
 file(READ "${SOURCE_DIR}/src/compiler/function_graph_generic.hpp" dependency_collector)
 if(NOT dependency_collector MATCHES "function.parameter_defaults" OR
    NOT dependency_collector MATCHES "resolve_callee\\(callee\\)" OR
