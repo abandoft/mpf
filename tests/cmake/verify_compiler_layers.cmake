@@ -1610,6 +1610,8 @@ endif()
 
 file(READ "${SOURCE_DIR}/src/compiler/argument_validation.hpp" argument_validation_contract)
 file(READ "${SOURCE_DIR}/src/frontends/matlab/argument_block.cpp" argument_parser_contract)
+file(READ "${SOURCE_DIR}/src/compiler/argument_invocation.hpp" argument_invocation_contract)
+file(READ "${SOURCE_DIR}/src/ir/mir_argument_validation.cpp" mir_validator_source_contract)
 file(READ "${SOURCE_DIR}/src/backends/javascript/argument_validation_runtime.cpp"
   javascript_argument_runtime_contract)
 file(READ "${SOURCE_DIR}/src/backends/cpp/argument_validation_runtime.cpp"
@@ -1629,12 +1631,24 @@ if(NOT argument_validation_contract MATCHES "ArgumentValidatorSyntax" OR
   message(FATAL_ERROR
     "Matlab parameterized validators do not own typed frontend and Analyzer contracts")
 endif()
+if(NOT argument_invocation_contract MATCHES "valid_argument_validator_calls" OR
+   NOT argument_invocation_contract MATCHES "invocation.declaration" OR
+   NOT argument_validation_contract MATCHES "source_call" OR
+   NOT argument_validation_contract MATCHES "source_callee" OR
+   NOT mir_validator_source_contract MATCHES "argument_validator_sources" OR
+   NOT mir_validator_source_contract MATCHES "program.hir_node_count" OR
+   javascript_renderer_contract MATCHES "argument_validator_calls" OR
+   cpp_renderer_contract MATCHES "argument_validator_calls")
+  message(FATAL_ERROR "validator source ownership must be verified before target serialization")
+endif()
 foreach(target javascript cpp)
   file(READ "${SOURCE_DIR}/src/backends/${target}/argument_validation_plan.cpp"
     argument_target_plan)
   if(NOT argument_target_plan MATCHES "plan_argument_validators" OR
      NOT argument_target_plan MATCHES "operand.input_ordinal" OR
      NOT argument_target_plan MATCHES "call.range_boundary" OR
+     NOT argument_target_plan MATCHES "call.source_call" OR
+     NOT argument_target_plan MATCHES "call.source_callee" OR
      NOT argument_target_plan MATCHES "parameter_symbols")
     message(FATAL_ERROR "${target} does not own bound validator operand lowering")
   endif()
