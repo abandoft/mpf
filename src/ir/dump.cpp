@@ -507,7 +507,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v45 language=" << enum_value(program.source_language)
+  output << "mir-v46 language=" << enum_value(program.source_language)
          << " version=" << program.semantics.language_version.major << '.'
          << program.semantics.language_version.minor << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
@@ -841,6 +841,16 @@ std::string dump_mir(const mir::Program& program) {
     output << " entry=^b" << function.entry.value() << " blocks=";
     dump_ids(output, function.blocks, "^b");
     output << '\n';
+    for (const auto& flow : function.parameter_defaults) {
+      output << "  parameter-default ordinal=" << flow.parameter << " source=%h"
+             << flow.source.value() << " storage=!m" << flow.storage.value() << " test=^b"
+             << flow.test_block.value() << " present=^b" << flow.present_block.value()
+             << " absent=";
+      dump_ids(output, flow.default_blocks, "^b");
+      output << " exit=^b" << flow.default_exit.value() << " merge=^b" << flow.merge_block.value()
+             << " presence=!i" << flow.presence.value() << " initialize=!i"
+             << flow.initialization.value() << " result=%v" << flow.result.value() << '\n';
+    }
     for (const auto block_id : function.blocks) {
       if (!block_id.valid() || block_id.value() >= program.blocks.size()) continue;
       const auto& block = program.blocks[block_id.value()];
