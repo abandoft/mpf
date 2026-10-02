@@ -56,6 +56,21 @@ add_test(NAME mpf.fuzz.smoke
   COMMAND mpf-fuzz-smoke ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/corpus)
 set_tests_properties(mpf.fuzz.smoke PROPERTIES LABELS "fuzz" TIMEOUT 120)
 
+add_executable(mpf-fuzz-corpus-preparer fuzz/corpus_preparer.cpp)
+target_compile_features(mpf-fuzz-corpus-preparer PRIVATE cxx_std_17)
+if(MSVC)
+  target_compile_options(mpf-fuzz-corpus-preparer PRIVATE /W4 /permissive- /utf-8)
+  if(MPF_ENABLE_WERROR)
+    target_compile_options(mpf-fuzz-corpus-preparer PRIVATE /WX)
+  endif()
+else()
+  target_compile_options(mpf-fuzz-corpus-preparer PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+  if(MPF_ENABLE_WERROR)
+    target_compile_options(mpf-fuzz-corpus-preparer PRIVATE -Werror)
+  endif()
+endif()
+
 find_package(Threads REQUIRED)
 add_executable(mpf-benchmark performance/benchmark.cpp)
 target_link_libraries(mpf-benchmark PRIVATE mpf::mpf Threads::Threads)
@@ -141,6 +156,7 @@ add_test(NAME mpf.fuzz.corpus-contract
   COMMAND ${CMAKE_COMMAND}
     -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
     -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/fuzz-corpus-contract
+    -DPREPARER=$<TARGET_FILE:mpf-fuzz-corpus-preparer>
     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_fuzz_corpus.cmake)
 set_tests_properties(mpf.fuzz.corpus-contract PROPERTIES LABELS "infrastructure;fuzz" TIMEOUT 30)
 

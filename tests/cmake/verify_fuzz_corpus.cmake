@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-foreach(required SOURCE_DIR TEST_BINARY_DIR)
+foreach(required SOURCE_DIR TEST_BINARY_DIR PREPARER)
   if(NOT DEFINED ${required})
     message(FATAL_ERROR "verify_fuzz_corpus.cmake requires ${required}")
   endif()
@@ -9,6 +9,7 @@ endforeach()
 set(corpus "${TEST_BINARY_DIR}/corpus")
 execute_process(COMMAND "${CMAKE_COMMAND}"
   "-DSOURCE_DIR=${SOURCE_DIR}" "-DCORPUS_DIR=${corpus}"
+  "-DPREPARER=${PREPARER}"
   -P "${SOURCE_DIR}/tests/fuzz/prepare_corpus.cmake"
   RESULT_VARIABLE prepared OUTPUT_VARIABLE output ERROR_VARIABLE error)
 if(NOT prepared EQUAL 0)
@@ -41,9 +42,57 @@ endforeach()
 
 execute_process(COMMAND "${CMAKE_COMMAND}"
   "-DSOURCE_DIR=${SOURCE_DIR}" "-DCORPUS_DIR=${SOURCE_DIR}/tests/fuzz/corpus"
+  "-DPREPARER=${PREPARER}"
   -P "${SOURCE_DIR}/tests/fuzz/prepare_corpus.cmake"
   RESULT_VARIABLE unsafe OUTPUT_VARIABLE output ERROR_VARIABLE error)
 if(unsafe EQUAL 0 OR NOT "${output}${error}" MATCHES "beneath the project's root build/")
   message(FATAL_ERROR "Fuzz preparation did not reject writing into the checked-in corpus")
 endif()
 message(STATUS "Verified ${checked} framed seeds and protected source corpus")
+
+set(fixture "${TEST_BINARY_DIR}/byte fixture")
+file(MAKE_DIRECTORY "${fixture}/build")
+string(ASCII 13 carriage_return)
+foreach(language python matlab fortran typescript)
+  file(MAKE_DIRECTORY "${fixture}/tests/fuzz/corpus/${language}")
+  file(WRITE "${fixture}/tests/fuzz/corpus/${language}/mixed-newlines"
+    "first${carriage_return}\nUTF-8: 中文\nlast${carriage_return}\n")
+endforeach()
+set(escape_corpus "${fixture}/build/escaped")
+file(REMOVE_RECURSE "${escape_corpus}")
+file(MAKE_DIRECTORY "${fixture}/outside" "${escape_corpus}")
+file(CREATE_LINK "${fixture}/outside" "${escape_corpus}/matlab" SYMBOLIC RESULT link_status)
+if(link_status STREQUAL "0")
+  execute_process(COMMAND "${PREPARER}" "${fixture}" "${escape_corpus}"
+    RESULT_VARIABLE escape_status OUTPUT_VARIABLE escape_output ERROR_VARIABLE escape_error)
+  if(escape_status EQUAL 0 OR
+      NOT "${escape_output}${escape_error}" MATCHES "beneath the project's root build/")
+    message(FATAL_ERROR "Binary framing did not reject a nested output symlink escape")
+  endif()
+  file(GLOB_RECURSE escaped_files LIST_DIRECTORIES false "${fixture}/outside/*")
+  if(escaped_files)
+    message(FATAL_ERROR "Binary framing wrote outside the root build through a symlink")
+  endif()
+  message(STATUS "Verified rejection of nested output symlink escapes")
+else()
+  message(STATUS "Nested symlink fixture unavailable on this host: ${link_status}")
+endif()
+execute_process(COMMAND "${PREPARER}" "${fixture}" "${fixture}/build/framed"
+  RESULT_VARIABLE fixture_status OUTPUT_VARIABLE fixture_output ERROR_VARIABLE fixture_error)
+if(NOT fixture_status EQUAL 0)
+  message(FATAL_ERROR "Binary framing fixture failed: ${fixture_output}${fixture_error}")
+endif()
+set(language_code 4)
+foreach(language python matlab fortran typescript)
+  file(READ "${fixture}/tests/fuzz/corpus/${language}/mixed-newlines" original HEX)
+  set(target_code 2)
+  foreach(target javascript cpp)
+    file(READ "${fixture}/build/framed/${language}/${target}/mixed-newlines" actual HEX)
+    if(NOT actual STREQUAL "0${language_code}0${target_code}${original}")
+      message(FATAL_ERROR "Binary framing did not preserve CRLF/LF/UTF-8 source bytes")
+    endif()
+    math(EXPR target_code "${target_code} + 1")
+  endforeach()
+  math(EXPR language_code "${language_code} + 1")
+endforeach()
+message(STATUS "Verified mixed-newline and UTF-8 bytes for both targets in every language")

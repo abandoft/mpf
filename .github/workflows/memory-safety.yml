@@ -65,10 +65,13 @@ jobs:
           -DMPF_BUILD_FUZZERS=ON -DMPF_BUILD_CLI=OFF
           -DMPF_ENABLE_WERROR=ON
       - name: Build fuzz driver and instrumented compiler
-        run: cmake --build build/fuzz --target mpf-transpiler-fuzzer --parallel
+        run: >-
+          cmake --build build/fuzz
+          --target mpf-transpiler-fuzzer mpf-fuzz-corpus-preparer --parallel
       - name: Prepare language and target framed seeds
         run: >-
           cmake -DSOURCE_DIR="$PWD" -DCORPUS_DIR="$PWD/build/fuzz/framed-corpus"
+          -DPREPARER="$PWD/build/fuzz/tests/mpf-fuzz-corpus-preparer"
           -P tests/fuzz/prepare_corpus.cmake
       - name: Exercise compiler paths under ASan and UBSan
         run: |
