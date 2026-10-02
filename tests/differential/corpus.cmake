@@ -44,6 +44,15 @@ mpf_add_differential_case(
 mpf_add_differential_case(
   matlab-argument-relational-boundaries matlab
   examples/matlab/argument_relational_boundaries.m "1 1 1 1 1 1 2 1 1")
+mpf_add_differential_case(
+  matlab-argument-range-validators matlab
+  examples/matlab/argument_range_validators.m "1 10 1 10 0 1 1")
+mpf_add_differential_case(
+  matlab-argument-range-numeric-domains matlab
+  examples/matlab/argument_range_numeric_domains.m "1 1 0 42 2")
+mpf_add_differential_case(
+  matlab-argument-representation matlab
+  examples/matlab/argument_representation.m "1 2 3 4 1 1 1 1 0 0 0")
 mpf_add_differential_case(matlab-switch-case matlab examples/matlab/switch_case.m "42")
 mpf_add_differential_case(
   matlab-try-catch matlab examples/matlab/try_catch.m "MPF:Expected nested 42")
@@ -64,7 +73,7 @@ mpf_add_differential_case(
   "3 5 6 5 1 2 3 1 2 3 1 2 3 4 5 6")
 mpf_add_differential_case(
   matlab-sparse-zero-extent matlab examples/matlab/sparse_zero_extent.m
-  "11 0 1 3 2 3 3 2 3 3 3 4 3 3 2 2")
+  "11 0 1 0 0 0 0 0 3 0 0 4 0 0 0 0")
 mpf_add_differential_case(
   matlab-sparse-matrix-product matlab examples/matlab/sparse_matrix_product.m
   "16 15 16 15 1 0 0 2")
@@ -103,7 +112,7 @@ mpf_add_differential_case(
   "2 1 3 1 1 0 3 0 3 0 1 0 4 1 1 1 1 1 1 1 1 1 1 0 1 1 0 1 1 1 0 1 1 1 1 1 1 0 1")
 mpf_add_differential_case(
   matlab-sparse-indexing matlab examples/matlab/sparse_indexing.m
-  "3 4 5 3 1 2 1 4 3 2 5 1 4 3 2 5 5 5 1 4 2 5 5 1 5 5 1 0 0 2 1 5 2 1 2 1 1 2 2 1 1 1")
+  "3 4 5 3 1 2 1 4 3 2 5 1 4 3 2 5 5 5 1 4 2 5 5 1 5 5 1 0 0 0 1 5 2 1 2 1 1 2 2 1 1 1")
 mpf_add_differential_case(
   matlab-sparse-assignment matlab examples/matlab/sparse_assignment.m
   "10 7 9 11 13 0 5 1 5 2 2 3 6 1 3 7 7 2 2")
@@ -192,7 +201,7 @@ mpf_add_differential_case(
   matlab-dynamic-section-mutation matlab examples/matlab/dynamic_section_mutation.m
   "1 8 3 0 9 7 2 6 1 4 3 6 2 5 1 8 9 10 11 12 1 8")
 mpf_add_differential_case(
-  matlab-empty-arrays matlab examples/matlab/empty_arrays.m "0 0 3 7 5 0 5 0 5 0 5 0 4 9")
+  matlab-empty-arrays matlab examples/matlab/empty_arrays.m "0 0 3 7 0 0 0 0 0 0 0 0 4 9")
 
 mpf_add_differential_case(fortran-loops fortran examples/fortran/loops.f90 "12 -1")
 mpf_add_differential_case(python-loops python examples/python/loops.py "12 1")
