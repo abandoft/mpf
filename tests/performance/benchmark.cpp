@@ -1164,6 +1164,24 @@ std::string matlab_command_syntax_workload(const std::size_t calls) {
   return source;
 }
 
+std::string matlab_default_function_workload(const std::size_t functions) {
+  std::string source;
+  source.reserve(functions * 144U + 32U);
+  source.append("disp(default0());\n");
+  for (std::size_t index = 0U; index < functions; ++index) {
+    source.append("function output = default")
+        .append(std::to_string(index))
+        .append("(value)\narguments\nvalue (1,1) double {mustBePositive} = ");
+    if (index + 1U < functions) {
+      source.append("default").append(std::to_string(index + 1U)).append("()");
+    } else {
+      source.append("42");
+    }
+    source.append("\nend\noutput = value;\nend\n");
+  }
+  return source;
+}
+
 std::string matlab_argument_validation_workload(const std::size_t calls) {
   std::string source = "values = [1 2 3 4];\nresult = 0;\n";
   for (std::size_t index = 0U; index < calls; ++index) {
@@ -1398,6 +1416,8 @@ int main() {
       {"matlab-return-command", matlab_return_command_workload(32), mpf::SourceLanguage::matlab},
       {"matlab-command-syntax", matlab_command_syntax_workload(64), mpf::SourceLanguage::matlab},
       {"matlab-argument-validation", matlab_argument_validation_workload(64),
+       mpf::SourceLanguage::matlab},
+      {"matlab-default-functions", matlab_default_function_workload(128),
        mpf::SourceLanguage::matlab},
       {"matlab-exception-control", matlab_exception_workload(64), mpf::SourceLanguage::matlab},
       {"matlab-exception-objects", matlab_exception_object_workload(64),
