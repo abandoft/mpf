@@ -119,6 +119,11 @@ add_test(NAME mpf.generated.toolchain-contract
     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_generated_toolchain.cmake)
 set_tests_properties(mpf.generated.toolchain-contract PROPERTIES LABELS "infrastructure" TIMEOUT 30)
 
+add_test(NAME mpf.format.toolchain-contract
+  COMMAND ${CMAKE_COMMAND}
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_format_toolchain.cmake)
+set_tests_properties(mpf.format.toolchain-contract PROPERTIES LABELS "infrastructure" TIMEOUT 30)
+
 function(mpf_add_generated_cpp_compile_test name input)
   add_test(NAME mpf.generated.cpp.${name}
     COMMAND ${CMAKE_COMMAND}

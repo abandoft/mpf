@@ -7,6 +7,18 @@ if(NOT EXISTS "${CLANG_FORMAT}")
   message(FATAL_ERROR "clang-format executable was not found: ${CLANG_FORMAT}")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/format_toolchain.cmake")
+execute_process(
+  COMMAND "${CLANG_FORMAT}" --version
+  RESULT_VARIABLE version_result
+  OUTPUT_VARIABLE version_output
+  ERROR_VARIABLE version_error
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(NOT version_result EQUAL 0)
+  message(FATAL_ERROR "cannot run clang-format --version: ${version_error}")
+endif()
+mpf_require_clang_format_version("${version_output}")
+
 file(GLOB_RECURSE format_files LIST_DIRECTORIES FALSE
   "${SOURCE_DIR}/include/*.hpp"
   "${SOURCE_DIR}/src/*.cpp"
