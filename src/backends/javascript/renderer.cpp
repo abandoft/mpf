@@ -93,13 +93,17 @@ class Renderer final {
   }
 
   void emit_argument_dimensions(const ArgumentValidationPlan& plan) {
+    emit_argument_dimensions(plan.dimensions);
+  }
+
+  void emit_argument_dimensions(const std::vector<ArgumentDimensionConstraint>& dimensions) {
     output_ << '[';
-    for (std::size_t axis = 0U; axis < plan.dimensions.size(); ++axis) {
+    for (std::size_t axis = 0U; axis < dimensions.size(); ++axis) {
       if (axis != 0U) output_ << ", ";
-      if (plan.dimensions[axis].any)
+      if (dimensions[axis].any)
         output_ << "-1";
       else
-        output_ << plan.dimensions[axis].extent;
+        output_ << dimensions[axis].extent;
     }
     output_ << ']';
   }
@@ -140,11 +144,11 @@ class Renderer final {
   }
 
   void emit_input_argument_validations(const Statement& statement) {
-    for (std::size_t validation = 0U; validation < statement.argument_validations.size();
-         ++validation) {
+    for (const auto& entry : statement.plan.argument_entries) {
+      const auto validation = entry.declaration;
       const auto& plan = statement.argument_validations[validation];
-      if (plan.direction != ArgumentDirection::input || plan.ordinal >= statement.parameters.size())
-        continue;
+      if (entry.form != javascript::lir::ArgumentEntryForm::runtime_normalization)
+        throw std::logic_error("verified JavaScript argument-entry form is missing");
       const auto parameter = mangler_->name(plan.ordinal < statement.parameter_symbols.size()
                                                 ? statement.parameter_symbols[plan.ordinal]
                                                 : SymbolId{},
@@ -158,8 +162,13 @@ class Renderer final {
         output_ << ";\n";
       }
       mark({plan.line, 1U}, statement.origin);
-      emit_argument_validation(parameter, statement.parameters[plan.ordinal], plan,
-                               statement.plan.argument_validators[validation]);
+      indentation();
+      output_ << parameter << " = __mpf_validate_argument(" << parameter << ", "
+              << std::quoted(statement.parameters[plan.ordinal]) << ", \"input\", ";
+      emit_argument_dimensions(entry.dimensions);
+      output_ << ", " << static_cast<unsigned>(entry.class_opcode) << ", ";
+      emit_argument_validators(statement.plan.argument_validators[validation]);
+      output_ << ", " << entry.rank << ");\n";
     }
   }
 

@@ -195,6 +195,7 @@ if(MPF_ENABLE_JAVASCRIPT_BACKEND)
   add_library(mpf_backend_javascript STATIC
     src/backends/javascript/backend.cpp
     src/backends/javascript/argument_validation_plan.cpp
+    src/backends/javascript/argument_entry_plan.cpp
     src/backends/javascript/argument_validation_runtime.cpp
     src/backends/javascript/bindings.cpp
     src/backends/javascript/complex_matrix_runtime.cpp

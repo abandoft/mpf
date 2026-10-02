@@ -7,6 +7,8 @@
 #include <string_view>
 #include <utility>
 
+#include "argument_entry_plan.hpp"
+#include "backends/common/argument_entry_source.hpp"
 #include "backends/common/parameter_default_source.hpp"
 #include "backends/common/source_segments.hpp"
 #include "backends/javascript/argument_validation_plan.hpp"
@@ -1690,6 +1692,7 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
   result.valid = true;
   result.argument_validators = plan_argument_validators(statement);
   result.default_flows = plan_parameter_defaults(statement);
+  result.argument_entries = plan_argument_entries(statement);
   switch (statement.kind) {
     case StatementKind::declaration:
       result.target_access = variable_access(context, statement.name);
@@ -1919,7 +1922,8 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
       left.selectors != right.selectors || left.parameter_defaults != right.parameter_defaults ||
       left.return_names != right.return_names ||
       left.argument_validators != right.argument_validators ||
-      left.default_flows != right.default_flows) {
+      left.default_flows != right.default_flows ||
+      left.argument_entries != right.argument_entries) {
     return false;
   }
   for (std::size_t index = 0; index < left.assignment_leaves.size(); ++index) {
@@ -1981,6 +1985,9 @@ void verify_statements(const std::vector<lir::Statement>& statements,
     if (!valid_parameter_default_sources(statement, source_language))
       add_error(diagnostics, {statement.line, 1U},
                 "JavaScript LIR default flow has invalid MIR provenance");
+    if (!valid_argument_entry_sources(statement, source_language))
+      add_error(diagnostics, {statement.line, 1U},
+                "JavaScript LIR argument-entry sequence has invalid resident MIR provenance");
     if (!statement.argument_validations.empty()) {
       if (source_language != SourceLanguage::matlab || statement.kind != StatementKind::function ||
           !valid_argument_validation_inventory(statement.argument_validations,

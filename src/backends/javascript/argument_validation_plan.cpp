@@ -9,9 +9,17 @@ std::vector<std::vector<lir::ValidatorCallPlan>> plan_argument_validators(
   std::vector<std::vector<lir::ValidatorCallPlan>> result;
   result.reserve(statement.argument_validations.size());
   for (const auto& validation : statement.argument_validations) {
+    if (validation.direction == ArgumentDirection::input &&
+        validation.ordinal >= statement.source_argument_entries.size()) {
+      result.emplace_back();
+      continue;
+    }
+    const auto& validators = validation.direction == ArgumentDirection::input
+                                 ? statement.source_argument_entries[validation.ordinal].validators
+                                 : validation.validators;
     std::vector<lir::ValidatorCallPlan> calls;
-    calls.reserve(validation.validators.size());
-    for (const auto& validator : validation.validators) {
+    calls.reserve(validators.size());
+    for (const auto& validator : validators) {
       lir::ValidatorCallPlan call;
       call.opcode = static_cast<std::uint8_t>(validator.validator);
       call.range_boundary = static_cast<std::uint8_t>(validator.range_boundary);
