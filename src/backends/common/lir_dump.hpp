@@ -645,10 +645,33 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
           else
             output << plan.dimensions[axis].extent;
         }
-        output << '}';
+        const auto& flow = plan.source.flow;
+        output << ":workspace=!m" << flow.source_storage.value() << ":return-storage=!m"
+               << flow.storage.value() << ":select=!i" << flow.selection.value() << ":normalize=!i"
+               << flow.normalization.value() << ":initialize=!i" << flow.initialization.value()
+               << ":result=%v" << flow.result.value() << ":block=^b" << flow.block.value()
+               << ":continuation=^b" << flow.continuation.value() << '}';
       }
       output << ']';
     }
+    if (statement.plan.argument_exit.source.merge.valid()) {
+      const auto& plan = statement.plan.argument_exit;
+      output << " argument-exit-abi " << static_cast<unsigned>(plan.form) << ":owner=%mstmt"
+             << plan.source.owner.value() << ":origin=%h" << plan.source.origin.value()
+             << ":merge=^b" << plan.source.merge.value() << ":continuation=^b"
+             << plan.source.continuation.value() << ":aggregate=!i"
+             << plan.source.aggregation.value() << ":returned=%v" << plan.source.returned.value()
+             << ":returns=[";
+      for (std::size_t index = 0U; index < plan.source.returns.size(); ++index) {
+        if (index != 0U) output << ',';
+        const auto& source = plan.source.returns[index];
+        output << "%h" << source.origin.value() << "@^b" << source.block.value()
+               << ":implicit=" << source.implicit;
+      }
+      output << ']';
+    }
+    if (statement.plan.argument_return_exit.valid())
+      output << " argument-return-exit ^b" << statement.plan.argument_return_exit.value();
     dump_print_value_details(output, statement.plan, 0);
     output << '\n';
     dump_target_expression(output, statement.expression, depth + 1U);
@@ -670,7 +693,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v58 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v59 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

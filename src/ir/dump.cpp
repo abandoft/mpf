@@ -507,7 +507,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v48 language=" << enum_value(program.source_language)
+  output << "mir-v49 language=" << enum_value(program.source_language)
          << " version=" << program.semantics.language_version.major << '.'
          << program.semantics.language_version.minor << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
@@ -789,6 +789,7 @@ std::string dump_mir(const mir::Program& program) {
     output << "argument-operation !a" << index << " instruction=!i" << operation.instruction.value()
            << " owner=%h" << operation.owner.value() << " ordinal=" << operation.parameter
            << " kind=" << enum_value(operation.kind)
+           << " direction=" << enum_value(operation.direction)
            << " class=" << enum_value(operation.class_constraint)
            << " dimensions-declared=" << operation.dimensions_declared << " dimensions=[";
     for (std::size_t axis = 0U; axis < operation.dimensions.size(); ++axis) {
@@ -891,6 +892,27 @@ std::string dump_mir(const mir::Program& program) {
              << " selected=%v" << flow.selected.value() << " normalize=!i"
              << flow.normalization.value() << " initialize=!i" << flow.initialization.value()
              << " result=%v" << flow.result.value() << " validators=";
+      dump_ids(output, flow.validators, "!i");
+      output << " block=^b" << flow.block.value() << " continuation=^b" << flow.continuation.value()
+             << '\n';
+    }
+    if (function.argument_exit.merge.valid()) {
+      const auto& exit = function.argument_exit;
+      output << "  argument-exit owner=%mstmt" << exit.owner.value() << " origin=%h"
+             << exit.origin.value() << " merge=^b" << exit.merge.value() << " continuation=^b"
+             << exit.continuation.value() << " aggregate=!i" << exit.aggregation.value()
+             << " returned=%v" << exit.returned.value() << '\n';
+      for (const auto& source : exit.returns)
+        output << "    return-source origin=%h" << source.origin.value() << " block=^b"
+               << source.block.value() << " implicit=" << source.implicit << '\n';
+    }
+    for (const auto& flow : function.argument_outputs) {
+      output << "  argument-output ordinal=" << flow.output << " workspace=!m"
+             << flow.source_storage.value() << " return-storage=!m" << flow.storage.value()
+             << " select=!i" << flow.selection.value() << " selected=%v" << flow.selected.value()
+             << " normalize=!i" << flow.normalization.value() << " initialize=!i"
+             << flow.initialization.value() << " result=%v" << flow.result.value()
+             << " validators=";
       dump_ids(output, flow.validators, "!i");
       output << " block=^b" << flow.block.value() << " continuation=^b" << flow.continuation.value()
              << '\n';
