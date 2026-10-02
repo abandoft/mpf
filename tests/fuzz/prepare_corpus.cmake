@@ -9,6 +9,7 @@ endforeach()
 execute_process(COMMAND "${PREPARER}" "${SOURCE_DIR}" "${CORPUS_DIR}"
   RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
 if(NOT result EQUAL 0)
-  message(FATAL_ERROR "Fuzz seed preparation failed: ${output}${error}")
+  message(FATAL_ERROR
+    "Fuzz seed preparation failed (${result}) using '${PREPARER}': ${output}${error}")
 endif()
 message(STATUS "${output}")

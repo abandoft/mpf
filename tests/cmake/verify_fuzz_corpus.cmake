@@ -45,10 +45,21 @@ execute_process(COMMAND "${CMAKE_COMMAND}"
   "-DPREPARER=${PREPARER}"
   -P "${SOURCE_DIR}/tests/fuzz/prepare_corpus.cmake"
   RESULT_VARIABLE unsafe OUTPUT_VARIABLE output ERROR_VARIABLE error)
-if(unsafe EQUAL 0 OR NOT "${output}${error}" MATCHES "beneath the project's root build/")
+string(REGEX REPLACE "[ \t\r\n]+" " " unsafe_message "${output}${error}")
+if(unsafe EQUAL 0 OR NOT unsafe_message MATCHES "beneath the project's root build/")
   message(FATAL_ERROR "Fuzz preparation did not reject writing into the checked-in corpus")
 endif()
 message(STATUS "Verified ${checked} framed seeds and protected source corpus")
+
+execute_process(COMMAND "${CMAKE_COMMAND}"
+  "-DSOURCE_DIR=${SOURCE_DIR}" "-DCORPUS_DIR=${corpus}"
+  "-DPREPARER=${TEST_BINARY_DIR}/missing-preparer"
+  -P "${SOURCE_DIR}/tests/fuzz/prepare_corpus.cmake"
+  RESULT_VARIABLE missing OUTPUT_VARIABLE missing_output ERROR_VARIABLE missing_error)
+if(missing EQUAL 0 OR
+    NOT "${missing_output}${missing_error}" MATCHES "Fuzz seed preparation failed \\(")
+  message(FATAL_ERROR "Missing fuzz preparer was not diagnosed with its execution status")
+endif()
 
 set(fixture "${TEST_BINARY_DIR}/byte fixture")
 file(MAKE_DIRECTORY "${fixture}/build")
