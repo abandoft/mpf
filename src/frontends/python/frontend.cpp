@@ -81,7 +81,7 @@ const FrontendDescriptor& python_frontend() noexcept {
                                              "python",
                                              {extensions, std::size(extensions)},
                                              {"3.14-versioned-subset",
-                                              "mpf.python.ast.v3",
+                                              "mpf.python.ast.v4",
                                               {3, 0},
                                               {3, 14},
                                               features,

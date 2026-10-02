@@ -74,7 +74,7 @@ const FrontendDescriptor& typescript_frontend() noexcept {
                                              "typescript",
                                              {extensions, std::size(extensions)},
                                              {"6.0-versioned-subset",
-                                              "mpf.typescript.ast.v1",
+                                              "mpf.typescript.ast.v2",
                                               {1, 0},
                                               {6, 0},
                                               features,

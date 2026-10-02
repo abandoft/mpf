@@ -85,7 +85,7 @@ const FrontendDescriptor& fortran_frontend() noexcept {
                                              "fortran",
                                              {extensions, std::size(extensions)},
                                              {"Fortran-2023-versioned-subset",
-                                              "mpf.fortran.ast.v3",
+                                              "mpf.fortran.ast.v4",
                                               {77, 0},
                                               {2023, 0},
                                               features,
