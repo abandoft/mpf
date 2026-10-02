@@ -149,6 +149,7 @@ add_library(mpf_core STATIC
   src/semantic/argument_validator_contract.cpp
   src/semantic/argument_validator_plan.cpp
   src/semantic/argument_output_analysis.cpp
+  src/semantic/output_demand_analysis.cpp
   src/semantic/flow_analysis.cpp
   src/semantic/function_dependencies.cpp
   src/semantic/name_analysis.cpp

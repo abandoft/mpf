@@ -9,6 +9,7 @@
 
 #include "analyzer_internal.hpp"
 #include "function_dependencies.hpp"
+#include "output_demand_analysis.hpp"
 
 namespace mpf::detail::semantic_internal {
 
@@ -2462,6 +2463,7 @@ AnalysisResult analyze_program(hir::Program& program, hir::SemanticTable semanti
                             std::make_move_iterator(analyzer_diagnostics.end()));
   if (analyzer.structure_changed()) ++program.revision;
   result.semantics = hir::reindex_semantics(program, std::move(result.semantics));
+  analyze_output_demands(program, result.semantics);
   if (analyzer.structure_changed()) {
     name_result = analyze_names(program);
     result.diagnostics.insert(result.diagnostics.end(),
