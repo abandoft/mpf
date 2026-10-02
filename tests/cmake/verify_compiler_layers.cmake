@@ -124,6 +124,19 @@ endforeach()
 if(NOT EXISTS "${SOURCE_DIR}/src/frontends/common/ast_builder.hpp")
   message(FATAL_ERROR "direct language AST builder is missing")
 endif()
+file(READ "${SOURCE_DIR}/src/compiler/function_graph_generic.hpp" dependency_collector)
+if(NOT dependency_collector MATCHES "function.parameter_defaults" OR
+   NOT dependency_collector MATCHES "resolve_callee\\(callee\\)" OR
+   dependency_collector MATCHES "callee.value|collect_local_names|local_names")
+  message(FATAL_ERROR "function dependency collector must use bound identities and include defaults")
+endif()
+mpf_assert_file_excludes("src/compiler/dependency_graph.cpp" "std::function|reaches\\("
+  "function SCC analysis restored native recursion or repeated reachability searches")
+file(READ "${SOURCE_DIR}/src/backends/cpp/function_dependencies.cpp" cpp_dependency_resolver)
+if(NOT cpp_dependency_resolver MATCHES "callee.symbol_id" OR
+   cpp_dependency_resolver MATCHES "callee.value")
+  message(FATAL_ERROR "cpp dependency resolver must consume target SymbolId rather than spelling")
+endif()
 file(READ "${SOURCE_DIR}/src/frontends/common/ast_builder.hpp" direct_ast_builder)
 if(NOT direct_ast_builder MATCHES "class FrontendAstBuilder" OR
    NOT direct_ast_builder MATCHES "add_expression" OR
