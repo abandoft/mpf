@@ -671,6 +671,16 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
         return facts.inferred_type;
       }
       if (intrinsic != IntrinsicId::none) {
+        if (intrinsic == IntrinsicId::matlab_nargout) {
+          if (function_parameters_.empty())
+            diagnose(expression.location.line, "MPF2059",
+                     "Matlab nargout without a function argument requires a function workspace");
+          auto& facts = semantic(semantics_, expression);
+          facts.binding = BindingKind::builtin;
+          facts.intrinsic = intrinsic;
+          facts.numeric_type = real_numeric_type;
+          return facts.inferred_type = ValueType::real;
+        }
         semantic(semantics_, expression).binding = BindingKind::builtin;
         semantic(semantics_, expression).intrinsic = intrinsic;
         semantic(semantics_, expression).inferred_type =
@@ -2175,6 +2185,27 @@ ValueType Analyzer::analyze_call(Expression& expression) {
   if (expression.children.empty())
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   auto& callee = expression.children.front();
+  const auto* callee_use = names_.reference(callee.id);
+  if (callee.kind == ExpressionKind::identifier && callee_use != nullptr &&
+      !callee_use->symbol.valid() && callee_use->intrinsic == IntrinsicId::matlab_nargout) {
+    for (std::size_t index = 1U; index < expression.children.size(); ++index)
+      analyze_expression(expression.children[index]);
+    if (expression.children.size() != 1U)
+      diagnose(
+          expression.location.line, "MPF2059",
+          "Matlab nargout(function) requires function introspection, which is not yet supported");
+    if (function_parameters_.empty())
+      diagnose(expression.location.line, "MPF2059",
+               "Matlab nargout without a function argument requires a function workspace");
+    auto& callee_facts = semantic(semantics_, callee);
+    callee_facts.binding = BindingKind::builtin;
+    callee_facts.intrinsic = IntrinsicId::matlab_nargout;
+    callee_facts.inferred_type = ValueType::function;
+    callee_facts.numeric_type = no_numeric_type;
+    auto& facts = semantic(semantics_, expression);
+    facts.numeric_type = real_numeric_type;
+    return facts.inferred_type = ValueType::real;
+  }
   analyze_expression(callee);
   auto& callee_facts = semantic(semantics_, callee);
   if ((program_.language == SourceLanguage::matlab ||

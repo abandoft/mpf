@@ -48,6 +48,7 @@ constexpr std::array<CodeBinding, static_cast<std::size_t>(IntrinsicId::count)> 
     {IntrinsicId::matlab_rethrow, CodeBindingKind::custom, "__mpf_matlab_rethrow"},
     {IntrinsicId::matlab_add_cause, CodeBindingKind::custom, "__mpf_matlab_add_cause"},
     {IntrinsicId::matlab_get_report, CodeBindingKind::custom, "__mpf_matlab_get_report"},
+    {IntrinsicId::matlab_nargout, CodeBindingKind::custom, "invocation_output_count"},
     {IntrinsicId::present, CodeBindingKind::custom, "present"},
 }};
 
