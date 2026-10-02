@@ -516,7 +516,9 @@ struct AssignmentLeafPlan {
 enum class ValidatorOperandForm : std::uint8_t {
   numeric_literal,
   parameter_value,
-  optional_parameter_value
+  optional_parameter_value,
+  parameter_real_component,
+  optional_parameter_real_component
 };
 
 struct ValidatorOperandPlan {
@@ -528,6 +530,7 @@ struct ValidatorOperandPlan {
 struct ValidatorCallPlan {
   std::uint8_t opcode{0U};
   std::vector<ValidatorOperandPlan> operands;
+  std::uint8_t range_boundary{0U};
 };
 
 [[nodiscard]] inline bool operator==(const ValidatorOperandPlan& left,
@@ -537,7 +540,8 @@ struct ValidatorCallPlan {
 
 [[nodiscard]] inline bool operator==(const ValidatorCallPlan& left,
                                      const ValidatorCallPlan& right) noexcept {
-  return left.opcode == right.opcode && left.operands == right.operands;
+  return left.opcode == right.opcode && left.operands == right.operands &&
+         left.range_boundary == right.range_boundary;
 }
 
 struct StatementPlan {

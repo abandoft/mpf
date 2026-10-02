@@ -14,6 +14,7 @@ std::vector<std::vector<lir::ValidatorCallPlan>> plan_argument_validators(
     for (const auto& validator : validation.validators) {
       lir::ValidatorCallPlan call;
       call.opcode = static_cast<std::uint8_t>(validator.validator);
+      call.range_boundary = static_cast<std::uint8_t>(validator.range_boundary);
       call.operands.reserve(validator.operands.size());
       for (const auto& operand : validator.operands) {
         lir::ValidatorOperandPlan planned;
@@ -25,6 +26,11 @@ std::vector<std::vector<lir::ValidatorCallPlan>> plan_argument_validators(
                                      lir::ParameterPassing::optional_reference
                              ? lir::ValidatorOperandForm::optional_parameter_value
                              : lir::ValidatorOperandForm::parameter_value;
+          if (validator.validator == ArgumentValidator::in_range) {
+            planned.form = planned.form == lir::ValidatorOperandForm::optional_parameter_value
+                               ? lir::ValidatorOperandForm::optional_parameter_real_component
+                               : lir::ValidatorOperandForm::parameter_real_component;
+          }
           if (operand.input_ordinal < statement.parameters.size())
             planned.token = statement.parameters[operand.input_ordinal];
           if (operand.input_ordinal < statement.parameter_symbols.size())
