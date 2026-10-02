@@ -1,0 +1,12 @@
+disp(checked());
+disp(checked(0));
+function output = checked(value)
+arguments
+value (1,1) logical = 0 || seed()
+end
+output = value;
+end
+function output = seed()
+disp(333);
+output = 1;
+end
