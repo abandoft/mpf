@@ -119,6 +119,8 @@ class Renderer final {
           output_ << mangler_->name(operand.symbol, operand.token);
         }
       }
+      if (validator.operands.size() == 2U)
+        output_ << ", " << static_cast<unsigned>(validator.range_boundary);
       if (!validator.operands.empty()) output_ << ']';
     }
     output_ << ']';
@@ -134,7 +136,7 @@ class Renderer final {
     emit_argument_dimensions(plan);
     output_ << ", " << static_cast<unsigned>(plan.class_constraint) << ", ";
     emit_argument_validators(calls);
-    output_ << ");\n";
+    output_ << ", " << plan.validated_rank << ");\n";
   }
 
   void emit_input_argument_validations(const Statement& statement) {

@@ -39,7 +39,7 @@ const __mpf_argument_validator_names = [
   'mustBeColumn', 'mustBeMatrix', 'mustBeNonmissing', 'mustBeNonzeroLengthText',
   'mustBeText', 'mustBeTextScalar', 'mustBeValidVariableName',
   'mustBeGreaterThan', 'mustBeGreaterThanOrEqual', 'mustBeLessThan',
-  'mustBeLessThanOrEqual'
+  'mustBeLessThanOrEqual', 'mustBeInRange'
 ];
 const __mpf_matlab_keywords = new Set([
   'break', 'case', 'catch', 'classdef', 'continue', 'else', 'elseif', 'end',
@@ -83,7 +83,17 @@ function __mpf_argument_resolve_shape(source, dimensions, name, direction) {
     __mpf_argument_failure(name, `${direction} size validation`);
   return target;
 }
-function __mpf_argument_convert_size(value, name, direction, dimensions) {
+function __mpf_argument_container_rank(value) {
+  let rank = 0;
+  while (Array.isArray(value)) {
+    ++rank;
+    if (value.length === 0) break;
+    value = value[0];
+  }
+  return rank;
+}
+function __mpf_argument_convert_size(value, name, direction, dimensions, representationRank) {
+  if (dimensions.length === 0) return value;
   const source = __mpf_argument_shape(value, name);
   const target = __mpf_argument_resolve_shape(source, dimensions, name, direction);
   if (typeof value === 'string') {
@@ -93,14 +103,18 @@ function __mpf_argument_convert_size(value, name, direction, dimensions) {
   }
   const unchanged = source.length === target.length &&
                     source.every((extent, axis) => extent === target[axis]);
-  if (unchanged) return value;
+  if (unchanged && __mpf_argument_container_rank(value) === representationRank) return value;
   const flattened = Array.isArray(value) ? __mpf_flatten_column_major(value) : [value];
   const targetSize = __mpf_argument_size(target);
   const converted = flattened.length === 1 && targetSize !== 1
     ? Array(targetSize).fill(flattened[0]) : flattened;
-  return __mpf_build_column_major(converted, target);
+  return representationRank === 0 ? converted[0] : __mpf_build_column_major(converted, target);
 }
-function __mpf_validate_argument(value, name, direction, dimensions, classConstraint, validators) {
+function __mpf_validate_argument(value, name, direction, dimensions, classConstraint, validators,
+                                 representationRank) {
+  if (!Number.isSafeInteger(representationRank) || representationRank < 0 ||
+      (representationRank !== 0 && representationRank !== dimensions.length))
+    __mpf_argument_failure(name, 'argument representation ABI');
   if (classConstraint === 1) {
     value = __mpf_argument_map(value, (item) => {
       if (__mpf_is_complex(item)) return item;
@@ -118,7 +132,7 @@ function __mpf_validate_argument(value, name, direction, dimensions, classConstr
   } else if (classConstraint === 3 && typeof value !== 'string') {
     __mpf_argument_failure(name, 'char class conversion');
   }
-  value = __mpf_argument_convert_size(value, name, direction, dimensions);
+  value = __mpf_argument_convert_size(value, name, direction, dimensions, representationRank);
   const shape = __mpf_argument_shape(value, name);
   const items = typeof value === 'string' ? [value] : __mpf_argument_flatten(value);
   const empty = __mpf_argument_size(shape) === 0;
@@ -128,8 +142,12 @@ function __mpf_validate_argument(value, name, direction, dimensions, classConstr
     const parameterized = Array.isArray(validatorCall);
     const validator = parameterized ? validatorCall[0] : validatorCall;
     const operand = parameterized ? validatorCall[1] : undefined;
-    if (!Number.isInteger(validator) || validator < 0 || validator > 26 ||
-        parameterized !== (validator >= 23) || (parameterized && validatorCall.length !== 2))
+    const expectedLength = validator === 27 ? 4 : 2;
+    if (!Number.isInteger(validator) || validator < 0 || validator > 27 ||
+        parameterized !== (validator >= 23) ||
+        (parameterized && validatorCall.length !== expectedLength) ||
+        (validator === 27 && (!Number.isInteger(validatorCall[3]) || validatorCall[3] < 0 ||
+                             validatorCall[3] > 3)))
       __mpf_argument_failure(name, 'validator call ABI');
     let valid = true;
     switch (validator) {
@@ -186,6 +204,16 @@ function __mpf_validate_argument(value, name, direction, dimensions, classConstr
       case 26: valid = !__mpf_is_complex(operand) && numericOrLogical(operand) &&
         (empty || items.every((item) => !__mpf_is_complex(item) && numericOrLogical(item) &&
           Number(item) <= Number(operand))); break;
+      case 27: {
+        const upper = validatorCall[2];
+        const flags = validatorCall[3];
+        const realPart = (item) => __mpf_is_complex(item) ? item.re : Number(item);
+        valid = numericOrLogical(operand) && numericOrLogical(upper) &&
+          (empty || items.every((item) => numericOrLogical(item) &&
+            ((flags & 1) ? realPart(item) > realPart(operand) : realPart(item) >= realPart(operand)) &&
+            ((flags & 2) ? realPart(item) < realPart(upper) : realPart(item) <= realPart(upper))));
+        break;
+      }
       default: valid = false; break;
     }
     if (!valid) __mpf_argument_failure(
