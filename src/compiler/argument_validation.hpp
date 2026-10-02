@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "expression_ast.hpp"
+#include "ir/ids.hpp"
 
 namespace mpf::detail {
 
@@ -79,6 +80,8 @@ enum class ArgumentValidator : std::uint8_t {
 
 enum class ArgumentValidatorOperandKind : std::uint8_t { numeric_literal, input_argument };
 
+[[nodiscard]] std::string_view argument_validator_name(ArgumentValidator validator) noexcept;
+
 // Exclusion bits are cumulative when Matlab supplies two bound flags. The source spelling
 // remains in the AST; semantic construction normalizes it once for both target backends.
 enum class ArgumentRangeBoundary : std::uint8_t {
@@ -135,6 +138,8 @@ struct ArgumentValidatorPlan {
   ArgumentValidator validator{ArgumentValidator::numeric};
   std::vector<ArgumentValidatorOperandPlan> operands;
   ArgumentRangeBoundary range_boundary{ArgumentRangeBoundary::inclusive};
+  HirNodeId source_call{};
+  HirNodeId source_callee{};
 };
 
 struct ArgumentDimensionConstraint {
@@ -214,7 +219,8 @@ struct ArgumentCallBoundary {
 [[nodiscard]] inline bool operator==(const ArgumentValidatorPlan& left,
                                      const ArgumentValidatorPlan& right) noexcept {
   return left.validator == right.validator && left.operands == right.operands &&
-         left.range_boundary == right.range_boundary;
+         left.range_boundary == right.range_boundary && left.source_call == right.source_call &&
+         left.source_callee == right.source_callee;
 }
 
 [[nodiscard]] inline bool operator==(const ArgumentValidationPlan& left,
@@ -319,6 +325,9 @@ struct ArgumentCallBoundary {
     return false;
   }
   for (const auto& validator : plan.validators) {
+    if (!validator.source_call.valid() || !validator.source_callee.valid() ||
+        validator.source_call == validator.source_callee)
+      return false;
     const auto operand_count = argument_validator_operand_count(validator.validator);
     if (!operand_count.has_value() || validator.operands.size() != *operand_count) return false;
     if (static_cast<std::uint8_t>(validator.range_boundary) >
