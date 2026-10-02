@@ -84,7 +84,7 @@ class Parser final {
       : lines_(std::move(lines)),
         diagnostics_(std::move(diagnostics)),
         version_(version),
-        builder_(SourceLanguage::python, &lex_python_expression, resource) {
+        builder_(SourceLanguage::python, &lex_python_expression, resource, version) {
     builder_.reserve(lines_.size(), lines_.size() * 2U);
   }
 

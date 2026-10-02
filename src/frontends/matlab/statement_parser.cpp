@@ -108,7 +108,7 @@ class Parser final {
       : lines_(std::move(lines)),
         diagnostics_(std::move(diagnostics)),
         version_(version),
-        builder_(SourceLanguage::matlab, &lex_matlab_expression, resource) {
+        builder_(SourceLanguage::matlab, &lex_matlab_expression, resource, version) {
     builder_.reserve(lines_.size(), lines_.size() * 2U);
     std::unordered_set<std::string> assigned_names;
     for (const auto& line : lines_) {

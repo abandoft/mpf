@@ -161,6 +161,7 @@ class ArenaProgram {
   }
 
   SourceLanguage language{SourceLanguage::automatic};
+  LanguageVersion language_version{};
   std::pmr::vector<AstNodeRecord> records;
   std::pmr::vector<ArenaExpression<LanguageTag>> expressions;
   std::pmr::vector<ArenaStatement<LanguageTag>> statements;

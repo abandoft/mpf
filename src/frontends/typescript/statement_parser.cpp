@@ -51,7 +51,7 @@ class Parser final {
          std::pmr::memory_resource* resource)
       : tokens_(std::move(lexed.tokens)),
         diagnostics_(std::move(lexed.diagnostics)),
-        builder_(SourceLanguage::typescript, &lex_typescript_expression, resource) {
+        builder_(SourceLanguage::typescript, &lex_typescript_expression, resource, version) {
     (void)version;
     scopes_.emplace_back();
     const_scopes_.emplace_back();

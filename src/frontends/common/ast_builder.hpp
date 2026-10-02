@@ -22,9 +22,10 @@ class FrontendAstBuilder final {
   using Statement = ArenaStatement<LanguageTag>;
 
   FrontendAstBuilder(const SourceLanguage language, const ExpressionLexer expression_lexer,
-                     std::pmr::memory_resource* resource)
+                     std::pmr::memory_resource* resource, const LanguageVersion version = {})
       : expression_lexer_(expression_lexer), program_(resource) {
     program_.language = language;
+    program_.language_version = version;
   }
 
   void reserve(const std::size_t statement_hint, const std::size_t expression_hint) {

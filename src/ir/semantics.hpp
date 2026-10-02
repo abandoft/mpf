@@ -1130,6 +1130,7 @@ template <typename Shape>
 }
 
 struct Profile {
+  LanguageVersion language_version{};
   Truthiness truthiness{Truthiness::native};
   LogicalResult logical_result{LogicalResult::boolean};
   Equality equality{Equality::native};

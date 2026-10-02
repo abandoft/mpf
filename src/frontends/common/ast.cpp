@@ -49,6 +49,7 @@ class HirLowerer final {
     hir::LoweringResult result;
     result.program.language = source_.language;
     result.program.semantics = semantic_profile(source_.language);
+    result.program.semantics.language_version = source_.language_version;
     result.program.statements.reserve(source_.roots.size());
     for (const auto root : source_.roots) result.program.statements.push_back(statement(root));
     result.program.node_count = ids_.count();
@@ -421,7 +422,8 @@ std::vector<Diagnostic> verify_typed_ast(const ArenaProgram<Tag>& ast,
 template <typename Tag>
 std::string dump_typed_ast(const ArenaProgram<Tag>& ast, const std::string_view language) {
   std::ostringstream output;
-  output << "ast " << language << " nodes=" << ast.node_count() << '\n';
+  output << "ast " << language << " nodes=" << ast.node_count()
+         << " version=" << ast.language_version.major << '.' << ast.language_version.minor << '\n';
   for (std::size_t index = 1; index < ast.records.size(); ++index) {
     const auto& record = ast.records[index];
     output << '%' << index << ' ' << (record.kind == AstNodeKind::expression ? "expr" : "stmt")
