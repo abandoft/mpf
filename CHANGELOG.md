@@ -17,6 +17,8 @@
 - Fixed Matlab calls that receive only the first or several initial outputs, preserving normalized result types and shapes without truncating output validation.
 - Unused Matlab function calls now avoid unnecessary first-output projections in both targets while preserving execution, validation, exceptions, and implicit command results. Discarded C++ expressions also compile with strict warnings.
 - Translation is faster for branch-heavy functions, including Matlab functions with many early returns and output-validation declarations.
+- Matlab local functions and positional defaults can now use `nargout` and `nargout()` to read the current invocation's requested output count, including discarded calls, partial results, and independently nested recursive calls.
+- Bare Matlab local calls now support omitted default inputs and resolve names within their actual scope, so an unrelated same-named parameter no longer suppresses a function call.
 
 ## 0.7.9
 
