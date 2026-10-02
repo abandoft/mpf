@@ -76,11 +76,17 @@ custom validator 的职责依据官方 [validation functions](https://www.mathwo
 捕获返回边界失败，正文异常逃逸也不执行输出验证。literal/input 阈值保留当前 workspace
 读取，单输出与静态部分多输出调用保持转换结果前缀的 type/shape；函数完整签名与全部
 已赋值输出校验不被截断，包括单接收/丢弃调用中的未请求输出失败。条件未赋值输出、
-零接收/忽略位的 callee ABI 和一般动态 ABI 尚未完成独立验收，不将这个纵切面
+忽略位的 callee ABI 和一般动态 ABI 尚未完成独立验收，不将这个纵切面
 表述为完整输出验证支持。当前 source demand 与所选值 arity 已分离：语句为 0、
 普通表达式/default 为 1、静态多接收为位置数，命令隐式 `ans` 不改变需求数。无 receiver
-语句在两端省略无用首值投影，但保留调用、输出验证及异常；需求尚未传入 callee，
-`nargout`、条件 presence 和 `~` 接收槽仍不支持。
+语句在两端省略无用首值投影，但保留调用、输出验证及异常。开发分支已把需求作为独立
+typed count 传入每次 local invocation；函数体和 positional default 可使用裸 `nargout`
+或 `nargout()`，递归调用各自隔离。`nargout(fun)`、条件 presence 和 `~` 接收槽仍不支持；
+script 顶层 query 或不支持的 introspection 以 `MPF2059` 拒绝。源同名变量/formal/function
+仍按正常 binding 处理。裸 local 调用在名称绑定后规范化，支持全部输入可省略的函数；
+其他 scope 中的同名参数不再影响调用，required input 缺失仍报告普通 arity 错误。
+生成函数的外部入口默认单输出 count；外部调用若需 0/N，须在全部逻辑实参后显式
+传入 count。当前私有生成 ABI 不等同于稳定外部绑定框架。
 
 当前 class slice 为 `double`、`logical` 和 char vector；validator slice 为 `mustBeNumeric`、`mustBeNumericOrLogical`、`mustBeFloat`、`mustBeReal`、`mustBeFinite`、`mustBeNonNan`、`mustBePositive`、`mustBeNonpositive`、`mustBeNonnegative`、`mustBeNegative`、`mustBeNonzero`、`mustBeInteger`、`mustBeNonempty`、`mustBeScalarOrEmpty`、`mustBeVector`、`mustBeRow`、`mustBeColumn`、`mustBeMatrix`、`mustBeNonmissing`、`mustBeNonzeroLengthText`、`mustBeText`、`mustBeTextScalar` 和 `mustBeValidVariableName`。当前不把这个 slice 表述为完整 `arguments` 兼容：name-value/`Repeating`、参数化标准/custom validator、sparse/file/folder validator、无显式 dimensions 的动态 rank numeric/logical class、一般 char/string/class conversion 和 C++ 外部调用的动态 adapter 仍失败关闭。权威产品任务见 [TODO](../TODO.md)，语言规则参考 Matlab [`arguments`](https://www.mathworks.com/help/matlab/ref/arguments.html) 与 [validation functions](https://www.mathworks.com/help/matlab/matlab_prog/argument-validation-functions.html)。
 

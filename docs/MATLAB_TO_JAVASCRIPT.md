@@ -18,7 +18,7 @@ renderer、source map 和差分框架能够工作，但还不能安全承载一�
 | 稀疏归约 | static real/logical rank-2 CSC `all`/`any` 的默认维度、常量 `dim`/`vecdim`、`'all'`、高于 rank 的 no-op 维度与零 extent；非标量结果保持 canonical logical CSC，全维结果返回 full logical scalar；双目标 O(nnz + output-extent) runtime 按需装载且不物化 dense source | 动态或 complex sparse source、动态 `dim`/`vecdim` 与未知 rank 的维度保持型 sparse reduction |
 | 数据模型 | `NumericClass` 的 logical/signed-integer/binary64 与独立 real/complex complexity、boolean、字符文本的当前子集、矩形嵌套数组、静态 real/logical/complex rank-2 canonical CSC（包含零 extent）与类型化 `SparseConstructionPlan`/`SparseIndexPlan`/`SparseMutationPlan`/`SparseReshapePlan`/`SparseArithmeticPlan`/`SparseElementwisePlan`/`SparseLogicalPlan`/`ReductionStoragePolicy`/`sparse_csc_multiply`/`sparse_csc_scale`/`sparse_csc_power` storage policy 与 `MatrixExponentPolicy`、带不可枚举 shape descriptor 的 JavaScript 零 extent 数组；JavaScript complex object 与 C++ `std::complex<double>` ABI | single/其余整数 class、一般动态 sparse shape、string、cell、struct、table、datetime、对象 |
 | 数组语义 | 1-based、列主序、规范 `0×0` empty、静态零 extent reshape/transpose/broadcast/section/growth、静态 N 维 reshape/section，以及静态 shape 或 local-function runtime rank/extent 的 compatible-size 隐式扩展；complex 数组逐元素/broadcast、索引/写入/reshape/转置；二维 real/complex 矩阵乘法、rank-aware real/complex rectangular solve、real/complex 稠密方阵 solve 与 integer power、广义 selector 读写、vector/matrix/N 维多轴扩容、未知参数的 runtime scalar/numeric/logical/range selector、overwrite-or-grow 动态覆盖/间隙扩容/单轴删除/N 维页扩容，以及 `all`/`any` 的 N 维/零 extent 归约、符合 null-assignment 规则的单轴删除；当前 JavaScript 输出对 dense name-to-name assignment/local-function 参数使用显式 value-copy plan，对可能增长的 dense dynamic section 和 sparse indexed mutation 使用事务式 root replacement；稀疏子集支持全部 R2024 constructor form、scalar expansion、real/complex 重复项求和/抵消、logical 重复项 `any` 聚合、保持值域的 transpose/index/mutation/reshape/`full`、scalar/linear/submatrix indexing、indexed assignment、重复下标 last-write-wins、zero erase、静态扩容与合法 null deletion，并按 Matlab 左除 RHS/右除 LHS、sparse×sparse/mixed matrix product、双向 sparse/scalar 缩放、非负 safe-integer sparse square power、compatible-size sparse `.*` scalar/dense/sparse、static compatible-size sparse `+`/`-` 及 sparse logical storage 规则保持零 extent 与结果 storage；sparse-sparse `+`/`-`、`~S`、sparse AND 与 sparse-sparse OR 保持 CSC，mixed sparse arithmetic 或 mixed OR 物化 dense | 可跨函数携带不可结构恢复 shape 的统一动态 NDArray/typed-array ABI、其余 sparse 操作与非整数幂、完整动态 bounds，以及一般 NDArray/view 的 copy-on-write、escape 和 alias 契约 |
-| 函数 | 文件级 local function、前向调用、单/多输出、保持声明输出的函数提前 `return`；显式 scalar/N 维 `double`/`logical`/char-vector arguments、ordered optional default、input/output validation、scalar expansion、row/column reshape、23 个无参数标准 validator | 完整 name-value/`Repeating`/parameterized/custom arguments、动态 rank/class ABI、`nargin`/`nargout`、`varargin`/`varargout`、function handle、anonymous/nested closure、workspace |
+| 函数 | 文件级 local function、前向调用、单/多输出、保持声明输出的函数提前 `return`；显式 scalar/N 维 `double`/`logical`/char-vector arguments、ordered optional default、input/output validation、scalar expansion、row/column reshape、23 个无参数标准 validator；开发分支另支持当前调用 `nargout`/`nargout()` 与 default-input 裸调用 | 完整 name-value/`Repeating`/parameterized/custom arguments、动态 rank/class ABI、`nargin`/`nargout(fun)`、`varargin`/`varargout`、function handle、anonymous/nested closure、workspace |
 | JavaScript runtime | 内嵌数组、feature-gated complex object/numeric dispatch、checked non-enumerable shape descriptor、canonical CSC 直接 typed triplet construction/sparse transpose/indexing 与事务式 assignment/deletion、CSC×CSC scatter-accumulator、两类 nonzero-driven mixed matrix-product kernel、sparse arithmetic CSC-column merge/mixed dense materialization、五种 sparse element-wise nonzero-driven kernel，以及 sparse logical NOT/AND/OR 的 CSC 候选扫描与 mixed-OR dense materialization、CSC repeated-squaring sparse power、广义 selector/section、动态 selector 分类与 copied-root overwrite-or-grow、zero-extent reshape/broadcast/transpose、结构感知实数方阵/矩形求解、CSC 三对角/行主元 LU 方阵求解、Hermitian/dense complex 方阵与 CPQR 复数矩形求解、real/complex 矩阵幂，以及按需加载的私有-tag 冻结异常记录、常用 scalar 格式化、原始异常、stack policy、不可变 cause chain 和 basic/extended report runtime | 有版本的 Matlab runtime 包、统一 NDArray ABI、其余 sparse runtime、公开 cause/stack/correction 对象、完整格式化/数值兼容层、依赖与许可证审计 |
 | 验证 | Node.js、生成 C++、oracle、source map、专项 fuzz seed、动态增长失败回滚与 mutation-plan 污染拒绝、跨层 storage 损坏事实拒绝、Matlab 编译性能发布阈值 | 授权 Matlab reference runner；真实项目 corpus；运行时性能、数值精度和内存发布阈值 |
 
@@ -194,7 +194,7 @@ nonmissing 与 variable-name 组，`mustBeRow`/`mustBeColumn`/`mustBeMatrix` 则
 runtime 同步处理 logical、character、empty value、complex-storage realness，以及 R2024b 的 63 字符
 变量名和关键字限制。
 
-后续开发分支以 Matlab AST v9、Semantic v40、MIR v50 与双目标 LIR v60 接入
+后续开发分支以 Matlab AST v10、Semantic v41、MIR v51 与双目标 LIR v61 接入
 `mustBeGreaterThan`/`mustBeGreaterThanOrEqual`/`mustBeLessThan`/`mustBeLessThanOrEqual`。
 threshold 支持有限 binary64 literal 和前序 scalar input，output validator 可引用 input；未定
 类型的 input 需要显式 singleton dimensions，并保留 runtime numeric/logical/complex-storage
@@ -230,19 +230,19 @@ grammar、来源与绑定基础称为 custom validator 执行已完成。
 
 ## 产品语义边界
 
-当前 MIR v50 已把 positional default 放入真实 absence-guarded CFG，默认表达式的 local
+当前 MIR v51 已把 positional default 放入真实 absence-guarded CFG，默认表达式的 local
 call、IO、可能抛错操作和嵌套短路只在缺失路径执行，之后合并 formal storage version。
 参数存储在 default lowering 前初始化；优化的 instruction/block compaction 同步重映射
-default flow identity。LIR v60 的两端私有 planner 从 MIR provenance 选择 undefined guard/
+default flow identity。LIR v61 的两端私有 planner 从 MIR provenance 选择 undefined guard/
 optional resolution，并分别拒绝损坏来源、执行 form 与序列；不是目标层重建 default flag。
 `argument_default_control_flow.m` 在双目标验证 supplied/omitted/empty、异常和 logical
 scalar/array，并修复 C++ bool proxy 的转换/验证问题。JavaScript `disp`/`display` 对 logical
 标量使用数字显示，规则与[官方显示选项](https://www.mathworks.com/help/matlab/ref/formatteddisplaytext.html)
 一致；不修改 Python print 或冒称完整 Matlab object/array display 已完成。
-MIR v50 已将标准输入 class/shape 正规化、typed formal 写入与每条 validator 驻留到真实 CFG，
+MIR v51 已将标准输入 class/shape 正规化、typed formal 写入与每条 validator 驻留到真实 CFG，
 顺序为 raw supplied/default merge→正规化→formal publication→validator→下一参数。
 raw borrowed storage 与已验证 local formal 分离；literal/前序参数 threshold、内存访问和可能
-抛错 effect 可由独立分析读取。LIR v60 两端分别规划该 resident entry sequence，缺失/错序/污染
+抛错 effect 可由独立分析读取。LIR v61 两端分别规划该 resident entry sequence，缺失/错序/污染
 投影在发射前拒绝，优化会同步重映射身份。标准输出已接入 shared exit；表达式 threshold、
 自定义 validator 执行与完整 output-demand ABI 仍必须继续实现；这不是完整官方 `arguments` 支持。
 
@@ -254,12 +254,12 @@ default 的 IO 抑制、supplied default 跳过、前序 logical 转换结果、
 
 输出转换现区分函数 workspace 与 caller result：例如声明 `(1,1) logical` 的 output 可以
 在 body 中依次计算 2、3，caller 接收 logical true 并按 Matlab 显示为 1。输入/输出同名
-不会丢失已初始化参数。Semantic v40 传播转换后的 type/shape，双目标 LIR v60 独立规划
+不会丢失已初始化参数。Semantic v41 传播转换后的 type/shape，双目标 LIR v61 独立规划
 materialization，`argument_output_conversion.m` 固定多输出、scalar expansion、wildcard
 列主序 reshape、complex logical/double 与 size-free validator；转换后的值才进入 validator。
-MIR v50 的公共输出 CFG 现汇合正常/提前 return，并在 body try/catch 之外驻留当前 workspace
+MIR v51 的公共输出 CFG 现汇合正常/提前 return，并在 body try/catch 之外驻留当前 workspace
 读、normalization、private typed store、threshold 与 validator，最后返回单值或 typed tuple。
-JS/C++ 私有 LIR v60 独立选择共享出口控制与 materialization，输出边界只序列化一次。
+JS/C++ 私有 LIR v61 独立选择共享出口控制与 materialization，输出边界只序列化一次。
 `argument_output_control_flow.m` 固定循环 return、catch return、嵌套 try/catch、body 异常逃逸、
 阈值正文重新赋值、同名 input/output、首错顺序和单输出选择；不以目标描述符代替真实 MIR。
 单/部分多输出调用的 MIR type/shape 只保存请求前缀，不截断 callee 完整签名或输出验证。
@@ -274,20 +274,25 @@ JS/C++ 私有 LIR v60 独立选择共享出口控制与 materialization，输出
 
 | 源调用 | 当前值接收合同 | 待完善边界 |
 |---|---|---|
-| `f();` | source demand 0，省略无用首值投影，仍验证已赋值输出 | callee 需求 ABI、条件未赋值输出与完整 `ans` |
-| `f;`（local command） | source demand 0、隐式 receiver 保留首值供 `ans` 使用 | callee 需求 ABI、条件 presence |
+| `f();` | callee count 0，省略无用首值投影，仍验证已赋值输出 | 条件未赋值输出与完整 `ans` |
+| `f;`（local command） | callee count 0、隐式 receiver 保留首值供 `ans` 使用 | 条件 presence |
 | `a=f();` | MIR scalar/array 首值及目标 first-result form | 被请求但未赋值输出的错误 |
 | `[a,b]=f();` | MIR 二元 type/shape 前缀，目标单次调用/接收 | 条件 presence 与一般动态 ABI |
 | `[a,~]=f();` | 当前不支持 | 忽略位仍占 output-demand 位置，不创建普通变量 |
 | 全部接收 | 完整 typed result inventory | 条件 presence 与一般 mutable CFG join |
 
-Semantic v40/MIR v50 已将 source demand 与 MIR value arity 分开，LIR v60 两端拥有
+Semantic v41/MIR v51 已将 source demand 与 MIR value arity 分开，LIR v61 两端拥有
 独立 invocation/receiver 与 discarded-result 计划；默认表达式、nested actual 与 validator
 调用也有各自上下文，镜像污染不能靠 replanning 绕过校验。`output_demand.m` 在两端
 执行副作用、默认参数跳过、隐式 `ans`、正文异常和无接收的已赋值输出验证。
-下一步必须将需求真正传入 callee，不能把 `requested_results=1` 当作所有裸调用的
-`nargout`，也不能将未赋值值初始化为 0 来绕过 presence 检查。
-完整需求 ABI、条件输出、忽略位、R2024 执行对照和一般 mutable join 继续按 TODO 验收；
+MIR v51 已通过独立 typed frame/call immediate 传入 count，函数体/default 的裸 `nargout`
+与 `nargout()` 读取自身调用，递归调用相互隔离。私有 JS/cpp ABI 各自拥有尾部 count
+formal，外部默认 1；0/N 必须由外部调用适配器显式指定，不猜测目标接收上下文。
+`InvocationDemand` 与 logical actual/signature/default ordinal 分开验证，不把
+`requested_results=1` 当作裸调用的 `nargout`。裸调用在 lexical binding 后规范化，带
+default 的输入按普通 omission 处理，其他 scope 的同名参数不再影响函数调用。
+不能将未赋值值初始化为 0 来绕过 presence 检查。`nargout(fun)`、条件输出、忽略位、
+R2024 执行对照和一般 mutable join 继续按 TODO 验收；
 0.8.0 在这些输出需求验收完成前不打发布标签。
 
 Matlab frontend 必须按照 Matlab 语义建立规范事实，不能先生成 JavaScript 再让其他目标
@@ -360,7 +365,8 @@ P0 完成前，产品定位保持“实验性已验证子集”。以下顺序�
 
 - [ ] 区分 script caller/base workspace、普通 function 独立 workspace 和 nested function 共享 workspace
 - [ ] 实现 anonymous/nested function、function handle、捕获、逃逸和生命周期
-- [ ] 实现 `nargin`/`nargout`、`varargin`/`varargout`、缺省输出、逗号分隔列表和多输出忽略位
+- [x] 当前 local invocation 的 `nargout`/`nargout()`：独立 typed count frame 与双目标尾部 ABI，支持 default、0/1/N、递归隔离、binding 遮蔽、逐层损坏拒绝与源码映射
+- [ ] 实现 `nargin`/`nargout(fun)`、`varargin`/`varargout`、缺省输出、逗号分隔列表和多输出忽略位
 - [ ] 建立 `global`/`persistent` 的 module/runtime storage 与初始化顺序
 - [ ] 将动态调用、`eval`、`assignin`、`load` 等影响名称/工作区的行为标记为显式 effect 和 capability
 
