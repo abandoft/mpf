@@ -57,8 +57,11 @@ TypeScript frontend 已注册，当前 manifest 范围为 1.0—6.0，并有 Nod
 开发分支的标准 validator callee 已进入真实 AST/HIR 调用与 NameTable：文件内 local function
 以及参数、输出和赋值绑定优先于同名标准候选。当前尚不能执行这些 custom/source binding，
 编译以 `MPF2062` 拒绝并不输出目标代码；未遮蔽的标准 validator 继续使用已验证 runtime。
-未知 custom callee、一般阈值 expression、绑定后版本/arity 检查和 typed validation-sequence
-MIR 尚未完成。名称规则依据官方 [function precedence](https://www.mathworks.com/help/matlab/matlab_prog/function-precedence-order.html)，
+命名 custom callee 与一般有序参数 expression 已进入 AST，parser 不再按 builtin spelling、
+version、arity 或 scalar-bound ABI 拒绝它们；标准门禁在 NameTable 选中 builtin 后由 Analyzer
+执行。一般阈值 expression 的运行 ABI、qualified/class/path 解析和 typed validation-sequence
+MIR 执行尚未完成；无已支持 builtin 或 local definition 的名称按普通未解析名称报错。
+名称规则依据官方 [function precedence](https://www.mathworks.com/help/matlab/matlab_prog/function-precedence-order.html)，
 custom validator 的职责依据官方 [validation functions](https://www.mathworks.com/help/matlab/matlab_prog/argument-validation-functions.html)；
 这不表示已支持完整 path、package、nested function 或 class 解析。
 
