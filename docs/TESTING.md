@@ -54,7 +54,7 @@ expansion、row/column reshape、23 个无参数 validator、source map、JavaSc
 编译、runtime rejection、fuzz seed 和独立性能 workload 共同覆盖当前纵切面。name-value、
 Repeating、parameterized/custom validator 与动态 rank/class ABI 继续使用负向测试保持失败关闭。
 
-后续开发分支的关系 validator 使用 Matlab AST v9、Semantic v38、MIR v47 与双目标 LIR v56。
+后续开发分支的关系 validator 使用 Matlab AST v9、Semantic v38、MIR v48 与双目标 LIR v57。
 定向测试覆盖四种比较、literal/前序 input/output reference、optional access、source map，以及
 literal/ordinal/formal shape 和目标 opcode/token/symbol/access form 的独立损坏拒绝。双目标
 执行覆盖 strict/非 strict 边界、complex-zero-imag storage、NaN threshold 和首错顺序；另以
@@ -96,13 +96,23 @@ execution policy、C++ raw-input ABI/type/raw-name 临时身份、input form/ran
 optional local access 和 ordered-call form 的损坏必须在发射前拒绝。纯实参调用与 Python ABI
 保持 direct/native form；同一 fixture 另进入严格生成 C++ 编译，fuzz seed 覆盖早期失败与缺省路径。
 
+`argument_entry_flow_tests.cpp` 另从 MIR 本体检查 raw borrowed storage 与 typed local formal
+分离、逐声明 default→normalization→publication→validator CFG、binary64 threshold SSA、
+前序 formal 引用与重复 bound 的精确去重 read、allocate/may-fail/control effect 和真实 memory
+dependence。27 组 MIR mutation 独立破坏 inventory、storage、rank、SSA、memory access、顺序、
+异常旁路、source owner、稀疏属性及阈值定义；两个目标再分别拒绝 stale private plan 和 replanned
+corrupt source projection。优化测试固定 instruction/block/shape remap 与确定性 dump。
+新 fuzz seed `arguments_resident_entry_sequence` 保留三阶段 default/threshold/range 组合；
+编译期布局断言确保新增的稀疏 operation ID 不扩大既有稠密 instruction attribute 行。
+
 validator source-call 回归逐项覆盖 28 个标准候选的上下文 builtin identity、bare/explicit 的
 callee/formal/threshold/quoted-flag AST 所有权、输入/输出 declaration 顺序，以及 missing/reordered/
 foreign/mismatched call、最近 scope 遮蔽、普通 intrinsic 泄漏、semantic marker/source ID、reindex、
 MIR 独立 binding inventory 和双目标私有计划损坏。local function/formal/result/assignment 遮蔽
 在两端都必须给出 `MPF2062`、不产生目标源码，也不能混入内部 `MPF0005`。两个新 fuzz seed
 分别固定 source-call ownership 和同名 validator 遮蔽。尚未以原生 Matlab 执行 custom validator；
-当前合同是阻止标准 spelling 误译，真实验证调用 CFG 尚未完成。
+当前 source binding 合同阻止标准 spelling 误译；标准输入验证已驻留 MIR，custom/output 调用
+CFG 仍未完成。
 
 命名 validator grammar 回归另覆盖未知 callee、bare/explicit、零实参与任意已支持的嵌套参数
 表达式、空实参/分隔符恢复，以及同名 local callee 在旧源版本或不同 arity 下不受标准 gate
@@ -120,7 +130,7 @@ deployment target。后者同时进入 CMake cache 和 compiler-identification �
 
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 392 项，零失败 |
+| C++ 单元与集成测试 | 401 项，零失败 |
 | CTest | 当前 dev preset 为 206 项普通测试；包含 123 项 differential、1 项 C++ 单元/集成、63 项生成 runtime 拒绝、8 项生成 C++ 编译，以及 fuzz、架构、发布脚本、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
 | Differential corpus | Python 22、Fortran 19、Matlab 78、TypeScript 4，共 123 个 case |
 | 工具完整环境执行路径 | 291 条程序路径，另有每 case 一条 oracle |
