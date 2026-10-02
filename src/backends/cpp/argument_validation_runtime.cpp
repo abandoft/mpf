@@ -80,7 +80,12 @@ template <typename T, typename Predicate>
 bool argument_all(const T& value, const Predicate& predicate) {
   if constexpr (argument_is_vector<T>::value) {
     return std::all_of(value.begin(), value.end(), [&](const auto& item) {
-      return argument_all(item, predicate);
+      using Child = typename T::value_type;
+      if constexpr (argument_is_vector<Child>::value) {
+        return argument_all(item, predicate);
+      } else {
+        return predicate(static_cast<Child>(item));
+      }
     });
   } else {
     return predicate(value);
@@ -223,11 +228,14 @@ argument_nested_t<Scalar, Rank> convert_argument_impl(
   argument_shape(value, source_shape);
   const auto target_shape = resolve_argument_shape(source_shape, dimensions);
   const auto source_values = argument_flatten_column_major(value, source_shape);
+  using SourceScalar = argument_scalar_t<Source>;
   const auto target_size = argument_size(target_shape);
   if constexpr (Rank == 0U) {
     if (target_size != 1U || source_values.size() != 1U)
       throw std::invalid_argument("MPF Matlab scalar argument size is incompatible");
-    return convert(source_values.front());
+    // vector<bool> may expose a proxy even through const access (for example in libc++).
+    // Class conversion must see the language scalar type, not a container implementation type.
+    return convert(static_cast<SourceScalar>(source_values.front()));
   } else {
     if (target_shape.size() != Rank)
       throw std::invalid_argument("MPF Matlab argument rank is incompatible");
@@ -235,7 +243,7 @@ argument_nested_t<Scalar, Rank> convert_argument_impl(
     for (std::size_t linear = 0U; linear < target_size; ++linear) {
       const auto source_index = source_values.size() == 1U ? 0U : linear;
       set_argument_target(result, argument_coordinates(linear, target_shape), 0U,
-                          convert(source_values.at(source_index)));
+                          convert(static_cast<SourceScalar>(source_values.at(source_index))));
     }
     return result;
   }

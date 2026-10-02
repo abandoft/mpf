@@ -206,8 +206,9 @@ class Renderer final {
       const bool optional = plan.ordinal < statement.function_abi.parameters.size() &&
                             statement.function_abi.parameters[plan.ordinal].passing ==
                                 cpp::lir::ParameterPassing::optional_reference;
-      if (plan.has_default) {
-        mark({plan.line, 1U}, statement.origin);
+      const auto& default_flow = statement.plan.default_flows[validation];
+      if (default_flow.form == cpp::lir::ParameterDefaultForm::optional_resolve) {
+        mark({plan.line, 1U}, default_flow.source.source);
         indentation();
         output_ << parameter << ".resolve([&]() { return ";
         const auto default_form = statement.plan.argument_defaults[validation];
@@ -229,7 +230,7 @@ class Renderer final {
         if (converts_default) {
           output_ << plan.validated_rank << ">(";
         }
-        emit_expression(statement.parameter_defaults[plan.ordinal]);
+        emit_expression(statement.parameter_defaults[default_flow.source.parameter]);
         if (converts_default) {
           output_ << ", ";
           emit_argument_dimensions(plan.dimensions);
