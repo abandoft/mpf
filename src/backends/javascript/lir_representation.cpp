@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "argument_entry_plan.hpp"
+#include "argument_output_plan.hpp"
 #include "backends/common/argument_entry_source.hpp"
 #include "backends/common/parameter_default_source.hpp"
 #include "backends/common/source_segments.hpp"
@@ -1693,6 +1694,7 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
   result.argument_validators = plan_argument_validators(statement);
   result.default_flows = plan_parameter_defaults(statement);
   result.argument_entries = plan_argument_entries(statement);
+  result.argument_outputs = plan_argument_outputs(statement);
   switch (statement.kind) {
     case StatementKind::declaration:
       result.target_access = variable_access(context, statement.name);
@@ -1923,7 +1925,8 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
       left.return_names != right.return_names ||
       left.argument_validators != right.argument_validators ||
       left.default_flows != right.default_flows ||
-      left.argument_entries != right.argument_entries) {
+      left.argument_entries != right.argument_entries ||
+      left.argument_outputs != right.argument_outputs) {
     return false;
   }
   for (std::size_t index = 0; index < left.assignment_leaves.size(); ++index) {

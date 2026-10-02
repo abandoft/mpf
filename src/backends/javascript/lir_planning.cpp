@@ -244,6 +244,7 @@ const char* temporary_stem(const lir::TemporaryRole role) noexcept {
     case lir::TemporaryRole::range_stop: return "stop";
     case lir::TemporaryRole::range_step: return "step";
     case lir::TemporaryRole::range_cursor: return "cursor";
+    case lir::TemporaryRole::matlab_output: return "validated_output";
   }
   return "temporary";
 }
@@ -455,6 +456,12 @@ void plan_statement_resources(lir::SemanticProgram& program,
         }
       }
     }
+    if (statement.kind == StatementKind::function &&
+        std::any_of(statement.argument_validations.begin(), statement.argument_validations.end(),
+                    [](const auto& plan) { return plan.direction == ArgumentDirection::output; })) {
+      for (std::size_t output = 0U; output < statement.return_names.size(); ++output)
+        add_temporary(program, used, statement.id, lir::TemporaryRole::matlab_output, output);
+    }
     if (statement.kind == StatementKind::select_case) {
       add_temporary(program, used, statement.id, lir::TemporaryRole::select_value);
     } else if (statement.kind == StatementKind::multi_assignment && statement.has_target_pattern) {
@@ -561,6 +568,13 @@ void verify_statement_resources(const lir::SemanticProgram& program,
                 "JavaScript LIR return symbol contract is inconsistent");
     }
     const auto function = statement.kind == StatementKind::function;
+    if (function &&
+        std::any_of(statement.argument_validations.begin(), statement.argument_validations.end(),
+                    [](const auto& plan) { return plan.direction == ArgumentDirection::output; })) {
+      for (std::size_t output = 0U; output < statement.return_names.size(); ++output)
+        require_temporary(program, statement.id, lir::TemporaryRole::matlab_output, output,
+                          expected, names, diagnostics, {statement.line, 1U});
+    }
     if (function != statement.function_abi.valid || function != statement.function_scope.valid ||
         (function && statement.function_abi.parameters.size() != statement.parameters.size()) ||
         (!function &&

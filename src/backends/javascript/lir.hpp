@@ -86,7 +86,8 @@ enum class TemporaryRole : std::uint8_t {
   range_start,
   range_stop,
   range_step,
-  range_cursor
+  range_cursor,
+  matlab_output
 };
 
 struct TemporarySlot {
@@ -524,6 +525,19 @@ struct ArgumentEntryPlan {
   }
 };
 
+struct ArgumentOutputPlan {
+  std::size_t declaration{0U};
+  std::size_t ordinal{0U};
+  std::uint8_t class_opcode{0U};
+  std::size_t rank{0U};
+  std::vector<ArgumentDimensionConstraint> dimensions;
+  friend bool operator==(const ArgumentOutputPlan& left, const ArgumentOutputPlan& right) noexcept {
+    return left.declaration == right.declaration && left.ordinal == right.ordinal &&
+           left.class_opcode == right.class_opcode && left.rank == right.rank &&
+           left.dimensions == right.dimensions;
+  }
+};
+
 struct StatementPlan {
   bool valid{false};
   PrintValueForm print_value{PrintValueForm::direct};
@@ -557,6 +571,7 @@ struct StatementPlan {
   std::vector<std::vector<ValidatorCallPlan>> argument_validators;
   std::vector<ParameterDefaultPlan> default_flows;
   std::vector<ArgumentEntryPlan> argument_entries;
+  std::vector<ArgumentOutputPlan> argument_outputs;
 };
 
 enum class RuntimeFragment : std::uint8_t {
