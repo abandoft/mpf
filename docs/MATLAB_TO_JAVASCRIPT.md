@@ -210,6 +210,14 @@ output 验证和 optional input 复用相同绑定合同，双目标 runtime 使
 与可证明 row/column topology 的 SUM。不宣称一般矩阵 SUM 或动态 NDArray 已实现。
 尚未实现 threshold 任意表达式、其余参数化标准/custom validator、一般 range bound array/object
 或 name-value/Repeating。
+
+开发分支已修复 positional default 调用后定义 local function 时的依赖遗漏。Analyzer 按真实
+`SymbolId` 先分析 callee，C++ planner 独立按目标 callee identity 排序；普通调用与默认值调用
+共用同一 SCC 分析。`argument_default_functions.m` 在两个目标执行前向/间接调用、前序已验证
+参数引用和 supplied-argument 跳过 default 的副作用顺序。名称表另独立验证最近 scope 与 builtin
+绑定，长函数链不再使 graph analysis 发生 native recursion。标准 validator 自身的 callee
+目前仍未经过这条名称路径，local 同名 validator 遮蔽和完整有副作用 validator MIR CFG 仍须
+按 P0-A2 实现，不能把普通 default-call 修复称为 custom validator 已完成。
 一般 NDArray 表示与不可结构恢复动态零 extent、stride/view/owner/COW、限定名/package/class 与
 外部 path/project command 解析、完整 name-value/Repeating/其余 parameterized/custom `arguments`、公开 cause/stack/correction 属性、完整格式化表面、cell/struct/string
 仍不在当前可保持边界。因此文档、版本说明和 CLI
