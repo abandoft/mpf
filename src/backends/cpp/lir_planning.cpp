@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "backends/common/identifier_mangler.hpp"
+#include "function_dependencies.hpp"
 #include "mpf/version.hpp"
 
 namespace mpf::detail::cpp {
@@ -925,6 +926,7 @@ void verify_statement_resources(const lir::SemanticProgram& program,
 }  // namespace
 
 void plan_lir_resources(lir::SemanticProgram& program, const TranspileOptions& options) {
+  program.function_graph = analyze_function_dependencies(program.statements);
   program.temporaries.offsets = {0};
   program.temporaries.slots.clear();
   program.program_scope = expected_scope(program.statements, program.emission.lexical_block_scopes);
@@ -941,6 +943,14 @@ void plan_lir_resources(lir::SemanticProgram& program, const TranspileOptions& o
 
 void verify_lir_resources(const lir::SemanticProgram& program,
                           std::vector<Diagnostic>& diagnostics) {
+  const auto expected_graph = analyze_function_dependencies(program.statements);
+  if (program.function_graph.dependencies != expected_graph.dependencies ||
+      program.function_graph.definition_order != expected_graph.definition_order ||
+      program.function_graph.recursive != expected_graph.recursive) {
+    add_error(diagnostics, {1, 1},
+              "cpp LIR function dependency graph disagrees with resolved call identities");
+    return;
+  }
   verify_translation_unit(program, diagnostics);
   verify_scope(program.program_scope,
                expected_scope(program.statements, program.emission.lexical_block_scopes),

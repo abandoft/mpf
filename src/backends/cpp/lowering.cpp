@@ -8,7 +8,6 @@
 #include "backends/common/lir_builder.hpp"
 #include "backends/common/lir_dump.hpp"
 #include "bindings.hpp"
-#include "compiler/function_graph_generic.hpp"
 #include "compiler/numeric_contract.hpp"
 #include "ir/pass_manager.hpp"
 #include "lir_planning.hpp"
@@ -590,8 +589,6 @@ BackendLoweringResult lower(const mir::Program& program, const mir::AliasEffectT
   lowered->identifiers =
       allocate_identifiers(TargetLanguage::cpp, collect_identifier_inventory(*lowered));
   lowered->dependencies = semantic_program.dependencies;
-  lowered->function_graph =
-      build_function_dependency_graph_generic<lir::Expression, lir::Statement>(lowered->statements);
   plan_lir_resources(*lowered, options);
   plan_lir_representation(*lowered);
   PassManager<lir::SemanticProgram> passes(&verify_lir_stage);

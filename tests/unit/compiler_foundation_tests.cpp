@@ -6,7 +6,6 @@
 
 #include "compiler/argument_validation.hpp"
 #include "compiler/expression.hpp"
-#include "compiler/function_graph_generic.hpp"
 #include "compiler/numeric_contract.hpp"
 #include "frontends/common/registry.hpp"
 #include "frontends/fortran/expression_lexer.hpp"
@@ -22,6 +21,7 @@
 #include "frontends/typescript/statement_lexer.hpp"
 #include "ir/hir.hpp"
 #include "lexer/lexer.hpp"
+#include "semantic/function_dependencies.hpp"
 #include "source/source_manager.hpp"
 #include "source/source_text.hpp"
 #include "test_framework.hpp"
@@ -907,8 +907,9 @@ TEST_CASE("function dependency graph orders callees and detects semantic recursi
   REQUIRE(parsed.diagnostics.empty());
   auto lowered = mpf::detail::python_frontend().lower(std::move(parsed.ast));
   REQUIRE(lowered.diagnostics.empty());
-  const auto graph = mpf::detail::build_function_dependency_graph_generic<
-      mpf::detail::hir::Expression, mpf::detail::hir::Statement>(lowered.program.statements);
+  const auto names = mpf::detail::analyze_names(lowered.program);
+  REQUIRE(names.diagnostics.empty());
+  const auto graph = mpf::detail::analyze_function_dependencies(lowered.program, names.names);
   REQUIRE(graph.definition_order.size() == 4);
   REQUIRE(graph.definition_order[0] == 1);
   REQUIRE(graph.definition_order[1] == 0);

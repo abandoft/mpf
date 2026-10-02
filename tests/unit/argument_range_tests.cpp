@@ -10,7 +10,6 @@
 #include "backends/cpp/lir_representation.hpp"
 #include "backends/javascript/lir_planning.hpp"
 #include "backends/javascript/lir_representation.hpp"
-#include "compiler/function_graph_generic.hpp"
 #include "frontends/common/registry.hpp"
 #include "ir/dump.hpp"
 #include "ir/semantic_table.hpp"
@@ -312,8 +311,6 @@ TEST_CASE("cpp range LIR plans optional real-component access before serializati
       });
   program->source_language = mpf::SourceLanguage::matlab;
   program->runtime.require(cpp::lir::RuntimeFeature::argument_validation);
-  program->function_graph = mpf::detail::build_function_dependency_graph_generic<
-      cpp::lir::Expression, cpp::lir::Statement>(program->statements);
   cpp::plan_lir_resources(*program, mpf::TranspileOptions{});
   cpp::plan_lir_representation(*program);
   std::vector<mpf::Diagnostic> diagnostics;

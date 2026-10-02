@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "analyzer_internal.hpp"
-#include "compiler/function_graph_generic.hpp"
+#include "function_dependencies.hpp"
 
 namespace mpf::detail::semantic_internal {
 
@@ -403,8 +403,7 @@ Analyzer::Analyzer(Program& program, hir::SemanticTable& semantics, const NameTa
 
 std::vector<Diagnostic> Analyzer::analyze() {
   push_scope(names_.global_scope);
-  const auto function_graph =
-      build_function_dependency_graph_generic<Expression, Statement>(program_.statements);
+  const auto function_graph = analyze_function_dependencies(program_, names_);
   for (const auto index : function_graph.definition_order) {
     analyze_function(program_.statements[index]);
   }

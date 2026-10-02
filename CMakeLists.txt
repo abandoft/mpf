@@ -138,6 +138,7 @@ add_library(mpf_core STATIC
   src/semantic/analyzer.cpp
   src/semantic/expression_analyzer.cpp
   src/semantic/flow_analysis.cpp
+  src/semantic/function_dependencies.cpp
   src/semantic/name_analysis.cpp
   src/frontends/common/ast.cpp
   src/frontends/common/conformance.cpp
@@ -224,6 +225,7 @@ if(MPF_ENABLE_CPP_BACKEND)
     src/backends/cpp/complex_sparse_runtime.cpp
     src/backends/cpp/emitter.cpp
     src/backends/cpp/exception_runtime.cpp
+    src/backends/cpp/function_dependencies.cpp
     src/backends/cpp/lir_planning.cpp
     src/backends/cpp/lir_representation.cpp
     src/backends/cpp/lowering.cpp
