@@ -54,6 +54,9 @@ mpf_add_differential_case(
   matlab-argument-entry-order matlab examples/matlab/argument_entry_order.m
   "MPF Matlab argument 'first' failed mustBePositive MPF Matlab argument 'first' failed mustBePositive 21 22 MPF Matlab argument 'first' failed mustBePositive 31 7 44 5 3 2 3 7")
 mpf_add_differential_case(
+  matlab-output-demand matlab examples/matlab/output_demand.m
+  "111 111 4 111 4 111 4 1 111 4 111 222 4 222 9 333 MPF:Demand 444 MPF Matlab argument 'second' failed mustBePositive")
+mpf_add_differential_case(
   matlab-argument-relational-validators matlab
   examples/matlab/argument_relational_validators.m "3 2")
 mpf_add_differential_case(
