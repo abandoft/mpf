@@ -74,6 +74,13 @@ struct ArenaCaseSelector {
 };
 
 template <typename LanguageTag>
+struct ArenaArgumentValidatorCall {
+  std::size_t declaration{0U};
+  std::size_t validator{0U};
+  AstNodeId expression{};
+};
+
+template <typename LanguageTag>
 struct ArenaStatement {
   AstNodeId id{};
   StatementKind kind{StatementKind::expression};
@@ -106,6 +113,7 @@ struct ArenaStatement {
   std::vector<ParameterKind> parameter_kinds;
   std::vector<AstNodeId> parameter_defaults;
   std::vector<ArgumentDeclarationSyntax> argument_declarations;
+  std::vector<ArenaArgumentValidatorCall<LanguageTag>> argument_validator_calls;
   std::vector<ParameterIntent> parameter_intents;
   std::vector<bool> parameter_optional;
   std::vector<ValueType> parameter_types;

@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "compiler/argument_invocation.hpp"
 #include "ir/semantic_table.hpp"
 
 namespace mpf::detail {
@@ -164,6 +165,11 @@ class HirLowerer final {
       result.parameter_defaults.push_back(expression(value));
     }
     result.argument_declarations = std::move(node.argument_declarations);
+    result.argument_validator_calls.reserve(node.argument_validator_calls.size());
+    for (const auto& call : node.argument_validator_calls) {
+      result.argument_validator_calls.push_back(
+          {call.declaration, call.validator, expression(call.expression)});
+    }
     result.return_names = std::move(node.return_names);
     result.target_names = std::move(node.target_names);
     result.has_target_pattern = node.has_target_pattern;
@@ -370,6 +376,29 @@ std::vector<Diagnostic> verify_typed_ast(const ArenaProgram<Tag>& ast,
     optional(node.target_expression, node.has_target_expression, "target expression");
     for (const auto value : node.parameter_defaults) {
       if (value.valid()) self(self, value, AstNodeKind::expression);
+    }
+    const auto lookup_expression = [&](const AstNodeId value) -> const ArenaExpression<Tag>* {
+      const auto expression_index = static_cast<std::size_t>(value.value());
+      if (!value.valid() || expression_index >= ast.records.size()) return nullptr;
+      const auto& entry = ast.records[expression_index];
+      if (entry.kind != AstNodeKind::expression || entry.index >= ast.expressions.size())
+        return nullptr;
+      const auto& expression = ast.expressions[entry.index];
+      return expression.id == value ? &expression : nullptr;
+    };
+    if (!valid_argument_validator_calls(node, expected, lookup_expression)) {
+      add_error({node.line, 1},
+                "frontend AST validator call inventory disagrees with declarations");
+    }
+    for (const auto& call : node.argument_validator_calls) {
+      if (expected != SourceLanguage::matlab || node.kind != StatementKind::function ||
+          call.declaration >= node.argument_declarations.size() ||
+          (call.declaration < node.argument_declarations.size() &&
+           call.validator >= node.argument_declarations[call.declaration].validators.size()) ||
+          !call.expression.valid()) {
+        add_error({node.line, 1}, "frontend AST validator call has an invalid declaration owner");
+      }
+      if (call.expression.valid()) self(self, call.expression, AstNodeKind::expression);
     }
     for (const auto& selector : node.case_selectors) {
       if (selector.has_lower != selector.lower.valid() ||

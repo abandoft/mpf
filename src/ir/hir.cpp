@@ -4,6 +4,8 @@
 #include <string>
 #include <utility>
 
+#include "compiler/argument_invocation.hpp"
+
 namespace mpf::detail::hir {
 namespace {
 
@@ -63,8 +65,8 @@ void verify_expression(const Expression& expression, const std::size_t node_coun
 }
 
 void verify_statements(const std::vector<Statement>& statements, const std::size_t node_count,
-                       std::vector<bool>& seen, const std::string_view stage,
-                       std::vector<Diagnostic>& diagnostics) {
+                       const SourceLanguage language, std::vector<bool>& seen,
+                       const std::string_view stage, std::vector<Diagnostic>& diagnostics) {
   for (const auto& statement : statements) {
     const auto id = static_cast<std::size_t>(statement.id.value());
     if (id == 0 || id > node_count || seen[id]) {
@@ -116,12 +118,28 @@ void verify_statements(const std::vector<Statement>& statements, const std::size
     for (const auto& expression : statement.parameter_defaults) {
       verify_expression(expression, node_count, seen, stage, diagnostics);
     }
+    if (!valid_argument_validator_calls(statement, language,
+                                        [](const Expression& expression) { return &expression; })) {
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "validator call inventory disagrees with HIR declarations");
+    }
+    for (const auto& call : statement.argument_validator_calls) {
+      if (statement.kind != StatementKind::function ||
+          call.declaration >= statement.argument_declarations.size() ||
+          (call.declaration < statement.argument_declarations.size() &&
+           call.validator >= statement.argument_declarations[call.declaration].validators.size()) ||
+          call.expression.kind != ExpressionKind::call) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "validator call has an invalid declaration owner or expression kind");
+      }
+      verify_expression(call.expression, node_count, seen, stage, diagnostics);
+    }
     for (const auto& selector : statement.case_selectors) {
       verify_optional(selector.lower, selector.has_lower, "case lower bound");
       verify_optional(selector.upper, selector.has_upper, "case upper bound");
     }
-    verify_statements(statement.body, node_count, seen, stage, diagnostics);
-    verify_statements(statement.alternative, node_count, seen, stage, diagnostics);
+    verify_statements(statement.body, node_count, language, seen, stage, diagnostics);
+    verify_statements(statement.alternative, node_count, language, seen, stage, diagnostics);
   }
 }
 
@@ -138,7 +156,8 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
               "source division profile is inconsistent with the language");
   }
   std::vector<bool> seen(program.node_count + 1, false);
-  verify_statements(program.statements, program.node_count, seen, stage, diagnostics);
+  verify_statements(program.statements, program.node_count, program.language, seen, stage,
+                    diagnostics);
   const auto visited = static_cast<std::size_t>(std::count(seen.begin(), seen.end(), true));
   if (visited != program.node_count) {
     add_error(diagnostics, {1, 1}, stage, "node ID space has unreachable entries");

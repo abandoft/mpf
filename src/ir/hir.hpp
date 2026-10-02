@@ -36,6 +36,12 @@ struct CaseSelector {
   bool range{false};
 };
 
+struct ArgumentValidatorCall {
+  std::size_t declaration{0U};
+  std::size_t validator{0U};
+  Expression expression;
+};
+
 struct Statement {
   HirNodeId id{};
   StatementKind kind{StatementKind::expression};
@@ -57,6 +63,7 @@ struct Statement {
   std::vector<ParameterKind> parameter_kinds;
   std::vector<Expression> parameter_defaults;
   std::vector<ArgumentDeclarationSyntax> argument_declarations;
+  std::vector<ArgumentValidatorCall> argument_validator_calls;
   std::vector<std::string> return_names;
   std::vector<std::string> target_names;
   bool has_target_pattern{false};

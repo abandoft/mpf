@@ -12,6 +12,7 @@ namespace mpf::detail {
 struct MatlabArgumentDeclaration {
   ArgumentDeclarationSyntax syntax;
   std::string default_source;
+  std::vector<std::string> validator_sources;
 };
 
 struct MatlabArgumentBlockParseResult {

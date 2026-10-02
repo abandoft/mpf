@@ -295,6 +295,7 @@ bool parse_validators(const MatlabStatementLine& line, std::size_t& cursor,
       return false;
     }
     const auto validator_name = line.tokens[token].text;
+    const auto validator_start = token;
     const auto definition = argument_validator(validator_name);
     if (!definition.has_value()) {
       diagnose(diagnostics, line.source.number,
@@ -330,6 +331,9 @@ bool parse_validators(const MatlabStatementLine& line, std::size_t& cursor,
       return false;
     }
     declaration.syntax.validators.push_back(std::move(validator));
+    declaration.validator_sources.push_back(
+        token > validator_start + 1U ? token_slice(line, validator_start, token)
+                                     : validator_name + "(" + declaration.syntax.name + ")");
     expect_validator = false;
   }
   if (expect_validator || declaration.syntax.validators.empty()) {

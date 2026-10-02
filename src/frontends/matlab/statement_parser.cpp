@@ -305,6 +305,14 @@ class Parser final {
                                           declaration.syntax.line, diagnostics_);
           }
         }
+        for (std::size_t validator = 0U; validator < declaration.validator_sources.size();
+             ++validator) {
+          const auto call = builder_.parse_expression(declaration.validator_sources[validator],
+                                                      SourceLanguage::matlab,
+                                                      declaration.syntax.line, diagnostics_);
+          statement.argument_validator_calls.push_back(
+              {statement.argument_declarations.size(), validator, call});
+        }
         statement.argument_declarations.push_back(std::move(declaration.syntax));
       }
     }
