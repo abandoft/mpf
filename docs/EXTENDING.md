@@ -29,6 +29,12 @@ count。HIR/MIR source verifier 和两端 owned-source verifier 必须分别重�
 当前需求没有传入 callee；条件未赋值输出、完整需求 ABI/`nargout`、忽略位、custom call
 与动态 ABI 仍须另外验收，不能把省略 caller 投影表述为完整功能支持。
 
+扩展 MIR copy propagation 必须继续使用独立的前驱库存、依赖 worklist 和批量 value rewrite，
+不得恢复每次消除后全图重扫。分析期间 edge ordinal 不变，压缩必须同步每条 predecessor
+actual；entry/default/shared-output provenance 与普通指令/terminator 同步替换。无 storage 的
+语义合流、不同值与锚定 self-merge 不能借此删除。循环、长链、反向依赖、独立值方程
+oracle 和生产管线的全 verifier 回归均为扩展前置条件，不能靠放宽性能阈值验收。
+
 多操作数 validator 还必须明确源 option 与 canonical semantic policy 的边界：
 `mustBeInRange` 的 bound flags 在 AST 保留，在 Analyzer 变成 `ArgumentRangeBoundary`，两个
 目标独立固化 2-operand + boundary ABI，并检查 arity、inactive policy 与两端 formal identity。
