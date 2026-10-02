@@ -4519,7 +4519,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v40") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v41") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -4530,7 +4530,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v50") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v51") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -6211,9 +6211,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v60") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v61") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v60") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v61") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));
@@ -6597,6 +6597,8 @@ TEST_CASE("JavaScript module plan owns Matlab script return topology and label a
   function.origin = mpf::detail::HirNodeId{1};
   function.kind = mpf::detail::StatementKind::function;
   function.name = "mpf_internal_script_0_0";
+  function.source_invocation_frame = {mpf::detail::ValueId{1}, mpf::detail::TypeId{1},
+                                      mpf::detail::ShapeId{1}};
   auto& script_return = program.statements[1];
   script_return.id = mpf::detail::LirNodeId{2};
   script_return.origin = mpf::detail::HirNodeId{2};
@@ -7092,6 +7094,8 @@ TEST_CASE("target LIR statement plans own control assignment and parameter acces
   mpf::detail::javascript::lir::Statement javascript_function;
   javascript_function.kind = mpf::detail::StatementKind::function;
   javascript_function.name = "update";
+  javascript_function.source_invocation_frame = {mpf::detail::ValueId{1}, mpf::detail::TypeId{1},
+                                                 mpf::detail::ShapeId{1}};
   javascript_function.parameters = {"value"};
   javascript_function.function_abi.valid = true;
   javascript_function.function_abi.parameters = {

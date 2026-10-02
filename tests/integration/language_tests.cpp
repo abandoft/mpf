@@ -371,7 +371,7 @@ TEST_CASE("Matlab function output becomes a JavaScript return value") {
       "end\n",
       mpf::SourceLanguage::matlab);
   REQUIRE(result.success());
-  REQUIRE(result.code.find("export function square(x)") != std::string::npos);
+  REQUIRE(result.code.find("export function square(x, ") != std::string::npos);
   REQUIRE(result.code.find("y = __mpf_numeric_power(x, 2);") != std::string::npos);
   REQUIRE(result.code.find("return y;") != std::string::npos);
 }
@@ -525,7 +525,7 @@ TEST_CASE("Matlab script return uses target-owned program control") {
   REQUIRE(cpp.success());
   REQUIRE(javascript.code.find("mpf_internal_script_0_0: {") != std::string::npos);
   REQUIRE(javascript.code.find("break mpf_internal_script_0_0;") != std::string::npos);
-  REQUIRE(javascript.code.find("function identity(x)") <
+  REQUIRE(javascript.code.find("function identity(x, ") <
           javascript.code.find("mpf_internal_script_0_0: {"));
   REQUIRE(cpp.code.find("return 0;\n    mpf_runtime::print(999);") != std::string::npos);
   REQUIRE(std::count_if(javascript.diagnostics.begin(), javascript.diagnostics.end(),
@@ -593,17 +593,18 @@ TEST_CASE("Matlab general command syntax owns ans and void-call behavior") {
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
   REQUIRE(javascript.code.find("let ans;") != std::string::npos);
-  REQUIRE(javascript.code.find("ans = identity(\"hello\");") != std::string::npos);
-  REQUIRE(javascript.code.find("ans = combine(\"two words\", \"tail\");") != std::string::npos);
-  REQUIRE(javascript.code.find("ans = identity(\"+token\");") != std::string::npos);
-  REQUIRE(javascript.code.find("ans = identity(\"\\\"quoted\\\"\");") != std::string::npos);
-  REQUIRE(javascript.code.find("ans = identity(\"it's here\");") != std::string::npos);
-  REQUIRE(javascript.code.find("sink(\"ignored\");") != std::string::npos);
+  REQUIRE(javascript.code.find("ans = identity(\"hello\", 0);") != std::string::npos);
+  REQUIRE(javascript.code.find("ans = combine(\"two words\", \"tail\", 0);") != std::string::npos);
+  REQUIRE(javascript.code.find("ans = identity(\"+token\", 0);") != std::string::npos);
+  REQUIRE(javascript.code.find("ans = identity(\"\\\"quoted\\\"\", 0);") != std::string::npos);
+  REQUIRE(javascript.code.find("ans = identity(\"it's here\", 0);") != std::string::npos);
+  REQUIRE(javascript.code.find("sink(\"ignored\", 0);") != std::string::npos);
   REQUIRE(javascript.code.find("ans = sink") == std::string::npos);
-  REQUIRE(cpp.code.find("ans = identity(std::string{\"hello\"});") != std::string::npos);
-  REQUIRE(cpp.code.find("ans = combine(std::string{\"two words\"}, std::string{\"tail\"});") !=
+  REQUIRE(cpp.code.find("ans = identity(std::string{\"hello\"}, 0.0);") != std::string::npos);
+  REQUIRE(cpp.code.find("ans = combine(std::string{\"two words\"}, std::string{\"tail\"}, 0.0);") !=
           std::string::npos);
-  REQUIRE(cpp.code.find("static_cast<void>(sink(std::string{\"ignored\"}));") != std::string::npos);
+  REQUIRE(cpp.code.find("static_cast<void>(sink(std::string{\"ignored\"}, 0.0));") !=
+          std::string::npos);
   REQUIRE(cpp.code.find("ans = sink") == std::string::npos);
   for (const auto* result : {&javascript, &cpp}) {
     for (const auto line : {1U, 3U, 5U, 7U, 9U, 11U}) {
@@ -662,8 +663,9 @@ TEST_CASE("Matlab general command syntax owns ans and void-call behavior") {
   REQUIRE(cpp_branch.success());
   REQUIRE(javascript_branch.code.find("let ans;\nif (__mpf_matlab_truthy(1))") !=
           std::string::npos);
-  REQUIRE(cpp_branch.code.find("std::decay_t<decltype(identity(std::string{\"yes\"}))> ans{};\n"
-                               "    if (mpf_runtime::matlab_truthy(1))") != std::string::npos);
+  REQUIRE(
+      cpp_branch.code.find("std::decay_t<decltype(identity(std::string{\"yes\"}, 0.0))> ans{};\n"
+                           "    if (mpf_runtime::matlab_truthy(1))") != std::string::npos);
 
   const std::string incompatible_branch =
       "if 1\n"
@@ -729,8 +731,8 @@ TEST_CASE("Matlab general command syntax owns ans and void-call behavior") {
       transpile(multi_output, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
   REQUIRE(javascript_multi.success());
   REQUIRE(cpp_multi.success());
-  REQUIRE(javascript_multi.code.find("ans = (pair(\"token\"))[0];") != std::string::npos);
-  REQUIRE(cpp_multi.code.find("ans = std::get<0>(pair(std::string{\"token\"}));") !=
+  REQUIRE(javascript_multi.code.find("ans = (pair(\"token\", 0))[0];") != std::string::npos);
+  REQUIRE(cpp_multi.code.find("ans = std::get<0>(pair(std::string{\"token\"}, 0.0));") !=
           std::string::npos);
 
   const auto unknown_command = transpile("missing command\n", mpf::SourceLanguage::matlab);
@@ -774,11 +776,11 @@ TEST_CASE("Matlab multi-output calls lower independently in both backends") {
   const auto cpp = transpile(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
-  REQUIRE(javascript.code.find("[first, second] = pair(6, 7);") != std::string::npos);
-  REQUIRE(javascript.code.find("single = (pair(20, 22))[0];") != std::string::npos);
+  REQUIRE(javascript.code.find("[first, second] = pair(6, 7, 2);") != std::string::npos);
+  REQUIRE(javascript.code.find("single = (pair(20, 22, 1))[0];") != std::string::npos);
   REQUIRE(cpp.code.find("const auto mpf_internal_outputs_") != std::string::npos);
   REQUIRE(cpp.code.find("first = std::get<0>(mpf_internal_outputs_") != std::string::npos);
-  REQUIRE(cpp.code.find("single = std::get<0>(pair(20, 22));") != std::string::npos);
+  REQUIRE(cpp.code.find("single = std::get<0>(pair(20, 22, 1.0));") != std::string::npos);
 }
 
 TEST_CASE("Matlab multi-output metadata propagates through forward local functions") {
@@ -796,8 +798,8 @@ TEST_CASE("Matlab multi-output metadata propagates through forward local functio
   const auto cpp = transpile(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
-  REQUIRE(cpp.code.find("inner(T0 input)") < cpp.code.find("outer(T0 input)"));
-  REQUIRE(cpp.code.find("decltype(std::get<0>(inner(input)))") != std::string::npos);
+  REQUIRE(cpp.code.find("inner(T0 input, ") < cpp.code.find("outer(T0 input, "));
+  REQUIRE(cpp.code.find("decltype(std::get<0>(inner(input, 2.0)))") != std::string::npos);
   REQUIRE(cpp.code.find("const auto mpf_internal_outputs_") != std::string::npos);
 }
 

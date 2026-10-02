@@ -72,7 +72,10 @@ TEST_CASE("Matlab default CFG initializes all formals before guarded ordered eva
   const auto& function = checked(program);
   REQUIRE(function.parameter_defaults.size() == 2U);
   const auto& entry = program.blocks[function.entry.value()];
-  REQUIRE(entry.arguments.size() == 2U);
+  REQUIRE(entry.arguments.size() == 3U);
+  REQUIRE(function.parameter_types.size() == 2U);
+  REQUIRE(entry.arguments.back().value == function.invocation_frame.output_count);
+  REQUIRE(!entry.arguments.back().storage.valid());
   const auto& statement = owner(program, function);
   for (std::size_t parameter = 0U; parameter < 2U; ++parameter) {
     const auto& flow = function.parameter_defaults[parameter];

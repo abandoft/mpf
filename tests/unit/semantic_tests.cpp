@@ -287,7 +287,7 @@ TEST_CASE("Matlab validated calls normalize omitted arguments and reject invalid
       "end\n";
   const auto optional = matlab("disp(add(21))\n" + function);
   REQUIRE(optional.success());
-  REQUIRE(optional.code.find("add(21, undefined)") != std::string::npos);
+  REQUIRE(optional.code.find("add(21, undefined, 1)") != std::string::npos);
 
   const auto missing = matlab("disp(add())\n" + function);
   REQUIRE(!missing.success());

@@ -278,7 +278,7 @@ TEST_CASE(
     REQUIRE(result.success());
     REQUIRE(capture.success());
     const auto projection =
-        target == mpf::TargetLanguage::cpp ? "std::get<0>(checked())" : "(checked())[0]";
+        target == mpf::TargetLanguage::cpp ? "std::get<0>(checked(0.0))" : "(checked(0))[0]";
     REQUIRE(result.code.find(projection) == std::string::npos);
     REQUIRE(capture.code.find(projection) != std::string::npos);
     REQUIRE(std::any_of(result.source_map.segments.begin(), result.source_map.segments.end(),

@@ -120,7 +120,7 @@ TEST_CASE("Matlab logical output call sites receive logical display plans in bot
     REQUIRE(result.success());
     REQUIRE(result.code.find("output = __mpf_validate_argument(output") == std::string::npos);
     if (target == mpf::TargetLanguage::javascript)
-      REQUIRE(result.code.find("console.log(Number(checked()))") != std::string::npos);
+      REQUIRE(result.code.find("console.log(Number(checked(1)))") != std::string::npos);
     else
       REQUIRE(result.code.find("convert_argument_logical<0>(output, ") != std::string::npos);
   }

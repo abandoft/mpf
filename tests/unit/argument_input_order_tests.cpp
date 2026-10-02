@@ -160,7 +160,7 @@ TEST_CASE("cpp trivial Matlab actuals and Python parameter ABI retain direct nat
   const auto matlab = mpf::Transpiler{}.transpile(
       "disp(add(20,22))\nfunction output = add(left,right)\noutput = left + right\nend\n", options);
   REQUIRE(matlab.success());
-  REQUIRE(matlab.code.find("add(20, 22)") != std::string::npos);
+  REQUIRE(matlab.code.find("add(20, 22, 1.0)") != std::string::npos);
   REQUIRE(matlab.code.find("mpf_internal_raw_input_") == std::string::npos);
   options.language = mpf::SourceLanguage::python;
   const auto python =

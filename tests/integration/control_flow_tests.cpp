@@ -261,7 +261,7 @@ TEST_CASE("Matlab bare local calls are resolved without converting shadowed vari
     REQUIRE(variable.success());
     REQUIRE(parameter.success());
     const auto invocation =
-        target == mpf::TargetLanguage::cpp ? "static_cast<void>(ping());" : "ping();";
+        target == mpf::TargetLanguage::cpp ? "static_cast<void>(ping(0.0));" : "ping(0);";
     REQUIRE(call.code.find(invocation) != std::string::npos);
     REQUIRE(variable.code.find("ping();") == std::string::npos);
     REQUIRE(parameter.code.find("\nping();\n") == std::string::npos);
