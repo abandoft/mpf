@@ -981,7 +981,8 @@ ValueType Analyzer::analyze_expression(Expression& expression, const bool condit
       semantic(semantics_, expression).tuple_array_storage.clear();
       semantic(semantics_, expression).tuple_shapes.clear();
       for (auto& child : expression.children) {
-        semantic(semantics_, expression).tuple_types.push_back(analyze_expression(child));
+        const auto child_type = analyze_expression(child);
+        semantic(semantics_, expression).tuple_types.push_back(child_type);
         semantic(semantics_, expression)
             .tuple_numeric_types.push_back(semantic(semantics_, child).numeric_type);
         semantic(semantics_, expression)
@@ -2218,7 +2219,6 @@ ValueType Analyzer::analyze_call(Expression& expression) {
              "Python keyword arguments require a known user-function signature");
   }
   const auto& associated_callee = expression.children.front();
-  const auto& associated_callee_facts = semantic(semantics_, associated_callee);
   if (called_function != nullptr) {
     const auto& called_facts = semantic(semantics_, *called_function);
     if (program_.language == SourceLanguage::fortran) {
@@ -2228,8 +2228,8 @@ ValueType Analyzer::analyze_call(Expression& expression) {
         !called_function->return_names.empty() || called_facts.has_value_return;
   }
   if (associated_callee.kind == ExpressionKind::identifier &&
-      associated_callee_facts.binding == BindingKind::builtin &&
-      associated_callee_facts.intrinsic == IntrinsicId::present) {
+      semantic(semantics_, associated_callee).binding == BindingKind::builtin &&
+      semantic(semantics_, associated_callee).intrinsic == IntrinsicId::present) {
     const bool valid = expression.children.size() == 2 &&
                        expression.children[1].kind == ExpressionKind::identifier &&
                        !function_optional_parameters_.empty() &&
@@ -2381,6 +2381,9 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       }
     }
   }
+  // Recursive argument analysis may append normalized expressions and relocate the dense
+  // side table. Acquire references only after those structural mutations have finished.
+  const auto& associated_callee_facts = semantic(semantics_, associated_callee);
   if (associated_callee.kind == ExpressionKind::identifier &&
       associated_callee_facts.binding == BindingKind::builtin) {
     if (associated_callee_facts.intrinsic == IntrinsicId::matlab_exception) {
@@ -2580,7 +2583,13 @@ ValueType Analyzer::analyze_call(Expression& expression) {
                      semantic(semantics_, expression.children[1]).inferred_type;
                  length_argument_type != ValueType::list &&
                  length_argument_type != ValueType::unknown &&
-                 length_argument_type != ValueType::string) {
+                 length_argument_type != ValueType::string &&
+                 !((associated_callee_facts.intrinsic == IntrinsicId::matlab_length ||
+                    associated_callee_facts.intrinsic == IntrinsicId::element_count) &&
+                   program_.language == SourceLanguage::matlab &&
+                   (length_argument_type == ValueType::real ||
+                    length_argument_type == ValueType::integer ||
+                    length_argument_type == ValueType::boolean))) {
         diagnose(expression.location.line, "MPF2022",
                  "length/size argument is not an array/list or character vector");
       }
@@ -2771,7 +2780,10 @@ ValueType Analyzer::analyze_call(Expression& expression) {
       if (argument_facts.inferred_type != ValueType::list &&
           argument_facts.inferred_type != ValueType::unknown) {
         diagnose(expression.location.line, "MPF2022", "sum argument is not an array/list");
-      } else if (argument_facts.shape.size() > 1 && program_.language != SourceLanguage::fortran) {
+      } else if (argument_facts.shape.size() > 1 && program_.language != SourceLanguage::fortran &&
+                 !(program_.language == SourceLanguage::matlab &&
+                   argument_facts.shape.size() == 2U &&
+                   (argument_facts.shape[0] == 1U || argument_facts.shape[1] == 1U))) {
         diagnose(expression.location.line, "MPF2028",
                  "multidimensional SUM semantics are not supported for this source language");
       }
@@ -3087,17 +3099,17 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
   }
   auto& container = expression.children[0];
   if (!container_already_analyzed) analyze_expression(container);
-  const auto& container_facts = semantic(semantics_, container);
-  const bool sparse_source = container_facts.array_storage == ArrayStorageFormat::sparse_csc;
-  if (sparse_source &&
-      (program_.language != SourceLanguage::matlab ||
-       !static_rank_two_shape(container_facts.shape) || !matlab_sparse_value(container_facts))) {
+  const bool sparse_source =
+      semantic(semantics_, container).array_storage == ArrayStorageFormat::sparse_csc;
+  if (sparse_source && (program_.language != SourceLanguage::matlab ||
+                        !static_rank_two_shape(semantic(semantics_, container).shape) ||
+                        !matlab_sparse_value(semantic(semantics_, container)))) {
     diagnose(expression.location.line, "MPF2054",
              "sparse indexing requires a statically shaped numeric or logical rank-2 CSC array");
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
-  if (container_facts.inferred_type != ValueType::list &&
-      container_facts.inferred_type != ValueType::unknown) {
+  if (semantic(semantics_, container).inferred_type != ValueType::list &&
+      semantic(semantics_, container).inferred_type != ValueType::unknown) {
     diagnose(expression.location.line, "MPF2022", "indexed expression is not an array/list");
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
@@ -3107,37 +3119,39 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
              "sparse indexing currently supports one linear selector or two subscripts");
     return semantic(semantics_, expression).inferred_type = ValueType::unknown;
   }
-  if (!container_facts.shape.empty() && index_count > container_facts.shape.size()) {
+  if (!semantic(semantics_, container).shape.empty() &&
+      index_count > semantic(semantics_, container).shape.size()) {
     diagnose(expression.location.line, "MPF2025", "too many indexes for array/list shape");
   }
-  if (program_.language == SourceLanguage::fortran && !container_facts.shape.empty() &&
-      index_count != container_facts.shape.size()) {
+  if (program_.language == SourceLanguage::fortran &&
+      !semantic(semantics_, container).shape.empty() &&
+      index_count != semantic(semantics_, container).shape.size()) {
     diagnose(expression.location.line, "MPF2025",
              "Fortran array reference rank does not match its declared rank");
   }
   bool has_expanding_selector = false;
   bool invalid_sparse_selector = false;
   std::vector<std::size_t> result_shape;
-  auto& index_selectors = semantic(semantics_, expression).index_selectors;
-  index_selectors.clear();
-  index_selectors.reserve(index_count);
-  auto& index_extents = semantic(semantics_, expression).index_extents;
-  index_extents.clear();
-  index_extents.reserve(index_count);
+  auto planned_selectors = std::move(semantic(semantics_, expression).index_selectors);
+  planned_selectors.clear();
+  planned_selectors.reserve(index_count);
+  auto planned_extents = std::move(semantic(semantics_, expression).index_extents);
+  planned_extents.clear();
+  planned_extents.reserve(index_count);
   StorageRegion storage_region;
   storage_region.kind = semantic(semantics_, expression).column_major && index_count == 1U &&
-                                container_facts.shape.size() > 1U
+                                semantic(semantics_, container).shape.size() > 1U
                             ? StorageRegionKind::linearized
                             : StorageRegionKind::rectangular;
-  storage_region.root_shape = container_facts.shape;
-  bool exact_region = known_shape(container_facts.shape);
+  storage_region.root_shape = semantic(semantics_, container).shape;
+  bool exact_region = known_shape(semantic(semantics_, container).shape);
   for (std::size_t position = 0; position < index_count; ++position) {
     auto& index = expression.children[position + 1];
     std::size_t extent = dynamic_extent;
     if (semantic(semantics_, expression).column_major && index_count == 1 &&
-        container_facts.shape.size() > 1) {
+        semantic(semantics_, container).shape.size() > 1) {
       extent = 1;
-      for (const auto dimension : container_facts.shape) {
+      for (const auto dimension : semantic(semantics_, container).shape) {
         if (dimension == dynamic_extent) {
           extent = dynamic_extent;
           break;
@@ -3149,8 +3163,8 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
         }
         extent *= dimension;
       }
-    } else if (position < container_facts.shape.size()) {
-      extent = container_facts.shape[position];
+    } else if (position < semantic(semantics_, container).shape.size()) {
+      extent = semantic(semantics_, container).shape[position];
     }
     semantic::IndexExtentSource selector_extent = semantic::IndexExtentSource::none;
     const auto dynamic_source = semantic(semantics_, expression).column_major && index_count == 1U
@@ -3182,10 +3196,10 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
       for (auto& child : candidate.children) self(self, child);
     };
     resolve_end(resolve_end, index);
-    index_extents.push_back(selector_extent);
+    planned_extents.push_back(selector_extent);
     if (index.kind == ExpressionKind::slice) {
       has_expanding_selector = true;
-      index_selectors.push_back(semantic::IndexSelectorKind::slice);
+      planned_selectors.push_back(semantic::IndexSelectorKind::slice);
       const auto count = analyze_slice(index, extent, allow_matlab_growth);
       result_shape.push_back(count);
       const auto dimension =
@@ -3202,7 +3216,7 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
         index_type == ValueType::unknown) {
       has_expanding_selector = true;
       exact_region = false;
-      index_selectors.push_back(semantic::IndexSelectorKind::runtime);
+      planned_selectors.push_back(semantic::IndexSelectorKind::runtime);
       result_shape.push_back(dynamic_extent);
       if (sparse_source) {
         diagnose(index.location.line, "MPF2054",
@@ -3227,13 +3241,14 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
         invalid_sparse_selector = true;
       }
       if (selector_size.has_value() && *selector_size == 0U) {
-        index_selectors.push_back(semantic::IndexSelectorKind::empty);
+        planned_selectors.push_back(semantic::IndexSelectorKind::empty);
         result_shape.push_back(0U);
         continue;
       }
       if (index_facts.element_type == ValueType::boolean) {
-        index_selectors.push_back(semantic::IndexSelectorKind::logical);
-        const auto expected_size = index_count == 1U ? static_element_count(container_facts.shape)
+        planned_selectors.push_back(semantic::IndexSelectorKind::logical);
+        const auto expected_size = index_count == 1U
+                                       ? static_element_count(semantic(semantics_, container).shape)
                                    : extent == dynamic_extent ? std::optional<std::size_t>{}
                                                               : std::optional<std::size_t>{extent};
         if (expected_size.has_value() && selector_size.has_value() &&
@@ -3248,7 +3263,7 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
       }
       if (index_facts.element_type == ValueType::integer ||
           index_facts.element_type == ValueType::real) {
-        index_selectors.push_back(semantic::IndexSelectorKind::numeric);
+        planned_selectors.push_back(semantic::IndexSelectorKind::numeric);
         result_shape.push_back(selector_size.value_or(dynamic_extent));
         const auto validate_elements = [&](auto&& self, const Expression& candidate) -> void {
           if (candidate.kind == ExpressionKind::list) {
@@ -3269,14 +3284,14 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
         validate_elements(validate_elements, index);
         continue;
       }
-      index_selectors.push_back(semantic::IndexSelectorKind::numeric);
+      planned_selectors.push_back(semantic::IndexSelectorKind::numeric);
       result_shape.push_back(selector_size.value_or(dynamic_extent));
       diagnose(index.location.line, "MPF2023",
                "Matlab numeric selector arrays must contain integer values");
       exact_region = false;
       continue;
     }
-    index_selectors.push_back(semantic::IndexSelectorKind::scalar);
+    planned_selectors.push_back(semantic::IndexSelectorKind::scalar);
     const bool typescript_integral_number = program_.language == SourceLanguage::typescript &&
                                             index_type == ValueType::real &&
                                             integral_constant(index).has_value();
@@ -3295,6 +3310,12 @@ ValueType Analyzer::analyze_index(Expression& expression, const bool container_a
     else
       exact_region = false;
   }
+  // Selector calls and slice bounds can grow the semantic arena. Build their plans locally,
+  // then publish them and reacquire stable facts after recursive analysis.
+  semantic(semantics_, expression).index_selectors = std::move(planned_selectors);
+  semantic(semantics_, expression).index_extents = std::move(planned_extents);
+  const auto& index_selectors = semantic(semantics_, expression).index_selectors;
+  const auto& container_facts = semantic(semantics_, container);
   if (storage_region.kind == StorageRegionKind::rectangular && exact_region) {
     for (std::size_t position = index_count; position < container_facts.shape.size(); ++position) {
       storage_region.dimensions.push_back({0U, 1U, container_facts.shape[position]});
@@ -3727,8 +3748,7 @@ void Analyzer::analyze_section_assignment(Statement& statement, const ValueType 
 
 std::size_t Analyzer::analyze_slice(Expression& slice, const std::size_t extent,
                                     const bool allow_matlab_growth) {
-  auto& slice_facts = semantic(semantics_, slice);
-  slice_facts.inferred_type = ValueType::list;
+  semantic(semantics_, slice).inferred_type = ValueType::list;
   for (auto& bound : slice.children) {
     if (!bound.valid()) continue;
     const auto type = analyze_expression(bound);
@@ -3736,6 +3756,7 @@ std::size_t Analyzer::analyze_slice(Expression& slice, const std::size_t extent,
       diagnose(bound.location.line, "MPF2023", "slice bounds and step must be integers");
     }
   }
+  auto& slice_facts = semantic(semantics_, slice);
   if (slice.children.size() != 3 || extent == dynamic_extent) return dynamic_extent;
   const auto start_value =
       slice.children[0].valid() ? integral_constant(slice.children[0]) : std::optional<long long>{};

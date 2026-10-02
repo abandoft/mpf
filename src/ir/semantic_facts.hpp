@@ -292,6 +292,8 @@ struct SemanticNodeSlot {
 
 // Revision-bound dense semantic side table. Frontends seed it while creating HIR identities;
 // Analyzer is the sole mutable consumer after the AST-to-HIR ownership transfer.
+// Expression normalization can grow these vectors. Retain node IDs, not pointers/references,
+// across recursive analysis or node registration; reacquire facts after structural mutations.
 struct SemanticTable {
   std::uint64_t hir_revision{0};
   std::size_t hir_node_count{0};
