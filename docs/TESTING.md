@@ -112,6 +112,20 @@ corpus 或通过输出目录的符号链接逃出根 `build/`；具体构建/重
 Memory Safety workflow 独立执行固定 seed 的 coverage-guided fuzz job；其 required
 聚合同时要求 ASan/UBSan 与真实插桩的 libFuzzer 成功，Release 复用同一门禁。
 
+### 官方 R2024b 原生执行对照
+
+`Matlab Reference` 是独立的手动/可复用 capability workflow，固定官方 MathWorks
+action 的完整 SHA 和 R2024b。公开仓库通过官方 batch licensing 执行原始
+`invocation_context.m`，再与 Node.js 和严格编译的 C++ 实际输出比较。记录保留实际
+MATLAB 版本、完整提交 SHA、源文件快照、原始 transcript 和两端生成/执行产物。
+
+另有 23 项原生观察采集条件输出、缺失/忽略接收位、验证与异常先后、默认值、
+input/output 同名和 `ans` 行为。这是剩余功能的语义依据，不表示 MPF 已支持这些
+源程序；当前 parity 只覆盖 invocation-context。普通 CTest 的 verifier-contract
+使用明确标记的 synthetic fixture 检验错误拒绝逻辑，不运行 MATLAB，也不能代替
+原生执行证据。0.8.0 输出验收与发布门禁接入仍保持未完成。运行方式与证据范围见
+[原生对照指南](../tests/reference/matlab/README.md)。
+
 Analyzer 生命周期回归测试主动收紧 expression side-table capacity，再通过 Matlab 默认参数的
 嵌套 call、scalar/multi-axis selector、slice bound、indexed mutation、Python tuple/default
 cloning 和 Fortran optional actual 触发真实扩容；ASan/UBSan 与 fuzz 检查其引用和容器计划
@@ -178,7 +192,7 @@ deployment target，避免用 Clang/libc++ 链接 GCC/libstdc++ 包造成测试�
 | 指标 | 数量/结果 |
 |---|---:|
 | C++ 单元与集成测试 | 460 项，零失败 |
-| CTest | 当前 dev preset 为 218 项普通测试；包含 127 项 differential、1 项 C++ 单元/集成、64 项生成 runtime 拒绝、12 项生成 C++ 编译，以及 fuzz、架构、发布脚本、失败性能报告、格式工具合同、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
+| CTest | 当前 dev preset 为 219 项普通测试；包含 127 项 differential、1 项 C++ 单元/集成、64 项生成 runtime 拒绝、12 项生成 C++ 编译，以及 fuzz、架构、发布脚本、失败性能报告、格式工具/原生证据校验合同、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
 | Differential corpus | Python 22、Fortran 19、Matlab 82、TypeScript 4，共 127 个 case |
 | 工具完整环境执行路径 | 299 条程序路径，另有每 case 一条 oracle |
 | 生产代码行覆盖率 | 硬门槛 85%；当前结果以 `coverage-report` workflow artifact 为准 |

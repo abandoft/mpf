@@ -13,6 +13,7 @@ release orchestrator invokes the exact same definitions instead of maintaining a
 | `test-coverage.yml` | Test Coverage | `Test Coverage / Required` | Full source-based coverage suite and the 85% production-line gate |
 | `performance-regression.yml` | Performance Regression | `Performance Regression / Required` | Versioned latency, throughput, arena, output-size, determinism, and concurrency budgets |
 | `security-analysis.yml` | Security Analysis | `Security Analysis / Required` | Capability-aware CodeQL and pull-request dependency review |
+| `matlab-reference.yml` | Matlab Reference | n/a (manual/reusable) | Actual R2024b invocation parity plus native observations for pending output semantics |
 | `release.yml` | Release | n/a | Version policy, gate orchestration, provenance, publication, and public-asset verification |
 | `release-candidate.yml` | Reusable / Release Candidate | n/a | Internal three-platform test/install/package implementation called only by `release.yml` |
 
@@ -20,6 +21,14 @@ Repository branch protection should require the seven stable `*/ Required` check
 The terminal checks intentionally hide matrix expansion and optional capability jobs from the
 branch-protection contract while still failing if any required upstream job fails. Workflow
 changes are validated by `Code Quality / actionlint`.
+
+`Matlab Reference` is an explicit public-repository capability/diagnostic run. It uses
+pinned MathWorks actions to execute original source on R2024b and preserves native version,
+revision, source bytes, output, and semantic observations below root `build/`. Its current
+parity check covers the invocation-context case only; collecting pending output observations
+does not establish full MATLAB support or close the 0.8.0 output acceptance. See the
+[native reference guide](../../tests/reference/matlab/README.md). It is not yet a substitute
+for, or an additional implicit success condition of, the seven stable release checks.
 
 ## Release dependency graph
 
