@@ -232,6 +232,8 @@ TEST_CASE("Matlab range syntax and plans reject invalid or inactive boundary sta
                       {{ArgumentValidatorOperandKind::numeric_literal, "0.0", dynamic_extent},
                        {ArgumentValidatorOperandKind::numeric_literal, "1.0", dynamic_extent}},
                       ArgumentRangeBoundary::exclusive}};
+  plan.validators.front().source_call = HirNodeId{1U};
+  plan.validators.front().source_callee = HirNodeId{2U};
   REQUIRE(valid_argument_validation_plan(plan, 1U, 0U));
   inject_range_boundary_byte(plan.validators.front().range_boundary, 255U);
   REQUIRE(!valid_argument_validation_plan(plan, 1U, 0U));

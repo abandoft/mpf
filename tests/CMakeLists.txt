@@ -2,6 +2,7 @@ add_executable(mpf-tests
   test_main.cpp
   unit/api_tests.cpp
   unit/argument_validation_tests.cpp
+  unit/argument_invocation_tests.cpp
   unit/argument_range_tests.cpp
   unit/argument_representation_tests.cpp
   unit/compiler_foundation_tests.cpp

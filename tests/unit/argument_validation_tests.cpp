@@ -74,6 +74,42 @@ TEST_CASE("MIR independently rejects a validator threshold rebound to an array f
   }));
 }
 
+TEST_CASE("MIR validator binding inventory rejects missing foreign and mismatched source origins") {
+  const auto lowered = lower_validated_function();
+  for (const auto mutation : {0, 1, 2, 3, 4, 5, 6, 7, 8}) {
+    auto program = lowered.program;
+    auto function = std::find_if(program.statements.begin() + 1, program.statements.end(),
+                                 [](const auto& statement) {
+                                   return statement.kind == mpf::detail::StatementKind::function;
+                                 });
+    REQUIRE(function != program.statements.end());
+    REQUIRE(function->argument_validator_sources.size() == 1U);
+    auto& source = function->argument_validator_sources.front();
+    auto& validator = function->argument_validations[2].validators.front();
+    REQUIRE(source.call == validator.source_call);
+    REQUIRE(source.callee == validator.source_callee);
+    if (mutation == 0) validator.source_call = function->origin;
+    if (mutation == 1) source.formal = 0U;
+    if (mutation == 2) source.validator = mpf::detail::ArgumentValidator::positive;
+    if (mutation == 3) {
+      source.call = function->origin;
+      validator.source_call = function->origin;
+    }
+    if (mutation == 4) {
+      source.callee = mpf::detail::HirNodeId{1000000U};
+      validator.source_callee = source.callee;
+    }
+    if (mutation == 5) function->argument_validator_sources.clear();
+    if (mutation == 6) validator.source_call = {};
+    if (mutation == 7) validator.source_callee = validator.source_call;
+    if (mutation == 8) function->argument_validations[2].validators.clear();
+    const auto diagnostics = mpf::detail::mir::verify(program, "validator-binding-inventory");
+    REQUIRE(std::any_of(diagnostics.begin(), diagnostics.end(), [](const auto& diagnostic) {
+      return diagnostic.message.find("validator source binding inventory") != std::string::npos;
+    }));
+  }
+}
+
 TEST_CASE(
     "JavaScript validator call plans reject corrupt opcodes symbols tokens and formal types") {
   namespace js = mpf::detail::javascript;
@@ -96,6 +132,24 @@ TEST_CASE(
   REQUIRE(call.opcode == 23U);
   REQUIRE(call.operands.front().form == js::lir::ValidatorOperandForm::parameter_value);
   REQUIRE(call.operands.front().symbol.valid());
+  REQUIRE(call.source_call ==
+          program->statements.front().argument_validations[2].validators.front().source_call);
+  REQUIRE(call.source_callee ==
+          program->statements.front().argument_validations[2].validators.front().source_callee);
+
+  require_rejected(
+      *program,
+      [](auto& invalid) {
+        invalid.statements.front().plan.argument_validators[2].front().source_call = {};
+      },
+      js::verify_lir_representation);
+  require_rejected(
+      *program,
+      [](auto& invalid) {
+        invalid.statements.front().plan.argument_validators[2].front().source_callee =
+            mpf::detail::HirNodeId{1000000U};
+      },
+      js::verify_lir_representation);
 
   require_rejected(
       *program,
@@ -164,6 +218,24 @@ TEST_CASE("cpp validator call plans validate optional access and reject array th
   REQUIRE(call.opcode == 23U);
   REQUIRE(call.operands.front().form == cpp::lir::ValidatorOperandForm::optional_parameter_value);
   REQUIRE(call.operands.front().symbol.valid());
+  REQUIRE(call.source_call ==
+          program->statements.front().argument_validations[2].validators.front().source_call);
+  REQUIRE(call.source_callee ==
+          program->statements.front().argument_validations[2].validators.front().source_callee);
+
+  require_rejected(
+      *program,
+      [](auto& invalid) {
+        invalid.statements.front().plan.argument_validators[2].front().source_call = {};
+      },
+      cpp::verify_lir_representation);
+  require_rejected(
+      *program,
+      [](auto& invalid) {
+        invalid.statements.front().plan.argument_validators[2].front().source_callee =
+            mpf::detail::HirNodeId{1000000U};
+      },
+      cpp::verify_lir_representation);
 
   require_rejected(
       *program,
