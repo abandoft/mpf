@@ -18,6 +18,11 @@ ctest --preset sanitizers
 
 提交前的工程质量检查：
 
+格式化工具固定使用 clang-format 18，避免不同 LLVM 主版本产生相互冲突的排版。
+CMake 优先查找 `clang-format-18`；若安装位置不在 PATH 中，在 configure 命令中添加
+`-DMPF_CLANG_FORMAT_EXECUTABLE=/absolute/path/to/clang-format`，并确保该 executable 的
+`--version` 为 18.x。`mpf-format` 和 `mpf-format-check` 都会拒绝其他主版本。
+
 ```sh
 cmake --preset quality
 cmake --build build/quality --target mpf-format-check

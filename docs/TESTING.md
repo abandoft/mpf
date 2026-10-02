@@ -6,7 +6,7 @@ MPF 的验证体系分为八层：
 2. declarative differential corpus 验证可执行语言语义；
 3. javascript-only、cpp-only、core-only 隔离测试验证编译、链接、安装和外部消费边界；
 4. Debug、Release、ASan/UBSan 以及 GitHub 多平台矩阵验证构建模式与工具链；
-5. clang-format、零告警 clang-tidy、85% 生产代码行覆盖率，以及仓库能力可用时的 CodeQL 和依赖审查构成工程质量门禁。
+5. 固定 clang-format 18、零告警 clang-tidy、85% 生产代码行覆盖率，以及仓库能力可用时的 CodeQL 和依赖审查构成工程质量门禁；格式工具主版本和 executable identity 有独立正/负合同测试。
 6. corpus mutation smoke 与可选 Clang/libFuzzer 覆盖四种前端、两个目标、资源耗尽和确定性重放；
 7. 小文件延迟、吞吐、深 CFG、大 shape、跨函数图、区域访问、CFG memory dependence、Matlab 数组/tensor/matrix-solve/dynamic-broadcast/complex kernel、峰值 arena、产物大小和并发 session 进入发布性能门禁。
 8. Release 在标签提交上重新调用以上 canonical workflow；七类门禁全部成功后，三平台候选才可执行完整功能/差分测试、安装后外部消费、ZIP/许可证/版本/校验和验证、build-provenance attestation、发布及公开资产回读验证。
@@ -139,7 +139,7 @@ deployment target。后者同时进入 CMake cache 和 compiler-identification �
 | 指标 | 数量/结果 |
 |---|---:|
 | C++ 单元与集成测试 | 411 项，零失败 |
-| CTest | 当前 dev preset 为 209 项普通测试；包含 124 项 differential、1 项 C++ 单元/集成、64 项生成 runtime 拒绝、9 项生成 C++ 编译，以及 fuzz、架构、发布脚本、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
+| CTest | 当前 dev preset 为 210 项普通测试；包含 124 项 differential、1 项 C++ 单元/集成、64 项生成 runtime 拒绝、9 项生成 C++ 编译，以及 fuzz、架构、发布脚本、格式工具合同、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
 | Differential corpus | Python 22、Fortran 19、Matlab 79、TypeScript 4，共 124 个 case |
 | 工具完整环境执行路径 | 293 条程序路径，另有每 case 一条 oracle |
 | 生产代码行覆盖率 | 硬门槛 85%；当前结果以 `coverage-report` workflow artifact 为准 |

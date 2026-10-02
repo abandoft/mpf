@@ -35,7 +35,7 @@ validation CFG/执行尚未完成，不能把本轮进展称为完整 `arguments
 | Matlab complex sparse product | 静态 rank-2 complex CSC 支持 sparse×sparse、sparse×dense 与 dense×sparse 矩阵乘法；sparse 结果保持 canonical CSC，mixed 结果直接物化 dense，real/logical operand 自动提升，并保持零 extent 与 exact-zero cancellation |
 | Matlab control/function | 函数与脚本裸 `return`、通用 command syntax、`ans`、`disp`/`display`、`try`/单一 `catch [exception]` 和 exception object 已贯通名称/flow/MIR/双目标 LIR。`arguments` block 当前覆盖 positional input/output、显式 scalar/N 维 `double`/`logical`/char-vector ABI、按声明顺序的 default、输入/输出 validation、scalar expansion、row/column reshape 和 23 个 unary 标准 validator 与四个参数化关系 validator；unsupported attribute/class/validator 在 frontend/Analyzer/target capability 边界失败关闭。 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流；已知静态 shape 下可证明不相交的同根连续、步长与 N 维矩形 writable section actual |
-| 工程门禁 | 411 项内部测试；124 个差分 case、293 条工具完整环境执行路径；当前 dev preset 为 209 项普通 CTest，Release 流程另运行独立性能发布目标；四语言 fuzz smoke、可选 libFuzzer、64 项生成 runtime 拒绝测试、9 项生成 C++ 编译、发布脚本正/负契约、47 项独立版本化通用及 Matlab 专项性能场景、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率硬门槛为 85%；Release 在标签 SHA 上复用七类 required workflow，门禁后才允许三平台候选测试/安装/消费/归档、来源证明和公开资产回验 |
+| 工程门禁 | 411 项内部测试；124 个差分 case、293 条工具完整环境执行路径；当前 dev preset 为 210 项普通 CTest，Release 流程另运行独立性能发布目标；四语言 fuzz smoke、可选 libFuzzer、64 项生成 runtime 拒绝测试、9 项生成 C++ 编译、发布脚本和 clang-format 18 工具链正/负契约、47 项独立版本化通用及 Matlab 专项性能场景、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率硬门槛为 85%；Release 在标签 SHA 上复用七类 required workflow，门禁后才允许三平台候选测试/安装/消费/归档、来源证明和公开资产回验 |
 | 发布状态 | 0.x 开发快照；包消费要求精确当前版本，不提供旧 MPF API/ABI/schema/CLI/CMake 兼容承诺或迁移 shim |
 
 ## 本轮商业级收尾验收（完成）
