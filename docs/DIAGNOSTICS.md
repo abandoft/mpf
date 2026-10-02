@@ -88,7 +88,9 @@ Matlab logical-source 诊断使用 `MPF15xx`：`MPF1501`/`MPF1502` 表示分隔�
 
 Python statement lexer 诊断使用 `MPF16xx`：`MPF1601` 表示规范化边界后仍出现未闭合字符串 token，`MPF1602` 表示 statement token stream 中出现非法控制字符。语法结构暂沿用 `MPF1200` unsupported/invalid statement 契约；迁移至完整 Python grammar 时将按产生式细分 parser code。
 
-Matlab statement lexer 诊断使用 `MPF17xx`：`MPF1701` 表示规范化边界后仍出现未闭合字符串或 command 引号 token，`MPF1702` 表示非法控制字符。当前 Matlab 结构语法同样沿用 `MPF1200`：`return` 携带 operand、`disp`/`display` command 不是恰好一个字符向量参数、非法 `try/catch`，以及 name-value/Repeating/其余 parameterized/custom `arguments` 等未实现产生式都会在 parser 边界给出精确原因并失败关闭；input/output block 的 R2019b/R2022b gate、R2020b validator 扩展和 R2024b row/column/matrix validator gate 使用 `MPF1201`。已解析 argument declaration 的重复、乱序、缺失 formal、required-after-optional、无显式可表示 numeric/logical rank 等语义使用 `MPF2060`；JavaScript/C++ 无法精确保持的 call-boundary class/size conversion 使用 `MPF2061`。一般 command callee 仍进入名称绑定，因此未知 local/builtin command 使用稳定的未定义标识符诊断；C++17 无法表示或无法证明在重赋值/控制流路径间兼容的 `ans` 声明类型以 `MPF2007` 在发射前失败关闭。完整 grammar 阶段再按产生式细分。
+Matlab statement lexer 诊断使用 `MPF17xx`：`MPF1701` 表示规范化边界后仍出现未闭合字符串或 command 引号 token，`MPF1702` 表示非法控制字符。当前 Matlab 结构语法沿用 `MPF1200`：`return` 携带 operand、`disp`/`display` command 不是恰好一个字符向量参数、非法 `try/catch`，以及未实现的 name-value/Repeating/qualified validator 等产生式在 parser 边界失败关闭。
+
+命名 validator 的一般调用及已有参数表达式先进入 AST；未知名称使用 `MPF2001`，已解析但尚不能执行的 source binding 使用 `MPF2062`。input/output block 的 R2019b/R2022b gate 仍在 frontend 使用 `MPF1201`；标准 validator 的版本 gate 仅在 NameTable 选中 builtin 后由 Analyzer 使用 `MPF1201`。标准 call arity、validated argument、threshold/flag ABI，以及已解析 declaration 的重复、乱序、缺失 formal、required-after-optional、无显式可表示 numeric/logical rank 使用 `MPF2060`；不能把不同 arity 的同名 source function 当成标准 builtin 拒绝。JavaScript/C++ 无法精确保持的 call-boundary class/size conversion 使用 `MPF2061`。一般 command callee 同样进入名称绑定，未知 local/builtin command 使用稳定的未定义标识符诊断；C++17 无法表示或无法证明在重赋值/控制流路径间兼容的 `ans` 声明类型以 `MPF2007` 在发射前失败关闭。完整 grammar 阶段再按产生式细分。
 
 Fortran statement lexer 诊断使用 `MPF18xx`：`MPF1801` 表示 source-form normalization 后仍出现未闭合字符串 token，`MPF1802` 表示非法控制字符。Fortran parser 对 declaration attribute、非恒定 shape 和未支持产生式继续使用 `MPF1200` 失败关闭。
 
@@ -135,7 +137,7 @@ TypeScript statement lexer 诊断使用 `MPF19xx`：`MPF1901` 表示 block comme
 | `MPF2054` | Matlab sparse 操作超出静态 real/logical/complex rank-2 canonical CSC storage 子集，例如尚未实现的 rectangular solve、complex sparse scalar-product/element-wise/power/solve 或动态 source shape，或 constructor/index/mutation/reshape/product/arithmetic/logical/reduction/power storage、shape 与 value-domain contract 无法保持；已支持的 matrix product、`+`/`-`、`~`/`&`/`|` 要求可静态验证 shape/domain 或 compatible-size 与 preserve-sparse/materialize-dense 计划，complex sparse product 与 `+`/`-` 还要求 finite-complex value-domain plan，`all`/`any` 要求静态 axis/shape 及 preserve-sparse/scalar-full 计划，方阵 `^` 要求非负 ECMAScript-safe integer exponent；非有限 scalar/result 由目标 runtime 稳定拒绝 |
 | `MPF2056` | Matlab exception binding 访问了当前合同之外的 `MException` 公开属性；0.7.8 仅授权 `identifier` 与 `message`，cause/stack/correction 对象属性仍失败关闭 |
 | `MPF2057` | Matlab `MException`、`error`、`throw`、`throwAsCaller`、`rethrow`、`addCause` 或 `getReport` 的参数数量、类型、identifier、格式值或静态 option 不满足当前异常合同 |
-| `MPF2060` | Matlab `arguments` declaration 的 formal 对应、顺序、可选性、scalar/NDArray ABI 无效；参数化关系 validator 的阈值 literal 溢出，或 input reference 不可见/不是可表示 scalar |
+| `MPF2060` | Matlab `arguments` declaration 的 formal 对应、顺序、可选性、scalar/NDArray ABI 无效；绑定后的标准 validator call arity、validated argument、threshold/flag ABI 无效，阈值 literal 溢出，或 input reference 不可见/不是可表示 scalar |
 | `MPF2061` | 目标后端无法精确保持 Matlab `arguments` 在已知调用边界上的 class/size conversion |
 | `MPF2062` | Matlab validator 名称已解析为源 local function/variable，而当前尚无可执行的 validation-sequence MIR；拒绝把它替换成同名标准 builtin |
 
