@@ -245,6 +245,7 @@ struct CallSite {
   std::vector<Argument> arguments;
   TypeId result_type{};
   std::size_t requested_results{1};
+  SourceOutputDemand output_demand;
 };
 
 struct Expression {
@@ -281,6 +282,7 @@ struct ArgumentValidatorSource {
   ArgumentValidator validator{ArgumentValidator::numeric};
   HirNodeId call{};
   HirNodeId callee{};
+  SourceOutputDemand output_demand;
 };
 
 struct Statement {
@@ -512,6 +514,7 @@ struct ExpressionAttributes {
   std::vector<ShapeId> tuple_shapes;
   std::vector<ValueMetadata> sequence_elements;
   std::size_t requested_results{1};
+  SourceOutputDemand output_demand;
   bool multi_result_call{false};
   bool procedure_has_result{false};
   std::size_t index_base{0};

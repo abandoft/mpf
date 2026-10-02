@@ -8,6 +8,7 @@
 
 #include "compiler/argument_validation.hpp"
 #include "compiler/assignment_pattern.hpp"
+#include "compiler/output_demand.hpp"
 #include "ids.hpp"
 #include "semantics.hpp"
 #include "storage_region.hpp"
@@ -212,6 +213,7 @@ struct ExpressionFacts {
   bool sequence_is_list{false};
   std::vector<ValueMetadata> sequence_elements;
   std::size_t requested_outputs{1};
+  SourceOutputDemand output_demand;
   bool multi_output_call{false};
   std::vector<ParameterIntent> argument_intents;
   std::vector<std::string> argument_names;
