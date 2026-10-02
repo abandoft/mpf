@@ -179,6 +179,9 @@ std::vector<Diagnostic> canonicalize_shapes(Program& program, OptimizationStatis
 }
 
 void replace_value(Program& program, const ValueId from, const ValueId to) {
+  for (std::size_t index = 1U; index < program.functions.size(); ++index)
+    for (auto& flow : program.functions[index].parameter_defaults)
+      if (flow.result == from) flow.result = to;
   const auto replace = [&](ValueId& value) {
     if (value == from) value = to;
   };
@@ -554,6 +557,12 @@ void compact_instructions(Program& program, const std::vector<bool>& removed,
     remap_id(program.statements[index].instruction);
   }
   for (auto& call : program.calls) remap_id(call.instruction);
+  for (std::size_t index = 1U; index < program.functions.size(); ++index) {
+    for (auto& flow : program.functions[index].parameter_defaults) {
+      remap_id(flow.presence);
+      remap_id(flow.initialization);
+    }
+  }
   for (std::size_t index = 1; index < program.blocks.size(); ++index) {
     auto& owned = program.blocks[index].instructions;
     owned.erase(std::remove_if(owned.begin(), owned.end(),
@@ -676,6 +685,20 @@ void compact_blocks(Program& program, const std::vector<bool>& kept,
   for (std::size_t index = 1; index < program.functions.size(); ++index) {
     remap_id(program.functions[index].entry);
     for (auto& block : program.functions[index].blocks) remap_id(block);
+    for (auto& flow : program.functions[index].parameter_defaults) {
+      remap_id(flow.test_block);
+      remap_id(flow.present_block);
+      remap_id(flow.default_exit);
+      remap_id(flow.merge_block);
+      flow.default_blocks.erase(
+          std::remove_if(flow.default_blocks.begin(), flow.default_blocks.end(),
+                         [&](const BlockId block) {
+                           return block.valid() && block.value() < kept.size() &&
+                                  !kept[block.value()];
+                         }),
+          flow.default_blocks.end());
+      for (auto& block : flow.default_blocks) remap_id(block);
+    }
   }
   for (auto& region : program.exception_regions) {
     remap_id(region.protected_entry);
@@ -694,10 +717,21 @@ std::vector<Diagnostic> cleanup_cfg(Program& program, OptimizationStatistics& st
     changed = false;
     std::vector<std::size_t> predecessors(program.blocks.size(), 0U);
     std::vector<bool> entry(program.blocks.size(), false);
-    std::vector<bool> exception_structure(program.blocks.size(), false);
+    std::vector<bool> structural_blocks(program.blocks.size(), false);
     for (std::size_t index = 1; index < program.functions.size(); ++index) {
       if (program.functions[index].entry.valid())
         entry[program.functions[index].entry.value()] = true;
+      for (const auto& flow : program.functions[index].parameter_defaults) {
+        const auto retain = [&](const BlockId block) {
+          if (block.valid() && block.value() < structural_blocks.size())
+            structural_blocks[block.value()] = true;
+        };
+        retain(flow.test_block);
+        retain(flow.present_block);
+        retain(flow.default_exit);
+        retain(flow.merge_block);
+        if (!flow.default_blocks.empty()) retain(flow.default_blocks.front());
+      }
     }
     for (std::size_t index = 1; index < program.blocks.size(); ++index) {
       if (!kept[index]) continue;
@@ -710,14 +744,14 @@ std::vector<Diagnostic> cleanup_cfg(Program& program, OptimizationStatistics& st
       const auto handler = program.blocks[index].exception_handler;
       if (handler.valid() && handler.value() < predecessors.size() && kept[handler.value()]) {
         ++predecessors[handler.value()];
-        exception_structure[index] = true;
-        exception_structure[handler.value()] = true;
+        structural_blocks[index] = true;
+        structural_blocks[handler.value()] = true;
       }
     }
     for (const auto& region : program.exception_regions) {
       const auto retain = [&](const BlockId block) {
-        if (block.valid() && block.value() < exception_structure.size()) {
-          exception_structure[block.value()] = true;
+        if (block.valid() && block.value() < structural_blocks.size()) {
+          structural_blocks[block.value()] = true;
         }
       };
       retain(region.protected_entry);
@@ -740,7 +774,7 @@ std::vector<Diagnostic> cleanup_cfg(Program& program, OptimizationStatistics& st
           block.terminator.successors.front().value() != index &&
           kept[block.terminator.successors.front().value()] &&
           program.blocks[block.terminator.successors.front().value()].arguments.empty();
-      if (exception_structure[index] || (!unreachable_empty && !forwarding)) continue;
+      if (structural_blocks[index] || (!unreachable_empty && !forwarding)) continue;
       if (forwarding) {
         const auto target = block.terminator.successors.front();
         for (std::size_t predecessor = 1; predecessor < program.blocks.size(); ++predecessor) {
