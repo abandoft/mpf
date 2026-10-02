@@ -16,6 +16,7 @@
 - Output conversion and validation now run once outside function-body exception handlers, preserving early and loop returns and the first validation failure.
 - Fixed Matlab calls that receive only the first or several initial outputs, preserving normalized result types and shapes without truncating output validation.
 - Unused Matlab function calls now avoid unnecessary first-output projections in both targets while preserving execution, validation, exceptions, and implicit command results. Discarded C++ expressions also compile with strict warnings.
+- Translation is faster for branch-heavy functions, including Matlab functions with many early returns and output-validation declarations.
 
 ## 0.7.9
 
