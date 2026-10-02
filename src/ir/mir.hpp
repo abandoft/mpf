@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "argument_entry_flow.hpp"
+#include "argument_exit_flow.hpp"
 #include "compiler/argument_validation.hpp"
 #include "compiler/assignment_pattern.hpp"
 #include "compiler/call_contract.hpp"
@@ -216,6 +217,8 @@ struct Function {
   std::vector<TypeId> raw_parameter_types;
   std::vector<ShapeId> raw_parameter_shapes;
   std::vector<ArgumentEntryFlow> argument_entries;
+  ArgumentExitFlow argument_exit;
+  std::vector<ArgumentOutputFlow> argument_outputs;
 };
 
 struct CallSite {
@@ -607,13 +610,14 @@ struct InstructionAttributes {
   std::vector<MemoryAccess> memory_accesses;
 };
 
-enum class ArgumentOperationKind : std::uint8_t { normalization, validation, threshold };
+enum class ArgumentOperationKind : std::uint8_t { normalization, validation, threshold, selection };
 
 struct ArgumentOperation {
   InstructionId instruction{};
   HirNodeId owner{};
   std::size_t parameter{0U};
   ArgumentOperationKind kind{ArgumentOperationKind::normalization};
+  ArgumentDirection direction{ArgumentDirection::input};
   ArgumentClassConstraint class_constraint{ArgumentClassConstraint::none};
   bool dimensions_declared{false};
   std::vector<ArgumentDimensionConstraint> dimensions;
