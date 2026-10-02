@@ -422,7 +422,8 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
                        const SourceLanguage source_language, std::vector<bool>& seen,
                        const std::string_view stage, std::vector<Diagnostic>& diagnostics,
                        const bool condition_context = false,
-                       const std::optional<ArgumentValidator> validator_context = std::nullopt) {
+                       const std::optional<ArgumentValidator> validator_context = std::nullopt,
+                       const SourceOutputDemand* invocation_context = nullptr) {
   if (!expression.valid()) return;
   const auto* facts = table.expression(expression.id);
   if (facts == nullptr || facts->origin != expression.id) {
@@ -432,6 +433,16 @@ void verify_expression(const Expression& expression, const SemanticTable& table,
   }
   seen[expression.id.value()] = true;
   const bool analyzed = stage != "ast-to-hir" && stage != "frontend-seed" && stage != "conformance";
+  SourceOutputDemand expected_demand;
+  if (analyzed && source_language == SourceLanguage::matlab &&
+      expression.kind == ExpressionKind::call)
+    expected_demand = invocation_context == nullptr
+                          ? SourceOutputDemand{OutputDemandForm::expression, 1U, false}
+                          : *invocation_context;
+  if (!facts->output_demand.valid() || facts->output_demand != expected_demand) {
+    add_error(diagnostics, expression.location, stage,
+              "source output demand disagrees with its invocation context");
+  }
   if (facts->argument_validator != (analyzed ? validator_context : std::nullopt)) {
     add_error(diagnostics, expression.location, stage,
               "contextual validator identity disagrees with its source-owned call");
@@ -1468,8 +1479,14 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
     const bool condition_context = source_language == SourceLanguage::matlab &&
                                    (statement.kind == StatementKind::if_statement ||
                                     statement.kind == StatementKind::while_loop);
+    SourceOutputDemand invocation_context{OutputDemandForm::expression, 1U, false};
+    if (statement.kind == StatementKind::expression)
+      invocation_context = {OutputDemandForm::statement, 0U,
+                            statement.implicit_result != semantic::ImplicitResultPolicy::none};
+    else if (statement.kind == StatementKind::multi_assignment)
+      invocation_context = {OutputDemandForm::prefix, statement.target_names.size(), false};
     verify_expression(statement.expression, table, source_language, seen, stage, diagnostics,
-                      condition_context);
+                      condition_context, std::nullopt, &invocation_context);
     verify_expression(statement.secondary_expression, table, source_language, seen, stage,
                       diagnostics);
     verify_expression(statement.tertiary_expression, table, source_language, seen, stage,
@@ -1489,8 +1506,9 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
         if (callee != nullptr && callee->binding == BindingKind::builtin && definition != nullptr)
           context = definition->validator;
       }
+      const SourceOutputDemand validation_demand{OutputDemandForm::validation, 0U, false};
       verify_expression(call.expression, table, source_language, seen, stage, diagnostics, false,
-                        context);
+                        context, &validation_demand);
     }
     for (const auto& selector : statement.case_selectors) {
       verify_expression(selector.lower, table, source_language, seen, stage, diagnostics);
