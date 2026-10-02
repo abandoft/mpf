@@ -2,8 +2,11 @@ cmake_minimum_required(VERSION 3.20)
 
 if(NOT DEFINED SOURCE_DIR OR NOT DEFINED BUILD_DIR OR
    NOT DEFINED ENABLE_JAVASCRIPT OR NOT DEFINED ENABLE_CPP OR
-   NOT DEFINED PROJECT_VERSION OR NOT DEFINED CONFIG)
+   NOT DEFINED PROJECT_VERSION OR NOT DEFINED CONFIG OR NOT DEFINED BUILD_PARALLELISM)
   message(FATAL_ERROR "backend isolation test is missing required arguments")
+endif()
+if(NOT BUILD_PARALLELISM MATCHES "^[1-9][0-9]*$")
+  message(FATAL_ERROR "backend isolation build parallelism must be a positive integer")
 endif()
 
 file(REMOVE_RECURSE "${BUILD_DIR}")
@@ -23,8 +26,10 @@ if(NOT configure_result EQUAL 0)
   message(FATAL_ERROR "backend-isolated configure failed:\n${configure_output}\n${configure_error}")
 endif()
 
+message(STATUS "Building isolated backends with ${BUILD_PARALLELISM} workers")
 execute_process(
-  COMMAND "${CMAKE_COMMAND}" --build "${BUILD_DIR}" --config "${CONFIG}" --parallel
+  COMMAND "${CMAKE_COMMAND}" --build "${BUILD_DIR}" --config "${CONFIG}"
+    --parallel "${BUILD_PARALLELISM}"
   RESULT_VARIABLE build_result
   OUTPUT_VARIABLE build_output
   ERROR_VARIABLE build_error)
@@ -116,7 +121,8 @@ if(NOT consumer_configure_result EQUAL 0)
     "${consumer_configure_output}\n${consumer_configure_error}")
 endif()
 execute_process(
-  COMMAND "${CMAKE_COMMAND}" --build "${consumer_build}" --config "${CONFIG}" --parallel
+  COMMAND "${CMAKE_COMMAND}" --build "${consumer_build}" --config "${CONFIG}"
+    --parallel "${BUILD_PARALLELISM}"
   RESULT_VARIABLE consumer_build_result
   OUTPUT_VARIABLE consumer_build_output
   ERROR_VARIABLE consumer_build_error)

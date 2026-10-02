@@ -261,6 +261,8 @@ function(mpf_add_differential_case name language input expected_output)
 endfunction()
 
 function(mpf_add_backend_isolation_test name javascript cpp)
+  # Nested builds consume multiple workers; reserve the same number of CTest slots.
+  set(build_parallelism 2)
   add_test(NAME mpf.backend-isolation.${name}
     COMMAND ${CMAKE_COMMAND}
       -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
@@ -269,9 +271,11 @@ function(mpf_add_backend_isolation_test name javascript cpp)
       -DENABLE_CPP=${cpp}
       -DPROJECT_VERSION=${PROJECT_VERSION}
       -DCONFIG=Release
+      -DBUILD_PARALLELISM=${build_parallelism}
       -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_backend_isolation.cmake)
   set_tests_properties(mpf.backend-isolation.${name} PROPERTIES
     LABELS "isolation;coverage-excluded"
+    PROCESSORS ${build_parallelism}
     TIMEOUT 300)
 endfunction()
 
@@ -677,6 +681,16 @@ endif()
 mpf_add_backend_isolation_test(javascript-only ON OFF)
 mpf_add_backend_isolation_test(cpp-only OFF ON)
 mpf_add_backend_isolation_test(core-only OFF OFF)
+
+add_test(NAME mpf.infrastructure.nested-build-budget
+  COMMAND ${CMAKE_COMMAND}
+    -DCTEST_COMMAND=${CMAKE_CTEST_COMMAND}
+    -DPROJECT_BUILD_DIR=${CMAKE_BINARY_DIR}
+    -DCONFIG=$<CONFIG>
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_nested_build_budget.cmake)
+set_tests_properties(mpf.infrastructure.nested-build-budget PROPERTIES
+  LABELS "infrastructure"
+  TIMEOUT 30)
 
 if(MPF_ENABLE_JAVASCRIPT_BACKEND AND MPF_ENABLE_CPP_BACKEND)
   add_test(NAME mpf.installed.frontend-backend-examples
