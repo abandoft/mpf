@@ -33,6 +33,8 @@ constexpr LegalizationTable make_legalizations() {
   result[static_cast<std::size_t>(mir::Opcode::comparison_chain)] = LegalizationAction::rewrite;
   result[static_cast<std::size_t>(mir::Opcode::conditional)] = LegalizationAction::rewrite;
   result[static_cast<std::size_t>(mir::Opcode::parameter_presence)] = LegalizationAction::rewrite;
+  result[static_cast<std::size_t>(mir::Opcode::argument_normalize)] = LegalizationAction::rewrite;
+  result[static_cast<std::size_t>(mir::Opcode::argument_validate)] = LegalizationAction::rewrite;
   return result;
 }
 

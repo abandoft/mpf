@@ -6,6 +6,7 @@
 #include <string_view>
 #include <vector>
 
+#include "argument_entry_flow.hpp"
 #include "compiler/argument_validation.hpp"
 #include "compiler/assignment_pattern.hpp"
 #include "compiler/call_contract.hpp"
@@ -92,7 +93,9 @@ enum class Opcode {
   function,
   control,
   catch_exception,
-  parameter_presence
+  parameter_presence,
+  argument_normalize,
+  argument_validate
 };
 
 enum class TerminatorKind { none, branch, conditional_branch, return_value, unreachable };
@@ -210,6 +213,9 @@ struct Function {
   std::vector<ShapeId> result_shapes;
   TypeId signature{};
   std::vector<ParameterDefaultFlow> parameter_defaults;
+  std::vector<TypeId> raw_parameter_types;
+  std::vector<ShapeId> raw_parameter_shapes;
+  std::vector<ArgumentEntryFlow> argument_entries;
 };
 
 struct CallSite {
@@ -597,7 +603,23 @@ struct MemoryAccess {
 
 struct InstructionAttributes {
   InstructionId origin{};
+  ArgumentOperationId argument_operation{};
   std::vector<MemoryAccess> memory_accesses;
+};
+
+enum class ArgumentOperationKind : std::uint8_t { normalization, validation, threshold };
+
+struct ArgumentOperation {
+  InstructionId instruction{};
+  HirNodeId owner{};
+  std::size_t parameter{0U};
+  ArgumentOperationKind kind{ArgumentOperationKind::normalization};
+  ArgumentClassConstraint class_constraint{ArgumentClassConstraint::none};
+  bool dimensions_declared{false};
+  std::vector<ArgumentDimensionConstraint> dimensions;
+  std::size_t rank{0U};
+  ArgumentValidatorPlan validator;
+  std::string literal;
 };
 
 struct OperationAttributeTable {
@@ -625,6 +647,7 @@ struct Program {
   std::vector<Function> functions;
   std::vector<CallSite> calls;
   std::vector<ExceptionRegion> exception_regions;
+  std::vector<ArgumentOperation> argument_operations;
   std::size_t hir_node_count{0};
   std::uint64_t revision{0};
 };

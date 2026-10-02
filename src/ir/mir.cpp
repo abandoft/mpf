@@ -1957,8 +1957,8 @@ class Builder final {
       program_.attributes.instructions.resize(static_cast<std::size_t>(instruction.id.value()) +
                                               1U);
     }
-    program_.attributes.instructions[instruction.id.value()] = {instruction.id,
-                                                                std::move(memory_accesses)};
+    program_.attributes.instructions[instruction.id.value()] = {
+        instruction.id, {}, std::move(memory_accesses)};
     program_.instructions.push_back(std::move(instruction));
   }
 
