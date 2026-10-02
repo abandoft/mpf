@@ -15,7 +15,7 @@
 - Output class and size conversions now retain the function's internal workspace values while giving callers correctly typed logical, numeric, complex, and reshaped results, including functions that share an input and output name.
 - Output conversion and validation now run once outside function-body exception handlers, preserving early and loop returns and the first validation failure.
 - Fixed Matlab calls that receive only the first or several initial outputs, preserving normalized result types and shapes without truncating output validation.
-- Discarded C++ expressions now explicitly consume their results, allowing unused multi-output calls to compile with strict warnings while preserving execution and exceptions.
+- Unused Matlab function calls now avoid unnecessary first-output projections in both targets while preserving execution, validation, exceptions, and implicit command results. Discarded C++ expressions also compile with strict warnings.
 
 ## 0.7.9
 
