@@ -303,6 +303,8 @@ if(TARGET mpfc)
     examples/matlab/argument_relational_validators.m)
   mpf_add_generated_cpp_compile_test(
     matlab-argument-range-validators examples/matlab/argument_range_validators.m)
+  mpf_add_generated_cpp_compile_test(
+    matlab-argument-default-functions examples/matlab/argument_default_functions.m)
   mpf_add_generated_runtime_failure_test(
     matlab-argument-validation tests/fixtures/matlab_argument_validation_failure.m
     "failed mustBePositive" matlab)
