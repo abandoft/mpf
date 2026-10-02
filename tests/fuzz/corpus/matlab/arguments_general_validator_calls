@@ -1,0 +1,12 @@
+function output = checked(lower,value)
+arguments
+lower (1,1) double = 0
+value (1,1) double {customValidator(value,lower + 1,[1,2],complex(1,2),'text'), mustBeFinite} = 2
+end
+output = value
+end
+function customValidator(value,threshold,values,number,text)
+if value < threshold
+error('invalid value')
+end
+end

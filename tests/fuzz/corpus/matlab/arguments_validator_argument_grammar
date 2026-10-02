@@ -1,0 +1,6 @@
+function output = checked(value)
+arguments
+value (1,1) double {custom(value,,[1,2]), mustBeReal()}
+end
+output = value
+end
