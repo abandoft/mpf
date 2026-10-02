@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
   mpf
-  VERSION 0.7.9
+  VERSION 0.8.0
   DESCRIPTION "Modern, high-performance multilingual translation framework."
   LANGUAGES C CXX)
 
