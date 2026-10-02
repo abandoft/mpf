@@ -37,7 +37,9 @@ const __mpf_argument_validator_names = [
   'mustBeNonnegative', 'mustBeNegative', 'mustBeNonzero', 'mustBeInteger',
   'mustBeNonempty', 'mustBeScalarOrEmpty', 'mustBeVector', 'mustBeRow',
   'mustBeColumn', 'mustBeMatrix', 'mustBeNonmissing', 'mustBeNonzeroLengthText',
-  'mustBeText', 'mustBeTextScalar', 'mustBeValidVariableName'
+  'mustBeText', 'mustBeTextScalar', 'mustBeValidVariableName',
+  'mustBeGreaterThan', 'mustBeGreaterThanOrEqual', 'mustBeLessThan',
+  'mustBeLessThanOrEqual'
 ];
 const __mpf_matlab_keywords = new Set([
   'break', 'case', 'catch', 'classdef', 'continue', 'else', 'elseif', 'end',
@@ -122,7 +124,13 @@ function __mpf_validate_argument(value, name, direction, dimensions, classConstr
   const empty = __mpf_argument_size(shape) === 0;
   const numeric = (item) => typeof item === 'number' || __mpf_is_complex(item);
   const numericOrLogical = (item) => numeric(item) || typeof item === 'boolean';
-  for (const validator of validators) {
+  for (const validatorCall of validators) {
+    const parameterized = Array.isArray(validatorCall);
+    const validator = parameterized ? validatorCall[0] : validatorCall;
+    const operand = parameterized ? validatorCall[1] : undefined;
+    if (!Number.isInteger(validator) || validator < 0 || validator > 26 ||
+        parameterized !== (validator >= 23) || (parameterized && validatorCall.length !== 2))
+      __mpf_argument_failure(name, 'validator call ABI');
     let valid = true;
     switch (validator) {
       case 0: valid = empty || items.every(numeric); break;
@@ -166,6 +174,18 @@ function __mpf_validate_argument(value, name, direction, dimensions, classConstr
       case 21: valid = typeof value === 'string'; break;
       case 22: valid = typeof value === 'string' && value.length <= 63 &&
         /^[A-Za-z][A-Za-z0-9_]*$/.test(value) && !__mpf_matlab_keywords.has(value); break;
+      case 23: valid = !__mpf_is_complex(operand) && numericOrLogical(operand) &&
+        (empty || items.every((item) => !__mpf_is_complex(item) && numericOrLogical(item) &&
+          Number(item) > Number(operand))); break;
+      case 24: valid = !__mpf_is_complex(operand) && numericOrLogical(operand) &&
+        (empty || items.every((item) => !__mpf_is_complex(item) && numericOrLogical(item) &&
+          Number(item) >= Number(operand))); break;
+      case 25: valid = !__mpf_is_complex(operand) && numericOrLogical(operand) &&
+        (empty || items.every((item) => !__mpf_is_complex(item) && numericOrLogical(item) &&
+          Number(item) < Number(operand))); break;
+      case 26: valid = !__mpf_is_complex(operand) && numericOrLogical(operand) &&
+        (empty || items.every((item) => !__mpf_is_complex(item) && numericOrLogical(item) &&
+          Number(item) <= Number(operand))); break;
       default: valid = false; break;
     }
     if (!valid) __mpf_argument_failure(

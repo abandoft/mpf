@@ -104,29 +104,43 @@ class Renderer final {
     output_ << ']';
   }
 
-  void emit_argument_validators(const ArgumentValidationPlan& plan) {
+  void emit_argument_validators(const std::vector<javascript::lir::ValidatorCallPlan>& calls) {
     output_ << '[';
-    for (std::size_t index = 0U; index < plan.validators.size(); ++index) {
+    for (std::size_t index = 0U; index < calls.size(); ++index) {
       if (index != 0U) output_ << ", ";
-      output_ << static_cast<unsigned>(plan.validators[index]);
+      const auto& validator = calls[index];
+      if (!validator.operands.empty()) output_ << '[';
+      output_ << static_cast<unsigned>(validator.opcode);
+      for (const auto& operand : validator.operands) {
+        output_ << ", ";
+        if (operand.form == javascript::lir::ValidatorOperandForm::numeric_literal) {
+          output_ << operand.token;
+        } else {
+          output_ << mangler_->name(operand.symbol, operand.token);
+        }
+      }
+      if (!validator.operands.empty()) output_ << ']';
     }
     output_ << ']';
   }
 
   void emit_argument_validation(const std::string& value, const std::string& source_name,
-                                const ArgumentValidationPlan& plan) {
+                                const ArgumentValidationPlan& plan,
+                                const std::vector<javascript::lir::ValidatorCallPlan>& calls) {
     indentation();
     output_ << value << " = __mpf_validate_argument(" << value << ", " << std::quoted(source_name)
             << ", " << std::quoted(plan.direction == ArgumentDirection::input ? "input" : "output")
             << ", ";
     emit_argument_dimensions(plan);
     output_ << ", " << static_cast<unsigned>(plan.class_constraint) << ", ";
-    emit_argument_validators(plan);
+    emit_argument_validators(calls);
     output_ << ");\n";
   }
 
   void emit_input_argument_validations(const Statement& statement) {
-    for (const auto& plan : statement.argument_validations) {
+    for (std::size_t validation = 0U; validation < statement.argument_validations.size();
+         ++validation) {
+      const auto& plan = statement.argument_validations[validation];
       if (plan.direction != ArgumentDirection::input || plan.ordinal >= statement.parameters.size())
         continue;
       const auto parameter = mangler_->name(plan.ordinal < statement.parameter_symbols.size()
@@ -141,12 +155,15 @@ class Renderer final {
         output_ << ";\n";
       }
       mark({plan.line, 1U}, statement.origin);
-      emit_argument_validation(parameter, statement.parameters[plan.ordinal], plan);
+      emit_argument_validation(parameter, statement.parameters[plan.ordinal], plan,
+                               statement.plan.argument_validators[validation]);
     }
   }
 
   void emit_output_argument_validations(const Statement& statement) {
-    for (const auto& plan : statement.argument_validations) {
+    for (std::size_t validation = 0U; validation < statement.argument_validations.size();
+         ++validation) {
+      const auto& plan = statement.argument_validations[validation];
       if (plan.direction != ArgumentDirection::output ||
           plan.ordinal >= statement.return_names.size())
         continue;
@@ -155,7 +172,8 @@ class Renderer final {
                                              : SymbolId{},
                                          statement.return_names[plan.ordinal]);
       mark({plan.line, 1U}, statement.origin);
-      emit_argument_validation(output, statement.return_names[plan.ordinal], plan);
+      emit_argument_validation(output, statement.return_names[plan.ordinal], plan,
+                               statement.plan.argument_validators[validation]);
     }
   }
 
