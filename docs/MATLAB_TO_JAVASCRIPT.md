@@ -194,14 +194,22 @@ nonmissing 与 variable-name 组，`mustBeRow`/`mustBeColumn`/`mustBeMatrix` 则
 runtime 同步处理 logical、character、empty value、complex-storage realness，以及 R2024b 的 63 字符
 变量名和关键字限制。
 
-后续开发分支以 Matlab AST v6、Semantic v36、MIR v42 与双目标 LIR v52 接入
+后续开发分支以 Matlab AST v7、Semantic v37、MIR v43 与双目标 LIR v53 接入
 `mustBeGreaterThan`/`mustBeGreaterThanOrEqual`/`mustBeLessThan`/`mustBeLessThanOrEqual`。
 threshold 支持有限 binary64 literal 和前序 scalar input，output validator 可引用 input；未定
 类型的 input 需要显式 singleton dimensions，并保留 runtime numeric/logical/complex-storage
 检查。Analyzer 绑定 formal ordinal，双目标 LIR 固化各自 token/symbol/access form，Emitter
 不推断 optional ABI；字面量统一为十进制浮点 token，避免 leading-zero octal 与超宽 integer，
 同时保持 signed zero、subnormal、下溢舍入、默认值顺序及 validator 首错顺序。此增量未发布，
-尚未实现 threshold 任意表达式、其余参数化标准/custom validator 或 name-value/Repeating。
+当前增量还支持 23 个标准 unary 的显式 `validator(value)` 调用，以及 R2020b `mustBeInRange`
+的两个 scalar literal/已绑定 input 阈值、inclusive/exclusive/半开区间与两个 bound flag；
+output 验证和 optional input 复用相同绑定合同，双目标 runtime 使用独立 boundary ABI。
+区间按 Matlab 关系运算符比较 complex value 的实部，四个 real-only 关系 validator 继续保留
+复杂度检查。JS 参数正规化另固定 scalar/singleton/default array 与 `validated_rank`，MIR
+显式保存同 extent layout adaptation；两端校正空数组 `length`，并开放 scalar `length`/`numel`
+与可证明 row/column topology 的 SUM。不宣称一般矩阵 SUM 或动态 NDArray 已实现。
+尚未实现 threshold 任意表达式、其余参数化标准/custom validator、一般 range bound array/object
+或 name-value/Repeating。
 一般 NDArray 表示与不可结构恢复动态零 extent、stride/view/owner/COW、限定名/package/class 与
 外部 path/project command 解析、完整 name-value/Repeating/其余 parameterized/custom `arguments`、公开 cause/stack/correction 属性、完整格式化表面、cell/struct/string
 仍不在当前可保持边界。因此文档、版本说明和 CLI
