@@ -1,3 +1,18 @@
+## 0.8.0
+
+- Matlab `arguments` now supports `mustBeGreaterThan`, `mustBeGreaterThanOrEqual`, `mustBeLessThan`, and `mustBeLessThanOrEqual`.
+- `mustBeInRange` now supports closed, open, and half-open intervals, including both endpoint-exclusion flags together.
+- The 23 existing standard validators now accept explicit `validator(value)` calls with the same semantics as their bare forms.
+- Relational and range validators accept finite numeric literals, previously converted scalar inputs, and scalar input references in output validation as thresholds.
+- Numeric thresholds preserve binary64 rounding, signed zero, subnormals, and underflow results, while overflowing values are rejected explicitly.
+- Positional defaults can lazily call forward-declared local functions; supplied arguments skip their defaults, and nested short-circuit expressions evaluate only the required paths.
+- Fixed argument-entry error ordering: each declaration completes its default, class/size normalization, and validators before the next argument is processed, so later conversions or defaults cannot overwrite an earlier failure.
+- Generated C++17 evaluates nontrivial multiple Matlab arguments in source order and completes actual-argument evaluation before parameter validation begins.
+- Fixed scalar/array representation for singleton inputs and array defaults in JavaScript while preserving declared dimensions and element order.
+- Matlab `length` now returns 0 for arrays with any zero extent; both `length` and `numel` also support numeric, logical, and complex scalars.
+- Local functions, formals, outputs, and assignments that shadow standard validator names now produce focused diagnostics instead of invoking the wrong builtin.
+- Generated C++17 no longer allocates temporary flatten buffers for compatible scalar inputs or flattens and rebuilds arrays with matching types and shapes.
+
 ## 0.7.9
 
 - Matlab functions can now use positional input `arguments` blocks introduced in R2019b.
