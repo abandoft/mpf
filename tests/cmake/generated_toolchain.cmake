@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.20)
+
+# Every generated-code test uses the parent compiler, generator and deployment target.
+function(mpf_append_generated_toolchain output_variable)
+  set(result "${${output_variable}}")
+  if(DEFINED OSX_DEPLOYMENT_TARGET AND NOT OSX_DEPLOYMENT_TARGET STREQUAL "")
+    # Compiler identification precedes CMake's compiler-specific deployment flags. GCC's Darwin
+    # assembler subprocess must see the selected target during that first identification build.
+    set(ENV{MACOSX_DEPLOYMENT_TARGET} "${OSX_DEPLOYMENT_TARGET}")
+  endif()
+  foreach(variable IN ITEMS CXX_COMPILER OSX_DEPLOYMENT_TARGET)
+    if(DEFINED ${variable} AND NOT "${${variable}}" STREQUAL "")
+      list(APPEND result "-DCMAKE_${variable}=${${variable}}")
+    endif()
+  endforeach()
+  if(DEFINED GENERATOR AND NOT GENERATOR STREQUAL "")
+    list(APPEND result -G "${GENERATOR}")
+  endif()
+  if(DEFINED GENERATOR_PLATFORM AND NOT GENERATOR_PLATFORM STREQUAL "")
+    list(APPEND result -A "${GENERATOR_PLATFORM}")
+  endif()
+  if(DEFINED GENERATOR_TOOLSET AND NOT GENERATOR_TOOLSET STREQUAL "")
+    list(APPEND result -T "${GENERATOR_TOOLSET}")
+  endif()
+  set(${output_variable} "${result}" PARENT_SCOPE)
+endfunction()

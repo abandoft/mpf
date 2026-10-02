@@ -80,18 +80,8 @@ set(configure_arguments
   "-DGENERATED_SOURCE=${cpp_source}"
   -DGENERATED_COMPILE_ONLY=OFF
   -DCMAKE_BUILD_TYPE=Release)
-if(DEFINED CXX_COMPILER AND NOT CXX_COMPILER STREQUAL "")
-  list(APPEND configure_arguments "-DCMAKE_CXX_COMPILER=${CXX_COMPILER}")
-endif()
-if(DEFINED GENERATOR AND NOT GENERATOR STREQUAL "")
-  list(APPEND configure_arguments -G "${GENERATOR}")
-endif()
-if(DEFINED GENERATOR_PLATFORM AND NOT GENERATOR_PLATFORM STREQUAL "")
-  list(APPEND configure_arguments -A "${GENERATOR_PLATFORM}")
-endif()
-if(DEFINED GENERATOR_TOOLSET AND NOT GENERATOR_TOOLSET STREQUAL "")
-  list(APPEND configure_arguments -T "${GENERATOR_TOOLSET}")
-endif()
+include("${CMAKE_CURRENT_LIST_DIR}/generated_toolchain.cmake")
+mpf_append_generated_toolchain(configure_arguments)
 execute_process(
   COMMAND "${CMAKE_COMMAND}" ${configure_arguments}
   RESULT_VARIABLE cpp_configure_status

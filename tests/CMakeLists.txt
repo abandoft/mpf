@@ -107,6 +107,11 @@ set_tests_properties(mpf.release-support.contract PROPERTIES
   LABELS "infrastructure;release;coverage-excluded"
   TIMEOUT 60)
 
+add_test(NAME mpf.generated.toolchain-contract
+  COMMAND ${CMAKE_COMMAND}
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_generated_toolchain.cmake)
+set_tests_properties(mpf.generated.toolchain-contract PROPERTIES LABELS "infrastructure" TIMEOUT 30)
+
 function(mpf_add_generated_cpp_compile_test name input)
   add_test(NAME mpf.generated.cpp.${name}
     COMMAND ${CMAKE_COMMAND}
@@ -115,6 +120,7 @@ function(mpf_add_generated_cpp_compile_test name input)
       -DTEST_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/generated
       -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/generated-cpp-${name}
       "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}"
+      "-DOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
       "-DGENERATOR=${CMAKE_GENERATOR}"
       "-DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
       "-DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
@@ -138,6 +144,7 @@ function(mpf_add_generated_runtime_failure_test name input expected_error source
       -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/generated-failure-${name}
       "-DEXPECTED_ERROR=${expected_error}"
       "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}"
+      "-DOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
       "-DGENERATOR=${CMAKE_GENERATOR}"
       "-DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
       "-DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
@@ -174,6 +181,7 @@ function(mpf_add_generated_plan_rejection_test name input expected_error source_
       "-DCPP_SEARCH=${plan_CPP_SEARCH}"
       "-DCPP_REPLACEMENT=${plan_CPP_REPLACEMENT}"
       "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}"
+      "-DOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
       "-DGENERATOR=${CMAKE_GENERATOR}"
       "-DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
       "-DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
@@ -239,6 +247,7 @@ function(mpf_add_differential_case name language input expected_output)
       -DOUTPUT_MODE=${output_mode}
       -DSOURCE_KIND=${source_kind}
       "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}"
+      "-DOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
       "-DGENERATOR=${CMAKE_GENERATOR}"
       "-DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
       "-DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
