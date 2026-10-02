@@ -1,6 +1,7 @@
 add_executable(mpf-tests
   test_main.cpp
   unit/api_tests.cpp
+  unit/argument_validation_tests.cpp
   unit/compiler_foundation_tests.cpp
   unit/extension_architecture_tests.cpp
   unit/multilevel_ir_tests.cpp
@@ -292,6 +293,9 @@ if(TARGET mpfc)
   mpf_add_generated_cpp_compile_test(matlab-arguments examples/matlab/arguments.m)
   mpf_add_generated_cpp_compile_test(
     matlab-argument-conversion examples/matlab/argument_conversion.m)
+  mpf_add_generated_cpp_compile_test(
+    matlab-argument-relational-validators
+    examples/matlab/argument_relational_validators.m)
   mpf_add_generated_runtime_failure_test(
     matlab-argument-validation tests/fixtures/matlab_argument_validation_failure.m
     "failed mustBePositive" matlab)
@@ -304,6 +308,30 @@ if(TARGET mpfc)
   mpf_add_generated_runtime_failure_test(
     matlab-argument-complex-not-real tests/fixtures/matlab_argument_complex_not_real.m
     "failed mustBeReal" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-greater-than tests/fixtures/matlab_argument_greater_than_failure.m
+    "failed mustBeGreaterThan" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-greater-equal tests/fixtures/matlab_argument_greater_equal_failure.m
+    "failed mustBeGreaterThanOrEqual" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-less-than tests/fixtures/matlab_argument_less_than_failure.m
+    "failed mustBeLessThan" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-less-equal tests/fixtures/matlab_argument_less_equal_failure.m
+    "failed mustBeLessThanOrEqual" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-complex-threshold tests/fixtures/matlab_argument_complex_threshold.m
+    "failed mustBeGreaterThan" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-complex-relational-value tests/fixtures/matlab_argument_complex_relational_value.m
+    "failed mustBeGreaterThan" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-nan-threshold tests/fixtures/matlab_argument_nan_threshold.m
+    "failed mustBeGreaterThan" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-validator-order tests/fixtures/matlab_argument_validator_order.m
+    "failed mustBeFinite" matlab)
   mpf_add_generated_runtime_failure_test(
     matlab-dynamic-logical-mismatch tests/fixtures/matlab_dynamic_logical_mismatch.m
     "logical selector shape" matlab)
