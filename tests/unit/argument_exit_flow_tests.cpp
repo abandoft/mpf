@@ -31,6 +31,13 @@ const std::string source =
     "first = 2;\nsecond = 3;\nlimit = 9;\ntry\nif flag\nreturn;\nend\n"
     "catch\nfirst = 4;\nsecond = 5;\nend\nfirst = 6;\nsecond = 7;\nend\n";
 
+const std::string partial_source =
+    "[first,second] = checked();\ndisp(first);\ndisp(second);\n"
+    "function [first,second,third] = checked()\narguments (Output)\n"
+    "first (1,1) double {mustBePositive}\nsecond (1,1) logical {mustBeNonzero}\n"
+    "third (1,2) double {mustBePositive}\nend\n"
+    "first = 4;\nsecond = 2;\nthird = [8,9];\nend\n";
+
 mir::Program lower(const std::string& text = source) {
   auto parsed = parse_with_frontend(matlab_frontend(), SourceText(text, "exit_flow.m"));
   REQUIRE(parsed.diagnostics.empty());
@@ -491,4 +498,78 @@ TEST_CASE("MIR and target dumps expose shared output control storage and provena
     REQUIRE(target.find("argument-return-exit ^b") != std::string::npos);
     REQUIRE(target.find(":workspace=!m") != std::string::npos);
   }
+}
+
+TEST_CASE("partial Matlab output calls select typed prefixes without truncating the callee") {
+  auto program = lower(partial_source);
+  const auto& function = checked(program);
+  REQUIRE(function.result_types.size() == 3U);
+  REQUIRE(function.argument_outputs.size() == 3U);
+  REQUIRE(program.calls.size() == 1U);
+  const auto& call = program.calls.front();
+  REQUIRE(call.requested_results == 2U);
+  const auto* selected = mir::type(program, call.result_type);
+  REQUIRE(selected != nullptr);
+  REQUIRE(selected->kind == mir::TypeKind::tuple);
+  REQUIRE(selected->elements ==
+          std::vector<TypeId>({function.result_types[0], function.result_types[1]}));
+  const auto* expression = mir::expression(program, program.statements[1].expression);
+  REQUIRE(expression != nullptr);
+  const auto* facts = mir::attributes(program, expression->id);
+  REQUIRE(facts != nullptr);
+  REQUIRE(facts->tuple_shapes ==
+          std::vector<ShapeId>({function.result_shapes[0], function.result_shapes[1]}));
+  const auto javascript = javascript_plan(program);
+  const auto cpp = cpp_plan(program);
+  const std::vector<ValueType> types{ValueType::real, ValueType::boolean};
+  REQUIRE(javascript.statements.front().expression.tuple_types == types);
+  REQUIRE(cpp.statements.front().expression.tuple_types == types);
+  REQUIRE(javascript.statements.front().plan.targets.size() == 2U);
+  REQUIRE(cpp.statements.front().plan.targets.size() == 2U);
+  REQUIRE(javascript.statements.back().source_argument_outputs.size() == 3U);
+  REQUIRE(cpp.statements.back().source_argument_outputs.size() == 3U);
+  const auto optimized = mir::run_default_optimization_pipeline(program);
+  REQUIRE(optimized.diagnostics.empty());
+  REQUIRE(mir::verify(program, "selected-prefix").empty());
+  REQUIRE(checked(program).argument_outputs.size() == 3U);
+  for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+    mpf::TranspileOptions options;
+    options.language = mpf::SourceLanguage::matlab;
+    options.target = target;
+    options.emit_source_banner = false;
+    const auto result = mpf::Transpiler{}.transpile(partial_source, options);
+    REQUIRE(result.success());
+    REQUIRE(std::any_of(result.source_map.segments.begin(), result.source_map.segments.end(),
+                        [](const auto& segment) { return segment.original_line == 1U; }));
+    REQUIRE(result.code == mpf::Transpiler{}.transpile(partial_source, options).code);
+  }
+}
+
+TEST_CASE("MIR rejects call result inventories detached from their resident instruction") {
+  auto program = lower(partial_source);
+  auto& call = program.calls.front();
+  const auto& function = checked(program);
+  const auto full_tuple = program.instructions[function.argument_exit.aggregation.value()].type;
+  call.result_type = full_tuple;
+  call.requested_results = 3U;
+  const auto diagnostics = mir::verify(program, "detached-call-result");
+  REQUIRE(std::any_of(diagnostics.begin(), diagnostics.end(), [](const auto& diagnostic) {
+    return diagnostic.message.find("call site does not match its call instruction") !=
+           std::string::npos;
+  }));
+}
+
+TEST_CASE("C++ explicitly discards unused projected Matlab results without suppressing calls") {
+  const std::string text =
+      "checked();\nfunction [first,second] = checked()\narguments (Output)\n"
+      "first (1,1) double\nsecond (1,1) logical\nend\n"
+      "disp(7);\nfirst = 4;\nsecond = 2;\nend\n";
+  mpf::TranspileOptions options;
+  options.language = mpf::SourceLanguage::matlab;
+  options.target = mpf::TargetLanguage::cpp;
+  options.emit_source_banner = false;
+  const auto result = mpf::Transpiler{}.transpile(text, options);
+  REQUIRE(result.success());
+  REQUIRE(result.code.find("static_cast<void>(std::get<0>(checked()));") != std::string::npos);
+  REQUIRE(result.code.find("mpf_runtime::print(7)") != std::string::npos);
 }
