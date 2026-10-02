@@ -2,6 +2,8 @@ add_executable(mpf-tests
   test_main.cpp
   unit/api_tests.cpp
   unit/argument_validation_tests.cpp
+  unit/argument_range_tests.cpp
+  unit/argument_representation_tests.cpp
   unit/compiler_foundation_tests.cpp
   unit/extension_architecture_tests.cpp
   unit/multilevel_ir_tests.cpp
@@ -11,6 +13,7 @@ add_executable(mpf-tests
   unit/sparse_power_lir_tests.cpp
   unit/sparse_reduction_lir_tests.cpp
   unit/semantic_tests.cpp
+  unit/semantic_lifetime_tests.cpp
   integration/language_tests.cpp
   integration/control_flow_tests.cpp
   integration/array_tests.cpp)
@@ -296,6 +299,8 @@ if(TARGET mpfc)
   mpf_add_generated_cpp_compile_test(
     matlab-argument-relational-validators
     examples/matlab/argument_relational_validators.m)
+  mpf_add_generated_cpp_compile_test(
+    matlab-argument-range-validators examples/matlab/argument_range_validators.m)
   mpf_add_generated_runtime_failure_test(
     matlab-argument-validation tests/fixtures/matlab_argument_validation_failure.m
     "failed mustBePositive" matlab)
@@ -332,6 +337,38 @@ if(TARGET mpfc)
   mpf_add_generated_runtime_failure_test(
     matlab-argument-validator-order tests/fixtures/matlab_argument_validator_order.m
     "failed mustBeFinite" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-range-lower tests/fixtures/matlab_argument_range_lower_failure.m
+    "failed mustBeInRange" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-range-upper tests/fixtures/matlab_argument_range_upper_failure.m
+    "failed mustBeInRange" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-range-nan tests/fixtures/matlab_argument_range_nan_failure.m
+    "failed mustBeInRange" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-range-upper-nan tests/fixtures/matlab_argument_range_upper_nan_failure.m
+    "failed mustBeInRange" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-range-order tests/fixtures/matlab_argument_range_order_failure.m
+    "failed mustBeFinite" matlab)
+  mpf_add_generated_runtime_failure_test(
+    matlab-argument-range-output tests/fixtures/matlab_argument_range_output_failure.m
+    "failed mustBeInRange" matlab)
+  mpf_add_generated_plan_rejection_test(
+    matlab-argument-range-boundary-abi tests/fixtures/matlab_argument_range_abi.m
+    "validator call ABI" matlab
+    JAVASCRIPT_SEARCH "[27, 0.0, 10.0, 0]"
+    JAVASCRIPT_REPLACEMENT "[27, 0.0, 10.0, 4]"
+    CPP_SEARCH "argument_validator_call{27U, {0.0, 10.0}, 2U, 0U}"
+    CPP_REPLACEMENT "argument_validator_call{27U, {0.0, 10.0}, 2U, 4U}")
+  mpf_add_generated_plan_rejection_test(
+    matlab-argument-range-arity-abi tests/fixtures/matlab_argument_range_abi.m
+    "validator call ABI" matlab
+    JAVASCRIPT_SEARCH "[27, 0.0, 10.0, 0]"
+    JAVASCRIPT_REPLACEMENT "[27, 0.0, 10.0]"
+    CPP_SEARCH "argument_validator_call{27U, {0.0, 10.0}, 2U, 0U}"
+    CPP_REPLACEMENT "argument_validator_call{27U, {0.0, 10.0}, 1U, 0U}")
   mpf_add_generated_runtime_failure_test(
     matlab-dynamic-logical-mismatch tests/fixtures/matlab_dynamic_logical_mismatch.m
     "logical selector shape" matlab)
