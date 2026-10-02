@@ -1936,6 +1936,21 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
       const auto function = std::find_if(
           program.functions.begin() + 1U, program.functions.end(),
           [&](const Function& candidate) { return candidate.origin == statement.origin; });
+      if (!valid_argument_validator_references(
+              statement.argument_validations, [&](const std::size_t ordinal) {
+                if (function == program.functions.end() ||
+                    ordinal >= function->parameter_types.size() ||
+                    ordinal >= function->parameter_shapes.size())
+                  return false;
+                const auto type = value_type(program, function->parameter_types[ordinal]);
+                const auto* formal_shape = shape(program, function->parameter_shapes[ordinal]);
+                return scalar_argument_validator_formal(
+                    statement.argument_validations, ordinal, type,
+                    formal_shape != nullptr && formal_shape->extents.empty());
+              })) {
+        add_error(diagnostics, {statement.line, 1}, stage,
+                  "MIR validator threshold disagrees with its scalar numeric formal ABI");
+      }
       for (const auto& plan : statement.argument_validations) {
         if (function != program.functions.end()) {
           const auto& types = plan.direction == ArgumentDirection::input ? function->parameter_types

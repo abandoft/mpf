@@ -136,7 +136,19 @@ void dump_argument_validations(std::ostringstream& output,
     output << ":validators=";
     for (std::size_t validator = 0U; validator < plan.validators.size(); ++validator) {
       if (validator != 0U) output << '/';
-      output << enum_value(plan.validators[validator]);
+      const auto& call = plan.validators[validator];
+      output << enum_value(call.validator);
+      if (!call.operands.empty()) {
+        output << '(';
+        for (std::size_t operand = 0U; operand < call.operands.size(); ++operand) {
+          if (operand != 0U) output << ',';
+          if (call.operands[operand].kind == ArgumentValidatorOperandKind::numeric_literal)
+            output << '#' << call.operands[operand].numeric_literal;
+          else
+            output << '$' << call.operands[operand].input_ordinal;
+        }
+        output << ')';
+      }
     }
     output << ":default=" << plan.has_default << ":rank=" << plan.validated_rank << '}';
   }
@@ -198,7 +210,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v35 hir-nodes=" << table.hir_node_count
+  output << "semantic-v36 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -475,7 +487,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v41 language=" << enum_value(program.source_language)
+  output << "mir-v42 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
