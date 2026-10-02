@@ -23,6 +23,10 @@ enum class ArgumentBoundaryConversion : std::uint8_t {
   matlab_size = 1U << 1U
 };
 
+// Source semantics place class/size adaptation at callee entry, in declaration order, not
+// while preparing all actual arguments at the caller.
+enum class ArgumentBoundaryExecution : std::uint8_t { none, matlab_callee_entry };
+
 [[nodiscard]] constexpr ArgumentBoundaryConversion operator|(
     const ArgumentBoundaryConversion left, const ArgumentBoundaryConversion right) noexcept {
   return static_cast<ArgumentBoundaryConversion>(static_cast<std::uint8_t>(left) |
@@ -166,6 +170,7 @@ struct ArgumentValidationPlan {
 // Per-call source-semantic adaptation contract.  `validated_rank` is the representation rank
 // after Matlab's scalar/array normalization (zero for scalar and character-vector ABIs).
 struct ArgumentCallBoundary {
+  ArgumentBoundaryExecution execution{ArgumentBoundaryExecution::none};
   ArgumentBoundaryConversion conversion{ArgumentBoundaryConversion::none};
   ArgumentClassConstraint class_constraint{ArgumentClassConstraint::none};
   bool dimensions_declared{false};
@@ -217,7 +222,8 @@ struct ArgumentCallBoundary {
 
 [[nodiscard]] inline bool operator==(const ArgumentCallBoundary& left,
                                      const ArgumentCallBoundary& right) noexcept {
-  return left.conversion == right.conversion && left.class_constraint == right.class_constraint &&
+  return left.execution == right.execution && left.conversion == right.conversion &&
+         left.class_constraint == right.class_constraint &&
          left.dimensions_declared == right.dimensions_declared &&
          left.dimensions == right.dimensions && left.validated_rank == right.validated_rank;
 }
@@ -388,7 +394,10 @@ template <typename ScalarNumericFormal>
   constexpr auto known = static_cast<std::uint8_t>(ArgumentBoundaryConversion::matlab_class) |
                          static_cast<std::uint8_t>(ArgumentBoundaryConversion::matlab_size);
   const auto conversion = static_cast<std::uint8_t>(boundary.conversion);
-  if ((conversion & static_cast<std::uint8_t>(~known)) != 0U ||
+  if (static_cast<std::uint8_t>(boundary.execution) >
+          static_cast<std::uint8_t>(ArgumentBoundaryExecution::matlab_callee_entry) ||
+      (conversion != 0U && boundary.execution != ArgumentBoundaryExecution::matlab_callee_entry) ||
+      (conversion & static_cast<std::uint8_t>(~known)) != 0U ||
       !valid_argument_dimensions(boundary.dimensions_declared, boundary.dimensions)) {
     return false;
   }

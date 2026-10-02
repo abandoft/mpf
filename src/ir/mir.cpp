@@ -135,6 +135,7 @@ class Builder final {
                  validation->dimensions_declared)) {
               argument.validated_type = callee.parameter_types[index];
               argument.validated_shape = callee.parameter_shapes[index];
+              argument.boundary.execution = ArgumentBoundaryExecution::matlab_callee_entry;
               argument.boundary.class_constraint = validation->class_constraint;
               argument.boundary.dimensions_declared = validation->dimensions_declared;
               argument.boundary.dimensions = validation->dimensions;

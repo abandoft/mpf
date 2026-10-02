@@ -2667,6 +2667,7 @@ void verify_function_types_and_calls(const Program& program, std::vector<Diagnos
              validation->dimensions_declared)) {
           expected_validated_type = callee.parameter_types[argument];
           expected_validated_shape = callee.parameter_shapes[argument];
+          expected_boundary.execution = ArgumentBoundaryExecution::matlab_callee_entry;
           expected_boundary.class_constraint = validation->class_constraint;
           expected_boundary.dimensions_declared = validation->dimensions_declared;
           expected_boundary.dimensions = validation->dimensions;
