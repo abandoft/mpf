@@ -74,6 +74,18 @@ void dump_argument_default_details(std::ostream& output, const Plan& plan, int) 
 template <typename Plan>
 void dump_argument_default_details(std::ostream&, const Plan&, long) {}
 
+template <typename Plan>
+using TargetPrintValueDetails = decltype(std::declval<const Plan&>().print_value, void());
+
+template <typename Plan, TargetPrintValueDetails<Plan>* = nullptr>
+void dump_print_value_details(std::ostream& output, const Plan& plan, int) {
+  if (static_cast<unsigned>(plan.print_value) != 0U)
+    output << " print-value-form " << static_cast<unsigned>(plan.print_value);
+}
+
+template <typename Plan>
+void dump_print_value_details(std::ostream&, const Plan&, long) {}
+
 template <typename Expression>
 void dump_target_expression(std::ostream& output, const Expression& expression,
                             const std::size_t depth) {
@@ -531,6 +543,20 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
       }
       output << ']';
     }
+    if (!statement.source_parameter_defaults.empty()) {
+      output << " default-flow-abi [";
+      for (std::size_t index = 0U; index < statement.plan.default_flows.size(); ++index) {
+        if (index != 0U) output << ',';
+        const auto& flow = statement.plan.default_flows[index];
+        output << static_cast<unsigned>(flow.form) << ":ordinal=" << flow.source.parameter
+               << ":source=%h" << flow.source.source.value() << ":storage=!m"
+               << flow.source.storage.value() << ":presence=!i" << flow.source.presence.value()
+               << ":initialize=!i" << flow.source.initialization.value() << ":merge=^b"
+               << flow.source.merge_block.value() << ":result=%v" << flow.source.result.value();
+      }
+      output << ']';
+    }
+    dump_print_value_details(output, statement.plan, 0);
     output << '\n';
     dump_target_expression(output, statement.expression, depth + 1U);
     dump_target_expression(output, statement.secondary_expression, depth + 1U);
@@ -551,7 +577,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v54 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v55 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";
