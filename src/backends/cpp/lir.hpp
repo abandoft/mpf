@@ -14,6 +14,7 @@
 #include "compiler/call_contract.hpp"
 #include "compiler/function_graph.hpp"
 #include "ir/argument_entry_flow.hpp"
+#include "ir/argument_exit_flow.hpp"
 #include "ir/ids.hpp"
 #include "ir/parameter_default_flow.hpp"
 #include "ir/semantics.hpp"
@@ -105,7 +106,8 @@ enum class TemporaryRole : std::uint8_t {
   matlab_input_type,
   matlab_raw_input,
   call_argument,
-  matlab_output
+  matlab_output,
+  argument_exit
 };
 
 struct TemporarySlot {
@@ -520,6 +522,7 @@ enum class StatementForm : std::uint8_t {
   return_void,
   return_value,
   return_outputs,
+  return_to_output_exit,
   return_program,
   break_loop,
   continue_loop,
@@ -618,10 +621,20 @@ struct ArgumentOutputPlan {
   ArgumentOutputForm form{ArgumentOutputForm::direct};
   std::size_t rank{0U};
   std::vector<ArgumentDimensionConstraint> dimensions;
+  mir::ArgumentOutputSource source;
   friend bool operator==(const ArgumentOutputPlan& left, const ArgumentOutputPlan& right) noexcept {
     return left.declaration == right.declaration && left.ordinal == right.ordinal &&
            left.form == right.form && left.rank == right.rank &&
-           left.dimensions == right.dimensions;
+           left.dimensions == right.dimensions && left.source == right.source;
+  }
+};
+
+enum class ArgumentExitForm : std::uint8_t { none, shared_return, labeled_scope };
+struct ArgumentExitPlan {
+  ArgumentExitForm form{ArgumentExitForm::none};
+  mir::ArgumentExitFlow source;
+  friend bool operator==(const ArgumentExitPlan& left, const ArgumentExitPlan& right) noexcept {
+    return left.form == right.form && left.source == right.source;
   }
 };
 
@@ -656,6 +669,8 @@ struct StatementPlan {
   std::vector<ParameterDefaultPlan> default_flows;
   std::vector<ArgumentEntryPlan> argument_entries;
   std::vector<ArgumentOutputPlan> argument_outputs;
+  ArgumentExitPlan argument_exit;
+  BlockId argument_return_exit{};
 };
 
 enum class RuntimeFragment : std::uint8_t {
@@ -807,6 +822,10 @@ struct Statement {
   std::vector<ArgumentValidationPlan> argument_validations;
   std::vector<mir::ParameterDefaultSource> source_parameter_defaults;
   std::vector<mir::ArgumentEntrySource> source_argument_entries;
+  mir::ArgumentExitFlow source_argument_exit;
+  std::vector<mir::ArgumentOutputSource> source_argument_outputs;
+  mir::ArgumentReturnSource source_argument_return;
+  BlockId source_argument_return_exit{};
   std::vector<ParameterIntent> parameter_intents;
   std::vector<bool> parameter_optional;
   std::vector<ValueType> parameter_types;

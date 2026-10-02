@@ -1349,7 +1349,21 @@ class Renderer final {
     active_function_ = &statement;
     emit_input_argument_validations(statement);
     emit_scope_declarations(statement.function_scope);
+    const bool output_scope =
+        statement.plan.argument_exit.form == cpp::lir::ArgumentExitForm::labeled_scope;
+    if (output_scope) {
+      indentation();
+      output_ << "{\n";
+      ++indent_;
+    }
     for (const auto& child : statement.body) emit_statement(child);
+    if (output_scope) {
+      --indent_;
+      indentation();
+      output_ << "}\n";
+      indentation();
+      output_ << temporary(statement.id, cpp::lir::TemporaryRole::argument_exit) << ":\n";
+    }
     if (!statement.plan.return_names.empty()) {
       emit_named_output_return(statement, &statement);
     }
@@ -1669,6 +1683,11 @@ class Renderer final {
         break;
       case cpp::lir::StatementForm::return_outputs:
         emit_named_output_return(statement, active_function_);
+        break;
+      case cpp::lir::StatementForm::return_to_output_exit:
+        indentation();
+        output_ << "goto "
+                << temporary(active_function_->id, cpp::lir::TemporaryRole::argument_exit) << ";\n";
         break;
       case cpp::lir::StatementForm::return_program:
         indentation();
