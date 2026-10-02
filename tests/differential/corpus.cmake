@@ -39,6 +39,9 @@ mpf_add_differential_case(
 mpf_add_differential_case(
   matlab-argument-conversion matlab examples/matlab/argument_conversion.m "24 2 2")
 mpf_add_differential_case(
+  matlab-argument-output-conversion matlab examples/matlab/argument_output_conversion.m
+  "2 3 1 1 1 2 6 4 4 1 0 1 2 3 1 2 3 3 0 0")
+mpf_add_differential_case(
   matlab-argument-default-functions matlab examples/matlab/argument_default_functions.m
   "111 222 7 222 11 13")
 mpf_add_differential_case(

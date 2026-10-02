@@ -319,6 +319,8 @@ if(TARGET mpfc)
   mpf_add_generated_cpp_compile_test(
     matlab-argument-conversion examples/matlab/argument_conversion.m)
   mpf_add_generated_cpp_compile_test(
+    matlab-argument-output-conversion examples/matlab/argument_output_conversion.m)
+  mpf_add_generated_cpp_compile_test(
     matlab-argument-relational-validators
     examples/matlab/argument_relational_validators.m)
   mpf_add_generated_cpp_compile_test(
