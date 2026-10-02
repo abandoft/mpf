@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <unordered_set>
 
+#include "compiler/argument_validator_catalog.hpp"
+
 namespace mpf::detail::mir {
 
 void verify_argument_validator_sources(const Program& program, std::vector<Diagnostic>& diagnostics,
@@ -36,6 +38,11 @@ void verify_argument_validator_sources(const Program& program, std::vector<Diagn
         }
         const auto& source = statement.argument_validator_sources[cursor++];
         const auto& validator = plan.validators[index];
+        const auto* definition = find_argument_validator(validator.validator);
+        const auto version = program.semantics.language_version.automatic()
+                                 ? LanguageVersion{2024, 2}
+                                 : program.semantics.language_version;
+        valid = valid && definition != nullptr && !(version < definition->minimum_version);
         valid = valid && source.direction == plan.direction && source.formal == plan.ordinal &&
                 source.validator_index == index && source.validator == validator.validator &&
                 source.call == validator.source_call && source.callee == validator.source_callee;
