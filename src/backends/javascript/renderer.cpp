@@ -149,11 +149,12 @@ class Renderer final {
                                                 ? statement.parameter_symbols[plan.ordinal]
                                                 : SymbolId{},
                                             statement.parameters[plan.ordinal]);
-      if (plan.has_default) {
-        mark({plan.line, 1U}, statement.origin);
+      const auto& default_flow = statement.plan.default_flows[validation];
+      if (default_flow.form == javascript::lir::ParameterDefaultForm::undefined_guard) {
+        mark({plan.line, 1U}, default_flow.source.source);
         indentation();
         output_ << "if (" << parameter << " === undefined) " << parameter << " = ";
-        emit_expression(statement.parameter_defaults[plan.ordinal]);
+        emit_expression(statement.parameter_defaults[default_flow.source.parameter]);
         output_ << ";\n";
       }
       mark({plan.line, 1U}, statement.origin);
@@ -1152,7 +1153,11 @@ class Renderer final {
             emit_expression(statement.expression.children[index]);
           }
         } else if (statement.plan.form == javascript::lir::StatementForm::print_value) {
+          const bool numeric_logical =
+              statement.plan.print_value == javascript::lir::PrintValueForm::matlab_logical_scalar;
+          if (numeric_logical) output_ << "Number(";
           emit_expression(statement.expression);
+          if (numeric_logical) output_ << ')';
         }
         output_ << ");\n";
         break;
