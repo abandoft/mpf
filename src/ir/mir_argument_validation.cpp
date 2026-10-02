@@ -46,6 +46,8 @@ void verify_argument_validator_sources(const Program& program, std::vector<Diagn
         valid = valid && source.direction == plan.direction && source.formal == plan.ordinal &&
                 source.validator_index == index && source.validator == validator.validator &&
                 source.call == validator.source_call && source.callee == validator.source_callee;
+        valid = valid &&
+                source.output_demand == SourceOutputDemand{OutputDemandForm::validation, 0U, false};
         for (const auto origin : {source.call, source.callee}) {
           if (!origin.valid() || origin.value() > program.hir_node_count ||
               !origins.insert(origin.value()).second)

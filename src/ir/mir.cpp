@@ -196,6 +196,7 @@ class Builder final {
       }
       call.result_type = unresolved.result_type;
       call.requested_results = unresolved.requested_results;
+      call.output_demand = unresolved.output_demand;
       program_.calls.push_back(std::move(call));
     }
   }
@@ -363,9 +364,16 @@ class Builder final {
         const auto* use = names_.reference(invocation.expression.children.front().id);
         if (formal == ordinals.end() || use == nullptr || !use->argument_validator.has_value())
           continue;
-        result.argument_validator_sources.push_back(
-            {declaration.direction, formal->second, invocation.validator, *use->argument_validator,
-             invocation.expression.id, invocation.expression.children.front().id});
+        result.argument_validator_sources.push_back({declaration.direction,
+                                                     formal->second,
+                                                     invocation.validator,
+                                                     *use->argument_validator,
+                                                     invocation.expression.id,
+                                                     invocation.expression.children.front().id,
+                                                     {}});
+        const auto* invocation_facts = semantics_.expression(invocation.expression.id);
+        if (invocation_facts != nullptr)
+          result.argument_validator_sources.back().output_demand = invocation_facts->output_demand;
       }
     }
     result.return_names = std::move(source.return_names);
@@ -980,6 +988,7 @@ class Builder final {
     std::vector<CallSite::Argument> arguments;
     TypeId result_type{};
     std::size_t requested_results{1};
+    SourceOutputDemand output_demand;
   };
   struct ControlEdge {
     BlockId block{};
@@ -1247,6 +1256,7 @@ class Builder final {
         result_attributes.sequence_elements.push_back(intern_value_metadata(element));
       }
       result_attributes.requested_results = semantic_facts->requested_outputs;
+      result_attributes.output_demand = semantic_facts->output_demand;
       result_attributes.multi_result_call = semantic_facts->multi_output_call;
       result_attributes.procedure_has_result = semantic_facts->procedure_has_result;
       result_attributes.index_base = semantic_facts->index_base;
@@ -1473,6 +1483,7 @@ class Builder final {
       call.requested_results = program_.source_language == SourceLanguage::matlab
                                    ? result_attributes.requested_results
                                    : 1U;
+      call.output_demand = result_attributes.output_demand;
       call.arguments.reserve(result.children.size() - 1U);
       for (std::size_t index = 1; index < result.children.size(); ++index) {
         const auto intent_index = index - 1U;
