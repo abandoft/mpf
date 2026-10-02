@@ -108,7 +108,7 @@ deployment target。后者同时进入 CMake cache 和 compiler-identification �
 | 指标 | 数量/结果 |
 |---|---:|
 | C++ 单元与集成测试 | 376 项，零失败 |
-| CTest | 当前 dev preset 为 201 项普通测试；包含 121 项 differential、1 项 C++ 单元/集成、63 项生成 runtime 拒绝、6 项生成 C++ 编译，以及 fuzz、架构、发布脚本、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
+| CTest | 当前 dev preset 为 202 项普通测试；包含 121 项 differential、1 项 C++ 单元/集成、63 项生成 runtime 拒绝、6 项生成 C++ 编译，以及 fuzz、架构、发布脚本、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
 | Differential corpus | Python 22、Fortran 19、Matlab 76、TypeScript 4，共 121 个 case |
 | 工具完整环境执行路径 | 287 条程序路径，另有每 case 一条 oracle |
 | 生产代码行覆盖率 | 硬门槛 85%；当前结果以 `coverage-report` workflow artifact 为准 |
@@ -136,6 +136,12 @@ deployment target。后者同时进入 CMake cache 和 compiler-identification �
 CI 固定 Python 3.14 和 Node.js 24，配置时启用 `MPF_REQUIRE_DIFFERENTIAL_RUNTIME=ON`，并在成功或失败时上传差分结果与生成源码。Linux job 还安装 gfortran。Matlab 源执行必须等待授权 Matlab runner 或明确批准的 Octave 兼容策略，不能用 Octave 结果冒充 Matlab 2024 语义。
 
 ## 本地运行
+
+后端隔离测试每次从清洁构建树验证完整构建、目标开关、安装和外部消费，保持 300 秒超时。
+每个子构建显式限制为两个 worker，CTest 同时声明 `PROCESSORS=2`，使外层 `--parallel 2`
+不会并发启动两套完整构建。`mpf.infrastructure.nested-build-budget` 从实际 CTest JSON 库存
+验证三种隔离配置的预算、子脚本参数和原超时；不能用增大超时或跳过隔离测试掩盖资源争用。
+调度合同见 [CMake PROCESSORS](https://cmake.org/cmake/help/latest/prop_test/PROCESSORS.html)。
 
 ```sh
 cmake --preset dev
