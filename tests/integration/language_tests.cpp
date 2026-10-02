@@ -398,8 +398,9 @@ TEST_CASE("Matlab arguments lower defaults conversion validation and output cont
   REQUIRE(javascript.code.find("values = __mpf_validate_argument(values, \"values\", \"input\", "
                                "[1, -1], 1, [0, 4], 2);") != std::string::npos);
   REQUIRE(javascript.code.find("if (factor === undefined) factor = 2;") != std::string::npos);
-  REQUIRE(javascript.code.find("output = __mpf_validate_argument(output, \"output\", \"output\", "
+  REQUIRE(javascript.code.find(" = __mpf_validate_argument(output, \"output\", \"output\", "
                                "[1, -1], 1, [4], 2);") != std::string::npos);
+  REQUIRE(javascript.code.find("output = __mpf_validate_argument(output") == std::string::npos);
 
   REQUIRE(cpp.code.find("mpf_runtime::optional_argument<double> factor(std::nullopt)") !=
           std::string::npos);

@@ -92,10 +92,6 @@ class Renderer final {
     output_ << ']';
   }
 
-  void emit_argument_dimensions(const ArgumentValidationPlan& plan) {
-    emit_argument_dimensions(plan.dimensions);
-  }
-
   void emit_argument_dimensions(const std::vector<ArgumentDimensionConstraint>& dimensions) {
     output_ << '[';
     for (std::size_t axis = 0U; axis < dimensions.size(); ++axis) {
@@ -130,19 +126,6 @@ class Renderer final {
     output_ << ']';
   }
 
-  void emit_argument_validation(const std::string& value, const std::string& source_name,
-                                const ArgumentValidationPlan& plan,
-                                const std::vector<javascript::lir::ValidatorCallPlan>& calls) {
-    indentation();
-    output_ << value << " = __mpf_validate_argument(" << value << ", " << std::quoted(source_name)
-            << ", " << std::quoted(plan.direction == ArgumentDirection::input ? "input" : "output")
-            << ", ";
-    emit_argument_dimensions(plan);
-    output_ << ", " << static_cast<unsigned>(plan.class_constraint) << ", ";
-    emit_argument_validators(calls);
-    output_ << ", " << plan.validated_rank << ");\n";
-  }
-
   void emit_input_argument_validations(const Statement& statement) {
     for (const auto& entry : statement.plan.argument_entries) {
       const auto validation = entry.declaration;
@@ -173,19 +156,54 @@ class Renderer final {
   }
 
   void emit_output_argument_validations(const Statement& statement) {
-    for (std::size_t validation = 0U; validation < statement.argument_validations.size();
-         ++validation) {
+    for (const auto& materialization : statement.plan.argument_outputs) {
+      const auto validation = materialization.declaration;
       const auto& plan = statement.argument_validations[validation];
-      if (plan.direction != ArgumentDirection::output ||
-          plan.ordinal >= statement.return_names.size())
-        continue;
       const auto output = mangler_->name(plan.ordinal < statement.return_symbols.size()
                                              ? statement.return_symbols[plan.ordinal]
                                              : SymbolId{},
                                          statement.return_names[plan.ordinal]);
       mark({plan.line, 1U}, statement.origin);
-      emit_argument_validation(output, statement.return_names[plan.ordinal], plan,
-                               statement.plan.argument_validators[validation]);
+      indentation();
+      output_ << "const "
+              << temporary(statement.id, javascript::lir::TemporaryRole::matlab_output,
+                           materialization.ordinal)
+              << " = __mpf_validate_argument(" << output << ", "
+              << std::quoted(statement.return_names[plan.ordinal]) << ", \"output\", ";
+      emit_argument_dimensions(materialization.dimensions);
+      output_ << ", " << static_cast<unsigned>(materialization.class_opcode) << ", ";
+      emit_argument_validators(statement.plan.argument_validators[validation]);
+      output_ << ", " << materialization.rank << ");\n";
+    }
+  }
+
+  void emit_named_output_return(const Statement& statement, const Statement* function) {
+    const bool normalized = function != nullptr && !function->plan.argument_outputs.empty();
+    if (normalized) {
+      indentation();
+      output_ << "{\n";
+      ++indent_;
+      emit_output_argument_validations(*function);
+    }
+    indentation();
+    output_ << "return ";
+    const bool tuple = statement.plan.return_names.size() > 1U;
+    if (tuple) output_ << '[';
+    for (std::size_t index = 0U; index < statement.plan.return_names.size(); ++index) {
+      if (index != 0U) output_ << ", ";
+      if (normalized)
+        output_ << temporary(function->id, javascript::lir::TemporaryRole::matlab_output, index);
+      else
+        output_ << mangler_->name(
+            index < statement.return_symbols.size() ? statement.return_symbols[index] : SymbolId{},
+            statement.plan.return_names[index]);
+    }
+    if (tuple) output_ << ']';
+    output_ << ";\n";
+    if (normalized) {
+      --indent_;
+      indentation();
+      output_ << "}\n";
     }
   }
 
@@ -1182,26 +1200,7 @@ class Renderer final {
         output_ << ";\n";
         break;
       case javascript::lir::StatementForm::return_outputs:
-        if (active_function_ != nullptr) emit_output_argument_validations(*active_function_);
-        indentation();
-        if (statement.plan.return_names.size() == 1U) {
-          output_ << "return "
-                  << mangler_->name(statement.return_symbols.empty()
-                                        ? SymbolId{}
-                                        : statement.return_symbols.front(),
-                                    statement.plan.return_names.front())
-                  << ";\n";
-        } else {
-          output_ << "return [";
-          for (std::size_t index = 0; index < statement.plan.return_names.size(); ++index) {
-            if (index != 0U) output_ << ", ";
-            output_ << mangler_->name(index < statement.return_symbols.size()
-                                          ? statement.return_symbols[index]
-                                          : SymbolId{},
-                                      statement.plan.return_names[index]);
-          }
-          output_ << "];\n";
-        }
+        emit_named_output_return(statement, active_function_);
         break;
       case javascript::lir::StatementForm::return_program:
         indentation();
@@ -1466,28 +1465,7 @@ class Renderer final {
         emit_scope_declarations(statement.function_scope);
         emit_statements(statement.body);
         if (!statement.plan.return_names.empty()) {
-          emit_output_argument_validations(statement);
-          indentation();
-          if (statement.plan.return_names.size() == 1) {
-            output_ << "return "
-                    << mangler_->name(statement.return_symbols.empty()
-                                          ? SymbolId{}
-                                          : statement.return_symbols.front(),
-                                      statement.plan.return_names.front())
-                    << ";\n";
-          } else {
-            output_ << "return [";
-            for (std::size_t index = 0; index < statement.plan.return_names.size(); ++index) {
-              if (index != 0) {
-                output_ << ", ";
-              }
-              output_ << mangler_->name(index < statement.return_symbols.size()
-                                            ? statement.return_symbols[index]
-                                            : SymbolId{},
-                                        statement.plan.return_names[index]);
-            }
-            output_ << "];\n";
-          }
+          emit_named_output_return(statement, &statement);
         }
         active_function_ = previous_function;
         --indent_;

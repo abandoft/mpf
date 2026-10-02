@@ -113,7 +113,8 @@ function __mpf_argument_convert_size(value, name, direction, dimensions, represe
 function __mpf_validate_argument(value, name, direction, dimensions, classConstraint, validators,
                                  representationRank) {
   if (!Number.isSafeInteger(representationRank) || representationRank < 0 ||
-      (representationRank !== 0 && representationRank !== dimensions.length))
+      (dimensions.length !== 0 && representationRank !== 0 &&
+       representationRank !== dimensions.length))
     __mpf_argument_failure(name, 'argument representation ABI');
   if (classConstraint === 1) {
     value = __mpf_argument_map(value, (item) => {
