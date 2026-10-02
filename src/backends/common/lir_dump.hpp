@@ -75,6 +75,46 @@ template <typename Plan>
 void dump_argument_default_details(std::ostream&, const Plan&, long) {}
 
 template <typename Plan>
+using TargetArgumentInputDetails = decltype(std::declval<const Plan&>().argument_inputs, void());
+
+template <typename Plan, TargetArgumentInputDetails<Plan>* = nullptr>
+void dump_argument_input_details(std::ostream& output, const Plan& plan, int) {
+  if (plan.argument_inputs.empty()) return;
+  output << " argument-inputs [";
+  for (std::size_t index = 0U; index < plan.argument_inputs.size(); ++index) {
+    if (index != 0U) output << ',';
+    const auto& input = plan.argument_inputs[index];
+    output << '{' << static_cast<unsigned>(input.form) << ":rank=" << input.rank
+           << ":raw=" << std::quoted(input.raw_name)
+           << ":template=" << std::quoted(input.template_type)
+           << ":type=" << std::quoted(input.concrete_type) << ":dims=";
+    for (std::size_t axis = 0U; axis < input.dimensions.size(); ++axis) {
+      if (axis != 0U) output << '/';
+      if (input.dimensions[axis].any)
+        output << ':';
+      else
+        output << input.dimensions[axis].extent;
+    }
+    output << '}';
+  }
+  output << ']';
+}
+
+template <typename Plan>
+void dump_argument_input_details(std::ostream&, const Plan&, long) {}
+
+template <typename Plan>
+using TargetCallBoundaryDetails = decltype(std::declval<const Plan&>().boundary_form, void());
+
+template <typename Plan, TargetCallBoundaryDetails<Plan>* = nullptr>
+void dump_call_boundary_details(std::ostream& output, const Plan& plan, int) {
+  output << ":boundary=" << static_cast<unsigned>(plan.boundary_form);
+}
+
+template <typename Plan>
+void dump_call_boundary_details(std::ostream&, const Plan&, long) {}
+
+template <typename Plan>
 using TargetPrintValueDetails = decltype(std::declval<const Plan&>().print_value, void());
 
 template <typename Plan, TargetPrintValueDetails<Plan>* = nullptr>
@@ -305,6 +345,7 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
       if (index != 0) output << ',';
       output << static_cast<int>(expression.plan.call_arguments[index].form) << ':'
              << static_cast<int>(expression.plan.call_arguments[index].writeback);
+      dump_call_boundary_details(output, expression.plan.call_arguments[index], 0);
     }
     output << ']';
   }
@@ -402,7 +443,8 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
     for (std::size_t index = 0; index < expression.argument_boundaries.size(); ++index) {
       if (index != 0U) output << ',';
       const auto& boundary = expression.argument_boundaries[index];
-      output << '{' << static_cast<int>(boundary.conversion) << ':'
+      output << '{' << static_cast<int>(boundary.execution) << ':'
+             << static_cast<int>(boundary.conversion) << ':'
              << static_cast<int>(boundary.class_constraint) << ":rank=" << boundary.validated_rank
              << ":dims=";
       if (!boundary.dimensions_declared) output << '-';
@@ -481,6 +523,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
            << statement.plan.selectors.size() << " returns " << statement.plan.return_names.size()
            << " exception-handler-line " << statement.exception_handler_line;
     dump_argument_default_details(output, statement.plan, 0);
+    dump_argument_input_details(output, statement.plan, 0);
     output << " argument-validations [";
     for (std::size_t validation = 0U; validation < statement.argument_validations.size();
          ++validation) {
@@ -577,7 +620,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v55 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v56 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

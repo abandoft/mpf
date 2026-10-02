@@ -507,7 +507,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v46 language=" << enum_value(program.source_language)
+  output << "mir-v47 language=" << enum_value(program.source_language)
          << " version=" << program.semantics.language_version.major << '.'
          << program.semantics.language_version.minor << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
@@ -920,6 +920,7 @@ std::string dump_mir(const mir::Program& program) {
       output << "{type=!t" << argument.type.value() << " shape=!s" << argument.shape.value()
              << " validated=!t" << argument.validated_type.value() << "/!s"
              << argument.validated_shape.value()
+             << " boundary-execution=" << enum_value(argument.boundary.execution)
              << " conversion=" << enum_value(argument.boundary.conversion)
              << " class=" << enum_value(argument.boundary.class_constraint)
              << " rank=" << argument.boundary.validated_rank << " storage=!m"

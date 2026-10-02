@@ -656,6 +656,7 @@ std::string lir::dump(const SemanticProgram& program) {
           output << static_cast<int>(parameter.passing) << ':'
                  << std::quoted(parameter.concrete_type) << ':'
                  << std::quoted(parameter.template_parameter);
+          if (!parameter.raw_name.empty()) output << ":raw=" << std::quoted(parameter.raw_name);
         }
         output << "]\n";
         dump_scope("  function-scope %l" + std::to_string(statement.id.value()),
