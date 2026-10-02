@@ -8,15 +8,17 @@ std::vector<std::vector<lir::ValidatorCallPlan>> plan_argument_validators(
     const lir::Statement& statement) {
   std::vector<std::vector<lir::ValidatorCallPlan>> result;
   result.reserve(statement.argument_validations.size());
+  std::size_t output = 0U;
   for (const auto& validation : statement.argument_validations) {
-    if (validation.direction == ArgumentDirection::input &&
-        validation.ordinal >= statement.source_argument_entries.size()) {
+    const bool input = validation.direction == ArgumentDirection::input;
+    const auto index = input ? validation.ordinal : output++;
+    if (input ? index >= statement.source_argument_entries.size()
+              : index >= statement.source_argument_outputs.size()) {
       result.emplace_back();
       continue;
     }
-    const auto& validators = validation.direction == ArgumentDirection::input
-                                 ? statement.source_argument_entries[validation.ordinal].validators
-                                 : validation.validators;
+    const auto& validators = input ? statement.source_argument_entries[index].validators
+                                   : statement.source_argument_outputs[index].validators;
     std::vector<lir::ValidatorCallPlan> calls;
     calls.reserve(validators.size());
     for (const auto& validator : validators) {

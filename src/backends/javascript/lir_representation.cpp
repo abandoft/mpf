@@ -10,6 +10,7 @@
 #include "argument_entry_plan.hpp"
 #include "argument_output_plan.hpp"
 #include "backends/common/argument_entry_source.hpp"
+#include "backends/common/argument_exit_sources.hpp"
 #include "backends/common/parameter_default_source.hpp"
 #include "backends/common/source_segments.hpp"
 #include "backends/javascript/argument_validation_plan.hpp"
@@ -1695,6 +1696,7 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
   result.default_flows = plan_parameter_defaults(statement);
   result.argument_entries = plan_argument_entries(statement);
   result.argument_outputs = plan_argument_outputs(statement);
+  result.argument_exit = plan_argument_exit(statement);
   switch (statement.kind) {
     case StatementKind::declaration:
       result.target_access = variable_access(context, statement.name);
@@ -1774,7 +1776,10 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
                         : lir::StatementForm::print_value;
       break;
     case StatementKind::return_statement:
-      if (statement.has_expression) {
+      if (statement.source_argument_return_exit.valid()) {
+        result.form = lir::StatementForm::return_to_output_exit;
+        result.argument_return_exit = statement.source_argument_return_exit;
+      } else if (statement.has_expression) {
         result.form = lir::StatementForm::return_value;
       } else if (!statement.return_names.empty()) {
         result.form = lir::StatementForm::return_outputs;
@@ -1926,7 +1931,9 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
       left.argument_validators != right.argument_validators ||
       left.default_flows != right.default_flows ||
       left.argument_entries != right.argument_entries ||
-      left.argument_outputs != right.argument_outputs) {
+      left.argument_outputs != right.argument_outputs ||
+      !(left.argument_exit == right.argument_exit) ||
+      left.argument_return_exit != right.argument_return_exit) {
     return false;
   }
   for (std::size_t index = 0; index < left.assignment_leaves.size(); ++index) {
@@ -1991,6 +1998,9 @@ void verify_statements(const std::vector<lir::Statement>& statements,
     if (!valid_argument_entry_sources(statement, source_language))
       add_error(diagnostics, {statement.line, 1U},
                 "JavaScript LIR argument-entry sequence has invalid resident MIR provenance");
+    if (!valid_argument_output_sources(statement, source_language))
+      add_error(diagnostics, {statement.line, 1U},
+                "JavaScript LIR argument-exit sequence has invalid resident MIR provenance");
     if (!statement.argument_validations.empty()) {
       if (source_language != SourceLanguage::matlab || statement.kind != StatementKind::function ||
           !valid_argument_validation_inventory(statement.argument_validations,
