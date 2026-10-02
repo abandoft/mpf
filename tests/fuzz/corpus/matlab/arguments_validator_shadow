@@ -1,0 +1,11 @@
+function output = checked(value)
+arguments
+value (1,1) double {mustBePositive}
+end
+output = value;
+end
+function mustBePositive(value)
+if value > 0
+error('positive values are rejected by this local validator')
+end
+end

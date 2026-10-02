@@ -1,0 +1,10 @@
+function output = checked(lower,value)
+arguments
+lower (1,1) double = 0
+value (1,1) double {mustBeFinite,mustBeGreaterThan(value,lower),mustBeInRange(value,- 1,1e2,'exclude-lower',"exclude-upper")} = lower + 1
+end
+arguments (Output)
+output (1,1) double {mustBePositive(output)}
+end
+output = value;
+end
