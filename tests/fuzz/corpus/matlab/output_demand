@@ -1,0 +1,20 @@
+checked();
+checked;
+value = checked();
+[first,second] = checked();
+disp(checked());
+disp(with_default());
+function output = with_default(input)
+arguments
+input (1,1) double = checked()
+end
+output = input;
+end
+function [first,second] = checked()
+arguments (Output)
+first (1,1) double {mustBePositive}
+second (1,1) logical {mustBeNonzero}
+end
+first = 4;
+second = 2;
+end
