@@ -74,8 +74,10 @@ custom validator 的职责依据官方 [validation functions](https://www.mathwo
 两个目标使用独立 output temporary 检查转换结果。标准输出现驻留公共 MIR shared exit，
 正常和提前 return 先退出 body try/catch，再按声明顺序转换/验证一次；内部 catch 不会
 捕获返回边界失败，正文异常逃逸也不执行输出验证。literal/input 阈值保留当前 workspace
-读取，单输出调用保持首个转换结果的类型。未请求输出的失败/缺失值语义、部分多输出
-需求与一般动态 ABI 尚未完成独立验收，不将这个纵切面表述为完整输出验证支持。
+读取，单输出与静态部分多输出调用保持转换结果前缀的 type/shape；函数完整签名与全部
+已赋值输出校验不被截断，包括单接收/丢弃调用中的未请求输出失败。条件未赋值输出、
+零接收/忽略位的完整 source demand 和一般动态 ABI 尚未完成独立验收，不将这个纵切面
+表述为完整输出验证支持。
 
 当前 class slice 为 `double`、`logical` 和 char vector；validator slice 为 `mustBeNumeric`、`mustBeNumericOrLogical`、`mustBeFloat`、`mustBeReal`、`mustBeFinite`、`mustBeNonNan`、`mustBePositive`、`mustBeNonpositive`、`mustBeNonnegative`、`mustBeNegative`、`mustBeNonzero`、`mustBeInteger`、`mustBeNonempty`、`mustBeScalarOrEmpty`、`mustBeVector`、`mustBeRow`、`mustBeColumn`、`mustBeMatrix`、`mustBeNonmissing`、`mustBeNonzeroLengthText`、`mustBeText`、`mustBeTextScalar` 和 `mustBeValidVariableName`。当前不把这个 slice 表述为完整 `arguments` 兼容：name-value/`Repeating`、参数化标准/custom validator、sparse/file/folder validator、无显式 dimensions 的动态 rank numeric/logical class、一般 char/string/class conversion 和 C++ 外部调用的动态 adapter 仍失败关闭。权威产品任务见 [TODO](../TODO.md)，语言规则参考 Matlab [`arguments`](https://www.mathworks.com/help/matlab/ref/arguments.html) 与 [validation functions](https://www.mathworks.com/help/matlab/matlab_prog/argument-validation-functions.html)。
 

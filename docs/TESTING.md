@@ -78,11 +78,14 @@ normal/early path inventory、current-workspace read、normalized private store�
 重新读取、typed tuple、alias/effect/memory-dependence、优化 remap、MIR/LIR dump、source map、
 一次性输出序列及两个目标的控制/来源/资源损坏拒绝。`argument_output_control_flow.m`
 执行循环返回、catch 返回、嵌套 try/catch、body 异常逃逸、正文 threshold 更新、首错顺序
-与首个输出选择；JS/严格 C++17 和声明式 oracle 分别验证，不宣称它是 Matlab 官方运行差分。
+与首个输出选择，并覆盖三取二、单接收/丢弃调用中的已赋值未请求输出失败；JS/严格
+C++17 和声明式 oracle 分别验证，不宣称它是 Matlab 官方运行差分。前缀 type/shape、
+完整 callee signature、优化保持、两个目标 assignment plan 与 source map 另有独立单元测试；
+call inventory 脱离 resident instruction 的污染必须被 verifier 拒绝。
 独立 `matlab-output-exit` 性能场景保持 32 个函数、256 条提前返回与 typed multi-output/
 input threshold/body exception region，沿用 250 ms 的专项延迟上限、8 MiB arena 和
 512 KiB 生成代码预算；其他性能阈值没有放宽，性能验收须在其他构建/测试结束后隔离执行。
-未请求输出失败/缺失值语义仍须独立验收。
+校验触发条件已有官方文档依据；条件缺失值、零接收/忽略位需求与 R2024 执行对照仍须验收。
 
 Analyzer 生命周期回归测试主动收紧 expression side-table capacity，再通过 Matlab 默认参数的
 嵌套 call、scalar/multi-axis selector、slice bound、indexed mutation、Python tuple/default
@@ -147,7 +150,7 @@ deployment target。后者同时进入 CMake cache 和 compiler-identification �
 
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 423 项，零失败 |
+| C++ 单元与集成测试 | 426 项，零失败 |
 | CTest | 当前 dev preset 为 212 项普通测试；包含 125 项 differential、1 项 C++ 单元/集成、64 项生成 runtime 拒绝、10 项生成 C++ 编译，以及 fuzz、架构、发布脚本、格式工具合同、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
 | Differential corpus | Python 22、Fortran 19、Matlab 80、TypeScript 4，共 125 个 case |
 | 工具完整环境执行路径 | 295 条程序路径，另有每 case 一条 oracle |

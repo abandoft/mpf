@@ -262,8 +262,28 @@ MIR v49 的公共输出 CFG 现汇合正常/提前 return，并在 body try/catc
 JS/C++ 私有 LIR v59 独立选择共享出口控制与 materialization，输出边界只序列化一次。
 `argument_output_control_flow.m` 固定循环 return、catch return、嵌套 try/catch、body 异常逃逸、
 阈值正文重新赋值、同名 input/output、首错顺序和单输出选择；不以目标描述符代替真实 MIR。
-未请求输出的失败/缺失值语义仍缺独立官方运行证据，部分结果需求和一般 mutable join 也
-须继续完善；0.8.0 在这些输出需求验收完成前不打发布标签。
+单/部分多输出调用的 MIR type/shape 只保存请求前缀，不截断 callee 完整签名或输出验证。
+两端 assignment plan 单次消费该前缀；C++ 对丢弃表达式显式消费结果，避免 `std::get`
+的 nodiscard 在严格编译中成为错误。`argument_output_control_flow.m` 还执行三取二，
+以及单接收/丢弃调用中已赋值但未请求输出的失败。
+
+[MathWorks 的官方说明](https://www.mathworks.com/help/coder/ug/expected-differences-in-behavior-after-compiling-your-matlab-code.html)
+将 Matlab 的输出校验条件定义为“函数返回时已经赋值”，并与 MATLAB Coder 的静态类型
+规则区分。MPF 因此不能仅按 caller demand 跳过已赋值输出验证。这是文档语义基线，
+不是本机 R2024 执行对照；当前实现仍要求所有声明输出确定赋值。
+
+| 源调用 | 当前值接收合同 | 待完善边界 |
+|---|---|---|
+| `f();` | 丢弃已计算的首值，仍验证已赋值输出 | 独立 source demand 0、条件未赋值输出与 `ans` |
+| `a=f();` | MIR scalar/array 首值及目标 first-result form | 被请求但未赋值输出的错误 |
+| `[a,b]=f();` | MIR 二元 type/shape 前缀，目标单次调用/接收 | 条件 presence 与一般动态 ABI |
+| `[a,~]=f();` | 当前不支持 | 忽略位仍占 output-demand 位置，不创建普通变量 |
+| 全部接收 | 完整 typed result inventory | 条件 presence 与一般 mutable CFG join |
+
+下一步必须把 source demand 与 MIR value arity 分开建模，不能把 `requested_results=1`
+当作所有裸调用的 `nargout`，也不能将未赋值值初始化为 0 来绕过 presence 检查。
+完整需求 ABI、条件输出、忽略位、R2024 执行对照和一般 mutable join 继续按 TODO 验收；
+0.8.0 在这些输出需求验收完成前不打发布标签。
 
 Matlab frontend 必须按照 Matlab 语义建立规范事实，不能先生成 JavaScript 再让其他目标
 读取 JavaScript。生产链路固定为：
