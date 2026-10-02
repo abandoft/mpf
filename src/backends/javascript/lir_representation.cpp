@@ -11,6 +11,7 @@
 #include "argument_output_plan.hpp"
 #include "backends/common/argument_entry_source.hpp"
 #include "backends/common/argument_exit_sources.hpp"
+#include "backends/common/invocation_sources.hpp"
 #include "backends/common/output_demand_sources.hpp"
 #include "backends/common/parameter_default_source.hpp"
 #include "backends/common/source_segments.hpp"
@@ -20,7 +21,10 @@
 namespace mpf::detail::javascript {
 namespace {
 
-using AccessContext = std::vector<std::pair<std::string, lir::VariableAccess>>;
+struct AccessContext {
+  std::vector<std::pair<std::string, lir::VariableAccess>> variables;
+  std::string output_count;
+};
 
 void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation location,
                std::string message) {
@@ -29,9 +33,9 @@ void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation locati
 
 lir::VariableAccess variable_access(const AccessContext& context,
                                     const std::string& name) noexcept {
-  const auto found = std::find_if(context.rbegin(), context.rend(),
+  const auto found = std::find_if(context.variables.rbegin(), context.variables.rend(),
                                   [&](const auto& entry) { return entry.first == name; });
-  return found == context.rend() ? lir::VariableAccess::direct : found->second;
+  return found == context.variables.rend() ? lir::VariableAccess::direct : found->second;
 }
 
 int binary_precedence(const std::string& token) noexcept {
@@ -810,6 +814,15 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
   lir::ExpressionPlan result;
   if (!expression.valid()) return result;
   result.valid = true;
+  if (expression.source_invocation_query.valid()) {
+    result.form = lir::ExpressionForm::invocation_output_count;
+    result.token = context.output_count;
+    if (expression.kind == ExpressionKind::call)
+      result.output_invocation = {lir::OutputInvocationForm::fixed_count,
+                                  expression.output_demand.count,
+                                  expression.output_demand.implicit_result};
+    return result;
+  }
   result.string_value = expression.inferred_type == ValueType::string;
   result.exception = expression.exception;
   switch (expression.kind) {
@@ -1080,8 +1093,9 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
         }
       }
       result.output_invocation = {
-          expression.output_demand.active() ? lir::OutputInvocationForm::fixed_count
-                                            : lir::OutputInvocationForm::unspecified,
+          expression.source_invocation.active() ? lir::OutputInvocationForm::callee_count
+          : expression.output_demand.active()   ? lir::OutputInvocationForm::fixed_count
+                                                : lir::OutputInvocationForm::unspecified,
           expression.output_demand.count, expression.output_demand.implicit_result};
       result.call_value = expression.output_demand.form == OutputDemandForm::statement &&
                                   !expression.output_demand.implicit_result
@@ -1954,14 +1968,15 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
 
 AccessContext function_context(const lir::Statement& statement) {
   AccessContext result;
-  result.reserve(statement.parameters.size());
+  result.variables.reserve(statement.parameters.size());
+  result.output_count = statement.function_abi.invocation.count_parameter;
   for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
     const auto access =
         index < statement.function_abi.parameters.size() &&
                 statement.function_abi.parameters[index] == lir::ParameterPassing::reference_box
             ? lir::VariableAccess::reference_box_value
             : lir::VariableAccess::direct;
-    result.emplace_back(statement.parameters[index], access);
+    result.variables.emplace_back(statement.parameters[index], access);
   }
   return result;
 }
@@ -2241,6 +2256,7 @@ void plan_lir_representation(lir::SemanticProgram& program) {
 void verify_lir_representation(const lir::SemanticProgram& program,
                                std::vector<Diagnostic>& diagnostics) {
   verify_output_demand_sources(program, diagnostics);
+  verify_invocation_sources(program, diagnostics);
   const auto has_argument_validation = [](const auto& self,
                                           const std::vector<lir::Statement>& statements) -> bool {
     for (const auto& statement : statements) {

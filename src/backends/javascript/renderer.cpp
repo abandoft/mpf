@@ -454,6 +454,10 @@ class Renderer final {
         emit_expression(expression.children[index]);
       }
     }
+    if (plan.output_invocation.form == javascript::lir::OutputInvocationForm::callee_count) {
+      if (expression.children.size() > 1U) output_ << ", ";
+      output_ << plan.output_invocation.count;
+    }
     output_ << ')';
   }
 
@@ -486,6 +490,7 @@ class Renderer final {
                            expression.plan.variable_access);
         break;
       case javascript::lir::ExpressionForm::target_symbol:
+      case javascript::lir::ExpressionForm::invocation_output_count:
       case javascript::lir::ExpressionForm::literal: output_ << expression.plan.token; break;
       case javascript::lir::ExpressionForm::unary_truthiness:
         output_ << "__mpf_py_not(";
@@ -1449,6 +1454,12 @@ class Renderer final {
             output_ << " = ";
             emit_expression(statement.parameter_defaults[index]);
           }
+        }
+        if (statement.function_abi.invocation.form ==
+            javascript::lir::InvocationAbiForm::trailing_binary64) {
+          if (!statement.parameters.empty()) output_ << ", ";
+          output_ << statement.function_abi.invocation.count_parameter << " = "
+                  << statement.function_abi.invocation.external_default_count;
         }
         output_ << ") {\n";
         ++indent_;

@@ -246,6 +246,7 @@ const char* temporary_stem(const lir::TemporaryRole role) noexcept {
     case lir::TemporaryRole::range_cursor: return "cursor";
     case lir::TemporaryRole::matlab_output: return "validated_output";
     case lir::TemporaryRole::argument_exit: return "output_exit";
+    case lir::TemporaryRole::invocation_count: return "output_count";
   }
   return "temporary";
 }
@@ -402,6 +403,11 @@ void plan_statement_resources(lir::SemanticProgram& program,
   for (auto& statement : statements) {
     if (statement.kind == StatementKind::function) {
       statement.function_abi.valid = true;
+      if (program.source_language == SourceLanguage::matlab) {
+        add_temporary(program, used, statement.id, lir::TemporaryRole::invocation_count);
+        statement.function_abi.invocation.form = lir::InvocationAbiForm::trailing_binary64;
+        statement.function_abi.invocation.count_parameter = program.temporaries.slots.back().name;
+      }
       statement.function_abi.exported =
           top_level && program.emission.module == lir::EmissionPlan::ModuleFormat::esm &&
           (!program.emission.explicit_exports_only || statement.source_exported);
@@ -601,6 +607,24 @@ void verify_statement_resources(const lir::SemanticProgram& program,
       add_error(diagnostics, {statement.line, 1},
                 "JavaScript LIR function ABI or scope plan is incomplete or inconsistent");
     }
+    const bool invocation = function && program.source_language == SourceLanguage::matlab;
+    const auto& count_abi = statement.function_abi.invocation;
+    if (invocation) {
+      require_temporary(program, statement.id, lir::TemporaryRole::invocation_count, 0U, expected,
+                        names, diagnostics, {statement.line, 1U});
+      const auto* count =
+          program.temporaries.find(statement.id, lir::TemporaryRole::invocation_count);
+      if (count_abi.form != lir::InvocationAbiForm::trailing_binary64 || count == nullptr ||
+          count_abi.count_parameter != *count || !statement.source_invocation_frame.active())
+        add_error(diagnostics, {statement.line, 1U},
+                  "JavaScript LIR invocation ABI is inconsistent");
+    } else if (count_abi.form != lir::InvocationAbiForm::none ||
+               !count_abi.count_parameter.empty()) {
+      add_error(diagnostics, {statement.line, 1U}, "non-Matlab function retains invocation ABI");
+    }
+    if (count_abi.external_default_count != 1U)
+      add_error(diagnostics, {statement.line, 1U},
+                "JavaScript external invocation default is inconsistent");
     const auto scoped_control = statement.kind == StatementKind::if_statement ||
                                 statement.kind == StatementKind::select_case ||
                                 statement.kind == StatementKind::case_clause ||
