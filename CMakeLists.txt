@@ -123,6 +123,7 @@ add_library(mpf_core STATIC
   src/lexer/scanner.cpp
   src/compiler/expression.cpp
   src/compiler/argument_validation.cpp
+  src/compiler/dependency_graph.cpp
   src/compiler/intrinsic.cpp
   src/compiler/code_binding.cpp
   src/ir/dump.cpp
