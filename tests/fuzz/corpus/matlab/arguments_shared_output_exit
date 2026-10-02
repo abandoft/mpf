@@ -1,0 +1,26 @@
+try
+    [first,second] = checked(1);
+catch
+    disp(999);
+end
+function [first,second] = checked(limit)
+arguments
+limit (1,1) double
+end
+arguments (Output)
+first (1,1) logical {mustBeNonzero}
+second (1,1) double {mustBeLessThan(second,limit)}
+end
+first = 0;
+second = 7;
+limit = 9.0;
+try
+for index = 1:3
+if index == 2
+return;
+end
+end
+catch
+first = 1;
+end
+end
