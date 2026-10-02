@@ -49,6 +49,7 @@ Effect intrinsic_effects(const IntrinsicId intrinsic) noexcept {
     case IntrinsicId::not_a_number:
     case IntrinsicId::infinity:
     case IntrinsicId::matlab_is_sparse:
+    case IntrinsicId::matlab_nargout:
     case IntrinsicId::present: return Effect::none;
     case IntrinsicId::python_float:
     case IntrinsicId::python_length:
@@ -84,6 +85,7 @@ Effect minimum_effects(const Instruction& instruction) noexcept {
     case Opcode::member:
     case Opcode::expression:
     case Opcode::function:
+    case Opcode::invocation_output_count:
     case Opcode::identifier: return Effect::none;
     case Opcode::load:
     case Opcode::parameter_presence: return Effect::read;

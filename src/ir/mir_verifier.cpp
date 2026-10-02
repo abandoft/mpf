@@ -11,6 +11,7 @@
 #include "mir_argument_entry.hpp"
 #include "mir_argument_exit.hpp"
 #include "mir_argument_validation.hpp"
+#include "mir_invocation_context.hpp"
 #include "mir_opcode.hpp"
 #include "mir_output_demand.hpp"
 #include "mir_parameter_defaults.hpp"
@@ -882,6 +883,9 @@ void verify_expression(const Expression& expression, const Program& program,
       }
     }
     bool operands_match = instruction.operands == expected_operands;
+    const bool invocation_query = is_output_count_query(program, expression);
+    if (invocation_query)
+      operands_match = true;  // Independently checked against function ownership.
     if (expression_attributes != nullptr && expression_attributes->lazy_cfg) {
       const bool lazy_kind = expression.kind == ExpressionKind::conditional ||
                              expression.kind == ExpressionKind::comparison_chain ||
@@ -922,9 +926,11 @@ void verify_expression(const Expression& expression, const Program& program,
         instruction.type != expression.type_id || instruction.shape != expression.shape_id ||
         instruction.storage != expression.storage_id ||
         instruction.opcode !=
-            expression_opcode(expression.kind, expression_attributes == nullptr
-                                                   ? BindingKind::unresolved
-                                                   : expression_attributes->binding) ||
+            (invocation_query
+                 ? Opcode::invocation_output_count
+                 : expression_opcode(expression.kind, expression_attributes == nullptr
+                                                          ? BindingKind::unresolved
+                                                          : expression_attributes->binding)) ||
         !operands_match) {
       add_error(diagnostics, expression.location, stage,
                 "expression arena disagrees with its MIR instruction definition");
@@ -2376,7 +2382,8 @@ void verify_cfg(const Program& program, std::vector<Diagnostic>& diagnostics,
     const auto& function = program.functions[function_index];
     if (function.blocks.empty() || !valid_index(function.entry, program.blocks)) continue;
     const auto& entry_block = program.blocks[function.entry.value()];
-    if (entry_block.arguments.size() != function.parameter_types.size() ||
+    if (entry_block.arguments.size() !=
+            function.parameter_types.size() + (function.invocation_frame.active() ? 1U : 0U) ||
         function.parameter_shapes.size() != function.parameter_types.size() ||
         function.parameter_optional.size() != function.parameter_types.size()) {
       add_error(diagnostics, {1, 1}, stage,
@@ -3142,6 +3149,7 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
   verify_argument_entries(program, diagnostics, stage);
   verify_argument_outputs(program, diagnostics, stage);
   verify_output_demands(program, diagnostics, stage);
+  verify_invocation_contexts(program, diagnostics, stage);
   verify_parameter_defaults(program, parameter_presence_instructions, diagnostics, stage);
   verify_expression_ownership(program, diagnostics, stage);
   return diagnostics;

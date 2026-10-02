@@ -167,14 +167,23 @@ std::vector<Diagnostic> canonicalize_shapes(Program& program, OptimizationStatis
   }
   for (std::size_t index = 1; index < program.instructions.size(); ++index) {
     remap_shape(program.instructions[index].shape, remap);
+    remap_shape(program.instructions[index].invocation_demand.shape, remap);
   }
   for (std::size_t index = 1; index < program.blocks.size(); ++index) {
     for (auto& argument : program.blocks[index].arguments) remap_shape(argument.shape, remap);
   }
   for (std::size_t index = 1; index < program.functions.size(); ++index) {
+    remap_shape(program.functions[index].invocation_frame.shape, remap);
     for (auto& shape : program.functions[index].parameter_shapes) remap_shape(shape, remap);
     for (auto& shape : program.functions[index].raw_parameter_shapes) remap_shape(shape, remap);
     for (auto& shape : program.functions[index].result_shapes) remap_shape(shape, remap);
+  }
+  for (auto& call : program.calls) {
+    remap_shape(call.invocation_demand.shape, remap);
+    for (auto& argument : call.arguments) {
+      remap_shape(argument.shape, remap);
+      remap_shape(argument.validated_shape, remap);
+    }
   }
   program.shapes = std::move(shapes);
   return {};

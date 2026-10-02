@@ -197,6 +197,14 @@ class Builder final {
       call.result_type = unresolved.result_type;
       call.requested_results = unresolved.requested_results;
       call.output_demand = unresolved.output_demand;
+      if (call.callee.valid()) {
+        const auto& frame = program_.functions.at(call.callee.value()).invocation_frame;
+        if (frame.active()) {
+          call.invocation_demand = {frame.type, frame.shape, call.output_demand.count};
+          program_.instructions.at(call.instruction.value()).invocation_demand =
+              call.invocation_demand;
+        }
+      }
       program_.calls.push_back(std::move(call));
     }
   }
@@ -1451,6 +1459,16 @@ class Builder final {
         callee_attributes->binding == BindingKind::builtin) {
       instruction.intrinsic = callee_attributes->intrinsic;
     }
+    const bool output_query = (result.kind == ExpressionKind::identifier &&
+                               result_attributes.intrinsic == IntrinsicId::matlab_nargout &&
+                               mir::value_type(program_, result.type_id) == ValueType::real) ||
+                              (result.kind == ExpressionKind::call &&
+                               instruction.intrinsic == IntrinsicId::matlab_nargout);
+    if (output_query) {
+      instruction.opcode = Opcode::invocation_output_count;
+      instruction.intrinsic = IntrinsicId::matlab_nargout;
+      operands = {current_function().invocation_frame.output_count};
+    }
     instruction.location = result.location;
     instruction.result = result.value_id;
     instruction.type = result.type_id;
@@ -2039,6 +2057,14 @@ class Builder final {
       }
     }
     function.signature = intern_function_type(signature_parameters, function.result_types);
+    if (program_.source_language == SourceLanguage::matlab) {
+      function.invocation_frame = {
+          value_ids_.next(), intern_type(ValueType::real, ValueType::unknown, real_numeric_type),
+          intern_shape({}, false)};
+      const auto& frame = function.invocation_frame;
+      program_.blocks.at(function.entry.value())
+          .arguments.push_back({frame.output_count, frame.type, frame.shape, {}});
+    }
   }
 
   ShapeId intern_raw_argument_shape() {

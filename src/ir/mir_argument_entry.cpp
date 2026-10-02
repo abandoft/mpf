@@ -99,7 +99,8 @@ void verify_argument_entries(const Program& program, std::vector<Diagnostic>& di
         function.raw_parameter_types.size() != declarations.size() ||
         function.raw_parameter_shapes.size() != declarations.size() ||
         !valid(function.entry, program.blocks) ||
-        program.blocks[function.entry.value()].arguments.size() != declarations.size()) {
+        program.blocks[function.entry.value()].arguments.size() !=
+            declarations.size() + (function.invocation_frame.active() ? 1U : 0U)) {
       fail(diagnostics, location, stage, "raw/formal/declaration inventories disagree");
       continue;
     }
