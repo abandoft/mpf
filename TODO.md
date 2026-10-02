@@ -8,13 +8,14 @@
 
 ## 当前基线
 
-0.7.9 已完成公开 Release。当前开发增量尚未发布：Matlab AST v8、Semantic v38、MIR v44 与
+0.7.9 已完成公开 Release。当前开发增量尚未发布：Matlab AST v9、Semantic v38、MIR v45 与
 双目标 LIR v54 新增四个参数化关系 validator、`mustBeInRange` 与标准 unary 的显式调用、finite
 binary64 threshold normalization、前序 scalar input/output reference 和独立目标 `ValidatorCallPlan`。
 同时修正 Matlab 参数的 scalar/array representation、空数组 `length` 和 scalar `length`/`numel`。
 标准 validator 现拥有真实 AST/HIR call 与上下文名称绑定，调用来源经 reindex、MIR 独立库存
-和双目标计划验证；本地同名绑定不再被误译为标准 builtin。一般 custom grammar 和真实
-validation-sequence CFG/执行尚未完成，不能把本轮基础设施进展称为完整 `arguments` 支持。
+和双目标计划验证；本地同名绑定不再被误译为标准 builtin。命名 validator 的一般调用语法
+及绑定后版本/arity/ABI 门禁已接入；qualified/class 路径与真实 validation-sequence CFG/执行
+尚未完成，不能把本轮基础设施进展称为完整 `arguments` 支持。
 本轮先补齐功能及跨层验证，不把内部测试数量、覆盖率或门禁调整写成用户更新条目；
 真实用户更新累计达到 8–20 条后再定版发布。
 
@@ -24,7 +25,7 @@ validation-sequence CFG/执行尚未完成，不能把本轮基础设施进展�
 | 输出目标 | 独立 JavaScript 与 `cpp` 后端；源码分别位于无重复文件名前缀的 `src/backends/javascript/`、`src/backends/cpp/`，`cpp` 当前生成严格 C++17 translation unit |
 | 前后端边界 | 四语言 parser session 直接构造并发布各自 arena AST artifact，不经过共享递归 syntax tree 或整树复制；生产驱动随后固定经过 HIR→MIR→共享优化→优化后 alias/effect→CFG memory-dependence→目标私有 semantic plan/LIR→emitter，两个目标不读取彼此产物 |
 | 扩展架构 | frontend descriptor API v7、backend descriptor API v6；仅接受 canonical 语言/目标名称，不保留旧名称 alias；parser session/feature/resource contract（含 exception-handling capability）、configuration/runtime supply-chain manifest、AST verifier、TargetProfile、稠密 legalization、opaque artifact 和前后端 conformance harness 已接入 |
-| IR 架构 | 四种语言使用编译期互不兼容的 PMR arena AST，并原子 lowering 到窄 HIR v4 与 revision-checked 稠密 semantic side table；名称、控制流、alias/effect 和 memory-dependence 分别由独立表持有。Matlab AST v8、Semantic v38、MIR v44 与双目标 LIR v54 新增 `arguments` declaration、validation、formal representation rank 和逐 call class/size boundary conversion；MIR 继续使用强类型稠密 expression/statement/instruction arena、显式普通/异常 CFG、resident instruction、`ExceptionRegion` 与 revision-bound attributes。既有 numeric/storage/matrix/sparse/mutation/reduction/exception/call ownership/source segment 合同仍逐层独立验证；JavaScript LIR 与 `cpp` LIR 各自完成 representation/runtime/module/argument-validation 规划，Emitter 只序列化已验证目标计划，任一目标都不读取另一目标产物。 |
+| IR 架构 | 四种语言使用编译期互不兼容的 PMR arena AST，并原子 lowering 到窄 HIR v5 与 revision-checked 稠密 semantic side table；名称、控制流、alias/effect 和 memory-dependence 分别由独立表持有。Matlab AST v9、Semantic v38、MIR v45 与双目标 LIR v54 新增 `arguments` declaration、validation、formal representation rank 和逐 call class/size boundary conversion；MIR 继续使用强类型稠密 expression/statement/instruction arena、显式普通/异常 CFG、resident instruction、`ExceptionRegion` 与 revision-bound attributes。既有 numeric/storage/matrix/sparse/mutation/reduction/exception/call ownership/source segment 合同仍逐层独立验证；JavaScript LIR 与 `cpp` LIR 各自完成 representation/runtime/module/argument-validation 规划，Emitter 只序列化已验证目标计划，任一目标都不读取另一目标产物。 |
 | Python 最新能力 | relational/equality/identity/membership 比较链、右结合条件表达式、短路/惰性/单次求值；list/tuple 种类相等规则、singleton/reference identity、string/list/tuple membership；基础参数关联和递归固定序列解包 |
 | 跨语言标量除法 | HIR v2 profile 独立保存 quotient 与 zero-denominator policy；Python `/`/`//` 在 JavaScript/C++17 中 checked exception，Matlab/TypeScript 保持 IEEE-754；C++ 统一经过参数化 runtime helper，消除 MSVC 对惰性字面量零除的编译期拒绝；Fortran 当前保持 target-native |
 | Matlab 最新能力 | `~`/`&`/`|` 的 compatible-size N 维逐元素逻辑、`&&`/`||` 标量短路、condition 全元素非零/非空 truthiness 与 condition-context scalar `&`/`|` 短路；`all`/`any` 支持默认首个 non-singleton 维、常量 `dim`/`vecdim`、`'all'`、N 维 shape 与空归约 identity；`2i`/`3j` 及可遮蔽 builtin `i`/`j`、complex scalar 算术/幂/一元正负、标量 `complex`/`conj`/`real`/`imag`/`abs`、complex 数组 compatible-size 逐元素运算、索引/写入/reshape，以及 `'` 共轭转置与 `.'` 普通转置；跨 local-function 的未知 real/complex 参数由动态 numeric ABI 分派；scalar numeric/logical/character `switch/case/otherwise`；规范 `0×0` double empty、一般静态零 extent reshape/transpose/broadcast/section/growth；R2024 全部 `sparse` 调用形式对静态 real/logical/complex rank-2 值输入（包含零 extent）的 canonical CSC 构造、scalar expansion、numeric/complex duplicate sum 与 logical duplicate `any`、保持 complex 共轭 identity 的显式 sparse transpose、scalar/linear/submatrix indexing、indexed assignment、保持 real/logical/complex class 的列主序 `reshape`（size vector、维度列表、单个 `[]` 推断与 N 维请求折叠为二维 sparse 结果）、重复下标 last-write-wins、零值删除、静态扩容/null deletion、`full`/`issparse`/`nnz`、含 `0×0` 系数与 shaped-empty 两侧操作数的实数方阵稀疏系数左右除，以及 finite-real/complex rank-2 sparse×sparse/sparse×dense/dense×sparse 矩阵乘法、双向 sparse/scalar 缩放、sparse/dense/scalar compatible-size `.*`、static compatible-size sparse `+`/`-` 和静态 rank-2 sparse logical `~`/`&`/`|`，以及非负 safe-integer real/logical CSC 方阵幂；其中 sparse-sparse product 与 `+`/`-` 保持 canonical CSC，mixed product/arithmetic 物化 dense，`~S`、`S & X` 与 sparse-sparse `|` 保持 CSC，mixed sparse-dense/scalar `|` 物化 dense，均保持显式结果 shape；二维矩阵乘法、静态稠密实数 diagonal/upper/lower/pivoted-tridiagonal/symmetric-positive-definite/dense 结构感知方阵、复数 Hermitian Cholesky/dense LU 方阵及 real/complex rank-aware 超定/欠定 solve、safe-integer 方阵 power、静态 N 维及 local-function runtime rank/extent 的 compatible-size 算术/关系比较、静态及运行时 extent 的逐维/线性 `end`、保序/重复/空 numeric selector、线性/逐维 logical selector，以及 vector/matrix/N 维多轴自动扩容与单轴索引删除进入双目标专属 LIR/runtime；未知形状 local-function 的非全区段赋值另可按实际 scalar/numeric/logical/range selector 在 overwrite 与 growth 间运行时分派，并在提交前验证 replacement |
@@ -33,7 +34,7 @@ validation-sequence CFG/执行尚未完成，不能把本轮基础设施进展�
 | Matlab complex sparse product | 静态 rank-2 complex CSC 支持 sparse×sparse、sparse×dense 与 dense×sparse 矩阵乘法；sparse 结果保持 canonical CSC，mixed 结果直接物化 dense，real/logical operand 自动提升，并保持零 extent 与 exact-zero cancellation |
 | Matlab control/function | 函数与脚本裸 `return`、通用 command syntax、`ans`、`disp`/`display`、`try`/单一 `catch [exception]` 和 exception object 已贯通名称/flow/MIR/双目标 LIR。`arguments` block 当前覆盖 positional input/output、显式 scalar/N 维 `double`/`logical`/char-vector ABI、按声明顺序的 default、输入/输出 validation、scalar expansion、row/column reshape 和 23 个 unary 标准 validator 与四个参数化关系 validator；unsupported attribute/class/validator 在 frontend/Analyzer/target capability 边界失败关闭。 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流；已知静态 shape 下可证明不相交的同根连续、步长与 N 维矩形 writable section actual |
-| 工程门禁 | 366 项内部测试；121 个差分 case、287 条工具完整环境执行路径；当前 dev preset 为 201 项普通 CTest，Release 流程另运行独立性能发布目标；四语言 fuzz smoke、可选 libFuzzer、63 项生成 runtime 拒绝测试、6 项生成 C++ 编译、发布脚本正/负契约、47 项独立版本化通用及 Matlab 专项性能场景、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率硬门槛为 85%；Release 在标签 SHA 上复用七类 required workflow，门禁后才允许三平台候选测试/安装/消费/归档、来源证明和公开资产回验 |
+| 工程门禁 | 376 项内部测试；121 个差分 case、287 条工具完整环境执行路径；当前 dev preset 为 201 项普通 CTest，Release 流程另运行独立性能发布目标；四语言 fuzz smoke、可选 libFuzzer、63 项生成 runtime 拒绝测试、6 项生成 C++ 编译、发布脚本正/负契约、47 项独立版本化通用及 Matlab 专项性能场景、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率硬门槛为 85%；Release 在标签 SHA 上复用七类 required workflow，门禁后才允许三平台候选测试/安装/消费/归档、来源证明和公开资产回验 |
 | 发布状态 | 0.x 开发快照；包消费要求精确当前版本，不提供旧 MPF API/ABI/schema/CLI/CMake 兼容承诺或迁移 shim |
 
 ## 本轮商业级收尾验收（完成）
@@ -100,7 +101,8 @@ validation-sequence CFG/执行尚未完成，不能把本轮基础设施进展�
 - [ ] Matlab `arguments` P0-A2：完成阈值表达式与命名常量、`mustBeMember` 等其余参数化标准 validator、一般 range bound array/object ABI、自定义 local validator 的名称绑定/调用/副作用/异常合同；先扩展语言 AST 与 semantic/MIR contract，再独立规划两个目标，禁止在 renderer 拼接源表达式。标准 validator 不能仅凭 spelling 被固化而忽略源 local function 遮蔽
   - [x] 调用依赖基础：普通函数/default call 按 NameTable 的 `SymbolId` 绑定；Python definition scope 与 Matlab formal scope 各自保留。默认值中的前向 local function 参与 Analyzer 与 C++ 定义排序；iterative SCC 消除函数链的 native recursion 和重复全图搜索。名称 verifier 独立复核 spelling/最近 scope/builtin identity，目标 graph 可独立重建并拒绝损坏；双目标执行、50,000 节点链/SCC、随机图 oracle、fuzz 与 128 函数 default workload 完成
   - [x] 当前标准 grammar 的 arena AST/HIR validator call：bare form 规范为拥有 callee/formal 的真实 call，显式形式保留 threshold/flag expression；独立 verifier 检查完整库存、顺序、所有权和源操作数。NameTable 优先绑定 local function/formal/result/assignment，未遮蔽时才选上下文标准 builtin；调用 graph 消费实际 SymbolId。Semantic reindex、MIR source-binding inventory 和双目标私有 plan 保留并验证调用来源，28 个标准候选、逐层损坏与遮蔽均有回归。尚不能执行的源绑定以 MPF2062 拒绝，不再误用标准 builtin
-  - [ ] 一般 validator grammar：未知 custom callee、任意有序参数 expression 和同名 local 函数的不同 arity 必须先成为完整 AST call，再按名称绑定决定 builtin availability/arity；当前 parser 的标准 spelling/version/arity 子集限制尚未移除，不能把本轮来源与绑定基础表述成完整 custom 支持
+  - [x] 命名 validator 一般调用 grammar：未知 custom callee、有序参数 expression 和同名 local 函数的不同 arity 先成为完整 AST call；parser 不选择标准 builtin、不复制 threshold/flag。不可变、无分配 catalog 在名称绑定后提供标准候选，Analyzer 才检查版本/arity/scalar-bound ABI。四语言 arena AST→HIR/MIR 保留源版本；标准计划跨错误调用间隙按 source ID reindex，并独立拒绝绕过绑定/版本/ABI 的计划。源绑定执行仍以 MPF2062 拒绝，不能称为完整 custom 支持
+  - [ ] qualified validator grammar 与解析环境：package/class 路径、import/path resolution 和函数句柄必须有各自完整 AST/NameTable 合同；当前一般 grammar 仅覆盖命名 callee 与已有表达式语法，不能扩大为完整官方 grammar。其余标准 validator 与表达式值 threshold 仍需类型化运行 ABI，不能用常量字符串或未经验证的目标表达式替代
   - [ ] typed MIR validation sequence：为输入正规化/default 分支/逐 validator 调用建立真实 entry CFG、formal storage version、call-site、alias/effect 和 exceptional edge；输出验证覆盖每条显式/隐式 return，不能仅附加描述符或在目标层恢复副作用顺序
   - [ ] 独立目标 lowering：标准 validator runtime operation 与普通 custom local call 分开绑定，按 MIR 顺序惰性求值阈值；JS/C++ LIR 各自验证参数、无输出调用、异常与源码映射，Emitter 仍只序列化
 - [x] 开发分支 Analyzer 生命周期修复：递归 default/optional normalization 后重新取得稠密 facts；index/slice plan 先局部构造再发布，Python tuple child 先分析再追加；Matlab/Python/Fortran 的强制扩容回归与新增 fuzz seed 进入 ASan/UBSan 检查

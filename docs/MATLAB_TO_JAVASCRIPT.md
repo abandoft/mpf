@@ -194,7 +194,7 @@ nonmissing 与 variable-name 组，`mustBeRow`/`mustBeColumn`/`mustBeMatrix` 则
 runtime 同步处理 logical、character、empty value、complex-storage realness，以及 R2024b 的 63 字符
 变量名和关键字限制。
 
-后续开发分支以 Matlab AST v8、Semantic v38、MIR v44 与双目标 LIR v54 接入
+后续开发分支以 Matlab AST v9、Semantic v38、MIR v45 与双目标 LIR v54 接入
 `mustBeGreaterThan`/`mustBeGreaterThanOrEqual`/`mustBeLessThan`/`mustBeLessThanOrEqual`。
 threshold 支持有限 binary64 literal 和前序 scalar input，output validator 可引用 input；未定
 类型的 input 需要显式 singleton dimensions，并保留 runtime numeric/logical/complex-storage
@@ -219,8 +219,10 @@ output 验证和 optional input 复用相同绑定合同，双目标 runtime 使
 AST/HIR call 和 callee reference，经过相同的最近 scope/SymbolId 解析与依赖图；只有未被源
 binding 遮蔽时才选标准 builtin。不能执行的 local validator 以 `MPF2062` 明确拒绝，不再生成
 调用错误标准 validator 的代码。source call/callee ID 经 semantic reindex、MIR 独立来源库存和
-两端私有计划验证；未知 custom callee grammar、任意参数与完整 entry/exit validation CFG 仍
-须按 P0-A2 实现，不能把来源与绑定基础称为 custom validator 已完成。
+两端私有计划验证。命名 custom callee、一般有序参数 expression 和不同 arity 已先进入 AST，
+标准版本/arity/ABI 只在绑定后检查；源版本由四语言 arena→HIR/MIR profile 保留。一般 threshold
+运行 ABI、qualified/class/path 解析与完整 entry/exit validation CFG 仍须按 P0-A2 实现，不能把
+grammar、来源与绑定基础称为 custom validator 执行已完成。
 一般 NDArray 表示与不可结构恢复动态零 extent、stride/view/owner/COW、限定名/package/class 与
 外部 path/project command 解析、完整 name-value/Repeating/其余 parameterized/custom `arguments`、公开 cause/stack/correction 属性、完整格式化表面、cell/struct/string
 仍不在当前可保持边界。因此文档、版本说明和 CLI
