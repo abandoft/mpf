@@ -38,6 +38,12 @@ mpf_add_differential_case(
   matlab-arguments matlab examples/matlab/arguments.m "12 42 1 ready 1 2 0")
 mpf_add_differential_case(
   matlab-argument-conversion matlab examples/matlab/argument_conversion.m "24 2 2")
+mpf_add_differential_case(
+  matlab-argument-relational-validators matlab
+  examples/matlab/argument_relational_validators.m "3 2")
+mpf_add_differential_case(
+  matlab-argument-relational-boundaries matlab
+  examples/matlab/argument_relational_boundaries.m "1 1 1 1 1 1 2 1 1")
 mpf_add_differential_case(matlab-switch-case matlab examples/matlab/switch_case.m "42")
 mpf_add_differential_case(
   matlab-try-catch matlab examples/matlab/try_catch.m "MPF:Expected nested 42")
