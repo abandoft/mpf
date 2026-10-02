@@ -69,6 +69,12 @@ custom validator 的职责依据官方 [validation functions](https://www.mathwo
 
 运行语义遵循“class/size conversion 后再执行 validator”，并按 declaration 自上而下处理。省略的 default 只在到达该 formal 时求值，因此能够读取已经转换并验证的前序参数。显式 dimensions 支持固定非负 integer extent 与 `:`；N 维 scalar expansion、元素数相同的 row/column reshape、零 extent 和列主序重建由 JavaScript/C++ 各自的 runtime 实现。函数 output 在每个显式 return 和自然 fallthrough 返回前验证。生成源码中的 conversion/validation 行保留到 source map。
 
+开发分支的 output class/size 声明只约束返回给 caller 的结果，不提前约束内部 workspace
+变量；input/output 同名保持已初始化的 formal，caller metadata 使用转换后的 type/shape。
+两个目标使用独立 output temporary 检查转换结果。公共 MIR output exit 尚未交付，尤其是
+body try/catch 内提前 return 的验证异常隔离仍需完成；不能将当前 return-site 支持表述为
+完整输出验证语义，0.8.0 发布前须补齐该项。
+
 当前 class slice 为 `double`、`logical` 和 char vector；validator slice 为 `mustBeNumeric`、`mustBeNumericOrLogical`、`mustBeFloat`、`mustBeReal`、`mustBeFinite`、`mustBeNonNan`、`mustBePositive`、`mustBeNonpositive`、`mustBeNonnegative`、`mustBeNegative`、`mustBeNonzero`、`mustBeInteger`、`mustBeNonempty`、`mustBeScalarOrEmpty`、`mustBeVector`、`mustBeRow`、`mustBeColumn`、`mustBeMatrix`、`mustBeNonmissing`、`mustBeNonzeroLengthText`、`mustBeText`、`mustBeTextScalar` 和 `mustBeValidVariableName`。当前不把这个 slice 表述为完整 `arguments` 兼容：name-value/`Repeating`、参数化标准/custom validator、sparse/file/folder validator、无显式 dimensions 的动态 rank numeric/logical class、一般 char/string/class conversion 和 C++ 外部调用的动态 adapter 仍失败关闭。权威产品任务见 [TODO](../TODO.md)，语言规则参考 Matlab [`arguments`](https://www.mathworks.com/help/matlab/ref/arguments.html) 与 [validation functions](https://www.mathworks.com/help/matlab/matlab_prog/argument-validation-functions.html)。
 
 ## 版本目标

@@ -194,7 +194,7 @@ nonmissing 与 variable-name 组，`mustBeRow`/`mustBeColumn`/`mustBeMatrix` 则
 runtime 同步处理 logical、character、empty value、complex-storage realness，以及 R2024b 的 63 字符
 变量名和关键字限制。
 
-后续开发分支以 Matlab AST v9、Semantic v38、MIR v48 与双目标 LIR v57 接入
+后续开发分支以 Matlab AST v9、Semantic v39、MIR v48 与双目标 LIR v58 接入
 `mustBeGreaterThan`/`mustBeGreaterThanOrEqual`/`mustBeLessThan`/`mustBeLessThanOrEqual`。
 threshold 支持有限 binary64 literal 和前序 scalar input，output validator 可引用 input；未定
 类型的 input 需要显式 singleton dimensions，并保留 runtime numeric/logical/complex-storage
@@ -233,7 +233,7 @@ grammar、来源与绑定基础称为 custom validator 执行已完成。
 当前 MIR v48 已把 positional default 放入真实 absence-guarded CFG，默认表达式的 local
 call、IO、可能抛错操作和嵌套短路只在缺失路径执行，之后合并 formal storage version。
 参数存储在 default lowering 前初始化；优化的 instruction/block compaction 同步重映射
-default flow identity。LIR v57 的两端私有 planner 从 MIR provenance 选择 undefined guard/
+default flow identity。LIR v58 的两端私有 planner 从 MIR provenance 选择 undefined guard/
 optional resolution，并分别拒绝损坏来源、执行 form 与序列；不是目标层重建 default flag。
 `argument_default_control_flow.m` 在双目标验证 supplied/omitted/empty、异常和 logical
 scalar/array，并修复 C++ bool proxy 的转换/验证问题。JavaScript `disp`/`display` 对 logical
@@ -242,7 +242,7 @@ scalar/array，并修复 C++ bool proxy 的转换/验证问题。JavaScript `dis
 MIR v48 已将标准输入 class/shape 正规化、typed formal 写入与每条 validator 驻留到真实 CFG，
 顺序为 raw supplied/default merge→正规化→formal publication→validator→下一参数。
 raw borrowed storage 与已验证 local formal 分离；literal/前序参数 threshold、内存访问和可能
-抛错 effect 可由独立分析读取。LIR v57 两端分别规划该 resident entry sequence，缺失/错序/污染
+抛错 effect 可由独立分析读取。LIR v58 两端分别规划该 resident entry sequence，缺失/错序/污染
 投影在发射前拒绝，优化会同步重映射身份。公共输出出口、表达式 threshold 与自定义 validator
 执行仍必须继续实现；这不是完整官方 `arguments` 支持。
 
@@ -251,6 +251,14 @@ raw borrowed storage 与已验证 local formal 分离；literal/前序参数 thr
 在 callee 逐条 materialize，不能让后一个参数的 shape conversion 抢先覆盖前一个 validator 的
 错误；非平凡多实参按序求值完毕才进入 validation。`argument_entry_order.m` 固定首错、后续
 default 的 IO 抑制、supplied default 跳过、前序 logical 转换结果、size-only/char/no-op 声明。
+
+输出转换现区分函数 workspace 与 caller result：例如声明 `(1,1) logical` 的 output 可以
+在 body 中依次计算 2、3，caller 接收 logical true 并按 Matlab 显示为 1。输入/输出同名
+不会丢失已初始化参数。Semantic v39 传播转换后的 type/shape，双目标 LIR v58 独立规划
+materialization，`argument_output_conversion.m` 固定多输出、scalar expansion、wildcard
+列主序 reshape、complex logical/double 与 size-free validator；转换后的值才进入 validator。
+完整公共输出 CFG 仍未完成：正常/提前 return 必须先退出 body try/catch，再执行输出验证，
+输出边界失败不能被内部 catch 截获。0.8.0 在该语义补齐并通过执行回归前不打发布标签。
 
 Matlab frontend 必须按照 Matlab 语义建立规范事实，不能先生成 JavaScript 再让其他目标
 读取 JavaScript。生产链路固定为：
