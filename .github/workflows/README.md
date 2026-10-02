@@ -9,7 +9,7 @@ release orchestrator invokes the exact same definitions instead of maintaining a
 | `build-and-test.yml` | Build & Test | `Build & Test / Required` | Fast GCC build, core tests, install layout, and failure diagnostics |
 | `platform-compatibility.yml` | Platform Compatibility | `Platform Compatibility / Required` | GCC, Clang, AppleClang, and MSVC matrix; full differential tests and install validation |
 | `code-quality.yml` | Code Quality | `Code Quality / Required` | actionlint, clang-format, clang-tidy, and warnings-as-errors |
-| `memory-safety.yml` | Memory Safety | `Memory Safety / Required` | ASan/UBSan instrumented compiler paths; weekly scheduled replay |
+| `memory-safety.yml` | Memory Safety | `Memory Safety / Required` | ASan/UBSan compiler paths and independently coverage-guided libFuzzer with framed dual-target seeds; weekly replay |
 | `test-coverage.yml` | Test Coverage | `Test Coverage / Required` | Full source-based coverage suite and the 85% production-line gate |
 | `performance-regression.yml` | Performance Regression | `Performance Regression / Required` | Versioned latency, throughput, arena, output-size, determinism, and concurrency budgets |
 | `security-analysis.yml` | Security Analysis | `Security Analysis / Required` | Capability-aware CodeQL and pull-request dependency review |

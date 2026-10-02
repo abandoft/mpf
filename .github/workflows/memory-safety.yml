@@ -46,14 +46,61 @@ jobs:
           retention-days: 7
           path: build/sanitizers/Testing/Temporary/LastTest.log
 
+  libfuzzer:
+    name: Coverage-guided compiler fuzzing
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ASAN_OPTIONS: abort_on_error=1:detect_leaks=1:strict_string_checks=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Install Clang
+        run: sudo apt-get update && sudo apt-get install --yes clang
+      - name: Configure instrumented production libraries
+        run: >-
+          cmake -S . -B build/fuzz
+          -DCMAKE_CXX_COMPILER=clang++
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DMPF_BUILD_FUZZERS=ON -DMPF_BUILD_CLI=OFF
+          -DMPF_ENABLE_WERROR=ON
+      - name: Build fuzz driver and instrumented compiler
+        run: cmake --build build/fuzz --target mpf-transpiler-fuzzer --parallel
+      - name: Prepare language and target framed seeds
+        run: >-
+          cmake -DSOURCE_DIR="$PWD" -DCORPUS_DIR="$PWD/build/fuzz/framed-corpus"
+          -P tests/fuzz/prepare_corpus.cmake
+      - name: Exercise compiler paths under ASan and UBSan
+        run: |
+          set -o pipefail
+          build/fuzz/tests/mpf-transpiler-fuzzer build/fuzz/framed-corpus \
+            -runs=1000 -seed=420800 -max_len=4096 -artifact_prefix=build/fuzz/ \
+            2>&1 | tee build/fuzz/fuzz.log
+      - name: Preserve fuzz evidence and reproductions
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-guided-fuzz
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            build/fuzz/fuzz.log
+            build/fuzz/framed-corpus
+            build/fuzz/crash-*
+            build/fuzz/leak-*
+            build/fuzz/timeout-*
+
   required:
     name: Required
     if: always()
-    needs: asan-ubsan
+    needs: [asan-ubsan, libfuzzer]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - name: Enforce required sanitizer result
         env:
-          RESULT: ${{ needs.asan-ubsan.result }}
-        run: test "${RESULT}" = success
+          SANITIZERS: ${{ needs.asan-ubsan.result }}
+          FUZZING: ${{ needs.libfuzzer.result }}
+        run: |
+          test "${SANITIZERS}" = success
+          test "${FUZZING}" = success
