@@ -21,6 +21,9 @@ if(NOT benchmark_status EQUAL 0)
   message(FATAL_ERROR "performance benchmark failed: ${benchmark_error}")
 endif()
 
+# Preserve measurements before any gate rejects them, so failed CI retains its evidence.
+file(WRITE "${REPORT}" "${benchmark_output}")
+
 file(READ "${BASELINE}" baseline_json)
 string(JSON baseline_schema GET "${baseline_json}" schemaVersion)
 string(JSON report_schema GET "${benchmark_output}" schemaVersion)
@@ -123,5 +126,4 @@ if(override_count GREATER 0)
   endforeach()
 endif()
 
-file(WRITE "${REPORT}" "${benchmark_output}")
 message(STATUS "MPF performance release gate passed: ${benchmark_output}")
