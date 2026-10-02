@@ -135,13 +135,16 @@ TEST_CASE("source output demand is a validated cardinality independent of target
                                               {OutputDemandForm::prefix, 2U, false},
                                               {OutputDemandForm::validation, 0U, false}};
   for (const auto& demand : valid) REQUIRE(demand.valid());
-  const std::vector<SourceOutputDemand> invalid{{OutputDemandForm::none, 1U, false},
-                                                {OutputDemandForm::expression, 0U, false},
-                                                {OutputDemandForm::statement, 1U, false},
-                                                {OutputDemandForm::prefix, 0U, false},
-                                                {OutputDemandForm::validation, 1U, false},
-                                                {OutputDemandForm::expression, 1U, true},
-                                                {static_cast<OutputDemandForm>(255U), 0U, false}};
+  const std::vector<SourceOutputDemand> invalid{
+      {OutputDemandForm::none, 1U, false},
+      {OutputDemandForm::expression, 0U, false},
+      {OutputDemandForm::statement, 1U, false},
+      {OutputDemandForm::prefix, 0U, false},
+      {OutputDemandForm::validation, 1U, false},
+      {OutputDemandForm::expression, 1U, true},
+      // Intentionally corrupt the enum for verifier rejection.
+      // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+      {static_cast<OutputDemandForm>(255U), 0U, false}};
   for (const auto& demand : invalid) REQUIRE(!demand.valid());
   static_assert(
       !std::is_same_v<cpp::lir::OutputInvocationPlan, javascript::lir::OutputInvocationPlan>);
