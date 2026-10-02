@@ -2142,17 +2142,27 @@ void Analyzer::analyze_function(Statement& function) {
     analyze_matlab_validator_calls(function, ArgumentDirection::input);
   }
   for (std::size_t index = 0; index < function.return_names.size(); ++index) {
-    const auto type = index < semantic(semantics_, function).return_types.size()
+    if (program_.language == SourceLanguage::matlab &&
+        std::find(function.parameters.begin(), function.parameters.end(),
+                  function.return_names[index]) != function.parameters.end()) {
+      // An input/output name denotes the already initialized formal workspace binding.
+      continue;
+    }
+    // Output constraints apply when returning, not to the function's workspace binding.
+    const auto type = program_.language == SourceLanguage::matlab ? ValueType::unknown
+                      : index < semantic(semantics_, function).return_types.size()
                           ? semantic(semantics_, function).return_types[index]
                           : ValueType::unknown;
     definition_state(function, NameRole::result, index) = {
         type, BindingKind::variable, false, ValueType::unknown, {}};
     auto& result_state = definition_state(function, NameRole::result, index);
-    result_state.numeric_type = index < semantic(semantics_, function).return_numeric_types.size()
+    result_state.numeric_type = program_.language == SourceLanguage::matlab ? unknown_numeric_type
+                                : index < semantic(semantics_, function).return_numeric_types.size()
                                     ? semantic(semantics_, function).return_numeric_types[index]
                                     : default_numeric_type(type);
     result_state.array_storage =
-        index < semantic(semantics_, function).return_array_storage.size()
+        program_.language == SourceLanguage::matlab ? ArrayStorageFormat::none
+        : index < semantic(semantics_, function).return_array_storage.size()
             ? semantic(semantics_, function).return_array_storage[index]
             : (type == ValueType::list ? ArrayStorageFormat::unknown : ArrayStorageFormat::none);
   }
@@ -2289,10 +2299,17 @@ void Analyzer::analyze_function(Statement& function) {
   semantic(semantics_, function).return_element_numeric_types = output_element_numeric_types;
   semantic(semantics_, function).return_array_storage = output_array_storage;
   semantic(semantics_, function).return_shapes = output_shapes;
+  if (program_.language == SourceLanguage::matlab) {
+    normalize_matlab_output_contract(function);
+  }
   if (output_types.size() == 1) {
-    semantic(semantics_, function).declared_type = output_types.front();
-    semantic(semantics_, function).declared_numeric_type = output_numeric_types.front();
-    semantic(semantics_, function).array_storage = output_array_storage.front();
+    auto& facts = semantic(semantics_, function);
+    facts.declared_type = facts.return_types.front();
+    facts.declared_numeric_type = facts.return_numeric_types.front();
+    facts.element_type = facts.return_element_types.front();
+    facts.element_numeric_type = facts.return_element_numeric_types.front();
+    facts.array_storage = facts.return_array_storage.front();
+    facts.shape = facts.return_shapes.front();
   } else if (output_types.size() > 1) {
     semantic(semantics_, function).declared_type = ValueType::tuple;
     semantic(semantics_, function).declared_numeric_type = no_numeric_type;
