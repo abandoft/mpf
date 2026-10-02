@@ -13,6 +13,8 @@
 - Local functions, formals, outputs, and assignments that shadow standard validator names now produce focused diagnostics instead of invoking the wrong builtin.
 - Generated C++17 no longer allocates temporary flatten buffers for compatible scalar inputs or flattens and rebuilds arrays with matching types and shapes.
 - Output class and size conversions now retain the function's internal workspace values while giving callers correctly typed logical, numeric, complex, and reshaped results, including functions that share an input and output name.
+- Output conversion and validation now run once outside function-body exception handlers, preserving early and loop returns and the first validation failure.
+- Fixed selecting the first output of a multi-output Matlab function so its normalized result type is retained.
 
 ## 0.7.9
 
