@@ -453,6 +453,7 @@ bool fold_expression(Program& program, const MirExpressionId id, OptimizationSta
   facts->tuple_shapes.clear();
   facts->sequence_elements.clear();
   facts->requested_results = 1U;
+  facts->output_demand = {};
   facts->multi_result_call = false;
   facts->procedure_has_result = false;
   facts->index_base = 0U;

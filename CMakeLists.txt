@@ -142,6 +142,7 @@ add_library(mpf_core STATIC
   src/ir/mir_argument_entry.cpp
   src/ir/mir_argument_exit.cpp
   src/ir/mir_argument_exit_verifier.cpp
+  src/ir/mir_output_demand.cpp
   src/ir/mir_parameter_defaults.cpp
   src/semantic/analyzer.cpp
   src/semantic/expression_analyzer.cpp

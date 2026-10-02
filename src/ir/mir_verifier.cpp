@@ -12,6 +12,7 @@
 #include "mir_argument_exit.hpp"
 #include "mir_argument_validation.hpp"
 #include "mir_opcode.hpp"
+#include "mir_output_demand.hpp"
 #include "mir_parameter_defaults.hpp"
 
 namespace mpf::detail::mir {
@@ -845,6 +846,7 @@ void verify_expression(const Expression& expression, const Program& program,
         !retired_attributes->tuple_shapes.empty() ||
         !retired_attributes->sequence_elements.empty() ||
         retired_attributes->requested_results != 1U || retired_attributes->multi_result_call ||
+        retired_attributes->output_demand != SourceOutputDemand{} ||
         retired_attributes->procedure_has_result || retired_attributes->index_base != 0U ||
         retired_attributes->allow_negative_index || retired_attributes->slice_stop_inclusive ||
         semantic::requires_runtime_extent(retired_attributes->index_extent) ||
@@ -3139,6 +3141,7 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
   verify_argument_validator_sources(program, diagnostics, stage);
   verify_argument_entries(program, diagnostics, stage);
   verify_argument_outputs(program, diagnostics, stage);
+  verify_output_demands(program, diagnostics, stage);
   verify_parameter_defaults(program, parameter_presence_instructions, diagnostics, stage);
   verify_expression_ownership(program, diagnostics, stage);
   return diagnostics;
