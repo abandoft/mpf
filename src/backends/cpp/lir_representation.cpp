@@ -12,6 +12,7 @@
 #include "argument_output_plan.hpp"
 #include "backends/common/argument_entry_source.hpp"
 #include "backends/common/argument_exit_sources.hpp"
+#include "backends/common/output_demand_sources.hpp"
 #include "backends/common/parameter_default_source.hpp"
 #include "backends/common/source_segments.hpp"
 #include "backends/cpp/argument_validation_plan.hpp"
@@ -1151,7 +1152,14 @@ lir::ExpressionPlan expected_expression_plan(
               static_cast<std::int64_t>(result.reduction.result_storage)};
         }
       }
-      result.call_value = expression.multi_output_call && expression.requested_outputs == 1
+      result.output_invocation = {
+          expression.output_demand.active() ? lir::OutputInvocationForm::fixed_count
+                                            : lir::OutputInvocationForm::unspecified,
+          expression.output_demand.count, expression.output_demand.implicit_result};
+      result.call_value = expression.output_demand.form == OutputDemandForm::statement &&
+                                  !expression.output_demand.implicit_result
+                              ? lir::CallValueForm::discarded_result
+                          : expression.multi_output_call && expression.requested_outputs == 1
                               ? lir::CallValueForm::first_tuple_result
                               : lir::CallValueForm::direct;
       result.call_outcome = expression.procedure_has_result ? lir::CallOutcomeForm::value
@@ -1449,6 +1457,7 @@ bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right
       left.sparse_reshape.result_shape != right.sparse_reshape.result_shape ||
       left.call != right.call || left.evaluation != right.evaluation ||
       left.call_value != right.call_value || left.call_outcome != right.call_outcome ||
+      left.output_invocation != right.output_invocation ||
       left.call_arguments.size() != right.call_arguments.size() || left.index != right.index ||
       left.index_selectors != right.index_selectors || left.index_extents != right.index_extents ||
       left.variable_access != right.variable_access || left.index_base != right.index_base ||
@@ -2416,6 +2425,7 @@ void plan_lir_representation(lir::SemanticProgram& program) {
 
 void verify_lir_representation(const lir::SemanticProgram& program,
                                std::vector<Diagnostic>& diagnostics) {
+  verify_output_demand_sources(program, diagnostics);
   const auto has_argument_validation = [](const auto& self,
                                           const std::vector<lir::Statement>& statements) -> bool {
     for (const auto& statement : statements) {

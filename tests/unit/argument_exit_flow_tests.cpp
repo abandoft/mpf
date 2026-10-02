@@ -570,6 +570,6 @@ TEST_CASE("C++ explicitly discards unused projected Matlab results without suppr
   options.emit_source_banner = false;
   const auto result = mpf::Transpiler{}.transpile(text, options);
   REQUIRE(result.success());
-  REQUIRE(result.code.find("static_cast<void>(std::get<0>(checked()));") != std::string::npos);
+  REQUIRE(result.code.find("static_cast<void>(checked());") != std::string::npos);
   REQUIRE(result.code.find("mpf_runtime::print(7)") != std::string::npos);
 }
