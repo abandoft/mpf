@@ -1,0 +1,10 @@
+disp(checked())
+disp(checked(2,3,3))
+function output = checked(first,second,third)
+arguments
+first (1,1) double {mustBePositive} = 2
+second (1,1) double {mustBeGreaterThan(second,first)} = first + 1
+third (1,1) double {mustBeInRange(third,second,second),mustBeLessThan(third,9)} = second
+end
+output = first + second + third
+end
