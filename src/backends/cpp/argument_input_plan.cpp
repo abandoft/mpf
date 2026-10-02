@@ -36,16 +36,18 @@ std::vector<lir::ArgumentInputPlan> plan_argument_inputs(const lir::Statement& s
   for (std::size_t index = 0U; index < statement.argument_validations.size(); ++index) {
     const auto& validation = statement.argument_validations[index];
     if (validation.direction != ArgumentDirection::input ||
-        validation.ordinal >= statement.function_abi.parameters.size())
+        validation.ordinal >= statement.function_abi.parameters.size() ||
+        validation.ordinal >= statement.source_argument_entries.size())
       continue;
+    const auto& normalization = statement.source_argument_entries[validation.ordinal];
     const auto& parameter = statement.function_abi.parameters[validation.ordinal];
     auto& input = result[index];
-    input.rank = validation.validated_rank;
-    input.dimensions = validation.dimensions;
+    input.rank = normalization.rank;
+    input.dimensions = normalization.dimensions;
     input.raw_name = parameter.raw_name;
     input.template_type = parameter.template_parameter;
     input.concrete_type = parameter.concrete_type;
-    switch (validation.class_constraint) {
+    switch (normalization.class_constraint) {
       case ArgumentClassConstraint::matlab_double:
         input.form = lir::ArgumentInputForm::matlab_double;
         break;
@@ -53,8 +55,8 @@ std::vector<lir::ArgumentInputPlan> plan_argument_inputs(const lir::Statement& s
         input.form = lir::ArgumentInputForm::matlab_logical;
         break;
       case ArgumentClassConstraint::none:
-        input.form = validation.dimensions_declared ? lir::ArgumentInputForm::matlab_size
-                                                    : lir::ArgumentInputForm::direct;
+        input.form = normalization.dimensions_declared ? lir::ArgumentInputForm::matlab_size
+                                                       : lir::ArgumentInputForm::direct;
         break;
       case ArgumentClassConstraint::matlab_char: input.form = lir::ArgumentInputForm::direct; break;
     }

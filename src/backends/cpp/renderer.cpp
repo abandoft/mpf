@@ -214,11 +214,11 @@ class Renderer final {
   }
 
   void emit_input_argument_validations(const Statement& statement) {
-    for (std::size_t validation = 0U; validation < statement.argument_validations.size();
-         ++validation) {
+    for (const auto& entry : statement.plan.argument_entries) {
+      const auto validation = entry.declaration;
       const auto& plan = statement.argument_validations[validation];
-      if (plan.direction != ArgumentDirection::input || plan.ordinal >= statement.parameters.size())
-        continue;
+      if (entry.form != cpp::lir::ArgumentEntryForm::local_materialization)
+        throw std::logic_error("verified cpp argument-entry form is missing");
       const auto parameter = mangler_->name(plan.ordinal < statement.parameter_symbols.size()
                                                 ? statement.parameter_symbols[plan.ordinal]
                                                 : SymbolId{},
