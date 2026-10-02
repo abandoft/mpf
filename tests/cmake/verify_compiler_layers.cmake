@@ -1603,12 +1603,16 @@ file(READ "${SOURCE_DIR}/src/backends/cpp/argument_validation_runtime.cpp"
   cpp_argument_runtime_contract)
 if(NOT argument_validation_contract MATCHES "ArgumentValidatorSyntax" OR
    NOT argument_validation_contract MATCHES "ArgumentValidatorOperandPlan" OR
+   NOT argument_validation_contract MATCHES "ArgumentRangeBoundary" OR
+   NOT argument_validation_contract MATCHES "normalize_argument_range_flags" OR
    NOT argument_validation_contract MATCHES "input_ordinal" OR
    NOT argument_validation_contract MATCHES "normalize_argument_numeric_literal" OR
    NOT argument_validation_contract MATCHES "scalar_argument_validator_formal" OR
    NOT argument_parser_contract MATCHES "explicit_operand_count" OR
    NOT argument_parser_contract MATCHES "mustBeGreaterThanOrEqual" OR
-   NOT argument_parser_contract MATCHES "mustBeLessThanOrEqual")
+   NOT argument_parser_contract MATCHES "mustBeLessThanOrEqual" OR
+   NOT argument_parser_contract MATCHES "mustBeInRange" OR
+   NOT argument_parser_contract MATCHES "parse_validator_call")
   message(FATAL_ERROR
     "Matlab parameterized validators do not own typed frontend and Analyzer contracts")
 endif()
@@ -1617,6 +1621,7 @@ foreach(target javascript cpp)
     argument_target_plan)
   if(NOT argument_target_plan MATCHES "plan_argument_validators" OR
      NOT argument_target_plan MATCHES "operand.input_ordinal" OR
+     NOT argument_target_plan MATCHES "call.range_boundary" OR
      NOT argument_target_plan MATCHES "parameter_symbols")
     message(FATAL_ERROR "${target} does not own bound validator operand lowering")
   endif()
@@ -1629,15 +1634,21 @@ if(NOT javascript_renderer_contract MATCHES "validator\.operands" OR
    NOT cpp_renderer_contract MATCHES "statement\.plan\.argument_validators" OR
    cpp_renderer_contract MATCHES "operand\.input_ordinal" OR
    NOT cpp_renderer_contract MATCHES "argument_validator_threshold" OR
-   cpp_renderer_contract MATCHES "mustBe(Greater|Less)Than")
+   NOT cpp_renderer_contract MATCHES "argument_validator_real_component" OR
+   javascript_renderer_contract MATCHES "mustBeInRange" OR
+   cpp_renderer_contract MATCHES "mustBe(Greater|Less)Than|mustBeInRange")
   message(FATAL_ERROR
     "target renderers do not purely serialize parameterized validator operand plans")
 endif()
 if(NOT javascript_argument_runtime_contract MATCHES "case 23" OR
    NOT javascript_argument_runtime_contract MATCHES "case 26" OR
+   NOT javascript_argument_runtime_contract MATCHES "case 27" OR
+   NOT javascript_argument_runtime_contract MATCHES "argument_container_rank" OR
    NOT cpp_argument_runtime_contract MATCHES "argument_validator_call" OR
    NOT cpp_argument_runtime_contract MATCHES "case 23U" OR
-   NOT cpp_argument_runtime_contract MATCHES "case 26U")
+   NOT cpp_argument_runtime_contract MATCHES "case 26U" OR
+   NOT cpp_argument_runtime_contract MATCHES "case 27U" OR
+   NOT cpp_argument_runtime_contract MATCHES "std::array<argument_validator_operand, 2>")
   message(FATAL_ERROR
     "target runtimes do not implement the complete relational validator family")
 endif()
