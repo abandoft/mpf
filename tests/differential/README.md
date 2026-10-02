@@ -18,3 +18,5 @@ CTest 的 `mpf.differential.*` runner 对每个 case 执行：
 - `lines`：保留行内空白，仅统一换行和行尾空白，适合字符串敏感语料。
 
 缺少 Node/Python 时，本地默认构建会运行其余可用路径；CI 使用 `MPF_REQUIRE_DIFFERENTIAL_RUNTIME=ON`，确保 Node.js 与 Python 不会被静默跳过。Matlab 源执行仍等待授权 runner 或明确的 Octave 兼容策略，因此当前 Matlab case 比较 JavaScript、C++17 与 oracle。
+
+Matlab argument range/representation case 依据官方 [`mustBeInRange`](https://www.mathworks.com/help/matlab/ref/mustbeinrange.html)、[`gt`](https://www.mathworks.com/help/matlab/ref/double.gt.html) 和 [`length`](https://www.mathworks.com/help/matlab/ref/double.length.html) 合同建立 oracle：区间默认包含上下界，显式 flag 可以排除上下端，numeric 关系比较使用实部；空数组的 length 是 0，不能用最大非零 extent 作为 length。旧 empty/sparse-zero/sparse-indexing oracle 已据此校正。
