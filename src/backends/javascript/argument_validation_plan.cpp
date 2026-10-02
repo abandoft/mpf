@@ -15,6 +15,8 @@ std::vector<std::vector<lir::ValidatorCallPlan>> plan_argument_validators(
       lir::ValidatorCallPlan call;
       call.opcode = static_cast<std::uint8_t>(validator.validator);
       call.range_boundary = static_cast<std::uint8_t>(validator.range_boundary);
+      call.source_call = validator.source_call;
+      call.source_callee = validator.source_callee;
       call.operands.reserve(validator.operands.size());
       for (const auto& operand : validator.operands) {
         lir::ValidatorOperandPlan planned;

@@ -472,6 +472,8 @@ struct ValidatorCallPlan {
   std::uint8_t opcode{0U};
   std::vector<ValidatorOperandPlan> operands;
   std::uint8_t range_boundary{0U};
+  HirNodeId source_call{};
+  HirNodeId source_callee{};
 };
 
 [[nodiscard]] inline bool operator==(const ValidatorOperandPlan& left,
@@ -482,7 +484,8 @@ struct ValidatorCallPlan {
 [[nodiscard]] inline bool operator==(const ValidatorCallPlan& left,
                                      const ValidatorCallPlan& right) noexcept {
   return left.opcode == right.opcode && left.operands == right.operands &&
-         left.range_boundary == right.range_boundary;
+         left.range_boundary == right.range_boundary && left.source_call == right.source_call &&
+         left.source_callee == right.source_callee;
 }
 
 struct StatementPlan {
