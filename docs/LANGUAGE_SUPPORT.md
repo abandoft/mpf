@@ -54,6 +54,14 @@ TypeScript frontend 已注册，当前 manifest 范围为 1.0—6.0，并有 Nod
 `MPF2060` 拒绝。threshold 任意表达式、命名常量和其余参数化标准/custom validator 尚未实现。
 行为参考官方 [`mustBeGreaterThan` 版本历史](https://www.mathworks.com/help/matlab/ref/mustbegreaterthan.html)。
 
+开发分支的标准 validator callee 已进入真实 AST/HIR 调用与 NameTable：文件内 local function
+以及参数、输出和赋值绑定优先于同名标准候选。当前尚不能执行这些 custom/source binding，
+编译以 `MPF2062` 拒绝并不输出目标代码；未遮蔽的标准 validator 继续使用已验证 runtime。
+未知 custom callee、一般阈值 expression、绑定后版本/arity 检查和 typed validation-sequence
+MIR 尚未完成。名称规则依据官方 [function precedence](https://www.mathworks.com/help/matlab/matlab_prog/function-precedence-order.html)，
+custom validator 的职责依据官方 [validation functions](https://www.mathworks.com/help/matlab/matlab_prog/argument-validation-functions.html)；
+这不表示已支持完整 path、package、nested function 或 class 解析。
+
 当前 frontend 按 Matlab 版本门禁解析连续的 input/output `arguments` block：input block 要求 R2019b+，output block 要求 R2022b+，input 必须先于 output，declaration 必须与函数 formal 顺序一致。Analyzer 把 declaration 归一为 ordinal、direction、class、dimension、validator、default 和 validated representation rank 的稠密 side-table 行；未声明 formal、重复/乱序 declaration、required-after-optional、default 的前向引用和 output default 均在目标分叉前拒绝。
 
 运行语义遵循“class/size conversion 后再执行 validator”，并按 declaration 自上而下处理。省略的 default 只在到达该 formal 时求值，因此能够读取已经转换并验证的前序参数。显式 dimensions 支持固定非负 integer extent 与 `:`；N 维 scalar expansion、元素数相同的 row/column reshape、零 extent 和列主序重建由 JavaScript/C++ 各自的 runtime 实现。函数 output 在每个显式 return 和自然 fallthrough 返回前验证。生成源码中的 conversion/validation 行保留到 source map。

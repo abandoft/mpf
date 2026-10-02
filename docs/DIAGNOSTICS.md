@@ -137,6 +137,7 @@ TypeScript statement lexer 诊断使用 `MPF19xx`：`MPF1901` 表示 block comme
 | `MPF2057` | Matlab `MException`、`error`、`throw`、`throwAsCaller`、`rethrow`、`addCause` 或 `getReport` 的参数数量、类型、identifier、格式值或静态 option 不满足当前异常合同 |
 | `MPF2060` | Matlab `arguments` declaration 的 formal 对应、顺序、可选性、scalar/NDArray ABI 无效；参数化关系 validator 的阈值 literal 溢出，或 input reference 不可见/不是可表示 scalar |
 | `MPF2061` | 目标后端无法精确保持 Matlab `arguments` 在已知调用边界上的 class/size conversion |
+| `MPF2062` | Matlab validator 名称已解析为源 local function/variable，而当前尚无可执行的 validation-sequence MIR；拒绝把它替换成同名标准 builtin |
 
 语义分析和 capability validator 必须在 emitter 前产生这些错误；失败结果不应包含可被误认为成功输出的目标代码。新增或重新定义稳定 code 时必须同步本表、测试和 changelog。
 
