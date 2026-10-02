@@ -1927,7 +1927,53 @@ void Analyzer::analyze_matlab_argument_declarations(Statement& function) {
     plan.dimensions_declared = declaration.dimensions_declared;
     plan.dimensions = declaration.dimensions;
     plan.class_constraint = declaration.class_constraint;
-    plan.validators = declaration.validators;
+    plan.validators.reserve(declaration.validators.size());
+    for (const auto& validator_syntax : declaration.validators) {
+      ArgumentValidatorPlan validator;
+      validator.validator = validator_syntax.validator;
+      validator.operands.reserve(validator_syntax.operands.size());
+      for (const auto& operand_syntax : validator_syntax.operands) {
+        ArgumentValidatorOperandPlan operand;
+        operand.kind = operand_syntax.kind;
+        if (operand.kind == ArgumentValidatorOperandKind::numeric_literal) {
+          const auto normalized = normalize_argument_numeric_literal(operand_syntax.value);
+          if (!normalized.has_value()) {
+            diagnose(declaration.line, "MPF2060",
+                     "Matlab validator threshold literal must represent a finite binary64 value");
+          }
+          operand.numeric_literal = normalized.value_or("0.0");
+        } else {
+          const auto referenced = std::find(function.parameters.begin(), function.parameters.end(),
+                                            operand_syntax.value);
+          const auto referenced_ordinal = referenced == function.parameters.end()
+                                              ? function.parameters.size()
+                                              : static_cast<std::size_t>(std::distance(
+                                                    function.parameters.begin(), referenced));
+          const bool visible =
+              referenced_ordinal < function.parameters.size() &&
+              (declaration.direction == ArgumentDirection::output || referenced_ordinal < ordinal);
+          const bool scalar_numeric =
+              visible && referenced_ordinal < facts.parameter_types.size() &&
+              referenced_ordinal < facts.parameter_shapes.size() &&
+              scalar_argument_validator_formal(facts.argument_validations, referenced_ordinal,
+                                               facts.parameter_types[referenced_ordinal],
+                                               facts.parameter_shapes[referenced_ordinal].empty());
+          if (!scalar_numeric) {
+            diagnose(declaration.line, "MPF2060",
+                     "parameterized Matlab validator threshold '" + operand_syntax.value +
+                         "' must name an earlier scalar numeric/logical input argument");
+            // Keep failed compilations structurally verifiable; diagnostics prevent either target
+            // from observing this recovery operand.
+            operand.kind = ArgumentValidatorOperandKind::numeric_literal;
+            operand.numeric_literal = "0.0";
+          } else {
+            operand.input_ordinal = referenced_ordinal;
+          }
+        }
+        validator.operands.push_back(std::move(operand));
+      }
+      plan.validators.push_back(std::move(validator));
+    }
     plan.has_default = declaration.has_default;
     plan.validated_rank = type == ValueType::list ? shape.size() : 0U;
     facts.argument_validations.push_back(std::move(plan));

@@ -107,15 +107,15 @@ TEST_CASE("Matlab arguments declarations fail closed at unsupported grammar boun
   REQUIRE(!repeating.success());
   REQUIRE(has_diagnostic(repeating, "MPF1200", "repeating arguments"));
 
-  const auto parameterized_validator = matlab(
+  const auto custom_validator = matlab(
       "function output = bounded(input)\n"
       "arguments\n"
-      "input (1,1) double {mustBeGreaterThan(input, 0)}\n"
+      "input (1,1) double {mustBeCustom(input, 0)}\n"
       "end\n"
       "output = input\n"
       "end\n");
-  REQUIRE(!parameterized_validator.success());
-  REQUIRE(has_diagnostic(parameterized_validator, "MPF1200", "parameterized"));
+  REQUIRE(!custom_validator.success());
+  REQUIRE(has_diagnostic(custom_validator, "MPF1200", "custom"));
 
   const auto output_default = matlab(
       "function output = identity(input)\n"
@@ -129,6 +129,86 @@ TEST_CASE("Matlab arguments declarations fail closed at unsupported grammar boun
       "end\n");
   REQUIRE(!output_default.success());
   REQUIRE(has_diagnostic(output_default, "MPF1200", "cannot declare default"));
+}
+
+TEST_CASE("Matlab parameterized relational validators enforce visible scalar thresholds") {
+  const auto supported = matlab(
+      "function output = bounded(lower, upper, value)\n"
+      "arguments\n"
+      "lower (1,1) double {mustBeGreaterThan(lower,-10)}\n"
+      "upper (1,1) double {mustBeGreaterThanOrEqual(upper,lower)}\n"
+      "value (1,1) double {mustBeLessThan(value,upper)}\n"
+      "end\n"
+      "arguments (Output)\n"
+      "output (1,1) double {mustBeLessThanOrEqual(output,upper)}\n"
+      "end\n"
+      "output = value\n"
+      "end\n");
+  REQUIRE(supported.success());
+
+  const auto later_threshold = matlab(
+      "function output = bounded(value, upper)\n"
+      "arguments\n"
+      "value (1,1) double {mustBeLessThan(value,upper)}\n"
+      "upper (1,1) double\n"
+      "end\n"
+      "output = value\n"
+      "end\n");
+  REQUIRE(!later_threshold.success());
+  REQUIRE(has_diagnostic(later_threshold, "MPF2060", "earlier scalar"));
+  REQUIRE(!has_diagnostic(later_threshold, "MPF0005"));
+
+  const auto array_threshold = matlab(
+      "function output = bounded(limits, value)\n"
+      "arguments\n"
+      "limits (1,:) double\n"
+      "value (1,1) double {mustBeGreaterThan(value,limits)}\n"
+      "end\n"
+      "output = value\n"
+      "end\n");
+  REQUIRE(!array_threshold.success());
+  REQUIRE(has_diagnostic(array_threshold, "MPF2060", "scalar numeric/logical"));
+
+  const auto wrong_validated_operand = matlab(
+      "function output = bounded(value)\n"
+      "arguments\n"
+      "value (1,1) double {mustBeGreaterThan(other,0)}\n"
+      "end\n"
+      "output = value\n"
+      "end\n");
+  REQUIRE(!wrong_validated_operand.success());
+  REQUIRE(has_diagnostic(wrong_validated_operand, "MPF1200", "declared argument first"));
+
+  const auto expression_threshold = matlab(
+      "function output = bounded(value)\n"
+      "arguments\n"
+      "value (1,1) double {mustBeGreaterThan(value,1 + 2)}\n"
+      "end\n"
+      "output = value\n"
+      "end\n");
+  REQUIRE(!expression_threshold.success());
+  REQUIRE(has_diagnostic(expression_threshold, "MPF1200", "scalar numeric literal"));
+
+  const auto overflow_threshold = matlab(
+      "function output = bounded(value)\n"
+      "arguments\n"
+      "value (1,1) double {mustBeGreaterThan(value,1e309)}\n"
+      "end\n"
+      "output = value\n"
+      "end\n");
+  REQUIRE(!overflow_threshold.success());
+  REQUIRE(has_diagnostic(overflow_threshold, "MPF2060", "finite binary64"));
+  REQUIRE(!has_diagnostic(overflow_threshold, "MPF0005"));
+  for (const auto token : {"1i", "0x10", "1e", "1.2.3"}) {
+    const auto invalid_literal = matlab(
+        "function output = bounded(value)\narguments\n"
+        "value (1,1) double {mustBeGreaterThan(value," +
+        std::string(token) + ")}\nend\noutput = value\nend\n");
+    REQUIRE(!invalid_literal.success());
+    REQUIRE(has_diagnostic(invalid_literal, "MPF1200", "decimal scalar threshold"));
+    REQUIRE(!has_diagnostic(invalid_literal, "MPF0005"));
+    REQUIRE(!has_diagnostic(invalid_literal, "MPF0006"));
+  }
 }
 
 TEST_CASE("Matlab arguments reject target boundary conversions that are not exact") {

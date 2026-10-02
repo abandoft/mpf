@@ -1145,10 +1145,55 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
             ordinal < types.size() && types[ordinal] == ValueType::list && ordinal < shapes.size()
                 ? shapes[ordinal].size()
                 : 0U;
-        expected_plans.push_back({ordinal, declaration.line, declaration.direction,
-                                  declaration.dimensions_declared, declaration.dimensions,
-                                  declaration.class_constraint, declaration.validators,
-                                  declaration.has_default, validated_rank});
+        ArgumentValidationPlan expected;
+        expected.ordinal = ordinal;
+        expected.line = declaration.line;
+        expected.direction = declaration.direction;
+        expected.dimensions_declared = declaration.dimensions_declared;
+        expected.dimensions = declaration.dimensions;
+        expected.class_constraint = declaration.class_constraint;
+        expected.has_default = declaration.has_default;
+        expected.validated_rank = validated_rank;
+        expected.validators.reserve(declaration.validators.size());
+        for (const auto& validator_syntax : declaration.validators) {
+          ArgumentValidatorPlan validator;
+          validator.validator = validator_syntax.validator;
+          validator.operands.reserve(validator_syntax.operands.size());
+          for (const auto& operand_syntax : validator_syntax.operands) {
+            ArgumentValidatorOperandPlan operand;
+            operand.kind = operand_syntax.kind;
+            if (operand.kind == ArgumentValidatorOperandKind::numeric_literal) {
+              const auto normalized = normalize_argument_numeric_literal(operand_syntax.value);
+              if (!normalized.has_value()) source_inventory_valid = false;
+              operand.numeric_literal = normalized.value_or("0.0");
+            } else {
+              const auto referenced = std::find(statement.parameters.begin(),
+                                                statement.parameters.end(), operand_syntax.value);
+              const auto referenced_ordinal = referenced == statement.parameters.end()
+                                                  ? statement.parameters.size()
+                                                  : static_cast<std::size_t>(std::distance(
+                                                        statement.parameters.begin(), referenced));
+              const bool visible = referenced_ordinal < statement.parameters.size() &&
+                                   (declaration.direction == ArgumentDirection::output ||
+                                    referenced_ordinal < ordinal);
+              const bool scalar_numeric = visible &&
+                                          referenced_ordinal < facts->parameter_types.size() &&
+                                          referenced_ordinal < facts->parameter_shapes.size() &&
+                                          scalar_argument_validator_formal(
+                                              expected_plans, referenced_ordinal,
+                                              facts->parameter_types[referenced_ordinal],
+                                              facts->parameter_shapes[referenced_ordinal].empty());
+              if (!scalar_numeric) {
+                source_inventory_valid = false;
+                continue;
+              }
+              operand.input_ordinal = referenced_ordinal;
+            }
+            validator.operands.push_back(std::move(operand));
+          }
+          expected.validators.push_back(std::move(validator));
+        }
+        expected_plans.push_back(std::move(expected));
       }
       if (source_inventory_valid && facts->argument_validations != expected_plans) {
         add_error(diagnostics, {statement.line, 1}, stage,
