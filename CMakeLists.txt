@@ -226,6 +226,7 @@ if(MPF_ENABLE_CPP_BACKEND)
   add_library(mpf_backend_cpp STATIC
     src/backends/cpp/backend.cpp
     src/backends/cpp/argument_validation_plan.cpp
+    src/backends/cpp/argument_input_plan.cpp
     src/backends/cpp/argument_validation_runtime.cpp
     src/backends/cpp/bindings.cpp
     src/backends/cpp/complex_matrix_runtime.cpp
