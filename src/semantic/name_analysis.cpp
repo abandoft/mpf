@@ -206,7 +206,8 @@ class NameAnalyzer final {
 
   void add_use(const HirNodeId origin, const ScopeId scope, const SymbolId symbol,
                const NameRole role, const std::size_t ordinal, const BindingKind binding,
-               const IntrinsicId intrinsic = IntrinsicId::none) {
+               const IntrinsicId intrinsic = IntrinsicId::none,
+               const std::optional<ArgumentValidator> validator = std::nullopt) {
     if (!origin.valid() || origin.value() >= result_.names.nodes.size() ||
         result_.names.uses.size() > std::numeric_limits<std::uint32_t>::max()) {
       return;
@@ -219,8 +220,8 @@ class NameAnalyzer final {
       return;
     }
     if (slot.count == std::numeric_limits<std::uint32_t>::max()) return;
-    result_.names.uses.push_back(
-        {origin, scope, symbol, role, static_cast<std::uint32_t>(ordinal), binding, intrinsic});
+    result_.names.uses.push_back({origin, scope, symbol, role, static_cast<std::uint32_t>(ordinal),
+                                  binding, intrinsic, validator});
     ++slot.count;
   }
 
@@ -268,6 +269,30 @@ class NameAnalyzer final {
     }
   }
 
+  void bind_validator_call(const hir::ArgumentValidatorCall& invocation,
+                           const hir::Statement& function, const ScopeId scope) {
+    const auto& call = invocation.expression;
+    if (call.kind != ExpressionKind::call || call.children.empty() ||
+        invocation.declaration >= function.argument_declarations.size())
+      return;
+    const auto& declaration = function.argument_declarations[invocation.declaration];
+    if (invocation.validator >= declaration.validators.size()) return;
+    const auto& callee = call.children.front();
+    const auto symbol = resolve(scope, callee.value);
+    const auto candidate = declaration.validators[invocation.validator].validator;
+    const auto builtin = symbol.valid() || callee.value != argument_validator_name(candidate)
+                             ? std::nullopt
+                             : std::optional<ArgumentValidator>{candidate};
+    add_use(callee.id, scope, symbol, NameRole::reference, 0U,
+            symbol.valid()        ? binding_for(result_.names.symbols[symbol.value()].kind)
+            : builtin.has_value() ? BindingKind::builtin
+                                  : BindingKind::unresolved,
+            IntrinsicId::none, builtin);
+    for (std::size_t index = 1U; index < call.children.size(); ++index) {
+      bind_expression(call.children[index], scope);
+    }
+  }
+
   void bind_statements(const std::vector<hir::Statement>& statements, const ScopeId scope) {
     for (const auto& statement : statements) {
       if (statement.implicit_result != semantic::ImplicitResultPolicy::none) {
@@ -291,6 +316,9 @@ class NameAnalyzer final {
           for (const auto& expression : statement.parameter_defaults) {
             bind_expression(expression,
                             program_.language == SourceLanguage::matlab ? child_scope : scope);
+          }
+          for (const auto& call : statement.argument_validator_calls) {
+            bind_validator_call(call, statement, child_scope);
           }
           bind_statements(statement.body, child_scope);
           bind_statements(statement.alternative, child_scope);
@@ -495,6 +523,9 @@ void verify_statements(const hir::Program& program, const std::vector<hir::State
                           program.language == SourceLanguage::matlab ? function_scope : scope,
                           names, resident, stage, diagnostics);
       }
+      for (const auto& call : statement.argument_validator_calls) {
+        verify_expression(call.expression, function_scope, names, resident, stage, diagnostics);
+      }
       verify_statements(program, statement.body, function_scope, names, resident, stage,
                         diagnostics);
       verify_statements(program, statement.alternative, function_scope, names, resident, stage,
@@ -637,6 +668,32 @@ void verify_statements(const hir::Program& program, const std::vector<hir::State
 void verify_reference_bindings(const hir::Program& program, const NameTable& names,
                                const std::string_view stage, std::vector<Diagnostic>& diagnostics) {
   std::vector<std::unordered_map<std::string_view, SymbolId>> scopes(names.scopes.size());
+  // Most compilations have no contextual validators. Keep their normal binding verifier free
+  // of another node-sized allocation, while retaining O(1) contextual lookup when needed.
+  std::vector<std::optional<ArgumentValidator>> validator_context;
+  const auto contexts = [&](const auto& self, const std::vector<hir::Statement>& nodes) -> void {
+    for (const auto& function : nodes) {
+      for (const auto& invocation : function.argument_validator_calls) {
+        const auto& call = invocation.expression;
+        if (invocation.declaration >= function.argument_declarations.size() ||
+            call.children.empty())
+          continue;
+        const auto& declaration = function.argument_declarations[invocation.declaration];
+        const auto& callee = call.children.front();
+        if (invocation.validator < declaration.validators.size() && callee.id.valid() &&
+            callee.id.value() < names.nodes.size() &&
+            callee.value ==
+                argument_validator_name(declaration.validators[invocation.validator].validator)) {
+          if (validator_context.empty()) validator_context.resize(names.nodes.size());
+          validator_context[callee.id.value()] =
+              declaration.validators[invocation.validator].validator;
+        }
+      }
+      self(self, function.body);
+      self(self, function.alternative);
+    }
+  };
+  contexts(contexts, program.statements);
   for (std::size_t index = 1U; index < names.symbols.size(); ++index) {
     const auto& symbol = names.symbols[index];
     if (symbol.scope.value() >= scopes.size()) continue;
@@ -661,12 +718,21 @@ void verify_reference_bindings(const hir::Program& program, const NameTable& nam
       if (use != nullptr) {
         const auto symbol_id = resolve(use->scope, node.value);
         const auto* symbol = names.symbol(symbol_id);
-        const auto intrinsic =
-            symbol == nullptr ? find_intrinsic(program.language, node.value) : IntrinsicId::none;
-        const auto binding = symbol != nullptr                ? binding_for(symbol->kind)
-                             : intrinsic != IntrinsicId::none ? BindingKind::builtin
-                                                              : BindingKind::unresolved;
-        if (use->symbol != symbol_id || use->binding != binding || use->intrinsic != intrinsic) {
+        const auto* validator = symbol == nullptr && node.id.value() < validator_context.size()
+                                    ? &validator_context[node.id.value()]
+                                    : nullptr;
+        const bool has_validator = validator != nullptr && validator->has_value();
+        const bool validator_matches = use->argument_validator.has_value() == has_validator &&
+                                       (!has_validator || *use->argument_validator == **validator);
+        const auto intrinsic = symbol == nullptr && !has_validator
+                                   ? find_intrinsic(program.language, node.value)
+                                   : IntrinsicId::none;
+        const auto binding = symbol != nullptr ? binding_for(symbol->kind)
+                             : intrinsic != IntrinsicId::none || has_validator
+                                 ? BindingKind::builtin
+                                 : BindingKind::unresolved;
+        if (use->symbol != symbol_id || use->binding != binding || use->intrinsic != intrinsic ||
+            !validator_matches) {
           add_error(diagnostics, node.location, stage,
                     "identifier binding disagrees with its spelling and nearest lexical scope");
         }
@@ -681,6 +747,8 @@ void verify_reference_bindings(const hir::Program& program, const NameTable& nam
       expression(expression, node.tertiary_expression);
       expression(expression, node.target_expression);
       for (const auto& value : node.parameter_defaults) expression(expression, value);
+      for (const auto& invocation : node.argument_validator_calls)
+        expression(expression, invocation.expression);
       for (const auto& selector : node.case_selectors) {
         expression(expression, selector.lower);
         expression(expression, selector.upper);
@@ -838,14 +906,17 @@ std::vector<Diagnostic> verify_names(const hir::Program& program, const NameTabl
       if (use.symbol.valid()) {
         const auto* symbol = names.symbol(use.symbol);
         if (symbol == nullptr || !scope_contains(names, use.scope, symbol->scope) ||
-            use.binding != binding_for(symbol->kind) || use.intrinsic != IntrinsicId::none) {
+            use.binding != binding_for(symbol->kind) || use.intrinsic != IntrinsicId::none ||
+            use.argument_validator.has_value()) {
           add_error(diagnostics, {1, 1}, stage, "resolved name use has an invalid symbol contract");
         }
         if (symbol != nullptr && use.role != NameRole::reference &&
             use.role != NameRole::assignment && symbol->scope != use.scope) {
           add_error(diagnostics, {1, 1}, stage, "definition does not belong to its scope");
         }
-      } else if ((use.binding == BindingKind::builtin) != (use.intrinsic != IntrinsicId::none) ||
+      } else if ((use.binding == BindingKind::builtin) !=
+                     (use.intrinsic != IntrinsicId::none || use.argument_validator.has_value()) ||
+                 (use.argument_validator.has_value() && use.intrinsic != IntrinsicId::none) ||
                  use.role != NameRole::reference) {
         add_error(diagnostics, {1, 1}, stage, "unresolved/builtin name use is malformed");
       }

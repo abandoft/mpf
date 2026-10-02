@@ -1,6 +1,8 @@
 #pragma once
 
 #include <algorithm>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "expression_ast.hpp"
@@ -8,6 +10,14 @@
 #include "statement_kind.hpp"
 
 namespace mpf::detail {
+
+template <typename Statement, typename = void>
+struct HasOwnedValidatorCalls : std::false_type {};
+
+template <typename Statement>
+struct HasOwnedValidatorCalls<
+    Statement, std::void_t<decltype(std::declval<Statement>().argument_validator_calls)>>
+    : std::true_type {};
 
 template <typename Expression, typename Statement, typename ResolveCallee>
 FunctionDependencyGraph build_function_dependency_graph_generic(
@@ -66,6 +76,11 @@ FunctionDependencyGraph build_function_dependency_graph_generic(
     auto& dependencies = graph.dependencies[index];
     for (const auto& value : function.parameter_defaults) {
       collect_expression(collect_expression, value, dependencies);
+    }
+    if constexpr (HasOwnedValidatorCalls<Statement>::value) {
+      for (const auto& call : function.argument_validator_calls) {
+        collect_expression(collect_expression, call.expression, dependencies);
+      }
     }
     collect_statements(collect_statements, function.body, dependencies);
     std::sort(dependencies.begin(), dependencies.end());

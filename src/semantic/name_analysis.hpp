@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -31,6 +32,7 @@ struct NameUse {
   std::uint32_t ordinal{0};
   BindingKind binding{BindingKind::unresolved};
   IntrinsicId intrinsic{IntrinsicId::none};
+  std::optional<ArgumentValidator> argument_validator{};
 };
 
 struct NameNodeSlot {
