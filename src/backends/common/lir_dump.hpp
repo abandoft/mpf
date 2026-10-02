@@ -13,13 +13,13 @@
 namespace mpf::detail {
 
 template <typename Output>
-auto dump_output_policy(std::ostream& output, const Output& plan, int)
-    -> decltype(plan.form, void()) {
+auto dump_output_policy(std::ostream& output, const Output& plan, int) -> decltype(plan.form,
+                                                                                   void()) {
   output << "materialization=" << static_cast<unsigned>(plan.form);
 }
 template <typename Output>
-auto dump_output_policy(std::ostream& output, const Output& plan, long)
-    -> decltype(plan.class_opcode, void()) {
+auto dump_output_policy(std::ostream& output, const Output& plan,
+                        long) -> decltype(plan.class_opcode, void()) {
   output << "class=" << static_cast<unsigned>(plan.class_opcode);
 }
 
