@@ -871,8 +871,8 @@ class Builder final {
   [[nodiscard]] TypeId intern_expression_type(const hir::ExpressionFacts* facts,
                                               const std::vector<MirExpressionId>& children) {
     if (facts == nullptr) return intern_type(ValueType::unknown, ValueType::unknown);
-    // A Matlab call can retain the full callee output inventory while selecting only its first
-    // result. That inventory is not the type of the selected expression value.
+    // Matlab facts retain the full callee inventory, but the call value contains only the
+    // requested prefix. Keep that selected type separate from the function's return signature.
     if (facts->inferred_type != ValueType::tuple &&
         (facts->tuple_types.empty() ||
          (facts->multi_output_call && facts->requested_outputs == 1U))) {
@@ -881,8 +881,11 @@ class Builder final {
     }
     std::vector<TypeId> elements;
     if (!facts->tuple_types.empty()) {
-      elements.reserve(facts->tuple_types.size());
-      for (std::size_t index = 0; index < facts->tuple_types.size(); ++index) {
+      const auto count = facts->multi_output_call
+                             ? std::min(facts->requested_outputs, facts->tuple_types.size())
+                             : facts->tuple_types.size();
+      elements.reserve(count);
+      for (std::size_t index = 0; index < count; ++index) {
         elements.push_back(intern_type(
             facts->tuple_types[index],
             index < facts->tuple_element_types.size() ? facts->tuple_element_types[index]
@@ -1230,9 +1233,14 @@ class Builder final {
       result_attributes.binding = semantic_facts->binding;
       result_attributes.intrinsic = semantic_facts->intrinsic;
       if (!semantic_facts->multi_output_call || semantic_facts->requested_outputs != 1U) {
-        result_attributes.tuple_shapes.reserve(semantic_facts->tuple_shapes.size());
-        for (const auto& tuple_shape : semantic_facts->tuple_shapes)
-          result_attributes.tuple_shapes.push_back(intern_shape(tuple_shape, false));
+        const auto count =
+            semantic_facts->multi_output_call
+                ? std::min(semantic_facts->requested_outputs, semantic_facts->tuple_shapes.size())
+                : semantic_facts->tuple_shapes.size();
+        result_attributes.tuple_shapes.reserve(count);
+        for (std::size_t index = 0U; index < count; ++index)
+          result_attributes.tuple_shapes.push_back(
+              intern_shape(semantic_facts->tuple_shapes[index], false));
       }
       result_attributes.sequence_elements.reserve(semantic_facts->sequence_elements.size());
       for (const auto& element : semantic_facts->sequence_elements) {

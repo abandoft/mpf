@@ -2607,7 +2607,7 @@ void verify_function_types_and_calls(const Program& program, std::vector<Diagnos
     const auto& instruction = program.instructions[call.instruction.value()];
     if (seen_call_instruction[call.instruction.value()] || seen_call_origin[call.origin.value()] ||
         instruction.opcode != Opcode::call || instruction.origin != call.origin ||
-        instruction.callee != call.callee ||
+        instruction.callee != call.callee || instruction.type != call.result_type ||
         instruction_callers[call.instruction.value()] != call.caller) {
       add_error(diagnostics, instruction.location, stage,
                 "call site does not match its call instruction or owning function");
