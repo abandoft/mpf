@@ -194,7 +194,7 @@ nonmissing 与 variable-name 组，`mustBeRow`/`mustBeColumn`/`mustBeMatrix` 则
 runtime 同步处理 logical、character、empty value、complex-storage realness，以及 R2024b 的 63 字符
 变量名和关键字限制。
 
-后续开发分支以 Matlab AST v7、Semantic v37、MIR v43 与双目标 LIR v53 接入
+后续开发分支以 Matlab AST v8、Semantic v38、MIR v44 与双目标 LIR v54 接入
 `mustBeGreaterThan`/`mustBeGreaterThanOrEqual`/`mustBeLessThan`/`mustBeLessThanOrEqual`。
 threshold 支持有限 binary64 literal 和前序 scalar input，output validator 可引用 input；未定
 类型的 input 需要显式 singleton dimensions，并保留 runtime numeric/logical/complex-storage
@@ -215,9 +215,12 @@ output 验证和 optional input 复用相同绑定合同，双目标 runtime 使
 `SymbolId` 先分析 callee，C++ planner 独立按目标 callee identity 排序；普通调用与默认值调用
 共用同一 SCC 分析。`argument_default_functions.m` 在两个目标执行前向/间接调用、前序已验证
 参数引用和 supplied-argument 跳过 default 的副作用顺序。名称表另独立验证最近 scope 与 builtin
-绑定，长函数链不再使 graph analysis 发生 native recursion。标准 validator 自身的 callee
-目前仍未经过这条名称路径，local 同名 validator 遮蔽和完整有副作用 validator MIR CFG 仍须
-按 P0-A2 实现，不能把普通 default-call 修复称为 custom validator 已完成。
+绑定，长函数链不再使 graph analysis 发生 native recursion。当前标准 validator 也已拥有
+AST/HIR call 和 callee reference，经过相同的最近 scope/SymbolId 解析与依赖图；只有未被源
+binding 遮蔽时才选标准 builtin。不能执行的 local validator 以 `MPF2062` 明确拒绝，不再生成
+调用错误标准 validator 的代码。source call/callee ID 经 semantic reindex、MIR 独立来源库存和
+两端私有计划验证；未知 custom callee grammar、任意参数与完整 entry/exit validation CFG 仍
+须按 P0-A2 实现，不能把来源与绑定基础称为 custom validator 已完成。
 一般 NDArray 表示与不可结构恢复动态零 extent、stride/view/owner/COW、限定名/package/class 与
 外部 path/project command 解析、完整 name-value/Repeating/其余 parameterized/custom `arguments`、公开 cause/stack/correction 属性、完整格式化表面、cell/struct/string
 仍不在当前可保持边界。因此文档、版本说明和 CLI
