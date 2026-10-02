@@ -239,7 +239,7 @@ src/backends/<target>/       target-owned lowering, LIR, runtime, rendering and 
 - `core`：公共入口、诊断以及编译会话生命周期。
 - `source`：SourceManager 拥有多份源码、稳定文件表、UTF-8 位置、行表和跨度。
 - `lexer`：只保留公共 token/scanner、语言独立词法规则和共享 `BasicStatementToken` 载体；表达式与 statement lexer 都由 `frontends/<language>/` 所有，不存在平行的 `src/lexers/`。通用表达式 parser 接收语言目录提供的 lexer 回调和 token 结果，公共 lexer 层不以 `switch(SourceLanguage)` 枚举具体语言。
-- `compiler`：递归 assignment pattern/value metadata、Pratt 表达式 parser、轻量 statement identity、通用 HIR 函数依赖图、稳定 intrinsic ID 和代码绑定验证；不定义跨语言 syntax `Program`/`Statement`。
+- `compiler`：递归 assignment pattern/value metadata、Pratt 表达式 parser、轻量 statement identity、身份 resolver 驱动的通用函数依赖遍历与 iterative SCC core、稳定 intrinsic ID 和代码绑定验证；不定义跨语言 syntax `Program`/`Statement`。
 - `ir`：强类型 ID、semantic profile、HIR、MIR lowering、独立 MIR opcode/verifier、共享 MIR optimization pipeline、revision-bound alias/effect 与 CFG memory-dependence 分析、pass/analysis manager 与确定性 dump。
 - `semantic`：目标无关的作用域、名称绑定、builtin 遮蔽、确定赋值、循环上下文、不可达代码、表达式分支类型、标量/元素类型、矩形 shape、动态 extent、slice 长度、section conformability、逐维静态越界和 rank。
 - `frontends`：`common/` 拥有 descriptor/registry 和只共享 arena 生命周期机制的 `FrontendAstBuilder`；每个语言目录独占 logical-source normalizer、表达式/statement lexer、递归下降 parser 与 frontend factory。parser 消费 statement token/span，把表达式跨度交给 Pratt parser 并立即驻留到本语言 arena。当前迁移覆盖已支持子集，完整官方 grammar 仍按各语言里程碑扩展。
@@ -247,6 +247,24 @@ src/backends/<target>/       target-owned lowering, LIR, runtime, rendering and 
 - `cli`：文件和参数 I/O，不包含编译语义。
 
 ## 正确性策略
+
+函数依赖的结构遍历和名称解析相互分离。`compiler/function_graph_generic.hpp` 扫描函数体和
+parameter default 的完整表达式子树，callee 必须由调用方提供的 identity resolver 解析；不再
+用 spelling map 和本地变量集合猜测函数。`semantic/function_dependencies` 使用已验证 NameTable
+的稠密 `SymbolId` inventory，保留 Python definition scope 与 Matlab formal scope；C++ 目标的
+`function_dependencies` 从私有 LIR 的 callee/function `SymbolId` 独立重建依赖。共同的 iterative
+SCC core 在线性时间内发布稳定 callee-first 顺序及递归标记，不把源文件函数链映射为 native
+call-stack 深度。C++ resource planner 拥有 graph，verifier 从当前 LIR 重新计算，先拒绝损坏
+graph 再访问 definition/ABI inventory。NameTable verifier 另建 scope/spelling 索引，独立复核
+最近 lexical binding 和 builtin identity；scope inventory 要求 parent 在 child 之前驻留，外部
+symbol/node ID 与循环 parent 均安全拒绝。
+
+这项依赖基础不等于 `arguments` 自定义 validator 已实现。现有标准 validator 仍主要以枚举、
+literal/formal operand 和 boundary 描述符表示，validator callee 尚未进入普通 NameTable，
+因此其 local-function 遮蔽仍是 P0-A2 未完成项。完整方案必须新增语言 arena AST/HIR 的真实
+callee/operand 节点和有序 typed MIR entry/exit validation operation，显式建模 lazy default、
+每次调用的 alias/effect、exceptional edge 和输出 return 路径；不能仅在 renderer 增加 callback
+或把目标 runtime 的执行顺序当作 MIR CFG 已完整的证据。
 
 每一项语言能力至少包含：成功样例、边界样例、拒绝样例，以及两个目标后端的行为测试。可执行成功样例进入单一 corpus manifest；JavaScript 使用 Node.js 做语法/执行验证，C++17 生成物使用顶层相同 compiler/generator 严格编译执行，源 runner 可用时直接参与同一结果比较。诊断码、JSON schema 与 CLI 退出状态是工具集成契约，删除或重定义需记录在变更日志；详见 [测试文档](TESTING.md) 与 [诊断文档](DIAGNOSTICS.md)。
 
