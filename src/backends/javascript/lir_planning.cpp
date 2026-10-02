@@ -245,6 +245,7 @@ const char* temporary_stem(const lir::TemporaryRole role) noexcept {
     case lir::TemporaryRole::range_step: return "step";
     case lir::TemporaryRole::range_cursor: return "cursor";
     case lir::TemporaryRole::matlab_output: return "validated_output";
+    case lir::TemporaryRole::argument_exit: return "output_exit";
   }
   return "temporary";
 }
@@ -457,6 +458,11 @@ void plan_statement_resources(lir::SemanticProgram& program,
       }
     }
     if (statement.kind == StatementKind::function &&
+        std::any_of(statement.source_argument_exit.returns.begin(),
+                    statement.source_argument_exit.returns.end(),
+                    [](const auto& source) { return !source.implicit; }))
+      add_temporary(program, used, statement.id, lir::TemporaryRole::argument_exit);
+    if (statement.kind == StatementKind::function &&
         std::any_of(statement.argument_validations.begin(), statement.argument_validations.end(),
                     [](const auto& plan) { return plan.direction == ArgumentDirection::output; })) {
       for (std::size_t output = 0U; output < statement.return_names.size(); ++output)
@@ -568,6 +574,11 @@ void verify_statement_resources(const lir::SemanticProgram& program,
                 "JavaScript LIR return symbol contract is inconsistent");
     }
     const auto function = statement.kind == StatementKind::function;
+    if (function && std::any_of(statement.source_argument_exit.returns.begin(),
+                                statement.source_argument_exit.returns.end(),
+                                [](const auto& source) { return !source.implicit; }))
+      require_temporary(program, statement.id, lir::TemporaryRole::argument_exit, 0U, expected,
+                        names, diagnostics, {statement.line, 1U});
     if (function &&
         std::any_of(statement.argument_validations.begin(), statement.argument_validations.end(),
                     [](const auto& plan) { return plan.direction == ArgumentDirection::output; })) {

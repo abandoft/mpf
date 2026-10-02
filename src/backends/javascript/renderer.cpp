@@ -1202,6 +1202,12 @@ class Renderer final {
       case javascript::lir::StatementForm::return_outputs:
         emit_named_output_return(statement, active_function_);
         break;
+      case javascript::lir::StatementForm::return_to_output_exit:
+        indentation();
+        output_ << "break "
+                << temporary(active_function_->id, javascript::lir::TemporaryRole::argument_exit)
+                << ";\n";
+        break;
       case javascript::lir::StatementForm::return_program:
         indentation();
         if (script_label_ == nullptr || script_label_->empty()) {
@@ -1463,7 +1469,20 @@ class Renderer final {
           output_ << parameter << " = __mpf_copy_array(" << parameter << ");\n";
         }
         emit_scope_declarations(statement.function_scope);
+        const bool output_scope =
+            statement.plan.argument_exit.form == javascript::lir::ArgumentExitForm::labeled_scope;
+        if (output_scope) {
+          indentation();
+          output_ << temporary(statement.id, javascript::lir::TemporaryRole::argument_exit)
+                  << ": {\n";
+          ++indent_;
+        }
         emit_statements(statement.body);
+        if (output_scope) {
+          --indent_;
+          indentation();
+          output_ << "}\n";
+        }
         if (!statement.plan.return_names.empty()) {
           emit_named_output_return(statement, &statement);
         }
