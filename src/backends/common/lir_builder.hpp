@@ -303,12 +303,18 @@ LirSelector lower_lir_selector(const mir::CaseSelector& source, IrIdAllocator<Li
   return result;
 }
 
+struct ArgumentReturnProjection {
+  const mir::ArgumentReturnSource* source{nullptr};
+  BlockId merge{};
+};
+
 template <typename LirStatement, typename LirExpression, typename LirSelector,
           typename ResolveBinding>
 LirStatement lower_lir_statement(const mir::Program& program, const MirStatementId source_id,
                                  IrIdAllocator<LirNodeId>& ids,
                                  const ResolveBinding& resolve_binding,
-                                 const std::vector<const mir::CallSite*>& call_sites) {
+                                 const std::vector<const mir::CallSite*>& call_sites,
+                                 const std::vector<ArgumentReturnProjection>& return_exits) {
   LirStatement result;
   const auto* source_node = mir::statement(program, source_id);
   const auto* source_attributes = mir::attributes(program, source_id);
@@ -323,8 +329,29 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
                                 instruction->storage.value() < program.storages.size()
                             ? &program.storages[instruction->storage.value()]
                             : nullptr;
-  const auto* function = function_for_origin(program, source.origin);
+  const auto* function = source.kind == StatementKind::function
+                             ? function_for_origin(program, source.origin)
+                             : nullptr;
   if (function != nullptr) {
+    result.source_argument_exit = function->argument_exit;
+    result.source_argument_outputs.reserve(function->argument_outputs.size());
+    for (const auto& flow : function->argument_outputs) {
+      mir::ArgumentOutputSource output;
+      output.flow = flow;
+      output.validators.reserve(flow.validators.size());
+      const auto* normalization = mir::argument_operation(program, flow.normalization);
+      if (normalization != nullptr) {
+        output.class_constraint = normalization->class_constraint;
+        output.dimensions_declared = normalization->dimensions_declared;
+        output.dimensions = normalization->dimensions;
+        output.rank = normalization->rank;
+      }
+      for (const auto validator_instruction : flow.validators) {
+        const auto* operation = mir::argument_operation(program, validator_instruction);
+        if (operation != nullptr) output.validators.push_back(operation->validator);
+      }
+      result.source_argument_outputs.push_back(std::move(output));
+    }
     result.source_parameter_defaults.reserve(function->parameter_defaults.size());
     for (const auto& flow : function->parameter_defaults)
       result.source_parameter_defaults.push_back(
@@ -345,6 +372,14 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
         if (operation != nullptr) entry.validators.push_back(operation->validator);
       }
       result.source_argument_entries.push_back(std::move(entry));
+    }
+  }
+  if (source.kind == StatementKind::return_statement && source.origin.valid() &&
+      source.origin.value() < return_exits.size()) {
+    const auto& projection = return_exits[source.origin.value()];
+    if (projection.source != nullptr) {
+      result.source_argument_return = *projection.source;
+      result.source_argument_return_exit = projection.merge;
     }
   }
   result.id = ids.next();
@@ -567,12 +602,12 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
   result.body.reserve(source.body.size());
   for (const auto statement : source.body) {
     result.body.push_back(lower_lir_statement<LirStatement, LirExpression, LirSelector>(
-        program, statement, ids, resolve_binding, call_sites));
+        program, statement, ids, resolve_binding, call_sites, return_exits));
   }
   result.alternative.reserve(source.alternative.size());
   for (const auto statement : source.alternative) {
     result.alternative.push_back(lower_lir_statement<LirStatement, LirExpression, LirSelector>(
-        program, statement, ids, resolve_binding, call_sites));
+        program, statement, ids, resolve_binding, call_sites, return_exits));
   }
   return result;
 }
@@ -590,10 +625,19 @@ std::unique_ptr<LirProgram> lower_structured_lir(const mir::Program& source,
     }
   }
   IrIdAllocator<LirNodeId> ids;
+  std::vector<ArgumentReturnProjection> return_exits;
+  if (std::any_of(source.functions.begin(), source.functions.end(),
+                  [](const auto& function) { return function.argument_exit.merge.valid(); })) {
+    return_exits.resize(source.hir_node_count + 1U);
+    for (const auto& function : source.functions)
+      for (const auto& path : function.argument_exit.returns)
+        if (!path.implicit && path.origin.valid() && path.origin.value() < return_exits.size())
+          return_exits[path.origin.value()] = {&path, function.argument_exit.merge};
+  }
   result->statements.reserve(source.roots.size());
   for (const auto statement : source.roots) {
     result->statements.push_back(lower_lir_statement<LirStatement, LirExpression, LirSelector>(
-        source, statement, ids, resolve_binding, call_sites));
+        source, statement, ids, resolve_binding, call_sites, return_exits));
   }
   result->node_count = ids.count();
   return result;
