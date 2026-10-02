@@ -109,6 +109,14 @@ MatlabStatementLine lex_line(SourceLine line, std::vector<Diagnostic>& diagnosti
       ++index;
       while (index < text.size()) {
         const auto next = static_cast<unsigned char>(text[index]);
+        const bool exponent_sign = (text[index] == '+' || text[index] == '-') && index > begin &&
+                                   (text[index - 1U] == 'e' || text[index - 1U] == 'E') &&
+                                   index + 1U < text.size() &&
+                                   std::isdigit(static_cast<unsigned char>(text[index + 1U])) != 0;
+        if (exponent_sign) {
+          ++index;
+          continue;
+        }
         if (std::isalnum(next) == 0 && text[index] != '_' && text[index] != '.') break;
         ++index;
       }

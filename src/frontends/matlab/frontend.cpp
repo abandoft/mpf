@@ -102,7 +102,7 @@ const FrontendDescriptor& matlab_frontend() noexcept {
                                              "matlab",
                                              {extensions, std::size(extensions)},
                                              {"Matlab-2024-versioned-subset",
-                                              "mpf.matlab.ast.v5",
+                                              "mpf.matlab.ast.v6",
                                               {1, 0},
                                               {2024, 2},
                                               features,

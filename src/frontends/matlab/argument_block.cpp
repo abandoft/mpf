@@ -82,6 +82,7 @@ struct ValidatorDefinition {
   ArgumentValidator validator;
   LanguageVersion minimum_version;
   std::string_view minimum_release;
+  std::size_t explicit_operand_count{0U};
 };
 
 std::optional<ValidatorDefinition> argument_validator(const std::string_view name) {
@@ -115,7 +116,13 @@ std::optional<ValidatorDefinition> argument_validator(const std::string_view nam
       {"mustBeText", {ArgumentValidator::text, validator_expansion_release, "R2020b"}},
       {"mustBeTextScalar", {ArgumentValidator::text_scalar, validator_expansion_release, "R2020b"}},
       {"mustBeValidVariableName",
-       {ArgumentValidator::valid_variable_name, validator_expansion_release, "R2020b"}}};
+       {ArgumentValidator::valid_variable_name, validator_expansion_release, "R2020b"}},
+      {"mustBeGreaterThan", {ArgumentValidator::greater_than, arguments_release, "R2019b", 1U}},
+      {"mustBeGreaterThanOrEqual",
+       {ArgumentValidator::greater_than_or_equal, arguments_release, "R2019b", 1U}},
+      {"mustBeLessThan", {ArgumentValidator::less_than, arguments_release, "R2019b", 1U}},
+      {"mustBeLessThanOrEqual",
+       {ArgumentValidator::less_than_or_equal, arguments_release, "R2019b", 1U}}};
   const auto found = validators.find(name);
   return found == validators.end() ? std::nullopt
                                    : std::optional<ValidatorDefinition>{found->second};
@@ -179,38 +186,98 @@ bool parse_validators(const MatlabStatementLine& line, std::size_t& cursor,
     return false;
   }
   bool expect_validator = true;
-  for (std::size_t token = cursor + 1U; token < closing; ++token) {
-    if (expect_validator) {
-      if (line.tokens[token].kind != Kind::identifier) {
+  std::size_t token = cursor + 1U;
+  while (token < closing) {
+    if (!expect_validator) {
+      if (line.tokens[token].kind != Kind::comma) {
         diagnose(diagnostics, line.source.number,
-                 "Matlab arguments validators must be named validation functions");
+                 "Matlab arguments validators require a comma-separated function list");
         return false;
       }
-      if (token + 1U < closing && line.tokens[token + 1U].kind == Kind::left_parenthesis) {
-        diagnose(diagnostics, line.source.number,
-                 "parameterized Matlab arguments validators are not yet supported");
-        return false;
-      }
-      const auto validator = argument_validator(line.tokens[token].text);
-      if (!validator.has_value()) {
-        diagnose(diagnostics, line.source.number,
-                 "custom Matlab arguments validator '" + line.tokens[token].text +
-                     "' is not yet supported");
-        return false;
-      }
-      if (version < validator->minimum_version) {
-        diagnose_version(diagnostics, line.source.number,
-                         "Matlab validator '" + line.tokens[token].text + "' requires Matlab " +
-                             std::string(validator->minimum_release) + " or newer");
-        return false;
-      }
-      declaration.syntax.validators.push_back(validator->validator);
-    } else if (line.tokens[token].kind != Kind::comma) {
+      ++token;
+      expect_validator = true;
+      continue;
+    }
+    if (line.tokens[token].kind != Kind::identifier) {
       diagnose(diagnostics, line.source.number,
-               "Matlab arguments validators require a comma-separated function list");
+               "Matlab arguments validators must be named validation functions");
       return false;
     }
-    expect_validator = !expect_validator;
+    const auto validator_name = line.tokens[token].text;
+    const auto definition = argument_validator(validator_name);
+    if (!definition.has_value()) {
+      diagnose(diagnostics, line.source.number,
+               "custom Matlab arguments validator '" + validator_name + "' is not yet supported");
+      return false;
+    }
+    if (version < definition->minimum_version) {
+      diagnose_version(diagnostics, line.source.number,
+                       "Matlab validator '" + validator_name + "' requires Matlab " +
+                           std::string(definition->minimum_release) + " or newer");
+      return false;
+    }
+
+    ArgumentValidatorSyntax validator;
+    validator.validator = definition->validator;
+    ++token;
+    if (token < closing && line.tokens[token].kind == Kind::left_parenthesis) {
+      const auto call_closing = matching_token(line, token);
+      if (call_closing >= closing) {
+        diagnose(diagnostics, line.source.number,
+                 "Matlab arguments validator call has no matching right parenthesis");
+        return false;
+      }
+      if (definition->explicit_operand_count != 1U) {
+        diagnose(diagnostics, line.source.number,
+                 "explicit calls to this Matlab arguments validator are not yet supported");
+        return false;
+      }
+      const auto first = token + 1U;
+      if (first + 2U >= call_closing || line.tokens[first].kind != Kind::identifier ||
+          line.tokens[first].text != declaration.syntax.name ||
+          line.tokens[first + 1U].kind != Kind::comma) {
+        diagnose(diagnostics, line.source.number,
+                 "parameterized Matlab validator must name the declared argument first");
+        return false;
+      }
+      const auto operand_first = first + 2U;
+      ArgumentValidatorOperandSyntax operand;
+      if (operand_first + 1U == call_closing &&
+          line.tokens[operand_first].kind == Kind::identifier) {
+        operand.kind = ArgumentValidatorOperandKind::input_argument;
+        operand.value = line.tokens[operand_first].text;
+      } else {
+        const bool unsigned_number =
+            operand_first + 1U == call_closing && line.tokens[operand_first].kind == Kind::number;
+        const bool signed_number =
+            operand_first + 2U == call_closing && line.tokens[operand_first].kind == Kind::other &&
+            (line.tokens[operand_first].text == "+" || line.tokens[operand_first].text == "-") &&
+            line.tokens[operand_first + 1U].kind == Kind::number;
+        if (!unsigned_number && !signed_number) {
+          diagnose(diagnostics, line.source.number,
+                   "parameterized Matlab relational validators currently require a scalar "
+                   "numeric literal or earlier scalar input argument");
+          return false;
+        }
+        operand.kind = ArgumentValidatorOperandKind::numeric_literal;
+        operand.value = (signed_number ? line.tokens[operand_first].text : std::string{}) +
+                        line.tokens[call_closing - 1U].text;
+        if (!valid_argument_numeric_literal(operand.value)) {
+          diagnose(diagnostics, line.source.number,
+                   "parameterized Matlab validators require a decimal scalar threshold literal");
+          return false;
+        }
+      }
+      validator.operands.push_back(std::move(operand));
+      token = call_closing + 1U;
+    } else if (definition->explicit_operand_count != 0U) {
+      diagnose(diagnostics, line.source.number,
+               "Matlab validator '" + validator_name +
+                   "' requires the validated argument and a scalar threshold operand");
+      return false;
+    }
+    declaration.syntax.validators.push_back(std::move(validator));
+    expect_validator = false;
   }
   if (expect_validator || declaration.syntax.validators.empty()) {
     diagnose(diagnostics, line.source.number,

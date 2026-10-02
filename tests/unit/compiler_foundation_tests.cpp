@@ -1,7 +1,10 @@
 #include <algorithm>
+#include <clocale>
+#include <locale>
 #include <string>
 #include <tuple>
 
+#include "compiler/argument_validation.hpp"
 #include "compiler/expression.hpp"
 #include "compiler/function_graph_generic.hpp"
 #include "compiler/numeric_contract.hpp"
@@ -71,6 +74,54 @@ const mpf::detail::matlab::ast::Statement& matlab_statement(
 }
 
 }  // namespace
+
+TEST_CASE("argument threshold tokens preserve finite binary64 values across targets and locales") {
+  using mpf::detail::normalize_argument_numeric_literal;
+  REQUIRE(normalize_argument_numeric_literal("010") == "10.0");
+  REQUIRE(normalize_argument_numeric_literal("+10") == "10.0");
+  REQUIRE(normalize_argument_numeric_literal("-0") == "-0.0");
+  REQUIRE(normalize_argument_numeric_literal("1e-400") == "0.0");
+  REQUIRE(normalize_argument_numeric_literal("-1e-400") == "-0.0");
+  REQUIRE(normalize_argument_numeric_literal("1e-99999999999999999999") == "0.0");
+  REQUIRE(!normalize_argument_numeric_literal("1e99999999999999999999").has_value());
+  REQUIRE(normalize_argument_numeric_literal("9007199254740993") == "9007199254740992.0");
+  const auto huge = normalize_argument_numeric_literal("18446744073709551616");
+  REQUIRE(huge.has_value());
+  REQUIRE(huge->find_first_of(".eE") != std::string::npos);
+  for (const auto token : {".5", "1.", "1e-300", "5e-324", "1.7976931348623157e308"}) {
+    const auto canonical = normalize_argument_numeric_literal(token);
+    REQUIRE(canonical.has_value());
+    REQUIRE(normalize_argument_numeric_literal(*canonical) == canonical);
+  }
+  for (const auto token : {"", "1e309", "Inf", "NaN", "1e", "1,5", "1 + 2", "0); injected"}) {
+    REQUIRE(!normalize_argument_numeric_literal(token).has_value());
+  }
+
+  struct DecimalComma : std::numpunct<char> {
+    char do_decimal_point() const override { return ','; }
+  };
+  struct LocaleGuard {
+    std::locale previous{std::locale()};
+    ~LocaleGuard() { std::locale::global(previous); }
+  } guard;
+  std::locale::global(std::locale(std::locale::classic(), new DecimalComma));
+  REQUIRE(normalize_argument_numeric_literal("1.5") == "1.5");
+
+  struct NumericLocaleGuard {
+    std::string previous{"C"};
+    NumericLocaleGuard() {
+      if (const auto* current = std::setlocale(LC_NUMERIC, nullptr)) previous = current;
+    }
+    ~NumericLocaleGuard() { std::setlocale(LC_NUMERIC, previous.c_str()); }
+  } numeric_guard;
+  for (const auto locale : {"de_DE.UTF-8", "fr_FR.UTF-8", "de_DE", "French_France.1252"}) {
+    if (std::setlocale(LC_NUMERIC, locale) != nullptr) {
+      REQUIRE(normalize_argument_numeric_literal("1.5") == "1.5");
+      REQUIRE(normalize_argument_numeric_literal("5e-324").has_value());
+      break;
+    }
+  }
+}
 
 TEST_CASE("numeric side-table contracts distinguish dynamic scalars from nonnumeric values") {
   using mpf::detail::ValueType;
@@ -525,8 +576,9 @@ TEST_CASE("Matlab arguments blocks build language-owned declarations and default
   REQUIRE(values.dimensions[0].extent == 1U);
   REQUIRE(values.dimensions[1].any);
   REQUIRE(values.class_constraint == mpf::detail::ArgumentClassConstraint::matlab_double);
-  REQUIRE((values.validators == std::vector{mpf::detail::ArgumentValidator::numeric,
-                                            mpf::detail::ArgumentValidator::finite}));
+  REQUIRE((values.validators == std::vector<mpf::detail::ArgumentValidatorSyntax>{
+                                    {mpf::detail::ArgumentValidator::numeric, {}},
+                                    {mpf::detail::ArgumentValidator::finite, {}}}));
 
   const auto& factor = function.argument_declarations[1];
   REQUIRE(factor.has_default);
@@ -534,6 +586,40 @@ TEST_CASE("Matlab arguments blocks build language-owned declarations and default
   const auto& output = function.argument_declarations[2];
   REQUIRE(output.direction == mpf::detail::ArgumentDirection::output);
   REQUIRE(!output.has_default);
+  REQUIRE(mpf::detail::matlab_frontend().verify(parsed.ast).empty());
+}
+
+TEST_CASE("Matlab arguments parser preserves parameterized relational validator operands") {
+  const mpf::detail::SourceText source(
+      "function output = bounded(lower, value)\n"
+      "arguments\n"
+      "lower (1,1) double {mustBeGreaterThan(lower,-1.5e+1)}\n"
+      "value (1,1) double {mustBeGreaterThanOrEqual(value,lower), "
+      "mustBeLessThan(value,+20), mustBeLessThanOrEqual(value,20)}\n"
+      "end\n"
+      "output = value\n"
+      "end\n",
+      "parameterized-validators.m");
+  auto parsed = mpf::detail::parse_with_frontend(mpf::detail::matlab_frontend(), source);
+  REQUIRE(parsed.diagnostics.empty());
+  const auto* program = std::get_if<mpf::detail::matlab::ast::Program>(&parsed.ast);
+  REQUIRE(program != nullptr);
+  const auto& function = matlab_statement(*program, program->roots.front());
+  REQUIRE(function.argument_declarations.size() == 2U);
+  const auto& lower = function.argument_declarations[0].validators.front();
+  REQUIRE(lower.validator == mpf::detail::ArgumentValidator::greater_than);
+  REQUIRE(lower.operands.size() == 1U);
+  REQUIRE(lower.operands.front().kind ==
+          mpf::detail::ArgumentValidatorOperandKind::numeric_literal);
+  REQUIRE(lower.operands.front().value == "-1.5e+1");
+  const auto& value = function.argument_declarations[1].validators;
+  REQUIRE(value.size() == 3U);
+  REQUIRE(value[0].validator == mpf::detail::ArgumentValidator::greater_than_or_equal);
+  REQUIRE(value[0].operands.front().kind ==
+          mpf::detail::ArgumentValidatorOperandKind::input_argument);
+  REQUIRE(value[0].operands.front().value == "lower");
+  REQUIRE(value[1].operands.front().value == "+20");
+  REQUIRE(value[2].validator == mpf::detail::ArgumentValidator::less_than_or_equal);
   REQUIRE(mpf::detail::matlab_frontend().verify(parsed.ast).empty());
 }
 
