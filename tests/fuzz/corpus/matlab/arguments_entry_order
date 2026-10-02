@@ -1,0 +1,20 @@
+try
+  checked(-1, [1,2]);
+catch exception
+  disp(exception.message);
+end
+disp(checked(3));
+function output = checked(first, second)
+arguments
+first (1,1) double {mustBePositive}
+second (1,1) double = seed(first)
+end
+output = first + second;
+end
+function output = seed(value)
+arguments
+value (1,1) double
+end
+disp(44);
+output = value + 1;
+end
