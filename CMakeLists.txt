@@ -352,7 +352,7 @@ if(MPF_ENABLE_COVERAGE)
       -DFUZZ_OBJECT=$<TARGET_FILE:mpf-fuzz-smoke>
       -DMIN_LINE_PERCENT=85
       -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_coverage.cmake
-    DEPENDS mpf-tests mpfc mpf-fuzz-smoke
+    DEPENDS mpf-tests mpfc mpf-fuzz-smoke mpf-fuzz-corpus-preparer
     USES_TERMINAL
     COMMENT "Running tests and enforcing MPF source coverage")
 endif()
