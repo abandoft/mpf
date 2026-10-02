@@ -38,6 +38,15 @@ fuzz 和性能预算。
 
 新增参数声明/验证语法时，语言 AST 必须保留 declaration owner、direction、formal identity、dimension/class/validator/default syntax；Analyzer 必须把它解析为 ordinal、type/shape/storage、optional ordering 和 validated representation rank 的稠密 side-table contract。任何会在函数入口前改变实际值的语义都必须生成 MIR `ArgumentCallBoundary`，分别标记 class 与 size conversion，并绑定转换后的 type/shape/rank；omitted actual 必须保持空 boundary。每个目标 LIR 独立验证 passing/writeback 与 conversion ABI，Emitter 只序列化计划。新增 dynamic rank、name-value、repeating、parameterized/custom validator 时至少覆盖 version gate、默认值求值顺序、输入/输出、跨层事实损坏、目标隔离、source map、runtime rejection、fuzz 和性能预算。
 
+新增含有函数调用的 declaration-owned expression 时，必须同时接入 AST/HIR ownership/indexing、
+名称绑定、Analyzer、函数依赖扫描、MIR execution/effect 和目标 LIR，不能只让 renderer 看见它。
+当前 dependency collector 已覆盖普通 parameter defaults：HIR resolver 按 NameTable `SymbolId`
+解析，C++ resolver 按私有 LIR `SymbolId` 解析，各语言的 default scope 由名称分析决定，不能
+统一按函数 body 的 shadowing 集合猜测。扩展 validator call 时应复用同一身份合同，并让新增
+callee/operand 节点真正进入 graph 和 MIR call-site/exceptional CFG；当前枚举 descriptor 本身
+不满足这一要求。SCC/definition order 的算法由公共 core 所有，新目标只提供自己的身份 resolver，
+不得复制递归检测或重新按 helper 拼写恢复源函数。
+
 `ArrayLiteralPlan` 还为 shaped-empty literal 固化不可由嵌套容器反推的 shape，JavaScript 通过 descriptor 消费该计划，C++ 通过静态 shape 参数消费对应契约；矩形 real/complex Matlab solve 必须显式选择 basic-solution-with-warning 与 rank-revealing-column-pivoted-QR policy，real/complex 方阵必须分别选择 square-continue-with-warning 与 classify-real-square/classify-complex-square policy；sparse constructor 必须携带 kind/result-shape/triplet-cardinality/reserve-hint，sparse index 必须携带 kind/input-result-shape/source-result-storage，sparse mutation 还必须携带 assignment/deletion identity、四类 shape、replacement storage、scalar-expansion、duplicate-write 与 zero-write policy，并在目标层独立验证；sparse square solve 还必须同时携带 CSC coefficient storage、sparse row-pivoted LU 与 sparse-real-square structure policy；sparse square power 必须携带 CSC power storage、nonnegative-safe-integer exponent policy、两组 shape 与三项 integer ABI。目标 representation planner 必须把 helper 所需的所有 shape 和枚举值按调用顺序固化到 `runtime_shape_arguments` 与 `runtime_integer_arguments`，目标 verifier 与 deterministic dump 必须验证该 ABI；renderer 只能序列化已绑定 token、shape 与 integer 实参，不得从 semantic policy、helper 名称或 operand shape 恢复数值条件、存储行为或调用签名。一般 NDArray/typed-array ownership、跨语言动态 shape 数据流、pointer/view association 与 region 组合、完整官方 grammar 及独立 target AST 仍不是已经完成的扩展接口。权威边界见 [商业级编译器管线方案](COMPILER_PIPELINE.md)。
 
 归约扩展还必须把 `ReductionStoragePolicy`、input storage 与 result storage 作为 `ReductionPlan` 的
