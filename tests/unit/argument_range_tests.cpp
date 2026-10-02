@@ -1,5 +1,8 @@
 #include <algorithm>
+#include <cstdint>
+#include <cstring>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "backends/common/lir_builder.hpp"
@@ -45,6 +48,14 @@ mpf::TranspileResult compile(const std::string& text, const mpf::TargetLanguage 
 bool diagnostic(const mpf::TranspileResult& result, const std::string& code) {
   return std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
                      [&](const auto& entry) { return entry.code == code; });
+}
+
+void inject_range_boundary_byte(mpf::detail::ArgumentRangeBoundary& boundary,
+                                const std::uint8_t encoded) noexcept {
+  // Negative verifier fixtures deliberately inject malformed serialized enum bytes. Do not
+  // construct a normal semantic enum through an out-of-catalog cast or disable analysis rules.
+  static_assert(sizeof(boundary) == sizeof(encoded));
+  std::memcpy(&boundary, &encoded, sizeof(boundary));
 }
 
 mpf::detail::mir::LoweringResult lower_range() {
@@ -94,9 +105,17 @@ void require_rejected(const Program& pristine, Mutate mutate, Verify verify) {
 TEST_CASE("Matlab validators accept explicit unary calls and enforce complete call arity") {
   const std::string prefix = "function output = checked(value)\narguments\nvalue (1,1) double {";
   const std::string suffix = "}\nend\noutput = value\nend\n";
+  const auto validator_source = [&](const std::string_view call) {
+    std::string text;
+    text.reserve(prefix.size() + call.size() + suffix.size());
+    text.append(prefix);
+    text.append(call);
+    text.append(suffix);
+    return text;
+  };
   for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
     REQUIRE(
-        compile(prefix + "mustBeFinite(value),mustBeReal(value),mustBePositive" + suffix, target)
+        compile(validator_source("mustBeFinite(value),mustBeReal(value),mustBePositive"), target)
             .success());
     for (const auto* name : {"mustBeNumeric",
                              "mustBeNumericOrLogical",
@@ -121,7 +140,9 @@ TEST_CASE("Matlab validators accept explicit unary calls and enforce complete ca
                              "mustBeText",
                              "mustBeTextScalar",
                              "mustBeValidVariableName"}) {
-      REQUIRE(compile(prefix + name + "(value)" + suffix, target).success());
+      std::string call{name};
+      call.append("(value)");
+      REQUIRE(compile(validator_source(call), target).success());
     }
     for (const auto* call :
          {"mustBeReal()", "mustBeReal(other)", "mustBeReal(value,1)", "mustBeInRange(value,0)",
@@ -130,15 +151,16 @@ TEST_CASE("Matlab validators accept explicit unary calls and enforce complete ca
           "mustBeInRange(value,0,1,flag)", "mustBeInRange(value,0,1 + 2)",
           "mustBeInRange(value,[0],1)", "mustBeInRange(value,0,1i)", "mustBeInRange(value,0x10,20)",
           "mustBeInRange"}) {
-      const auto failed = compile(prefix + call + suffix, target);
+      const auto failed = compile(validator_source(call), target);
       REQUIRE(!failed.success());
       REQUIRE(failed.code.empty());
       REQUIRE(diagnostic(failed, "MPF1200"));
       REQUIRE(!diagnostic(failed, "MPF0005"));
       REQUIRE(!diagnostic(failed, "MPF0006"));
     }
-    REQUIRE(compile(prefix + "mustBeInRange(value,0,1)" + suffix, target, {2020, 2}).success());
-    const auto old = compile(prefix + "mustBeInRange(value,0,1)" + suffix, target, {2020, 1});
+    const auto range = validator_source("mustBeInRange(value,0,1)");
+    REQUIRE(compile(range, target, {2020, 2}).success());
+    const auto old = compile(range, target, {2020, 1});
     REQUIRE(!old.success());
     REQUIRE(diagnostic(old, "MPF1201"));
   }
@@ -196,7 +218,7 @@ TEST_CASE("Matlab range syntax and plans reject invalid or inactive boundary sta
                               {ArgumentValidatorOperandKind::numeric_literal, "1"}},
                              {ArgumentRangeBoundary::exclude_lower}}};
   REQUIRE(valid_argument_declaration_syntax(declaration));
-  declaration.validators.front().range_flags.front() = static_cast<ArgumentRangeBoundary>(4U);
+  inject_range_boundary_byte(declaration.validators.front().range_flags.front(), 4U);
   REQUIRE(!valid_argument_declaration_syntax(declaration));
   declaration.validators.front().range_flags = {ArgumentRangeBoundary::inclusive};
   declaration.validators.front().validator = ArgumentValidator::greater_than;
@@ -212,7 +234,7 @@ TEST_CASE("Matlab range syntax and plans reject invalid or inactive boundary sta
                        {ArgumentValidatorOperandKind::numeric_literal, "1.0", dynamic_extent}},
                       ArgumentRangeBoundary::exclusive}};
   REQUIRE(valid_argument_validation_plan(plan, 1U, 0U));
-  plan.validators.front().range_boundary = static_cast<ArgumentRangeBoundary>(255U);
+  inject_range_boundary_byte(plan.validators.front().range_boundary, 255U);
   REQUIRE(!valid_argument_validation_plan(plan, 1U, 0U));
   plan.validators.front().range_boundary = ArgumentRangeBoundary::exclude_upper;
   plan.validators.front().validator = ArgumentValidator::greater_than;
@@ -230,7 +252,7 @@ TEST_CASE("MIR range contracts independently reject arity and invalid boundary m
       [](const auto& entry) { return entry.kind == mpf::detail::StatementKind::function; });
   REQUIRE(function != invalid.statements.end());
   auto& call = function->argument_validations[2].validators.back();
-  call.range_boundary = static_cast<mpf::detail::ArgumentRangeBoundary>(4U);
+  inject_range_boundary_byte(call.range_boundary, 4U);
   REQUIRE(!mpf::detail::mir::verify(invalid, "bad-range-flags").empty());
   call.range_boundary = mpf::detail::ArgumentRangeBoundary::exclusive;
   call.operands.pop_back();
