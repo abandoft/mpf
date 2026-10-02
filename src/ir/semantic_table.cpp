@@ -10,6 +10,7 @@
 #include "compiler/argument_validator_catalog.hpp"
 #include "compiler/numeric_contract.hpp"
 #include "semantic/argument_validator_contract.hpp"
+#include "semantic_argument_outputs.hpp"
 
 namespace mpf::detail::hir {
 namespace {
@@ -1269,6 +1270,13 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
         add_error(diagnostics, {statement.line, 1}, stage,
                   "argument validation side-table inventory disagrees with HIR declarations");
       }
+    }
+    if (analyzed && owns_argument_declarations) {
+      for (const auto& plan : facts->argument_validations)
+        if (plan.direction == ArgumentDirection::output &&
+            !argument_output_contract_matches(*facts, plan))
+          add_error(diagnostics, {plan.line, 1U}, stage,
+                    "normalized output contract disagrees with its class or size declaration");
     }
     const auto returns = statement.return_names.size();
     if (returns != 0U &&

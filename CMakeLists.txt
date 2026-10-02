@@ -132,6 +132,7 @@ add_library(mpf_core STATIC
   src/ir/alias_effect_analysis.cpp
   src/ir/memory_dependence.cpp
   src/ir/semantic_table.cpp
+  src/ir/semantic_argument_outputs.cpp
   src/ir/storage_region.cpp
   src/ir/mir.cpp
   src/ir/mir_optimization.cpp
