@@ -51,6 +51,18 @@ option(MPF_ENABLE_CPP_BACKEND "Build the C++17 backend" ON)
 option(MPF_REQUIRE_DIFFERENTIAL_RUNTIME
   "Require Node.js and Python when differential tests are enabled" OFF)
 
+if(MPF_BUILD_FUZZERS)
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR MSVC)
+    message(FATAL_ERROR "MPF_BUILD_FUZZERS requires Clang/libFuzzer")
+  endif()
+  if(NOT MPF_BUILD_TESTS)
+    message(FATAL_ERROR "MPF_BUILD_FUZZERS requires MPF_BUILD_TESTS")
+  endif()
+  if(MPF_ENABLE_COVERAGE)
+    message(FATAL_ERROR "MPF_BUILD_FUZZERS and MPF_ENABLE_COVERAGE are separate build modes")
+  endif()
+endif()
+
 find_program(MPF_CLANG_FORMAT_EXECUTABLE NAMES clang-format-18 clang-format
   DOC "clang-format 18 executable used by MPF formatting targets")
 add_custom_target(mpf-format
@@ -106,7 +118,11 @@ function(mpf_configure_compilation target visibility)
       target_compile_options(${target} PRIVATE -Werror)
     endif()
   endif()
-  if(MPF_ENABLE_SANITIZERS)
+  if(MPF_BUILD_FUZZERS)
+    target_compile_options(${target} PRIVATE
+      -fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer)
+    target_link_options(${target} INTERFACE -fsanitize=fuzzer-no-link,address,undefined)
+  elseif(MPF_ENABLE_SANITIZERS)
     if(MSVC)
       message(FATAL_ERROR "MPF_ENABLE_SANITIZERS is not supported with MSVC")
     endif()

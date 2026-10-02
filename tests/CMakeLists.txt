@@ -7,6 +7,8 @@ add_executable(mpf-tests
   unit/argument_entry_flow_tests.cpp
   unit/argument_exit_flow_tests.cpp
   unit/output_demand_tests.cpp
+  unit/invocation_context_tests.cpp
+  unit/matlab_bare_call_tests.cpp
   unit/copy_propagation_tests.cpp
   unit/argument_grammar_tests.cpp
   unit/argument_range_tests.cpp
@@ -134,6 +136,13 @@ add_test(NAME mpf.generated.toolchain-contract
   COMMAND ${CMAKE_COMMAND}
     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_generated_toolchain.cmake)
 set_tests_properties(mpf.generated.toolchain-contract PROPERTIES LABELS "infrastructure" TIMEOUT 30)
+
+add_test(NAME mpf.fuzz.corpus-contract
+  COMMAND ${CMAKE_COMMAND}
+    -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/fuzz-corpus-contract
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_fuzz_corpus.cmake)
+set_tests_properties(mpf.fuzz.corpus-contract PROPERTIES LABELS "infrastructure;fuzz" TIMEOUT 30)
 
 add_test(NAME mpf.format.toolchain-contract
   COMMAND ${CMAKE_COMMAND}
@@ -356,6 +365,8 @@ if(TARGET mpfc)
     matlab-argument-entry-order examples/matlab/argument_entry_order.m)
   mpf_add_generated_cpp_compile_test(
     matlab-output-demand examples/matlab/output_demand.m)
+  mpf_add_generated_cpp_compile_test(
+    matlab-invocation-context examples/matlab/invocation_context.m)
   mpf_add_generated_runtime_failure_test(
     matlab-argument-validation tests/fixtures/matlab_argument_validation_failure.m
     "failed mustBePositive" matlab)
@@ -742,6 +753,11 @@ if(MPF_ENABLE_JAVASCRIPT_BACKEND AND MPF_ENABLE_CPP_BACKEND)
       -DINSTALL_DOCDIR=${CMAKE_INSTALL_DOCDIR}
       -DPROJECT_VERSION=${PROJECT_VERSION}
       -DCONFIG=$<CONFIG>
+      "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}"
+      "-DOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
+      "-DGENERATOR=${CMAKE_GENERATOR}"
+      "-DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+      "-DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
       -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_installed_examples.cmake)
   set_tests_properties(mpf.installed.frontend-backend-examples PROPERTIES
     LABELS "install;conformance;coverage-excluded"

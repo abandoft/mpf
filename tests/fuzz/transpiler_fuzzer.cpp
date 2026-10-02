@@ -5,7 +5,7 @@
 #include "mpf/transpiler.hpp"
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_t size) {
-  if (size == 0) return 0;
+  if (size < 2U) return 0;
   mpf::TranspileOptions options;
   switch (data[0] % 4U) {
     case 0: options.language = mpf::SourceLanguage::python; break;
@@ -23,7 +23,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_
   options.resource_limits.max_mir_instructions = 512U * 1024U;
   options.resource_limits.max_lir_nodes = 512U * 1024U;
   options.resource_limits.max_generated_bytes = 8U * 1024U * 1024U;
-  const auto source = std::string_view(reinterpret_cast<const char*>(data + 1U), size - 1U);
+  const auto source = std::string_view(reinterpret_cast<const char*>(data + 2U), size - 2U);
   static_cast<void>(mpf::Transpiler{}.transpile(source, options));
   return 0;
 }
