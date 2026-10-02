@@ -524,6 +524,26 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
            << " exception-handler-line " << statement.exception_handler_line;
     dump_argument_default_details(output, statement.plan, 0);
     dump_argument_input_details(output, statement.plan, 0);
+    if (!statement.plan.argument_entries.empty()) {
+      output << " entry-flow-abi [";
+      for (std::size_t index = 0U; index < statement.plan.argument_entries.size(); ++index) {
+        if (index != 0U) output << ',';
+        const auto& entry = statement.plan.argument_entries[index];
+        const auto& flow = entry.source.flow;
+        output << static_cast<unsigned>(entry.form) << ":declaration=" << entry.declaration
+               << ":ordinal=" << flow.parameter << ":raw-storage=!m" << flow.raw_storage.value()
+               << ":formal-storage=!m" << flow.storage.value() << ":selected=%v"
+               << flow.selected.value() << ":normalize=!i" << flow.normalization.value()
+               << ":initialize=!i" << flow.initialization.value() << ":result=%v"
+               << flow.result.value() << ":block=^b" << flow.block.value() << ":continuation=^b"
+               << flow.continuation.value() << ":validators=";
+        for (std::size_t validator = 0U; validator < flow.validators.size(); ++validator) {
+          if (validator != 0U) output << '/';
+          output << "!i" << flow.validators[validator].value();
+        }
+      }
+      output << ']';
+    }
     output << " argument-validations [";
     for (std::size_t validation = 0U; validation < statement.argument_validations.size();
          ++validation) {
@@ -620,7 +640,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v56 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v57 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

@@ -507,7 +507,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v47 language=" << enum_value(program.source_language)
+  output << "mir-v48 language=" << enum_value(program.source_language)
          << " version=" << program.semantics.language_version.major << '.'
          << program.semantics.language_version.minor << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
@@ -784,6 +784,34 @@ std::string dump_mir(const mir::Program& program) {
          << " expressions=" << program.attributes.expression_count
          << " operations=" << program.attributes.statement_count
          << " instructions=" << program.attributes.instruction_count << '\n';
+  for (std::size_t index = 1U; index < program.argument_operations.size(); ++index) {
+    const auto& operation = program.argument_operations[index];
+    output << "argument-operation !a" << index << " instruction=!i" << operation.instruction.value()
+           << " owner=%h" << operation.owner.value() << " ordinal=" << operation.parameter
+           << " kind=" << enum_value(operation.kind)
+           << " class=" << enum_value(operation.class_constraint)
+           << " dimensions-declared=" << operation.dimensions_declared << " dimensions=[";
+    for (std::size_t axis = 0U; axis < operation.dimensions.size(); ++axis) {
+      if (axis != 0U) output << ',';
+      if (operation.dimensions[axis].any)
+        output << ':';
+      else
+        output << operation.dimensions[axis].extent;
+    }
+    output << "] rank=" << operation.rank << " literal=" << std::quoted(operation.literal)
+           << " validator=" << enum_value(operation.validator.validator) << " operands=[";
+    for (std::size_t operand = 0U; operand < operation.validator.operands.size(); ++operand) {
+      if (operand != 0U) output << ',';
+      const auto& value = operation.validator.operands[operand];
+      if (value.kind == ArgumentValidatorOperandKind::numeric_literal)
+        output << '#' << value.numeric_literal;
+      else
+        output << '$' << value.input_ordinal;
+    }
+    output << "] bounds=" << enum_value(operation.validator.range_boundary) << " source=%h"
+           << operation.validator.source_call.value() << "/%h"
+           << operation.validator.source_callee.value() << '\n';
+  }
   for (std::size_t index = 1; index < program.types.size(); ++index) {
     const auto& type = program.types[index];
     output << "type !t" << index << " kind=" << enum_value(type.kind)
@@ -834,6 +862,12 @@ std::string dump_mir(const mir::Program& program) {
     dump_ids(output, function.parameter_types, "!t");
     output << " parameter-shapes=";
     dump_ids(output, function.parameter_shapes, "!s");
+    if (!function.raw_parameter_types.empty()) {
+      output << " raw-parameters=";
+      dump_ids(output, function.raw_parameter_types, "!t");
+      output << " raw-parameter-shapes=";
+      dump_ids(output, function.raw_parameter_shapes, "!s");
+    }
     output << " results=";
     dump_ids(output, function.result_types, "!t");
     output << " result-shapes=";
@@ -850,6 +884,16 @@ std::string dump_mir(const mir::Program& program) {
       output << " exit=^b" << flow.default_exit.value() << " merge=^b" << flow.merge_block.value()
              << " presence=!i" << flow.presence.value() << " initialize=!i"
              << flow.initialization.value() << " result=%v" << flow.result.value() << '\n';
+    }
+    for (const auto& flow : function.argument_entries) {
+      output << "  argument-entry ordinal=" << flow.parameter << " raw-storage=!m"
+             << flow.raw_storage.value() << " formal-storage=!m" << flow.storage.value()
+             << " selected=%v" << flow.selected.value() << " normalize=!i"
+             << flow.normalization.value() << " initialize=!i" << flow.initialization.value()
+             << " result=%v" << flow.result.value() << " validators=";
+      dump_ids(output, flow.validators, "!i");
+      output << " block=^b" << flow.block.value() << " continuation=^b" << flow.continuation.value()
+             << '\n';
     }
     for (const auto block_id : function.blocks) {
       if (!block_id.valid() || block_id.value() >= program.blocks.size()) continue;
@@ -883,6 +927,8 @@ std::string dump_mir(const mir::Program& program) {
         else
           output << instruction.result_index;
         const auto* instruction_attributes = mir::attributes(program, instruction.id);
+        if (instruction_attributes != nullptr && instruction_attributes->argument_operation.valid())
+          output << " argument-operation=!a" << instruction_attributes->argument_operation.value();
         output << " origin=%h" << instruction.origin.value() << " memory-accesses=";
         dump_memory_accesses(output, instruction_attributes == nullptr
                                          ? std::vector<mir::MemoryAccess>{}
