@@ -21,7 +21,7 @@ struct TargetProfile {
 };
 
 constexpr std::size_t mir_opcode_count =
-    static_cast<std::size_t>(mir::Opcode::catch_exception) + 1U;
+    static_cast<std::size_t>(mir::Opcode::parameter_presence) + 1U;
 
 using LegalizationTable = std::array<LegalizationAction, mir_opcode_count>;
 

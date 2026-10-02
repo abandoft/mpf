@@ -11,6 +11,7 @@
 #include "compiler/call_contract.hpp"
 #include "hir.hpp"
 #include "ids.hpp"
+#include "parameter_default_flow.hpp"
 #include "semantic_table.hpp"
 #include "storage_region.hpp"
 
@@ -90,7 +91,8 @@ enum class Opcode {
   loop,
   function,
   control,
-  catch_exception
+  catch_exception,
+  parameter_presence
 };
 
 enum class TerminatorKind { none, branch, conditional_branch, return_value, unreachable };
@@ -207,6 +209,7 @@ struct Function {
   std::vector<TypeId> result_types;
   std::vector<ShapeId> result_shapes;
   TypeId signature{};
+  std::vector<ParameterDefaultFlow> parameter_defaults;
 };
 
 struct CallSite {

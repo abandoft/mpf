@@ -289,8 +289,14 @@ class Builder final {
     }
     result.parameter_kinds = std::move(source.parameter_kinds);
     result.parameter_defaults.reserve(source.parameter_defaults.size());
-    for (auto& expression : source.parameter_defaults) {
-      result.parameter_defaults.push_back(lower_expression(std::move(expression)));
+    const bool guarded_defaults = result.kind == StatementKind::function &&
+                                  program_.source_language == SourceLanguage::matlab;
+    if (guarded_defaults) {
+      result.parameter_defaults.resize(source.parameter_defaults.size());
+    } else {
+      for (auto& expression : source.parameter_defaults) {
+        result.parameter_defaults.push_back(lower_expression(std::move(expression)));
+      }
     }
     if (semantic_facts != nullptr) {
       result.argument_validations = semantic_facts->argument_validations;
@@ -389,6 +395,13 @@ class Builder final {
 
     if (result.kind == StatementKind::function) {
       initialize_function_signature(result, semantic_facts);
+      if (guarded_defaults) {
+        for (std::size_t index = 0U; index < source.parameter_defaults.size(); ++index) {
+          if (!source.parameter_defaults[index].valid()) continue;
+          result.parameter_defaults[index] =
+              lower_parameter_default(std::move(source.parameter_defaults[index]), index);
+        }
+      }
     }
 
     emit_statement_instruction(result, result_attributes, semantic_facts);
@@ -1764,6 +1777,71 @@ class Builder final {
                                  StorageViewKind::none,
                                  ParameterIntent::none});
     return id;
+  }
+
+  MirExpressionId lower_parameter_default(hir::Expression&& source, const std::size_t parameter) {
+    ParameterDefaultFlow flow;
+    flow.parameter = parameter;
+    flow.source = source.id;
+    const auto& entry = program_.blocks[current_function().entry.value()];
+    flow.storage = entry.arguments.at(parameter).storage;
+    flow.test_block = current_block_;
+    flow.present_block = make_function_block();
+    const auto default_block = make_function_block();
+    flow.default_blocks.push_back(default_block);
+    flow.merge_block = make_function_block();
+    const auto before = storage_values_;
+
+    Instruction presence;
+    presence.id = instruction_ids_.next();
+    flow.presence = presence.id;
+    presence.opcode = Opcode::parameter_presence;
+    presence.origin = source.id;
+    presence.location = source.location;
+    presence.storage = flow.storage;
+    presence.type = intern_type(ValueType::boolean, ValueType::unknown, logical_numeric_type);
+    presence.shape = intern_shape({}, false);
+    presence.result = value_ids_.next();
+    presence.operands.push_back(before.at(flow.storage));
+    const auto condition = presence.result;
+    append_instruction(
+        std::move(presence),
+        {make_memory_access(flow.storage, full_region(flow.storage), MemoryAccessMode::read)});
+    set_conditional(condition, flow.present_block, default_block, source.id);
+
+    current_block_ = flow.present_block;
+    set_branch(flow.merge_block, source.id);
+    current_block_ = default_block;
+    const auto region_begin = current_function().blocks.size();
+    const auto lowered = lower_expression(std::move(source));
+    const auto& value = program_.expressions[lowered.value()];
+    const auto& storage = program_.storages[flow.storage.value()];
+    Instruction initialize;
+    initialize.id = instruction_ids_.next();
+    flow.initialization = initialize.id;
+    initialize.opcode = Opcode::store;
+    initialize.origin = value.origin;
+    initialize.location = value.location;
+    initialize.storage = flow.storage;
+    initialize.type = storage.type;
+    initialize.shape = storage.shape;
+    initialize.result = value_ids_.next();
+    initialize.operands.push_back(value.value_id);
+    storage_values_[flow.storage] = initialize.result;
+    append_instruction(
+        std::move(initialize),
+        {make_memory_access(flow.storage, full_region(flow.storage), MemoryAccessMode::write)});
+    flow.default_exit = current_block_;
+    const auto initialized = storage_values_;
+    for (auto index = region_begin; index < current_function().blocks.size(); ++index)
+      flow.default_blocks.push_back(current_function().blocks[index]);
+    set_branch(flow.merge_block, value.origin);
+    current_block_ = flow.merge_block;
+    storage_values_ = merge_storage_versions(
+        flow.merge_block, {{flow.present_block, before}, {flow.default_exit, initialized}}, before);
+    flow.result = storage_values_.at(flow.storage);
+    current_function().parameter_defaults.push_back(std::move(flow));
+    return lowered;
   }
 
   void initialize_function_signature(const Statement& statement, const hir::StatementFacts* facts) {
