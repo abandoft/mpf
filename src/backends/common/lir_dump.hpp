@@ -159,6 +159,12 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
   }
   output << "] value " << std::quoted(expression.value);
   output << " logical-evaluation " << static_cast<int>(expression.logical_evaluation);
+  if (expression.source_invocation.active())
+    output << " invocation-actual " << expression.source_invocation.count << ":!t"
+           << expression.source_invocation.type.value() << ":!s"
+           << expression.source_invocation.shape.value();
+  if (expression.source_invocation_query.valid())
+    output << " invocation-query %v" << expression.source_invocation_query.value();
   if (expression.output_demand.active())
     output << " output-demand " << static_cast<unsigned>(expression.output_demand.form) << ':'
            << expression.output_demand.count << ':' << expression.output_demand.implicit_result
@@ -494,6 +500,13 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
     output << ']';
   };
   for (const auto& statement : statements) {
+    if (statement.source_invocation_frame.active())
+      output << std::string(depth * 2U, ' ') << "invocation-frame %v"
+             << statement.source_invocation_frame.output_count.value() << " abi "
+             << static_cast<unsigned>(statement.function_abi.invocation.form) << " parameter "
+             << std::quoted(statement.function_abi.invocation.count_parameter)
+             << " external-default " << statement.function_abi.invocation.external_default_count
+             << '\n';
     output << std::string(depth * 2U, ' ') << "stmt %l" << statement.id.value() << " origin %h"
            << statement.origin.value() << " kind " << static_cast<int>(statement.kind) << " line "
            << statement.line << " name " << std::quoted(statement.name) << " symbol @s"
@@ -699,7 +712,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v60 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v61 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

@@ -227,7 +227,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v40 hir-nodes=" << table.hir_node_count
+  output << "semantic-v41 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -510,7 +510,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v50 language=" << enum_value(program.source_language)
+  output << "mir-v51 language=" << enum_value(program.source_language)
          << " version=" << program.semantics.language_version.major << '.'
          << program.semantics.language_version.minor << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
@@ -882,6 +882,10 @@ std::string dump_mir(const mir::Program& program) {
     dump_ids(output, function.result_shapes, "!s");
     output << " entry=^b" << function.entry.value() << " blocks=";
     dump_ids(output, function.blocks, "^b");
+    if (function.invocation_frame.active())
+      output << " invocation-frame=%v" << function.invocation_frame.output_count.value() << ":!t"
+             << function.invocation_frame.type.value() << ":!s"
+             << function.invocation_frame.shape.value();
     output << '\n';
     for (const auto& flow : function.parameter_defaults) {
       output << "  parameter-default ordinal=" << flow.parameter << " source=%h"
@@ -955,6 +959,10 @@ std::string dump_mir(const mir::Program& program) {
           output << '-';
         else
           output << instruction.result_index;
+        if (instruction.invocation_demand.active())
+          output << " invocation-count=" << instruction.invocation_demand.count << ":!t"
+                 << instruction.invocation_demand.type.value() << ":!s"
+                 << instruction.invocation_demand.shape.value();
         const auto* instruction_attributes = mir::attributes(program, instruction.id);
         if (instruction_attributes != nullptr && instruction_attributes->argument_operation.valid())
           output << " argument-operation=!a" << instruction_attributes->argument_operation.value();
@@ -1012,6 +1020,10 @@ std::string dump_mir(const mir::Program& program) {
     if (call.output_demand.active())
       output << " demand=" << enum_value(call.output_demand.form) << ':' << call.output_demand.count
              << ':' << call.output_demand.implicit_result;
+    if (call.invocation_demand.active())
+      output << " invocation-count=" << call.invocation_demand.count << ":!t"
+             << call.invocation_demand.type.value() << ":!s"
+             << call.invocation_demand.shape.value();
     output << " origin=%h" << call.origin.value() << '\n';
   }
   return output.str();
