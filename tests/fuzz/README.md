@@ -20,12 +20,15 @@ the driver does not provide coverage-guided testing of the compiler.
 
 Prepare the checked-in text seeds beneath root `build/` before running. The driver consumes
 two control bytes (source language modulo four; target low bit), followed by the unchanged
-source bytes. The preparer makes both JavaScript and cpp variants for every source seed and
-refuses output outside `build/`. Do not feed unframed text to the driver or write mutations
-into the checked-in source corpus:
+source bytes. The C++17 preparer uses binary streams to preserve CRLF, LF, and UTF-8 bytes on
+every platform. It makes both JavaScript and cpp variants for every source seed and refuses
+output outside `build/`, including nested symlink escapes. Do not feed unframed text to the
+driver or write mutations into the checked-in source corpus:
 
 ```sh
+cmake --build build/fuzz --target mpf-transpiler-fuzzer mpf-fuzz-corpus-preparer
 cmake -DSOURCE_DIR="$PWD" -DCORPUS_DIR="$PWD/build/fuzz/framed-corpus" \
+  -DPREPARER="$PWD/build/fuzz/tests/mpf-fuzz-corpus-preparer" \
   -P tests/fuzz/prepare_corpus.cmake
 build/fuzz/tests/mpf-transpiler-fuzzer build/fuzz/framed-corpus \
   -runs=1000 -max_len=4096 -artifact_prefix=build/fuzz/
@@ -35,4 +38,6 @@ A framed crashing input can be replayed by passing the file to `mpf-transpiler-f
 minimized into `build/fuzz/` with libFuzzer's
 `-minimize_crash=1 -exact_artifact_path=<output>` workflow. `mpf-fuzz-smoke` consumes the
 original language-directory text format, not framed libFuzzer artifacts. The corpus contract
-checks every language/target prefix and payload byte plus source-directory write rejection.
+checks every language/target prefix and payload byte, mixed CRLF/LF and UTF-8 fixtures, and
+source-directory write rejection. Where symlinks are supported, it also checks nested output
+symlink escapes. CMake orchestrates the preparer; it does not perform text-mode seed encoding.

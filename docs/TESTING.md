@@ -103,8 +103,10 @@ source map/确定性和 query/frame/call/private-plan 的独立损坏拒绝（�
 
 libFuzzer 模式将 production core、启用的 backend 和 facade 以
 `fuzzer-no-link,address,undefined` 插桩，不能仅给 driver 加 coverage counters。
-`prepare_corpus.cmake` 为每个文本 seed 生成两个目标的两字节 framed payload，独立
-`mpf.fuzz.corpus-contract` 逐字节复核并拒绝写入 source corpus；具体构建/重放格式见
+`prepare_corpus.cmake` 调用独立的 C++17 二进制 framing 工具，为每个文本 seed 生成两个
+目标的两字节 framed payload，避免 Windows 文本模式改变换行字节。独立
+`mpf.fuzz.corpus-contract` 逐字节复核，包括 CRLF/LF/UTF-8 fixture，并拒绝写入 source
+corpus 或通过输出目录的符号链接逃出根 `build/`；具体构建/重放格式见
 [fuzz 指南](../tests/fuzz/README.md)。旧的未插桩库或未 framing 的 1,000 次 driver 运行
 不能作为生产编译路径 fuzz 验收证据。
 Memory Safety workflow 独立执行固定 seed 的 coverage-guided fuzz job；其 required
@@ -227,8 +229,9 @@ Clang 环境可运行覆盖引导 fuzz：
 
 ```sh
 cmake -S . -B build/fuzz -DMPF_BUILD_FUZZERS=ON -DCMAKE_CXX_COMPILER=clang++
-cmake --build build/fuzz --target mpf-transpiler-fuzzer
+cmake --build build/fuzz --target mpf-transpiler-fuzzer mpf-fuzz-corpus-preparer
 cmake -DSOURCE_DIR="$PWD" -DCORPUS_DIR="$PWD/build/fuzz/framed-corpus" \
+  -DPREPARER="$PWD/build/fuzz/tests/mpf-fuzz-corpus-preparer" \
   -P tests/fuzz/prepare_corpus.cmake
 build/fuzz/tests/mpf-transpiler-fuzzer build/fuzz/framed-corpus \
   -runs=1000 -seed=420800 -max_len=4096 -artifact_prefix=build/fuzz/

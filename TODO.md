@@ -51,7 +51,7 @@ default ordinal 不受污染。post-binding normalization 补齐 default-input �
 - [x] 当前支持的分支、循环、loop-else、`break`/`continue` 与 `SELECT CASE` 使用 MIR basic block、terminator、block argument/edge actual；shape stride、storage view/lifetime/intent 可验证，独立 alias/effect table 提供保守 `alias_between` 查询
 - [x] JavaScript/`cpp` representation、ABI、type/shape、名称、runtime 与 binding 决策在目标 lowering/renderer 完成；emitter 只序列化最终 chunk
 - [x] 公共 output bundle 提供代码、source map v3、确定性 dependency manifest 与逐阶段 `CompilationReport`；CLI 支持 `--source-map`
-- [x] 四语言/双目标 fuzz smoke、Clang/libFuzzer、资源耗尽、确定性重放、崩溃复现与最小化工作流落地；libFuzzer 构建必须插桩 production core/backend/facade，而非仅 driver。文本 seed 经受保护的 preparer 生成语言/目标双控制字节，两个目标均保留完整源 payload；未 framing 的文本重放不作为编译路径验收
+- [x] 四语言/双目标 fuzz smoke、Clang/libFuzzer、资源耗尽、确定性重放、崩溃复现与最小化工作流落地；libFuzzer 构建必须插桩 production core/backend/facade，而非仅 driver。文本 seed 经受保护的 C++17 二进制 preparer 生成语言/目标双控制字节，两个目标均保留完整源 payload；契约覆盖 Windows 换行字节、UTF-8、含空格路径和可用平台上的嵌套符号链接逃逸；未 framing 的文本重放不作为编译路径验收
 - [x] 延迟、吞吐、深 CFG、大 shape、函数图、八路并发、峰值 arena 和产物大小纳入版本化 JSON 发布门禁与 CI 报告
 
 这里的“完成”只指上述架构与工程闭环；各语言官方 grammar、完整对象模型、跨语言动态 shape 传播与 NDArray 表示、一般 view/pointer 的完整 overlap/alias 和稳定插件 ABI 仍由后续条目跟踪。
