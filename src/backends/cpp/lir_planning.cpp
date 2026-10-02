@@ -532,6 +532,7 @@ const char* temporary_stem(const lir::TemporaryRole role) noexcept {
     case lir::TemporaryRole::matlab_raw_input: return "raw_input";
     case lir::TemporaryRole::matlab_output: return "validated_output";
     case lir::TemporaryRole::argument_exit: return "output_exit";
+    case lir::TemporaryRole::invocation_count: return "output_count";
     case lir::TemporaryRole::call_argument: return "call_argument";
     case lir::TemporaryRole::comparison_operand: return "comparison";
     case lir::TemporaryRole::section_argument: return "section_reference";
@@ -598,6 +599,9 @@ void plan_statement_temporaries(lir::SemanticProgram& program,
                     [](const auto& source) { return !source.implicit; }))
       add_temporary(program, used, statement.id, lir::TemporaryRole::argument_exit);
     if (statement.kind == StatementKind::function &&
+        program.source_language == SourceLanguage::matlab)
+      add_temporary(program, used, statement.id, lir::TemporaryRole::invocation_count);
+    if (statement.kind == StatementKind::function &&
         std::any_of(statement.argument_validations.begin(), statement.argument_validations.end(),
                     [](const auto& plan) { return plan.direction == ArgumentDirection::output; })) {
       for (std::size_t output = 0U; output < statement.return_names.size(); ++output)
@@ -650,6 +654,12 @@ void plan_function_abis(lir::SemanticProgram& program) {
     auto& statement = program.statements[index];
     auto& abi = statement.function_abi;
     abi.valid = true;
+    if (program.source_language == SourceLanguage::matlab) {
+      abi.invocation.form = lir::InvocationAbiForm::trailing_binary64;
+      const auto* count =
+          program.temporaries.find(statement.id, lir::TemporaryRole::invocation_count);
+      abi.invocation.count_parameter = count == nullptr ? std::string{} : *count;
+    }
     abi.recursive = program.function_graph.recursive[index];
     std::string explicit_type;
     const auto explicit_return = explicit_return_type(statement, explicit_type);
@@ -791,6 +801,15 @@ void verify_expression_resources(const lir::SemanticProgram& program,
 void verify_function_abi(const lir::SemanticProgram& program, const lir::Statement& statement,
                          const std::size_t index, std::vector<Diagnostic>& diagnostics) {
   const auto& abi = statement.function_abi;
+  const bool invocation = program.source_language == SourceLanguage::matlab;
+  const auto* count = program.temporaries.find(statement.id, lir::TemporaryRole::invocation_count);
+  if (abi.invocation.form !=
+          (invocation ? lir::InvocationAbiForm::trailing_binary64 : lir::InvocationAbiForm::none) ||
+      (invocation && (count == nullptr || abi.invocation.count_parameter != *count ||
+                      !statement.source_invocation_frame.active())) ||
+      (!invocation && !abi.invocation.count_parameter.empty()) ||
+      abi.invocation.external_default_count != 1U)
+    add_error(diagnostics, {statement.line, 1U}, "cpp LIR invocation ABI is inconsistent");
   if (!abi.valid || abi.parameters.size() != statement.parameters.size() ||
       index >= program.function_graph.recursive.size() ||
       abi.recursive != program.function_graph.recursive[index]) {
@@ -898,6 +917,9 @@ void verify_statement_resources(const lir::SemanticProgram& program,
                       [](const auto& source) { return !source.implicit; }))
         require_temporary(program, statement.id, lir::TemporaryRole::argument_exit, 0U, expected,
                           names, diagnostics, {statement.line, 1U});
+      if (program.source_language == SourceLanguage::matlab)
+        require_temporary(program, statement.id, lir::TemporaryRole::invocation_count, 0U, expected,
+                          names, diagnostics, {statement.line, 1U});
       if (std::any_of(
               statement.argument_validations.begin(), statement.argument_validations.end(),
               [](const auto& plan) { return plan.direction == ArgumentDirection::output; })) {
@@ -922,6 +944,9 @@ void verify_statement_resources(const lir::SemanticProgram& program,
                                   statement.parameters, statement.parameter_symbols),
                    program.node_count, {statement.line, 1}, diagnostics);
     } else if (statement.function_abi.valid || !statement.function_abi.parameters.empty() ||
+               statement.function_abi.invocation.form != lir::InvocationAbiForm::none ||
+               !statement.function_abi.invocation.count_parameter.empty() ||
+               statement.function_abi.invocation.external_default_count != 1U ||
                statement.function_scope.valid || !statement.function_scope.declarations.empty()) {
       add_error(diagnostics, {statement.line, 1},
                 "non-function cpp LIR node owns function ABI or scope plan");

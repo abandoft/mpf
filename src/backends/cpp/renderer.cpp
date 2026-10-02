@@ -840,6 +840,10 @@ class Renderer final {
         output_ << ')';
       }
     }
+    if (expression.plan.output_invocation.form == cpp::lir::OutputInvocationForm::callee_count) {
+      if (expression.children.size() > 1U) output_ << ", ";
+      output_ << expression.plan.output_invocation.count << ".0";
+    }
     output_ << ')';
   }
 
@@ -929,6 +933,7 @@ class Renderer final {
       case cpp::lir::ExpressionForm::invalid: output_ << '0'; break;
       case cpp::lir::ExpressionForm::omitted:
       case cpp::lir::ExpressionForm::target_symbol:
+      case cpp::lir::ExpressionForm::invocation_output_count:
       case cpp::lir::ExpressionForm::scalar_literal:
       case cpp::lir::ExpressionForm::null_literal: output_ << expression.plan.token; break;
       case cpp::lir::ExpressionForm::variable:
@@ -1331,6 +1336,13 @@ class Renderer final {
       if (emit_defaults && matlab_parameter_has_default(statement, index)) {
         output_ << " = std::nullopt";
       }
+    }
+    if (statement.function_abi.invocation.form == cpp::lir::InvocationAbiForm::trailing_binary64) {
+      if (!statement.parameters.empty()) output_ << ", ";
+      output_ << "[[maybe_unused]] const double "
+              << statement.function_abi.invocation.count_parameter;
+      if (emit_defaults)
+        output_ << " = " << statement.function_abi.invocation.external_default_count << ".0";
     }
     output_ << ')';
   }
