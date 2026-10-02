@@ -297,6 +297,8 @@ endif()
 if(NOT EXISTS "${SOURCE_DIR}/src/ir/mir_verifier.cpp" OR
    NOT EXISTS "${SOURCE_DIR}/src/ir/mir_opcode.hpp" OR
    NOT EXISTS "${SOURCE_DIR}/src/ir/mir_optimization.cpp" OR
+   NOT EXISTS "${SOURCE_DIR}/src/ir/mir_copy_propagation.cpp" OR
+   NOT EXISTS "${SOURCE_DIR}/src/ir/mir_copy_propagation.hpp" OR
    NOT EXISTS "${SOURCE_DIR}/src/ir/memory_dependence.cpp")
   message(FATAL_ERROR
     "MIR verifier/opcode/optimization/memory-dependence contracts are not split into dedicated components")
