@@ -194,7 +194,7 @@ nonmissing 与 variable-name 组，`mustBeRow`/`mustBeColumn`/`mustBeMatrix` 则
 runtime 同步处理 logical、character、empty value、complex-storage realness，以及 R2024b 的 63 字符
 变量名和关键字限制。
 
-后续开发分支以 Matlab AST v9、Semantic v38、MIR v46 与双目标 LIR v55 接入
+后续开发分支以 Matlab AST v9、Semantic v38、MIR v47 与双目标 LIR v56 接入
 `mustBeGreaterThan`/`mustBeGreaterThanOrEqual`/`mustBeLessThan`/`mustBeLessThanOrEqual`。
 threshold 支持有限 binary64 literal 和前序 scalar input，output validator 可引用 input；未定
 类型的 input 需要显式 singleton dimensions，并保留 runtime numeric/logical/complex-storage
@@ -230,10 +230,10 @@ grammar、来源与绑定基础称为 custom validator 执行已完成。
 
 ## 产品语义边界
 
-当前 MIR v46 已把 positional default 放入真实 absence-guarded CFG，默认表达式的 local
+当前 MIR v47 已把 positional default 放入真实 absence-guarded CFG，默认表达式的 local
 call、IO、可能抛错操作和嵌套短路只在缺失路径执行，之后合并 formal storage version。
 参数存储在 default lowering 前初始化；优化的 instruction/block compaction 同步重映射
-default flow identity。LIR v55 的两端私有 planner 从 MIR provenance 选择 undefined guard/
+default flow identity。LIR v56 的两端私有 planner 从 MIR provenance 选择 undefined guard/
 optional resolution，并分别拒绝损坏来源、执行 form 与序列；不是目标层重建 default flag。
 `argument_default_control_flow.m` 在双目标验证 supplied/omitted/empty、异常和 logical
 scalar/array，并修复 C++ bool proxy 的转换/验证问题。JavaScript `disp`/`display` 对 logical
@@ -241,6 +241,12 @@ scalar/array，并修复 C++ bool proxy 的转换/验证问题。JavaScript `dis
 一致；不修改 Python print 或冒称完整 Matlab object/array display 已完成。
 输入 class/shape 正规化与标准 validator 尚未成为 resident MIR operation；完整交错序列、
 公共输出出口、表达式 threshold 与自定义 validator 执行仍必须继续实现。
+
+当前双目标入口顺序遵循[官方参数验证顺序](https://www.mathworks.com/help/matlab/matlab_prog/function-argument-validation-1.html)：
+每个参数完成 default/class/size/validator 后才处理后一个参数。C++ 使用私有 raw-input ABI
+在 callee 逐条 materialize，不能让后一个参数的 shape conversion 抢先覆盖前一个 validator 的
+错误；非平凡多实参按序求值完毕才进入 validation。`argument_entry_order.m` 固定首错、后续
+default 的 IO 抑制、supplied default 跳过、前序 logical 转换结果、size-only/char/no-op 声明。
 
 Matlab frontend 必须按照 Matlab 语义建立规范事实，不能先生成 JavaScript 再让其他目标
 读取 JavaScript。生产链路固定为：
