@@ -603,7 +603,7 @@ TEST_CASE("Matlab general command syntax owns ans and void-call behavior") {
   REQUIRE(cpp.code.find("ans = identity(std::string{\"hello\"});") != std::string::npos);
   REQUIRE(cpp.code.find("ans = combine(std::string{\"two words\"}, std::string{\"tail\"});") !=
           std::string::npos);
-  REQUIRE(cpp.code.find("sink(std::string{\"ignored\"});") != std::string::npos);
+  REQUIRE(cpp.code.find("static_cast<void>(sink(std::string{\"ignored\"}));") != std::string::npos);
   REQUIRE(cpp.code.find("ans = sink") == std::string::npos);
   for (const auto* result : {&javascript, &cpp}) {
     for (const auto line : {1U, 3U, 5U, 7U, 9U, 11U}) {
@@ -951,7 +951,7 @@ TEST_CASE("Fortran functions subroutines recursion and CALL lower through both b
   REQUIRE(cpp.code.find("std::int64_t factorial(const T0& n);") != std::string::npos);
   REQUIRE(cpp.code.find("void countdown(const T0& value);") != std::string::npos);
   REQUIRE(cpp.code.find("auto announce(const T0& value)") != std::string::npos);
-  REQUIRE(cpp.code.find("announce(42);") != std::string::npos);
+  REQUIRE(cpp.code.find("static_cast<void>(announce(42));") != std::string::npos);
 }
 
 TEST_CASE("Fortran procedure misuse fails closed before target emission") {

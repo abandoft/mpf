@@ -1706,9 +1706,11 @@ class Renderer final {
         output_ << "continue;\n";
         break;
       case cpp::lir::StatementForm::expression:
+      case cpp::lir::StatementForm::implicit_result_discard:
         indentation();
+        output_ << "static_cast<void>(";
         emit_expression(statement.expression);
-        output_ << ";\n";
+        output_ << ");\n";
         break;
       case cpp::lir::StatementForm::implicit_result_value:
         indentation();
@@ -1717,11 +1719,6 @@ class Renderer final {
           output_ << ".value()";
         }
         output_ << " = ";
-        emit_expression(statement.expression);
-        output_ << ";\n";
-        break;
-      case cpp::lir::StatementForm::implicit_result_discard:
-        indentation();
         emit_expression(statement.expression);
         output_ << ";\n";
         break;
