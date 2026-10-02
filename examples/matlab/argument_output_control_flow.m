@@ -35,6 +35,21 @@ catch exception
     disp(exception.message);
 end
 
+[partial_first, partial_second] = triple();
+disp(partial_first);
+disp(partial_second);
+try
+    selected = unrequested_failure();
+    disp(selected);
+catch exception
+    disp(exception.message);
+end
+try
+    unrequested_failure();
+catch exception
+    disp(exception.message);
+end
+
 function output = invalid_early()
     arguments (Output)
         output (1,1) logical {mustBeNonzero}
@@ -46,6 +61,26 @@ function output = invalid_early()
         disp(111);
     end
     output = 1;
+end
+
+function [first, second, third] = triple()
+    arguments (Output)
+        first (1,1) double {mustBePositive}
+        second (1,1) logical {mustBeNonzero}
+        third (1,2) double {mustBePositive}
+    end
+    first = 4;
+    second = 2;
+    third = [8,9];
+end
+
+function [first, second] = unrequested_failure()
+    arguments (Output)
+        first (1,1) double {mustBePositive}
+        second (1,1) double {mustBePositive}
+    end
+    first = 4;
+    second = -1;
 end
 
 function [first, second] = pair(early)

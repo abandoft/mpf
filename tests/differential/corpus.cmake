@@ -43,7 +43,7 @@ mpf_add_differential_case(
   "2 3 1 1 1 2 6 4 4 1 0 1 2 3 1 2 3 3 0 0")
 mpf_add_differential_case(
   matlab-argument-output-control-flow matlab examples/matlab/argument_output_control_flow.m
-  "999 6 1 2 1 1 12 998 MPF:Body 7 1 6 MPF Matlab argument 'first' failed mustBePositive")
+  "999 6 1 2 1 1 12 998 MPF:Body 7 1 6 MPF Matlab argument 'first' failed mustBePositive 4 1 MPF Matlab argument 'second' failed mustBePositive MPF Matlab argument 'second' failed mustBePositive")
 mpf_add_differential_case(
   matlab-argument-default-functions matlab examples/matlab/argument_default_functions.m
   "111 222 7 222 11 13")
