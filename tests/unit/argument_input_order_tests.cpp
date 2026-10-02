@@ -65,8 +65,10 @@ cpp::lir::Statement& checked(cpp::lir::SemanticProgram& program) {
 TEST_CASE("MIR fixes Matlab conversion execution to callee entry independently of target") {
   const auto pristine = lower(source);
   REQUIRE(dump_mir(pristine).find("boundary-execution=1") != std::string::npos);
-  for (const auto execution :
-       {ArgumentBoundaryExecution::none, static_cast<ArgumentBoundaryExecution>(255U)}) {
+  // Malformed IR must be rejected; this intentionally constructs an unknown wire value.
+  // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
+  const auto corrupt_execution = static_cast<ArgumentBoundaryExecution>(255U);
+  for (const auto execution : {ArgumentBoundaryExecution::none, corrupt_execution}) {
     auto invalid = pristine;
     auto call = std::find_if(invalid.calls.begin(), invalid.calls.end(), [](const auto& entry) {
       return !entry.arguments.empty() && entry.arguments.front().boundary.execution ==
