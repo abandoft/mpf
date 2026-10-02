@@ -159,6 +159,12 @@ void dump_target_expression(std::ostream& output, const Expression& expression,
   }
   output << "] value " << std::quoted(expression.value);
   output << " logical-evaluation " << static_cast<int>(expression.logical_evaluation);
+  if (expression.output_demand.active())
+    output << " output-demand " << static_cast<unsigned>(expression.output_demand.form) << ':'
+           << expression.output_demand.count << ':' << expression.output_demand.implicit_result
+           << " output-invocation " << static_cast<unsigned>(expression.plan.output_invocation.form)
+           << ':' << expression.plan.output_invocation.count << ':'
+           << expression.plan.output_invocation.implicit_result;
   output << " plan " << static_cast<int>(expression.plan.form) << " precedence "
          << expression.plan.precedence << " token " << std::quoted(expression.plan.token)
          << " call " << static_cast<int>(expression.plan.call) << " evaluation "
@@ -693,7 +699,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v59 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v60 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

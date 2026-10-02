@@ -227,7 +227,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v39 hir-nodes=" << table.hir_node_count
+  output << "semantic-v40 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -251,6 +251,9 @@ std::string dump_semantics(const hir::SemanticTable& table) {
       }
       output << "] outputs=" << facts.requested_outputs
              << " logical-evaluation=" << enum_value(facts.logical_evaluation);
+      if (facts.output_demand.active())
+        output << " demand=" << enum_value(facts.output_demand.form) << ':'
+               << facts.output_demand.count << ':' << facts.output_demand.implicit_result;
       if (!facts.index_selectors.empty()) {
         output << " selectors=[";
         for (std::size_t selector = 0; selector < facts.index_selectors.size(); ++selector) {
@@ -507,7 +510,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v49 language=" << enum_value(program.source_language)
+  output << "mir-v50 language=" << enum_value(program.source_language)
          << " version=" << program.semantics.language_version.major << '.'
          << program.semantics.language_version.minor << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
@@ -541,6 +544,10 @@ std::string dump_mir(const mir::Program& program) {
              << " logical-evaluation=" << enum_value(attributes->logical_evaluation)
              << " tuple-shapes=";
       dump_ids(output, attributes->tuple_shapes, "!s");
+      if (attributes->output_demand.active())
+        output << " demand=" << enum_value(attributes->output_demand.form) << ':'
+               << attributes->output_demand.count << ':'
+               << attributes->output_demand.implicit_result;
       if (attributes->unary_operation != UnaryOperator::none) {
         output << " unary=" << enum_value(attributes->unary_operation);
       }
@@ -1001,8 +1008,11 @@ std::string dump_mir(const mir::Program& program) {
       dump_storage_region(output, argument.region);
       output << '}';
     }
-    output << "] result=!t" << call.result_type.value() << " requested=" << call.requested_results
-           << " origin=%h" << call.origin.value() << '\n';
+    output << "] result=!t" << call.result_type.value() << " requested=" << call.requested_results;
+    if (call.output_demand.active())
+      output << " demand=" << enum_value(call.output_demand.form) << ':' << call.output_demand.count
+             << ':' << call.output_demand.implicit_result;
+    output << " origin=%h" << call.origin.value() << '\n';
   }
   return output.str();
 }

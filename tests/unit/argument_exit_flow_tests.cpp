@@ -481,7 +481,7 @@ TEST_CASE(
 TEST_CASE("MIR and target dumps expose shared output control storage and provenance") {
   const auto program = lower();
   const auto dump = dump_mir(program);
-  REQUIRE(dump.find("mir-v49") != std::string::npos);
+  REQUIRE(dump.find("mir-v50") != std::string::npos);
   REQUIRE(dump.find("argument-exit owner=") != std::string::npos);
   REQUIRE(dump.find("return-source origin=") != std::string::npos);
   REQUIRE(dump.find("argument-output ordinal=0 workspace=") != std::string::npos);
@@ -493,7 +493,7 @@ TEST_CASE("MIR and target dumps expose shared output control storage and provena
   dump_target_lir_body(javascript_dump, javascript, "javascript");
   dump_target_lir_body(cpp_dump, cpp, "cpp");
   for (const auto& target : {javascript_dump.str(), cpp_dump.str()}) {
-    REQUIRE(target.find("semantic-lir-v59") != std::string::npos);
+    REQUIRE(target.find("semantic-lir-v60") != std::string::npos);
     REQUIRE(target.find("argument-exit-abi ") != std::string::npos);
     REQUIRE(target.find("argument-return-exit ^b") != std::string::npos);
     REQUIRE(target.find(":workspace=!m") != std::string::npos);
