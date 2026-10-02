@@ -193,6 +193,26 @@ class Renderer final {
     output_ << ");\n";
   }
 
+  void emit_argument_input(const cpp::lir::ArgumentInputPlan& plan) {
+    switch (plan.form) {
+      case cpp::lir::ArgumentInputForm::direct: output_ << plan.raw_name; return;
+      case cpp::lir::ArgumentInputForm::matlab_double:
+        output_ << "mpf_runtime::convert_argument_double<";
+        break;
+      case cpp::lir::ArgumentInputForm::matlab_logical:
+        output_ << "mpf_runtime::convert_argument_logical<";
+        break;
+      case cpp::lir::ArgumentInputForm::matlab_size:
+        output_ << "mpf_runtime::convert_argument_size<";
+        break;
+      case cpp::lir::ArgumentInputForm::none:
+        throw std::logic_error("verified cpp argument has no input materialization plan");
+    }
+    output_ << plan.rank << ">(" << plan.raw_name << ", ";
+    emit_argument_dimensions(plan.dimensions);
+    output_ << ')';
+  }
+
   void emit_input_argument_validations(const Statement& statement) {
     for (std::size_t validation = 0U; validation < statement.argument_validations.size();
          ++validation) {
@@ -203,9 +223,33 @@ class Renderer final {
                                                 ? statement.parameter_symbols[plan.ordinal]
                                                 : SymbolId{},
                                             statement.parameters[plan.ordinal]);
-      const bool optional = plan.ordinal < statement.function_abi.parameters.size() &&
-                            statement.function_abi.parameters[plan.ordinal].passing ==
-                                cpp::lir::ParameterPassing::optional_reference;
+      const auto passing = statement.function_abi.parameters[plan.ordinal].passing;
+      const bool optional = passing == cpp::lir::ParameterPassing::optional_reference ||
+                            passing == cpp::lir::ParameterPassing::matlab_raw_optional_input;
+      const auto& input = statement.plan.argument_inputs[validation];
+      if (passing == cpp::lir::ParameterPassing::matlab_raw_input) {
+        mark({plan.line, 1U}, statement.origin);
+        indentation();
+        output_ << "auto " << parameter << " = ";
+        emit_argument_input(input);
+        output_ << ";\n";
+      } else if (passing == cpp::lir::ParameterPassing::matlab_raw_optional_input) {
+        mark({plan.line, 1U}, statement.origin);
+        indentation();
+        output_ << "mpf_runtime::optional_argument<" << input.concrete_type << "> " << parameter
+                << "(std::nullopt);\n";
+        indentation();
+        output_ << "if constexpr (!std::is_same_v<std::decay_t<" << input.template_type
+                << ">, std::nullopt_t>) {\n";
+        ++indent_;
+        indentation();
+        output_ << parameter << ".resolve([&]() { return ";
+        emit_argument_input(input);
+        output_ << "; });\n";
+        --indent_;
+        indentation();
+        output_ << "}\n";
+      }
       const auto& default_flow = statement.plan.default_flows[validation];
       if (default_flow.form == cpp::lir::ParameterDefaultForm::optional_resolve) {
         mark({plan.line, 1U}, default_flow.source.source);
@@ -709,8 +753,10 @@ class Renderer final {
       const auto* argument_plan = plan_index < expression.plan.call_arguments.size()
                                       ? &expression.plan.call_arguments[plan_index]
                                       : nullptr;
-      const auto converted = argument_plan != nullptr &&
-                             argument_plan->boundary.conversion != ArgumentBoundaryConversion::none;
+      const auto converted =
+          argument_plan != nullptr &&
+          argument_plan->boundary_form != cpp::lir::CallBoundaryForm::matlab_callee_entry &&
+          argument_plan->boundary.conversion != ArgumentBoundaryConversion::none;
       if (converted) {
         switch (argument_plan->boundary.class_constraint) {
           case ArgumentClassConstraint::matlab_double:
@@ -753,6 +799,21 @@ class Renderer final {
     }
     emit_direct_call(expression, replacements);
     if (expression.plan.call_value == cpp::lir::CallValueForm::first_tuple_result) output_ << ')';
+  }
+
+  void emit_ordered_call(const Expression& expression) {
+    std::vector<std::string> arguments(expression.children.size());
+    output_ << "([&]() { ";
+    for (std::size_t index = 1U; index < expression.children.size(); ++index) {
+      arguments[index] =
+          temporary(expression.id, cpp::lir::TemporaryRole::call_argument, index - 1U);
+      output_ << "auto " << arguments[index] << " = ";
+      emit_expression(expression.children[index]);
+      output_ << "; ";
+    }
+    output_ << "return ";
+    emit_call_value(expression, &arguments);
+    output_ << "; })()";
   }
 
   void emit_section_reference_call(const Expression& expression) {
@@ -801,6 +862,10 @@ class Renderer final {
     if (expression.plan.form == cpp::lir::ExpressionForm::call) {
       if (expression.plan.evaluation == cpp::lir::EvaluationForm::copy_call_reference_lambda_iife) {
         emit_section_reference_call(expression);
+      } else if (expression.plan.evaluation ==
+                     cpp::lir::EvaluationForm::ordered_call_reference_lambda_iife &&
+                 !type_probe_) {
+        emit_ordered_call(expression);
       } else {
         emit_call_value(expression);
       }
@@ -1166,6 +1231,10 @@ class Renderer final {
         if (parameter.template_parameter.empty()) continue;
         if (!first) output_ << ", ";
         output_ << "typename " << parameter.template_parameter;
+        if (emit_defaults &&
+            parameter.passing == cpp::lir::ParameterPassing::matlab_raw_optional_input) {
+          output_ << " = std::nullopt_t";
+        }
         first = false;
       }
       output_ << ">\n";
@@ -1176,6 +1245,15 @@ class Renderer final {
     for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
       if (index != 0) output_ << ", ";
       const auto& parameter = statement.function_abi.parameters[index];
+      if (parameter.passing == cpp::lir::ParameterPassing::matlab_raw_input ||
+          parameter.passing == cpp::lir::ParameterPassing::matlab_raw_optional_input) {
+        output_ << "const " << parameter.template_parameter << "& " << parameter.raw_name;
+        if (emit_defaults &&
+            parameter.passing == cpp::lir::ParameterPassing::matlab_raw_optional_input) {
+          output_ << " = std::nullopt";
+        }
+        continue;
+      }
       if (parameter.passing == cpp::lir::ParameterPassing::optional_reference) {
         output_ << "mpf_runtime::optional_argument<" << parameter.concrete_type << "> "
                 << mangler_->name(index < statement.parameter_symbols.size()

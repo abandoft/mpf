@@ -7,6 +7,7 @@
 #include <string_view>
 #include <utility>
 
+#include "argument_input_plan.hpp"
 #include "backends/common/parameter_default_source.hpp"
 #include "backends/common/source_segments.hpp"
 #include "backends/cpp/argument_validation_plan.hpp"
@@ -1190,11 +1191,16 @@ lir::ExpressionPlan expected_expression_plan(
         }
       }
       result.call_arguments.reserve(expression.argument_transfers.size());
+      if (requires_ordered_matlab_call(expression, source_language)) {
+        result.evaluation = lir::EvaluationForm::ordered_call_reference_lambda_iife;
+      }
       for (std::size_t index = 0U; index < expression.argument_transfers.size(); ++index) {
         const auto transfer = expression.argument_transfers[index];
         lir::CallArgumentPlan argument;
         if (index < expression.argument_boundaries.size()) {
           argument.boundary = expression.argument_boundaries[index];
+          if (argument.boundary.execution == ArgumentBoundaryExecution::matlab_callee_entry)
+            argument.boundary_form = lir::CallBoundaryForm::matlab_callee_entry;
         }
         if (argument_transfer_forwards_optional(transfer)) {
           argument.form = lir::CallArgumentForm::forward_optional;
@@ -1367,7 +1373,7 @@ bool same_comparison(const lir::ComparisonPlan& left, const lir::ComparisonPlan&
 bool same_call_argument(const lir::CallArgumentPlan& left,
                         const lir::CallArgumentPlan& right) noexcept {
   return left.form == right.form && left.writeback == right.writeback &&
-         left.boundary == right.boundary;
+         left.boundary_form == right.boundary_form && left.boundary == right.boundary;
 }
 
 bool same_plan(const lir::ExpressionPlan& left, const lir::ExpressionPlan& right) noexcept {
@@ -1879,6 +1885,7 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
   result.valid = true;
   result.argument_validators = plan_argument_validators(statement);
   result.default_flows = plan_parameter_defaults(statement);
+  result.argument_inputs = plan_argument_inputs(statement);
   result.argument_defaults.reserve(statement.argument_validations.size());
   for (const auto& validation : statement.argument_validations) {
     auto form = lir::ArgumentDefaultForm::none;
@@ -2095,6 +2102,7 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
       left.assignment_leaves.size() != right.assignment_leaves.size() ||
       left.selectors != right.selectors || left.return_names != right.return_names ||
       left.argument_defaults != right.argument_defaults ||
+      left.argument_inputs != right.argument_inputs ||
       left.argument_validators != right.argument_validators ||
       left.default_flows != right.default_flows) {
     return false;
@@ -2112,8 +2120,10 @@ AccessContext function_context(const lir::Statement& statement) {
   result.reserve(statement.parameters.size());
   for (std::size_t index = 0; index < statement.parameters.size(); ++index) {
     const auto access = index < statement.function_abi.parameters.size() &&
-                                statement.function_abi.parameters[index].passing ==
-                                    lir::ParameterPassing::optional_reference
+                                (statement.function_abi.parameters[index].passing ==
+                                     lir::ParameterPassing::optional_reference ||
+                                 statement.function_abi.parameters[index].passing ==
+                                     lir::ParameterPassing::matlab_raw_optional_input)
                             ? lir::VariableAccess::optional_value
                             : lir::VariableAccess::direct;
     result.emplace_back(statement.parameters[index], access);

@@ -5,6 +5,7 @@
 #include <string>
 #include <utility>
 
+#include "argument_input_plan.hpp"
 #include "backends/common/identifier_mangler.hpp"
 #include "function_dependencies.hpp"
 #include "mpf/version.hpp"
@@ -527,6 +528,9 @@ bool same_scope(const lir::ScopePlan& left, const lir::ScopePlan& right) noexcep
 
 const char* temporary_stem(const lir::TemporaryRole role) noexcept {
   switch (role) {
+    case lir::TemporaryRole::matlab_input_type: return "input_type";
+    case lir::TemporaryRole::matlab_raw_input: return "raw_input";
+    case lir::TemporaryRole::call_argument: return "call_argument";
     case lir::TemporaryRole::comparison_operand: return "comparison";
     case lir::TemporaryRole::section_argument: return "section_reference";
     case lir::TemporaryRole::call_result: return "call_result";
@@ -556,6 +560,10 @@ void add_temporary(lir::SemanticProgram& program, std::set<std::string>& used, c
 void plan_expression_temporaries(lir::SemanticProgram& program, const lir::Expression& expression,
                                  std::set<std::string>& used) {
   if (!expression.valid()) return;
+  if (requires_ordered_matlab_call(expression, program.source_language)) {
+    for (std::size_t index = 1U; index < expression.children.size(); ++index)
+      add_temporary(program, used, expression.id, lir::TemporaryRole::call_argument, index - 1U);
+  }
   if (expression.kind == ExpressionKind::comparison_chain ||
       (expression.kind == ExpressionKind::binary &&
        expression.comparison != ComparisonOperator::none)) {
@@ -583,6 +591,14 @@ void plan_statement_temporaries(lir::SemanticProgram& program,
                                 const std::vector<lir::Statement>& statements,
                                 std::set<std::string>& used) {
   for (const auto& statement : statements) {
+    if (program.source_language == SourceLanguage::matlab &&
+        has_matlab_input_validation(statement)) {
+      for (std::size_t parameter = 0U; parameter < statement.parameters.size(); ++parameter) {
+        add_temporary(program, used, statement.id, lir::TemporaryRole::matlab_input_type,
+                      parameter);
+        add_temporary(program, used, statement.id, lir::TemporaryRole::matlab_raw_input, parameter);
+      }
+    }
     if (statement.kind == StatementKind::select_case) {
       add_temporary(program, used, statement.id, lir::TemporaryRole::select_value);
     } else if (statement.kind == StatementKind::multi_assignment) {
@@ -628,6 +644,8 @@ void plan_function_abis(lir::SemanticProgram& program) {
     abi.forward_declarable = abi.recursive && explicit_return;
     abi.return_type = abi.forward_declarable ? std::move(explicit_type) : "auto";
     abi.parameters.reserve(statement.parameters.size());
+    const bool matlab_inputs =
+        program.source_language == SourceLanguage::matlab && has_matlab_input_validation(statement);
     for (std::size_t parameter = 0; parameter < statement.parameters.size(); ++parameter) {
       lir::ParameterAbi parameter_abi;
       parameter_abi.concrete_type = cpp_parameter_type(statement, parameter);
@@ -643,7 +661,16 @@ void plan_function_abis(lir::SemanticProgram& program) {
           });
       const bool concrete_argument = validation != statement.argument_validations.end() &&
                                      validation->class_constraint != ArgumentClassConstraint::none;
-      if (optional) {
+      if (matlab_inputs) {
+        parameter_abi.passing = optional ? lir::ParameterPassing::matlab_raw_optional_input
+                                         : lir::ParameterPassing::matlab_raw_input;
+        const auto* type = program.temporaries.find(
+            statement.id, lir::TemporaryRole::matlab_input_type, parameter);
+        const auto* raw =
+            program.temporaries.find(statement.id, lir::TemporaryRole::matlab_raw_input, parameter);
+        parameter_abi.template_parameter = type == nullptr ? std::string{} : *type;
+        parameter_abi.raw_name = raw == nullptr ? std::string{} : *raw;
+      } else if (optional) {
         parameter_abi.passing = lir::ParameterPassing::optional_reference;
       } else {
         if (!concrete_argument) {
@@ -718,6 +745,11 @@ void verify_expression_resources(const lir::SemanticProgram& program,
                                  std::vector<std::size_t>& expected, std::set<std::string>& names,
                                  std::vector<Diagnostic>& diagnostics) {
   if (!expression.valid()) return;
+  if (requires_ordered_matlab_call(expression, program.source_language)) {
+    for (std::size_t index = 1U; index < expression.children.size(); ++index)
+      require_temporary(program, expression.id, lir::TemporaryRole::call_argument, index - 1U,
+                        expected, names, diagnostics, expression.location);
+  }
   if (expression.kind == ExpressionKind::comparison_chain ||
       (expression.kind == ExpressionKind::binary &&
        expression.comparison != ComparisonOperator::none)) {
@@ -774,7 +806,20 @@ void verify_function_abi(const lir::SemanticProgram& program, const lir::Stateme
     const bool concrete_argument = validation != statement.argument_validations.end() &&
                                    validation->class_constraint != ArgumentClassConstraint::none;
     auto expected = lir::ParameterPassing::value;
-    if (optional) {
+    const bool matlab_inputs =
+        program.source_language == SourceLanguage::matlab && has_matlab_input_validation(statement);
+    if (matlab_inputs) {
+      expected = optional ? lir::ParameterPassing::matlab_raw_optional_input
+                          : lir::ParameterPassing::matlab_raw_input;
+      const auto* type =
+          program.temporaries.find(statement.id, lir::TemporaryRole::matlab_input_type, parameter);
+      const auto* raw =
+          program.temporaries.find(statement.id, lir::TemporaryRole::matlab_raw_input, parameter);
+      if (type == nullptr || raw == nullptr || actual.template_parameter != *type ||
+          actual.raw_name != *raw)
+        add_error(diagnostics, {statement.line, 1U},
+                  "cpp LIR raw input ABI has invalid temporary identities");
+    } else if (optional) {
       expected = lir::ParameterPassing::optional_reference;
     } else if (intent == ParameterIntent::in) {
       expected = lir::ParameterPassing::const_reference;
@@ -783,10 +828,11 @@ void verify_function_abi(const lir::SemanticProgram& program, const lir::Stateme
     }
     if (actual.passing != expected ||
         actual.concrete_type != cpp_parameter_type(statement, parameter) ||
-        (optional && !actual.template_parameter.empty()) ||
-        (!optional && !concrete_argument &&
+        (!matlab_inputs && !actual.raw_name.empty()) ||
+        (!matlab_inputs && optional && !actual.template_parameter.empty()) ||
+        (!matlab_inputs && !optional && !concrete_argument &&
          actual.template_parameter != "T" + std::to_string(parameter)) ||
-        (!optional && concrete_argument && !actual.template_parameter.empty())) {
+        (!matlab_inputs && !optional && concrete_argument && !actual.template_parameter.empty())) {
       add_error(diagnostics, {statement.line, 1}, "cpp LIR parameter passing ABI is inconsistent");
     }
   }
@@ -835,6 +881,15 @@ void verify_statement_resources(const lir::SemanticProgram& program,
       add_error(diagnostics, {statement.line, 1}, "cpp LIR return symbol contract is inconsistent");
     }
     if (statement.kind == StatementKind::function) {
+      if (program.source_language == SourceLanguage::matlab &&
+          has_matlab_input_validation(statement)) {
+        for (std::size_t parameter = 0U; parameter < statement.parameters.size(); ++parameter) {
+          require_temporary(program, statement.id, lir::TemporaryRole::matlab_input_type, parameter,
+                            expected, names, diagnostics, {statement.line, 1U});
+          require_temporary(program, statement.id, lir::TemporaryRole::matlab_raw_input, parameter,
+                            expected, names, diagnostics, {statement.line, 1U});
+        }
+      }
       if (!statement.function_abi.valid) {
         add_error(diagnostics, {statement.line, 1}, "cpp LIR function is missing its ABI plan");
       }
@@ -931,14 +986,14 @@ void plan_lir_resources(lir::SemanticProgram& program, const TranspileOptions& o
   program.temporaries.slots.clear();
   program.program_scope = expected_scope(program.statements, program.emission.lexical_block_scopes);
   auto used = program.identifiers.used;
-  plan_function_abis(program);
   plan_scopes(program, program.statements);
-  plan_translation_unit(program, options);
   plan_statement_temporaries(program, program.statements, used);
   while (program.temporaries.offsets.size() <= program.node_count + 1U) {
     program.temporaries.offsets.push_back(
         static_cast<std::uint32_t>(program.temporaries.slots.size()));
   }
+  plan_function_abis(program);
+  plan_translation_unit(program, options);
 }
 
 void verify_lir_resources(const lir::SemanticProgram& program,

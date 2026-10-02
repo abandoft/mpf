@@ -401,7 +401,7 @@ TEST_CASE("Matlab arguments lower defaults conversion validation and output cont
   REQUIRE(javascript.code.find("output = __mpf_validate_argument(output, \"output\", \"output\", "
                                "[1, -1], 1, [4], 2);") != std::string::npos);
 
-  REQUIRE(cpp.code.find("mpf_runtime::optional_argument<double> factor = std::nullopt") !=
+  REQUIRE(cpp.code.find("mpf_runtime::optional_argument<double> factor(std::nullopt)") !=
           std::string::npos);
   REQUIRE(cpp.code.find("#include <complex>") != std::string::npos);
   REQUIRE(

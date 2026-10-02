@@ -23,9 +23,12 @@ std::vector<std::vector<lir::ValidatorCallPlan>> plan_argument_validators(
         if (operand.kind == ArgumentValidatorOperandKind::numeric_literal) {
           planned.token = operand.numeric_literal;
         } else {
-          planned.form = operand.input_ordinal < statement.function_abi.parameters.size() &&
-                                 statement.function_abi.parameters[operand.input_ordinal].passing ==
-                                     lir::ParameterPassing::optional_reference
+          const auto passing =
+              operand.input_ordinal < statement.function_abi.parameters.size()
+                  ? statement.function_abi.parameters[operand.input_ordinal].passing
+                  : lir::ParameterPassing::value;
+          planned.form = passing == lir::ParameterPassing::optional_reference ||
+                                 passing == lir::ParameterPassing::matlab_raw_optional_input
                              ? lir::ValidatorOperandForm::optional_parameter_value
                              : lir::ValidatorOperandForm::parameter_value;
           if (validator.validator == ArgumentValidator::in_range) {
