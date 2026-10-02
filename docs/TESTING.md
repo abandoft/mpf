@@ -54,7 +54,7 @@ expansion、row/column reshape、23 个无参数 validator、source map、JavaSc
 编译、runtime rejection、fuzz seed 和独立性能 workload 共同覆盖当前纵切面。name-value、
 Repeating、parameterized/custom validator 与动态 rank/class ABI 继续使用负向测试保持失败关闭。
 
-后续开发分支的关系 validator 使用 Matlab AST v9、Semantic v40、MIR v50 与双目标 LIR v60。
+后续开发分支的关系 validator 使用 Matlab AST v10、Semantic v41、MIR v51 与双目标 LIR v61。
 定向测试覆盖四种比较、literal/前序 input/output reference、optional access、source map，以及
 literal/ordinal/formal shape 和目标 opcode/token/symbol/access form 的独立损坏拒绝。双目标
 执行覆盖 strict/非 strict 边界、complex-zero-imag storage、NaN threshold 和首错顺序；另以
@@ -89,9 +89,26 @@ input threshold/body exception region，沿用 250 ms 的专项延迟上限、8 
 MIR call-site 与 selected-value arity、优化保持、两端私有 invocation/discard form、source map
 与确定性输出；HIR/MIR 和两端 owned-source 的镜像污染即使 replanning 也必须拒绝。
 `output_demand.m` 固定无 receiver 调用仍执行 IO、default 按需求值、命令 `ans`、正文异常
-及已赋值未接收输出的验证，另进入严格 C++ 编译与 fuzz。只在 caller 省略无用投影，
-不宣称 callee `nargout` 已支持。校验触发条件已有官方文档依据；条件缺失值、callee
-需求 ABI/忽略位与 R2024 执行对照仍须验收。
+及已赋值未接收输出的验证，另进入严格 C++ 编译与 fuzz。
+`invocation_context_tests.cpp` 验证独立 typed frame、logical signature/default ordinal 隔离、
+0/1/N call immediate、纯 query、优化 remap、collision-safe identity、两端不同 ABI 类型、
+source map/确定性和 query/frame/call/private-plan 的独立损坏拒绝（包括 replanning）。
+`matlab_bare_call_tests.cpp` 验证 parser 延后、post-binding reindex、default input、跨 scope
+同名参数、expression/callee 区分、required arity 和 fixed point。`invocation_context.m`
+在 Node/严格 C++17 中执行 statement/bare/表达式/多接收、default、递归 frame 隔离与源
+同名 formal；声明式 oracle 不等于 Matlab 官方运行差分。新增第 49 项性能场景覆盖
+32 个函数的 0/1/2 需求、默认值 query 与输出验证，保留现有所有场景预算。
+校验触发条件已有官方文档依据；条件缺失值、忽略位、完整 `ans` 与 R2024 执行对照
+仍须验收。
+
+libFuzzer 模式将 production core、启用的 backend 和 facade 以
+`fuzzer-no-link,address,undefined` 插桩，不能仅给 driver 加 coverage counters。
+`prepare_corpus.cmake` 为每个文本 seed 生成两个目标的两字节 framed payload，独立
+`mpf.fuzz.corpus-contract` 逐字节复核并拒绝写入 source corpus；具体构建/重放格式见
+[fuzz 指南](../tests/fuzz/README.md)。旧的未插桩库或未 framing 的 1,000 次 driver 运行
+不能作为生产编译路径 fuzz 验收证据。
+Memory Safety workflow 独立执行固定 seed 的 coverage-guided fuzz job；其 required
+聚合同时要求 ASan/UBSan 与真实插桩的 libFuzzer 成功，Release 复用同一门禁。
 
 Analyzer 生命周期回归测试主动收紧 expression side-table capacity，再通过 Matlab 默认参数的
 嵌套 call、scalar/multi-axis selector、slice bound、indexed mutation、Python tuple/default
@@ -152,14 +169,16 @@ availability。catalog 的全部 28 项逆映射、未知
 `generated_toolchain.cmake`，继承主构建的 compiler/generator/platform/toolset 与显式 macOS
 deployment target。后者同时进入 CMake cache 和 compiler-identification 子进程环境；contract
 测试验证带空格的 compiler/generator、完整参数与空参数不污染既有环境。GCC macOS 回归不依赖
-测试调用方额外导出 deployment 环境变量。
+测试调用方额外导出 deployment 环境变量。安装消费测试同样继承 compiler/generator/
+deployment target，避免用 Clang/libc++ 链接 GCC/libstdc++ 包造成测试自身的 ABI 混用；
+执行路径同时覆盖 single-config 和 multi-config generator。
 
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 442 项，零失败 |
-| CTest | 当前 dev preset 为 215 项普通测试；包含 126 项 differential、1 项 C++ 单元/集成、64 项生成 runtime 拒绝、11 项生成 C++ 编译，以及 fuzz、架构、发布脚本、失败性能报告、格式工具合同、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
-| Differential corpus | Python 22、Fortran 19、Matlab 81、TypeScript 4，共 126 个 case |
-| 工具完整环境执行路径 | 297 条程序路径，另有每 case 一条 oracle |
+| C++ 单元与集成测试 | 460 项，零失败 |
+| CTest | 当前 dev preset 为 218 项普通测试；包含 127 项 differential、1 项 C++ 单元/集成、64 项生成 runtime 拒绝、12 项生成 C++ 编译，以及 fuzz、架构、发布脚本、失败性能报告、格式工具合同、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
+| Differential corpus | Python 22、Fortran 19、Matlab 82、TypeScript 4，共 127 个 case |
+| 工具完整环境执行路径 | 299 条程序路径，另有每 case 一条 oracle |
 | 生产代码行覆盖率 | 硬门槛 85%；当前结果以 `coverage-report` workflow artifact 为准 |
 
 ## Differential corpus
@@ -168,10 +187,10 @@ deployment target。后者同时进入 CMake cache 和 compiler-identification �
 
 - 22 个 Python case：CPython 3.14、Node.js、生成 C++17 与 oracle 四路比较；
 - 19 个 Fortran case：gfortran 严格 `-std=f2018` reference mode、Node.js、生成 C++17 与 oracle 四路比较；`MPF_FORTRAN_REFERENCE_STANDARD` 可在工具链支持后切换到 `f2023`；
-- 81 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较；
+- 82 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较；
 - 4 个 TypeScript case：Node.js 24 直接执行可擦除类型的 source、生成 JavaScript、生成 C++17 与声明式 oracle 四路比较；覆盖 basic、typed array、lexical block 和 canonical `for`，完整 type-check 仍待接入与 manifest 匹配的 `tsc`。
 
-在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 126 个 case 共执行 297 条程序输出路径：126 条生成 JavaScript/Node.js、126 条生成 C++17、22 条 CPython、19 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。Matlab `arguments.m` 固定 input/output、class/validator、ordered default、logical/char/empty validator 语义与 R2024b variable-name 成功路径，`argument_conversion.m` 固定 N 维 scalar expansion、column-to-row reshape，以及前序参数完成 logical conversion 后才求值的 default。`argument_default_control_flow.m` 固定 supplied/omitted/empty、默认值的 IO/异常/嵌套短路，以及 logical scalar/array 的 class conversion/validation；C++ runtime 需将 `vector<bool>` proxy 还原为实际 scalar 再转换/检查，不能依赖 libc++/libstdc++ 的 proxy 类型一致。其余 matrix/sparse/control/exception/dynamic-assignment corpus 继续固定各自已记录合同；所有 case 均执行两个目标 runtime。64 项 runtime-rejection 测试另覆盖 complex-storage realness、非法/超长变量名和既有 shape/broadcast/division/mutation/sparse ABI 污染边界。
+在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 127 个 case 共执行 299 条程序输出路径：127 条生成 JavaScript/Node.js、127 条生成 C++17、22 条 CPython、19 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。Matlab `arguments.m` 固定 input/output、class/validator、ordered default、logical/char/empty validator 语义与 R2024b variable-name 成功路径，`argument_conversion.m` 固定 N 维 scalar expansion、column-to-row reshape，以及前序参数完成 logical conversion 后才求值的 default。`argument_default_control_flow.m` 固定 supplied/omitted/empty、默认值的 IO/异常/嵌套短路，以及 logical scalar/array 的 class conversion/validation；C++ runtime 需将 `vector<bool>` proxy 还原为实际 scalar 再转换/检查，不能依赖 libc++/libstdc++ 的 proxy 类型一致。其余 matrix/sparse/control/exception/dynamic-assignment corpus 继续固定各自已记录合同；所有 case 均执行两个目标 runtime。64 项 runtime-rejection 测试另覆盖 complex-storage realness、非法/超长变量名和既有 shape/broadcast/division/mutation/sparse ABI 污染边界。
 
 `shape_mutation.m` 额外固定 dense direct alias 与 local-function 参数在 growth/write 后仍保持 Matlab value semantics；`complex_sparse_storage.m` 同时固定 sparse copy 在 assignment/growth/zero erase 后通过 immutable root replacement 隔离旧 alias。
 
@@ -209,11 +228,15 @@ Clang 环境可运行覆盖引导 fuzz：
 ```sh
 cmake -S . -B build/fuzz -DMPF_BUILD_FUZZERS=ON -DCMAKE_CXX_COMPILER=clang++
 cmake --build build/fuzz --target mpf-transpiler-fuzzer
-cmake -E copy_directory tests/fuzz/corpus build/fuzz/corpus
-build/fuzz/tests/mpf-transpiler-fuzzer build/fuzz/corpus
+cmake -DSOURCE_DIR="$PWD" -DCORPUS_DIR="$PWD/build/fuzz/framed-corpus" \
+  -P tests/fuzz/prepare_corpus.cmake
+build/fuzz/tests/mpf-transpiler-fuzzer build/fuzz/framed-corpus \
+  -runs=1000 -seed=420800 -max_len=4096 -artifact_prefix=build/fuzz/
 ```
 
-崩溃输入可直接交给 smoke runner 重放，或使用 libFuzzer `-minimize_crash=1` 最小化；具体命令见 [`tests/fuzz/README.md`](../tests/fuzz/README.md)。
+framed libFuzzer 崩溃输入直接交给同一 driver 重放或用 `-minimize_crash=1` 最小化；
+smoke runner 使用原始 language-directory 文本格式，不能混用。具体命令见
+[`tests/fuzz/README.md`](../tests/fuzz/README.md)。
 
 ## 性能门禁
 
@@ -228,7 +251,7 @@ benchmark stdout 在门禁比较前保存到 `performance-report.json`，阈值�
 fixture 检查通过、延迟拒绝和版本拒绝均逐字节保存报告；fixture 从不进入实际 benchmark
 或 Release 性能验收。生产门禁仍只执行 `mpf-benchmark` 与当前精确版本 baseline。
 
-`mpf.performance.release-gate` 运行两个目标的四十八类编译场景和八路并发 session，重复编译还会逐字节比较代码与 source map。场景覆盖 small、吞吐、深 CFG、大 shape、函数图、TypeScript 吞吐、128 个同根交错 section 调用的 storage-region 分析、branch/loop/index-write memory-dependence fixed point，以及 Matlab return/command、数组、N 维 tensor、logical kernel、logical reduction kernel、矩阵 solve/power、rank-aware/秩亏 solve、condition-aware、diagonal/upper/lower/dense 与 pivoted-tridiagonal/Cholesky/对称不定回退结构感知方阵 solve、动态 `end`、runtime-shape broadcast、shape mutation、dynamic section assignment、empty-array、complex scalar/array、complex square matrix、complex rectangular CPQR、sparse CSC square-solve、sparse matrix-product、sparse scalar-product、sparse element-wise product、sparse arithmetic、sparse square-power、sparse-index、sparse-assignment、sparse-reshape、logical-sparse storage、complex sparse storage lifecycle、sparse-logical operator、argument-validation、前向 default-call 函数链及 exception-object kernel。sparse-product workload 同时覆盖三种 storage 组合；sparse-elementwise workload 覆盖五种 operand form 和双轴广播；sparse-arithmetic workload 覆盖 sparse-sparse `+`/`-`、两类 mixed dense 路径、双向 scalar、row/column/outer expansion 与重复 sparse result；complex-sparse-arithmetic workload 进一步覆盖 complex CSC、mixed real dense、双向 complex scalar、complex row/column expansion 与 value-domain promotion；complex-sparse-multiply workload 覆盖三种 CSC/dense storage 组合、real/logical promotion、零 extent、canonical complex CSC 与重复乘法；sparse-power workload 覆盖 real/logical CSC base、正整数/零次幂、identity、logical promotion 与重复乘法；sparse-logical workload 覆盖 NOT、sparse/dense AND、sparse-sparse/mixed OR、row-column broadcast、scalar 和 storage materialization；sparse-reduction workload 覆盖 numeric/logical CSC 的按列、按行、全维、高于 rank 与零 extent 归约；sparse-reshape workload 覆盖 size vector、推断维度、N 维请求折叠与反复 shape 恢复；sparse-solve workload 同时覆盖 zero/inferred/sized/reserved triplet construction、duplicate accumulation、full/sparse transpose、零维系数、dense/CSC RHS/LHS 与四种 shaped-empty 左右除；logical-sparse workload 覆盖 logical dense/triplet construction、duplicate `any` 及完整 storage lifecycle；dynamic-section-assignment workload 覆盖 runtime scalar/numeric/logical/range selector、线性/多维覆盖与增长、三维页扩容和失败回滚。Matlab 四十个场景另有独立的最大延迟、最低吞吐和最大产物预算，避免被全局宽阈值掩盖。结果写入 `build/<preset>/performance-report.json`，并由 [`tests/performance/baseline.json`](../tests/performance/baseline.json) 的精确当前版本上限/下限检查延迟、吞吐、峰值 arena 和最大生成大小；performance schema v3 还允许为已命名的重型场景设置独立覆盖值；当前 sparse-index/sparse-assignment/sparse-reshape/sparse-multiply/sparse-scale/sparse-elementwise/sparse-arithmetic/complex-sparse-arithmetic/complex-sparse-multiply/sparse-power/logical-sparse/complex-sparse/sparse-logical/sparse-reduction 覆盖不会放宽其余 Matlab 场景阈值，也不读取旧版本 baseline。性能 workflow 显式运行独立 `mpf-performance` 目标并归档机器可读报告；该非插桩门禁不在普通 CTest、coverage 或 ASan/UBSan 测试集中重复执行，避免重型测试争抢 CPU 后制造伪回归。
+`mpf.performance.release-gate` 运行两个目标的四十九类编译场景和八路并发 session，重复编译还会逐字节比较代码与 source map。场景覆盖 small、吞吐、深 CFG、大 shape、函数图、TypeScript 吞吐、128 个同根交错 section 调用的 storage-region 分析、branch/loop/index-write memory-dependence fixed point，以及 Matlab return/command、数组、N 维 tensor、logical kernel、logical reduction kernel、矩阵 solve/power、rank-aware/秩亏 solve、condition-aware、diagonal/upper/lower/dense 与 pivoted-tridiagonal/Cholesky/对称不定回退结构感知方阵 solve、动态 `end`、runtime-shape broadcast、shape mutation、dynamic section assignment、empty-array、complex scalar/array、complex square matrix、complex rectangular CPQR、sparse CSC square-solve、sparse matrix-product、sparse scalar-product、sparse element-wise product、sparse arithmetic、sparse square-power、sparse-index、sparse-assignment、sparse-reshape、logical-sparse storage、complex sparse storage lifecycle、sparse-logical operator、argument-validation、前向 default-call 函数链及 exception-object kernel。sparse-product workload 同时覆盖三种 storage 组合；sparse-elementwise workload 覆盖五种 operand form 和双轴广播；sparse-arithmetic workload 覆盖 sparse-sparse `+`/`-`、两类 mixed dense 路径、双向 scalar、row/column/outer expansion 与重复 sparse result；complex-sparse-arithmetic workload 进一步覆盖 complex CSC、mixed real dense、双向 complex scalar、complex row/column expansion 与 value-domain promotion；complex-sparse-multiply workload 覆盖三种 CSC/dense storage 组合、real/logical promotion、零 extent、canonical complex CSC 与重复乘法；sparse-power workload 覆盖 real/logical CSC base、正整数/零次幂、identity、logical promotion 与重复乘法；sparse-logical workload 覆盖 NOT、sparse/dense AND、sparse-sparse/mixed OR、row-column broadcast、scalar 和 storage materialization；sparse-reduction workload 覆盖 numeric/logical CSC 的按列、按行、全维、高于 rank 与零 extent 归约；sparse-reshape workload 覆盖 size vector、推断维度、N 维请求折叠与反复 shape 恢复；sparse-solve workload 同时覆盖 zero/inferred/sized/reserved triplet construction、duplicate accumulation、full/sparse transpose、零维系数、dense/CSC RHS/LHS 与四种 shaped-empty 左右除；logical-sparse workload 覆盖 logical dense/triplet construction、duplicate `any` 及完整 storage lifecycle；dynamic-section-assignment workload 覆盖 runtime scalar/numeric/logical/range selector、线性/多维覆盖与增长、三维页扩容和失败回滚。Matlab 四十一个场景另有独立的最大延迟、最低吞吐和最大产物预算，避免被全局宽阈值掩盖。结果写入 `build/<preset>/performance-report.json`，并由 [`tests/performance/baseline.json`](../tests/performance/baseline.json) 的精确当前版本上限/下限检查延迟、吞吐、峰值 arena 和最大生成大小；performance schema v3 还允许为已命名的重型场景设置独立覆盖值；当前 sparse-index/sparse-assignment/sparse-reshape/sparse-multiply/sparse-scale/sparse-elementwise/sparse-arithmetic/complex-sparse-arithmetic/complex-sparse-multiply/sparse-power/logical-sparse/complex-sparse/sparse-logical/sparse-reduction 覆盖不会放宽其余 Matlab 场景阈值，也不读取旧版本 baseline。性能 workflow 显式运行独立 `mpf-performance` 目标并归档机器可读报告；该非插桩门禁不在普通 CTest、coverage 或 ASan/UBSan 测试集中重复执行，避免重型测试争抢 CPU 后制造伪回归。
 
 质量与覆盖率门禁：
 
