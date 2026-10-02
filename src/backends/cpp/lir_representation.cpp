@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "backends/common/source_segments.hpp"
+#include "backends/cpp/argument_validation_plan.hpp"
 
 namespace mpf::detail::cpp {
 namespace {
@@ -1874,6 +1875,7 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
                                            const AccessContext& context, const bool in_function) {
   lir::StatementPlan result;
   result.valid = true;
+  result.argument_validators = plan_argument_validators(statement);
   result.argument_defaults.reserve(statement.argument_validations.size());
   for (const auto& validation : statement.argument_validations) {
     auto form = lir::ArgumentDefaultForm::none;
@@ -2089,7 +2091,8 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
       left.target_accesses != right.target_accesses ||
       left.assignment_leaves.size() != right.assignment_leaves.size() ||
       left.selectors != right.selectors || left.return_names != right.return_names ||
-      left.argument_defaults != right.argument_defaults) {
+      left.argument_defaults != right.argument_defaults ||
+      left.argument_validators != right.argument_validators) {
     return false;
   }
   for (std::size_t index = 0; index < left.assignment_leaves.size(); ++index) {
@@ -2154,6 +2157,18 @@ void verify_statements(const std::vector<lir::Statement>& statements,
                                                statement.return_names.size())) {
         add_error(diagnostics, {statement.line, 1},
                   "cpp LIR argument validation inventory is malformed");
+      }
+      if (!valid_argument_validator_references(
+              statement.argument_validations, [&](const std::size_t ordinal) {
+                return ordinal < statement.parameter_types.size() &&
+                       ordinal < statement.parameter_shapes.size() &&
+                       scalar_argument_validator_formal(
+                           statement.argument_validations, ordinal,
+                           statement.parameter_types[ordinal],
+                           statement.parameter_shapes[ordinal].empty());
+              })) {
+        add_error(diagnostics, {statement.line, 1},
+                  "cpp LIR validator threshold disagrees with its scalar numeric formal ABI");
       }
       for (const auto& plan : statement.argument_validations) {
         const auto& types = plan.direction == ArgumentDirection::input ? statement.parameter_types

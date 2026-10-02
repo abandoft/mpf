@@ -513,6 +513,33 @@ struct AssignmentLeafPlan {
   std::vector<std::vector<AssignmentAccess>> captured_paths;
 };
 
+enum class ValidatorOperandForm : std::uint8_t {
+  numeric_literal,
+  parameter_value,
+  optional_parameter_value
+};
+
+struct ValidatorOperandPlan {
+  ValidatorOperandForm form{ValidatorOperandForm::numeric_literal};
+  std::string token;
+  SymbolId symbol{};
+};
+
+struct ValidatorCallPlan {
+  std::uint8_t opcode{0U};
+  std::vector<ValidatorOperandPlan> operands;
+};
+
+[[nodiscard]] inline bool operator==(const ValidatorOperandPlan& left,
+                                     const ValidatorOperandPlan& right) noexcept {
+  return left.form == right.form && left.token == right.token && left.symbol == right.symbol;
+}
+
+[[nodiscard]] inline bool operator==(const ValidatorCallPlan& left,
+                                     const ValidatorCallPlan& right) noexcept {
+  return left.opcode == right.opcode && left.operands == right.operands;
+}
+
 struct StatementPlan {
   bool valid{false};
   StatementForm form{StatementForm::discard};
@@ -539,6 +566,7 @@ struct StatementPlan {
   std::vector<SelectorForm> selectors;
   std::vector<std::string> return_names;
   std::vector<ArgumentDefaultForm> argument_defaults;
+  std::vector<std::vector<ValidatorCallPlan>> argument_validators;
 };
 
 enum class RuntimeFragment : std::uint8_t {
