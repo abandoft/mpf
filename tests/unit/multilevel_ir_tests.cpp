@@ -896,6 +896,7 @@ TEST_CASE("target LIR verifiers reject corrupted Matlab logical reduction plans"
   using AxisPolicy = mpf::detail::semantic::ReductionAxisPolicy;
   const auto configure = [](auto& expression) {
     expression.kind = mpf::detail::ExpressionKind::call;
+    expression.output_demand = {mpf::detail::OutputDemandForm::statement, 0U, false};
     expression.inferred_type = mpf::detail::ValueType::list;
     expression.element_type = mpf::detail::ValueType::boolean;
     expression.array_storage = mpf::detail::ArrayStorageFormat::dense;
@@ -2305,6 +2306,7 @@ TEST_CASE("target LIR verifiers independently reject corrupted sparse constructi
   using Kind = mpf::detail::semantic::SparseConstructionKind;
   const auto configure_sparse_call = [](auto& expression) {
     expression.kind = mpf::detail::ExpressionKind::call;
+    expression.output_demand = {mpf::detail::OutputDemandForm::statement, 0U, false};
     expression.inferred_type = mpf::detail::ValueType::list;
     expression.element_type = mpf::detail::ValueType::real;
     expression.element_numeric_type = mpf::detail::real_numeric_type;
@@ -2722,6 +2724,7 @@ TEST_CASE("target LIR verifiers independently reject corrupted sparse reshape pl
   using Inference = mpf::detail::semantic::SparseReshapeInference;
   const auto configure_sparse_reshape = [](auto& expression) {
     expression.kind = mpf::detail::ExpressionKind::call;
+    expression.output_demand = {mpf::detail::OutputDemandForm::statement, 0U, false};
     expression.inferred_type = mpf::detail::ValueType::list;
     expression.element_type = mpf::detail::ValueType::real;
     expression.element_numeric_type = mpf::detail::real_numeric_type;
@@ -4771,6 +4774,7 @@ TEST_CASE("Matlab exception operation contracts remain typed through every IR la
   javascript_lir.statements.front().kind = mpf::detail::StatementKind::expression;
   javascript_lir.statements.front().has_expression = true;
   javascript_expression.kind = mpf::detail::ExpressionKind::call;
+  javascript_expression.output_demand = {mpf::detail::OutputDemandForm::statement, 0U, false};
   javascript_expression.numeric_type = mpf::detail::no_numeric_type;
   javascript_expression.exception.operation =
       mpf::detail::semantic::ExceptionOperation::throw_as_caller;
@@ -4800,6 +4804,7 @@ TEST_CASE("Matlab exception operation contracts remain typed through every IR la
   cpp_lir.statements.front().kind = mpf::detail::StatementKind::expression;
   cpp_lir.statements.front().has_expression = true;
   cpp_expression.kind = mpf::detail::ExpressionKind::call;
+  cpp_expression.output_demand = {mpf::detail::OutputDemandForm::statement, 0U, false};
   cpp_expression.numeric_type = mpf::detail::no_numeric_type;
   cpp_expression.exception.operation = mpf::detail::semantic::ExceptionOperation::throw_as_caller;
   cpp_expression.exception.stack_policy =
@@ -6542,6 +6547,8 @@ TEST_CASE("Matlab command implicit results remain typed through semantic MIR and
       mpf::detail::semantic::ImplicitResultPolicy::matlab_ans_if_value;
   javascript_command.implicit_result_has_value = true;
   javascript_command.expression.kind = mpf::detail::ExpressionKind::call;
+  javascript_command.expression.output_demand = {mpf::detail::OutputDemandForm::statement, 0U,
+                                                 true};
   javascript_command.expression.inferred_type = mpf::detail::ValueType::string;
   javascript_command.expression.procedure_has_result = true;
   javascript_command.expression.children.resize(1);
@@ -6566,6 +6573,7 @@ TEST_CASE("Matlab command implicit results remain typed through semantic MIR and
   cpp_command.name = "ans";
   cpp_command.implicit_result = mpf::detail::semantic::ImplicitResultPolicy::matlab_ans_if_value;
   cpp_command.expression.kind = mpf::detail::ExpressionKind::call;
+  cpp_command.expression.output_demand = {mpf::detail::OutputDemandForm::statement, 0U, true};
   cpp_command.expression.children.resize(1);
   cpp_command.expression.children.front().kind = mpf::detail::ExpressionKind::identifier;
   cpp_command.expression.children.front().value = "sink";

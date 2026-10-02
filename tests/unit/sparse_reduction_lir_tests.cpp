@@ -40,6 +40,7 @@ template <typename Expression>
 void configure_reduction(Expression& expression, const Operation operation,
                          const bool scalar_result) {
   expression.kind = mpf::detail::ExpressionKind::call;
+  expression.output_demand = {mpf::detail::OutputDemandForm::statement, 0U, false};
   expression.inferred_type =
       scalar_result ? mpf::detail::ValueType::boolean : mpf::detail::ValueType::list;
   expression.element_type =
