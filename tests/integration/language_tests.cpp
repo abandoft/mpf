@@ -409,7 +409,8 @@ TEST_CASE("Matlab arguments lower defaults conversion validation and output cont
       std::string::npos);
   REQUIRE(cpp.code.find("mpf_runtime::validate_argument(values, \"values\", \"input\"") !=
           std::string::npos);
-  REQUIRE(cpp.code.find("mpf_runtime::validate_argument(output, \"output\", \"output\"") !=
+  REQUIRE(cpp.code.find("mpf_runtime::convert_argument_double<2>(output, ") != std::string::npos);
+  REQUIRE(cpp.code.find(", \"output\", \"output\", std::vector<std::int64_t>") !=
           std::string::npos);
 
   for (const auto* result : {&javascript, &cpp}) {

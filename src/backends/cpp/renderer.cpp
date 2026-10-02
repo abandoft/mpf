@@ -291,20 +291,71 @@ class Renderer final {
   }
 
   void emit_output_argument_validations(const Statement& statement) {
-    for (std::size_t validation = 0U; validation < statement.argument_validations.size();
-         ++validation) {
+    for (const auto& materialization : statement.plan.argument_outputs) {
+      const auto validation = materialization.declaration;
       const auto& plan = statement.argument_validations[validation];
-      if (plan.direction != ArgumentDirection::output ||
-          plan.ordinal >= statement.return_names.size())
-        continue;
       const auto output = mangler_->name(plan.ordinal < statement.return_symbols.size()
                                              ? statement.return_symbols[plan.ordinal]
                                              : SymbolId{},
                                          statement.return_names[plan.ordinal]);
       mark({plan.line, 1U}, statement.origin);
-      emit_argument_size_normalization(output, plan, plan.validated_rank);
-      emit_argument_validation(output, statement.return_names[plan.ordinal], plan,
+      const auto& normalized =
+          temporary(statement.id, cpp::lir::TemporaryRole::matlab_output, materialization.ordinal);
+      indentation();
+      output_ << "auto " << normalized << " = ";
+      switch (materialization.form) {
+        case cpp::lir::ArgumentOutputForm::matlab_double:
+          output_ << "mpf_runtime::convert_argument_double<";
+          break;
+        case cpp::lir::ArgumentOutputForm::matlab_logical:
+          output_ << "mpf_runtime::convert_argument_logical<";
+          break;
+        case cpp::lir::ArgumentOutputForm::matlab_size:
+          output_ << "mpf_runtime::convert_argument_size<";
+          break;
+        case cpp::lir::ArgumentOutputForm::direct: break;
+      }
+      if (materialization.form != cpp::lir::ArgumentOutputForm::direct)
+        output_ << materialization.rank << ">(";
+      output_ << output;
+      if (materialization.form != cpp::lir::ArgumentOutputForm::direct) {
+        output_ << ", ";
+        emit_argument_dimensions(materialization.dimensions);
+        output_ << ')';
+      }
+      output_ << ";\n";
+      emit_argument_validation(normalized, statement.return_names[plan.ordinal], plan,
                                statement.plan.argument_validators[validation]);
+    }
+  }
+
+  void emit_named_output_return(const Statement& statement, const Statement* function) {
+    const bool normalized = function != nullptr && !function->plan.argument_outputs.empty();
+    if (normalized) {
+      indentation();
+      output_ << "{\n";
+      ++indent_;
+      emit_output_argument_validations(*function);
+    }
+    indentation();
+    output_ << "return ";
+    const bool tuple = statement.plan.return_names.size() > 1U;
+    if (tuple) output_ << "std::make_tuple(";
+    for (std::size_t index = 0U; index < statement.plan.return_names.size(); ++index) {
+      if (index != 0U) output_ << ", ";
+      if (normalized)
+        output_ << temporary(function->id, cpp::lir::TemporaryRole::matlab_output, index);
+      else
+        output_ << mangler_->name(
+            index < statement.return_symbols.size() ? statement.return_symbols[index] : SymbolId{},
+            statement.plan.return_names[index]);
+    }
+    if (tuple) output_ << ')';
+    output_ << ";\n";
+    if (normalized) {
+      --indent_;
+      indentation();
+      output_ << "}\n";
     }
   }
 
@@ -1300,26 +1351,7 @@ class Renderer final {
     emit_scope_declarations(statement.function_scope);
     for (const auto& child : statement.body) emit_statement(child);
     if (!statement.plan.return_names.empty()) {
-      emit_output_argument_validations(statement);
-      indentation();
-      if (statement.plan.return_names.size() == 1) {
-        output_ << "return "
-                << mangler_->name(statement.return_symbols.empty()
-                                      ? SymbolId{}
-                                      : statement.return_symbols.front(),
-                                  statement.plan.return_names.front())
-                << ";\n";
-      } else {
-        output_ << "return std::make_tuple(";
-        for (std::size_t index = 0; index < statement.plan.return_names.size(); ++index) {
-          if (index != 0) output_ << ", ";
-          output_ << mangler_->name(index < statement.return_symbols.size()
-                                        ? statement.return_symbols[index]
-                                        : SymbolId{},
-                                    statement.plan.return_names[index]);
-        }
-        output_ << ");\n";
-      }
+      emit_named_output_return(statement, &statement);
     }
     active_function_ = previous_function;
     indent_ = function_indent;
@@ -1636,26 +1668,7 @@ class Renderer final {
         output_ << ";\n";
         break;
       case cpp::lir::StatementForm::return_outputs:
-        if (active_function_ != nullptr) emit_output_argument_validations(*active_function_);
-        indentation();
-        if (statement.plan.return_names.size() == 1U) {
-          output_ << "return "
-                  << mangler_->name(statement.return_symbols.empty()
-                                        ? SymbolId{}
-                                        : statement.return_symbols.front(),
-                                    statement.plan.return_names.front())
-                  << ";\n";
-        } else {
-          output_ << "return std::make_tuple(";
-          for (std::size_t index = 0; index < statement.plan.return_names.size(); ++index) {
-            if (index != 0U) output_ << ", ";
-            output_ << mangler_->name(index < statement.return_symbols.size()
-                                          ? statement.return_symbols[index]
-                                          : SymbolId{},
-                                      statement.plan.return_names[index]);
-          }
-          output_ << ");\n";
-        }
+        emit_named_output_return(statement, active_function_);
         break;
       case cpp::lir::StatementForm::return_program:
         indentation();

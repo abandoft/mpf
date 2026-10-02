@@ -282,6 +282,8 @@ argument_nested_t<bool, Rank> convert_argument_logical(
     using Item = std::decay_t<decltype(item)>;
     if constexpr (std::is_arithmetic_v<Item>) {
       return static_cast<bool>(item);
+    } else if constexpr (argument_is_complex<Item>::value) {
+      return item.real() != 0.0 || item.imag() != 0.0;
     } else {
       throw std::invalid_argument(
           "MPF Matlab argument failed logical class conversion");
