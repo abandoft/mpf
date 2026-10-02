@@ -3,6 +3,7 @@ add_executable(mpf-tests
   unit/api_tests.cpp
   unit/argument_validation_tests.cpp
   unit/argument_invocation_tests.cpp
+  unit/argument_input_order_tests.cpp
   unit/argument_grammar_tests.cpp
   unit/argument_range_tests.cpp
   unit/argument_representation_tests.cpp
@@ -324,6 +325,8 @@ if(TARGET mpfc)
     matlab-argument-default-functions examples/matlab/argument_default_functions.m)
   mpf_add_generated_cpp_compile_test(
     matlab-argument-default-control-flow examples/matlab/argument_default_control_flow.m)
+  mpf_add_generated_cpp_compile_test(
+    matlab-argument-entry-order examples/matlab/argument_entry_order.m)
   mpf_add_generated_runtime_failure_test(
     matlab-argument-validation tests/fixtures/matlab_argument_validation_failure.m
     "failed mustBePositive" matlab)

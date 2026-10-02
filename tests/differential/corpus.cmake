@@ -45,6 +45,9 @@ mpf_add_differential_case(
   matlab-argument-default-control-flow matlab examples/matlab/argument_default_control_flow.m
   "111 222 7 222 13 6 333 1 0 444 555 MPF:Default 4 1 1 1")
 mpf_add_differential_case(
+  matlab-argument-entry-order matlab examples/matlab/argument_entry_order.m
+  "MPF Matlab argument 'first' failed mustBePositive MPF Matlab argument 'first' failed mustBePositive 21 22 MPF Matlab argument 'first' failed mustBePositive 31 7 44 5 3 2 3 7")
+mpf_add_differential_case(
   matlab-argument-relational-validators matlab
   examples/matlab/argument_relational_validators.m "3 2")
 mpf_add_differential_case(
