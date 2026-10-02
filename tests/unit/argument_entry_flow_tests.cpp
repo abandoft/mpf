@@ -379,8 +379,9 @@ TEST_CASE(
     InstructionId origin;
     std::vector<mir::MemoryAccess> memory_accesses;
   };
-  static_assert(sizeof(mir::InstructionAttributes) <= sizeof(PreviousAttributeLayout),
-                "sparse argument-operation identity must not enlarge every dense attribute row");
+  static_assert(sizeof(mir::InstructionAttributes) <=
+                    sizeof(PreviousAttributeLayout) + sizeof(ArgumentOperationId),
+                "sparse operation identity must not add avoidable attribute-row padding");
   const auto program = lower("function output = checked(value)\noutput = value + 1\nend\n");
   REQUIRE(program.argument_operations.empty());
   const auto& function = checked(program);

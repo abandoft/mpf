@@ -39,7 +39,8 @@ default expression 的源 ID。`ArgumentEntryFlow` 在每条 default merge 后�
 下一声明只能在此前序列正常完成后开始。原始 borrowed 参数与 body/default 可见的规范化 local
 formal 使用不同 `StorageId`，逻辑函数签名不与 raw ABI 混同。literal threshold 有独立 binary64
 SSA 定义，前序 threshold 读取已初始化 formal；稀疏 `ArgumentOperationId` 属性保存操作合同，
-该 ID 与 instruction origin 相邻放置，不扩大每条稠密 instruction attribute 的内存布局；
+该 ID 与 instruction origin 相邻放置，在当前 64 位 CI ABI 中复用既有 padding；
+其他 ABI 只允许新增 ID 本身的大小，不引入额外的稠密属性行 padding；
 无 input declaration 的程序不分配该表。独立 verifier 双向复核库存、来源、类型、内存访问、
 指令顺序与普通/异常 CFG，优化同步重映射这些身份。公共输出出口、qualified/class/path
 解析与表达式 threshold/custom call ABI 仍由 P0-A2 跟踪。

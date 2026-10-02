@@ -103,7 +103,8 @@ dependence。27 组 MIR mutation 独立破坏 inventory、storage、rank、SSA�
 异常旁路、source owner、稀疏属性及阈值定义；两个目标再分别拒绝 stale private plan 和 replanned
 corrupt source projection。优化测试固定 instruction/block/shape remap 与确定性 dump。
 新 fuzz seed `arguments_resident_entry_sequence` 保留三阶段 default/threshold/range 组合；
-编译期布局断言确保新增的稀疏 operation ID 不扩大既有稠密 instruction attribute 行。
+编译期布局断言确保新增 operation ID 不产生可避免的属性行 padding，同时不假定所有 ABI
+都具有 64 位平台的既有 padding。
 
 validator source-call 回归逐项覆盖 28 个标准候选的上下文 builtin identity、bare/explicit 的
 callee/formal/threshold/quoted-flag AST 所有权、输入/输出 declaration 顺序，以及 missing/reordered/
