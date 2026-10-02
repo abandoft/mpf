@@ -1,0 +1,10 @@
+disp(checked());
+function output = checked()
+arguments (Output)
+output (1,1) logical {mustBeNumericOrLogical}
+end
+output = 2;
+disp(output);
+output = output + 1;
+disp(output);
+end
