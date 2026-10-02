@@ -9,6 +9,7 @@
 
 #include "argument_entry_plan.hpp"
 #include "argument_input_plan.hpp"
+#include "argument_output_plan.hpp"
 #include "backends/common/argument_entry_source.hpp"
 #include "backends/common/parameter_default_source.hpp"
 #include "backends/common/source_segments.hpp"
@@ -1889,6 +1890,7 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
   result.default_flows = plan_parameter_defaults(statement);
   result.argument_entries = plan_argument_entries(statement);
   result.argument_inputs = plan_argument_inputs(statement);
+  result.argument_outputs = plan_argument_outputs(statement);
   result.argument_defaults.reserve(statement.argument_validations.size());
   for (const auto& validation : statement.argument_validations) {
     auto form = lir::ArgumentDefaultForm::none;
@@ -2106,6 +2108,7 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
       left.selectors != right.selectors || left.return_names != right.return_names ||
       left.argument_defaults != right.argument_defaults ||
       left.argument_inputs != right.argument_inputs ||
+      left.argument_outputs != right.argument_outputs ||
       left.argument_validators != right.argument_validators ||
       left.default_flows != right.default_flows ||
       left.argument_entries != right.argument_entries) {

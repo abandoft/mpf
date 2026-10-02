@@ -530,6 +530,7 @@ const char* temporary_stem(const lir::TemporaryRole role) noexcept {
   switch (role) {
     case lir::TemporaryRole::matlab_input_type: return "input_type";
     case lir::TemporaryRole::matlab_raw_input: return "raw_input";
+    case lir::TemporaryRole::matlab_output: return "validated_output";
     case lir::TemporaryRole::call_argument: return "call_argument";
     case lir::TemporaryRole::comparison_operand: return "comparison";
     case lir::TemporaryRole::section_argument: return "section_reference";
@@ -591,6 +592,12 @@ void plan_statement_temporaries(lir::SemanticProgram& program,
                                 const std::vector<lir::Statement>& statements,
                                 std::set<std::string>& used) {
   for (const auto& statement : statements) {
+    if (statement.kind == StatementKind::function &&
+        std::any_of(statement.argument_validations.begin(), statement.argument_validations.end(),
+                    [](const auto& plan) { return plan.direction == ArgumentDirection::output; })) {
+      for (std::size_t output = 0U; output < statement.return_names.size(); ++output)
+        add_temporary(program, used, statement.id, lir::TemporaryRole::matlab_output, output);
+    }
     if (program.source_language == SourceLanguage::matlab &&
         has_matlab_input_validation(statement)) {
       for (std::size_t parameter = 0U; parameter < statement.parameters.size(); ++parameter) {
@@ -881,6 +888,13 @@ void verify_statement_resources(const lir::SemanticProgram& program,
       add_error(diagnostics, {statement.line, 1}, "cpp LIR return symbol contract is inconsistent");
     }
     if (statement.kind == StatementKind::function) {
+      if (std::any_of(
+              statement.argument_validations.begin(), statement.argument_validations.end(),
+              [](const auto& plan) { return plan.direction == ArgumentDirection::output; })) {
+        for (std::size_t output = 0U; output < statement.return_names.size(); ++output)
+          require_temporary(program, statement.id, lir::TemporaryRole::matlab_output, output,
+                            expected, names, diagnostics, {statement.line, 1U});
+      }
       if (program.source_language == SourceLanguage::matlab &&
           has_matlab_input_validation(statement)) {
         for (std::size_t parameter = 0U; parameter < statement.parameters.size(); ++parameter) {

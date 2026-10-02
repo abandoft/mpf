@@ -232,6 +232,7 @@ if(MPF_ENABLE_CPP_BACKEND)
     src/backends/cpp/argument_validation_plan.cpp
     src/backends/cpp/argument_input_plan.cpp
     src/backends/cpp/argument_entry_plan.cpp
+    src/backends/cpp/argument_output_plan.cpp
     src/backends/cpp/argument_validation_runtime.cpp
     src/backends/cpp/bindings.cpp
     src/backends/cpp/complex_matrix_runtime.cpp
