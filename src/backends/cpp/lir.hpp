@@ -69,13 +69,16 @@ enum class ParameterPassing : std::uint8_t {
   value,
   const_reference,
   mutable_reference,
-  optional_reference
+  optional_reference,
+  matlab_raw_input,
+  matlab_raw_optional_input
 };
 
 struct ParameterAbi {
   ParameterPassing passing{ParameterPassing::value};
   std::string concrete_type;
   std::string template_parameter;
+  std::string raw_name;
 };
 
 struct FunctionAbi {
@@ -97,7 +100,10 @@ enum class TemporaryRole : std::uint8_t {
   range_stop,
   range_step,
   range_first,
-  range_cursor
+  range_cursor,
+  matlab_input_type,
+  matlab_raw_input,
+  call_argument
 };
 
 struct TemporarySlot {
@@ -208,13 +214,15 @@ enum class CallForm : std::uint8_t {
 };
 
 enum class CallArgumentForm : std::uint8_t { value, forward_optional, copy_section };
+enum class CallBoundaryForm : std::uint8_t { native, matlab_callee_entry };
 
 enum class EvaluationForm : std::uint8_t {
   direct,
   binary_comparison_reference_lambda_iife,
   comparison_reference_lambda_iife,
   lazy_reference_lambda_thunks,
-  copy_call_reference_lambda_iife
+  copy_call_reference_lambda_iife,
+  ordered_call_reference_lambda_iife
 };
 
 enum class CallValueForm : std::uint8_t { direct, first_tuple_result };
@@ -224,6 +232,7 @@ enum class CallOutcomeForm : std::uint8_t { discard, value };
 enum class WritebackForm : std::uint8_t { none, section };
 
 struct CallArgumentPlan {
+  CallBoundaryForm boundary_form{CallBoundaryForm::native};
   CallArgumentForm form{CallArgumentForm::value};
   WritebackForm writeback{WritebackForm::none};
   ArgumentCallBoundary boundary;
@@ -472,6 +481,29 @@ enum class ArgumentDefaultForm : std::uint8_t {
   matlab_size
 };
 
+enum class ArgumentInputForm : std::uint8_t {
+  none,
+  direct,
+  matlab_double,
+  matlab_logical,
+  matlab_size
+};
+
+struct ArgumentInputPlan {
+  ArgumentInputForm form{ArgumentInputForm::none};
+  std::size_t rank{0U};
+  std::vector<ArgumentDimensionConstraint> dimensions;
+  std::string raw_name;
+  std::string template_type;
+  std::string concrete_type;
+
+  friend bool operator==(const ArgumentInputPlan& left, const ArgumentInputPlan& right) noexcept {
+    return left.form == right.form && left.rank == right.rank &&
+           left.dimensions == right.dimensions && left.raw_name == right.raw_name &&
+           left.template_type == right.template_type && left.concrete_type == right.concrete_type;
+  }
+};
+
 enum class StatementForm : std::uint8_t {
   discard,
   declaration_initializer,
@@ -592,6 +624,7 @@ struct StatementPlan {
   std::vector<SelectorForm> selectors;
   std::vector<std::string> return_names;
   std::vector<ArgumentDefaultForm> argument_defaults;
+  std::vector<ArgumentInputPlan> argument_inputs;
   std::vector<std::vector<ValidatorCallPlan>> argument_validators;
   std::vector<ParameterDefaultPlan> default_flows;
 };
