@@ -1660,6 +1660,12 @@ class Builder final {
       if (actual_shape == nullptr || actual_shape->dynamic_rank || actual_shape->extents.empty()) {
         return true;
       }
+      const auto* validated_shape = mir::shape(program_, argument.validated_shape);
+      if (validated_shape != nullptr && actual_shape->layout != validated_shape->layout) {
+        // A declared Matlab array uses the callee's normalized container representation.
+        // Layout adaptation is an explicit boundary conversion, even when extents match.
+        return true;
+      }
       actual_extents = actual_shape->extents;
     } else {
       actual_extents = {1U, 1U};

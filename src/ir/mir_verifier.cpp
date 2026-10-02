@@ -278,6 +278,7 @@ bool compatible_shape(const Program& program, const ShapeId actual, const ShapeI
 
 bool matlab_argument_size_conversion_required(const Program& program, const TypeId actual_type,
                                               const ShapeId actual_shape,
+                                              const ShapeId validated_shape,
                                               const ArgumentValidationPlan& validation) noexcept {
   if (!validation.dimensions_declared) return false;
   const auto value = value_type(program, actual_type);
@@ -292,6 +293,8 @@ bool matlab_argument_size_conversion_required(const Program& program, const Type
     if (shape_data == nullptr || shape_data->dynamic_rank || shape_data->extents.empty()) {
       return true;
     }
+    const auto* validated_data = shape(program, validated_shape);
+    if (validated_data != nullptr && shape_data->layout != validated_data->layout) return true;
     extents = shape_data->extents;
   } else {
     extents = {1U, 1U};
@@ -2671,7 +2674,7 @@ void verify_function_types_and_calls(const Program& program, std::vector<Diagnos
             expected_boundary.conversion |= ArgumentBoundaryConversion::matlab_class;
           }
           if (matlab_argument_size_conversion_required(program, actual.type, actual.shape,
-                                                       *validation)) {
+                                                       expected_validated_shape, *validation)) {
             expected_boundary.conversion |= ArgumentBoundaryConversion::matlab_size;
           }
         }
