@@ -265,11 +265,18 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
   }
   result.requested_outputs = attributes.requested_results;
   result.output_demand = attributes.output_demand;
+  if (source.instruction.valid() && source.instruction.value() < program.instructions.size()) {
+    const auto& instruction = program.instructions[source.instruction.value()];
+    if (instruction.opcode == mir::Opcode::invocation_output_count &&
+        instruction.operands.size() == 1U)
+      result.source_invocation_query = instruction.operands.front();
+  }
   result.multi_output_call = attributes.multi_result_call;
   if (source.kind == ExpressionKind::call && source.origin.valid() &&
       source.origin.value() < call_sites.size()) {
     const auto* call = call_sites[source.origin.value()];
     if (call != nullptr) {
+      result.source_invocation = call->invocation_demand;
       result.argument_transfers.reserve(call->arguments.size());
       result.argument_boundaries.reserve(call->arguments.size());
       for (const auto& argument : call->arguments) {
@@ -334,6 +341,7 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
                              ? function_for_origin(program, source.origin)
                              : nullptr;
   if (function != nullptr) {
+    result.source_invocation_frame = function->invocation_frame;
     result.source_argument_exit = function->argument_exit;
     result.source_argument_outputs.reserve(function->argument_outputs.size());
     for (const auto& flow : function->argument_outputs) {

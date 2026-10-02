@@ -16,6 +16,7 @@
 #include "ir/argument_entry_flow.hpp"
 #include "ir/argument_exit_flow.hpp"
 #include "ir/ids.hpp"
+#include "ir/invocation_context.hpp"
 #include "ir/parameter_default_flow.hpp"
 #include "ir/semantics.hpp"
 
@@ -72,10 +73,18 @@ struct EmissionPlan {
 
 enum class ParameterPassing : std::uint8_t { value, value_copy, reference_box };
 
+enum class InvocationAbiForm : std::uint8_t { none, trailing_binary64 };
+struct InvocationAbi {
+  InvocationAbiForm form{InvocationAbiForm::none};
+  std::string count_parameter;
+  std::size_t external_default_count{1U};
+};
+
 struct FunctionAbi {
   bool valid{false};
   bool exported{false};
   std::vector<ParameterPassing> parameters;
+  InvocationAbi invocation;
 };
 
 enum class TemporaryRole : std::uint8_t {
@@ -90,6 +99,7 @@ enum class TemporaryRole : std::uint8_t {
   range_step,
   range_cursor,
   matlab_output,
+  invocation_count,
   argument_exit
 };
 
@@ -150,7 +160,8 @@ enum class ExpressionForm : std::uint8_t {
   matlab_sparse_transpose,
   matlab_sparse_index,
   binary_runtime_call,
-  unary_runtime_call
+  unary_runtime_call,
+  invocation_output_count
 };
 
 enum class ComparisonForm : std::uint8_t {
@@ -199,7 +210,7 @@ enum class EvaluationForm : std::uint8_t {
 
 enum class CallValueForm : std::uint8_t { direct, first_result, discarded_result };
 
-enum class OutputInvocationForm : std::uint8_t { unspecified, fixed_count };
+enum class OutputInvocationForm : std::uint8_t { unspecified, fixed_count, callee_count };
 struct OutputInvocationPlan {
   std::size_t count{0U};
   OutputInvocationForm form{OutputInvocationForm::unspecified};
@@ -686,6 +697,8 @@ struct Expression {
   std::vector<ValueMetadata> sequence_elements;
   std::size_t requested_outputs{1};
   SourceOutputDemand output_demand;
+  mir::InvocationDemand source_invocation;
+  ValueId source_invocation_query{};
   bool multi_output_call{false};
   std::vector<ArgumentTransfer> argument_transfers;
   std::vector<ArgumentCallBoundary> argument_boundaries;
@@ -757,6 +770,7 @@ struct Statement {
   std::vector<mir::ParameterDefaultSource> source_parameter_defaults;
   std::vector<mir::ArgumentEntrySource> source_argument_entries;
   mir::ArgumentExitFlow source_argument_exit;
+  mir::InvocationFrame source_invocation_frame;
   std::vector<mir::ArgumentOutputSource> source_argument_outputs;
   mir::ArgumentReturnSource source_argument_return;
   BlockId source_argument_return_exit{};
