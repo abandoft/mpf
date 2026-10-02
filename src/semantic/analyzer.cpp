@@ -9,6 +9,7 @@
 
 #include "analyzer_internal.hpp"
 #include "function_dependencies.hpp"
+#include "matlab_bare_calls.hpp"
 #include "output_demand_analysis.hpp"
 
 namespace mpf::detail::semantic_internal {
@@ -2453,6 +2454,11 @@ AnalysisResult analyze_program(hir::Program& program, hir::SemanticTable semanti
   result.diagnostics = hir::verify_semantics(program, result.semantics, "frontend-seed");
   if (!result.diagnostics.empty()) return result;
   auto name_result = analyze_names(program);
+  if (normalize_matlab_bare_calls(program, name_result.names)) {
+    ++program.revision;
+    result.semantics = hir::reindex_semantics(program, std::move(result.semantics));
+    name_result = analyze_names(program);
+  }
   result.diagnostics = std::move(name_result.diagnostics);
   auto flow_result = analyze_flow(program);
   semantic_internal::Analyzer analyzer(program, result.semantics, name_result.names,

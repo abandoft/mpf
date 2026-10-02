@@ -6,7 +6,6 @@
 #include <iterator>
 #include <string>
 #include <string_view>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -110,46 +109,6 @@ class Parser final {
         version_(version),
         builder_(SourceLanguage::matlab, &lex_matlab_expression, resource, version) {
     builder_.reserve(lines_.size(), lines_.size() * 2U);
-    std::unordered_set<std::string> assigned_names;
-    for (const auto& line : lines_) {
-      Statement signature;
-      if (parse_function_signature(line, signature)) {
-        assigned_names.insert(signature.parameters.begin(), signature.parameters.end());
-        assigned_names.insert(signature.return_names.begin(), signature.return_names.end());
-        continue;
-      }
-      const auto equals = top_level_tokens(line, Kind::equal);
-      if (equals.size() == 1U) {
-        for (std::size_t token = 0; token < equals.front(); ++token) {
-          if (line.tokens[token].kind == Kind::identifier) {
-            assigned_names.insert(line.tokens[token].text);
-          }
-        }
-      }
-      if (token_count(line) >= 2U &&
-          (line.tokens[0].kind == Kind::keyword_for ||
-           line.tokens[0].kind == Kind::keyword_catch) &&
-          line.tokens[1].kind == Kind::identifier) {
-        assigned_names.insert(line.tokens[1].text);
-      }
-      if (token_count(line) >= 2U && line.tokens[0].kind == Kind::unsupported_keyword) {
-        const auto keyword = lower(line.tokens[0].text);
-        if (keyword == "global" || keyword == "persistent") {
-          for (std::size_t token = 1U; token < token_count(line); ++token) {
-            if (line.tokens[token].kind == Kind::identifier) {
-              assigned_names.insert(line.tokens[token].text);
-            }
-          }
-        }
-      }
-    }
-    for (const auto& line : lines_) {
-      Statement signature;
-      if (parse_function_signature(line, signature) && signature.parameters.empty() &&
-          assigned_names.find(signature.name) == assigned_names.end()) {
-        local_zero_input_functions_.insert(std::move(signature.name));
-      }
-    }
   }
 
   matlab::ast::ParseResult parse() {
@@ -536,8 +495,7 @@ class Parser final {
     if (count == 0 || line.tokens[0].kind != Kind::identifier || !line.command.has_value()) {
       return false;
     }
-    if (line.command->arguments.empty() && local_zero_input_functions_.find(line.command->callee) ==
-                                               local_zero_input_functions_.end()) {
+    if (line.command->arguments.empty()) {
       return false;
     }
     if (!line.command->terminated) {
@@ -700,7 +658,6 @@ class Parser final {
   [[maybe_unused]] LanguageVersion version_;
   std::size_t index_{0};
   std::vector<std::vector<std::string>> function_returns_;
-  std::unordered_set<std::string> local_zero_input_functions_;
   FrontendAstBuilder<matlab::ast::LanguageTag> builder_;
 };
 
