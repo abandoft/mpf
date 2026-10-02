@@ -7,7 +7,9 @@
 #include <unordered_map>
 #include <utility>
 
+#include "compiler/argument_validator_catalog.hpp"
 #include "compiler/numeric_contract.hpp"
+#include "semantic/argument_validator_contract.hpp"
 
 namespace mpf::detail::hir {
 namespace {
@@ -1041,8 +1043,9 @@ bool compatible_arity(const std::size_t size, const std::size_t expected) noexce
 }
 
 void verify_statements(const std::vector<Statement>& statements, const SemanticTable& table,
-                       const SourceLanguage source_language, std::vector<bool>& seen,
-                       const std::string_view stage, std::vector<Diagnostic>& diagnostics) {
+                       const SourceLanguage source_language, const LanguageVersion language_version,
+                       std::vector<bool>& seen, const std::string_view stage,
+                       std::vector<Diagnostic>& diagnostics) {
   for (const auto& statement : statements) {
     const auto* facts = table.statement(statement.id);
     if (facts == nullptr || facts->origin != statement.id) {
@@ -1138,6 +1141,12 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
       std::vector<bool> expected_inputs(parameters, false);
       std::vector<bool> expected_outputs(statement.return_names.size(), false);
       bool source_inventory_valid = true;
+      const auto retained_source_plan = [&](const HirNodeId origin) {
+        for (const auto& plan : facts->argument_validations)
+          for (const auto& validator : plan.validators)
+            if (validator.source_call == origin) return true;
+        return false;
+      };
       std::size_t validator_offset = 0U;
       for (const auto& declaration : statement.argument_declarations) {
         const auto call_offset = validator_offset;
@@ -1180,23 +1189,47 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
         expected.validators.reserve(declaration.validators.size());
         for (std::size_t validator_index = 0U; validator_index < declaration.validators.size();
              ++validator_index) {
-          const auto& validator_syntax = declaration.validators[validator_index];
-          ArgumentValidatorPlan validator;
-          validator.validator = validator_syntax.validator;
           const auto call_index = call_offset + validator_index;
-          if (call_index < statement.argument_validator_calls.size()) {
-            const auto& expression = statement.argument_validator_calls[call_index].expression;
-            validator.source_call = expression.id;
-            if (!expression.children.empty()) {
-              validator.source_callee = expression.children.front().id;
-              const auto* callee = table.expression(validator.source_callee);
-              if (callee == nullptr || callee->binding != BindingKind::builtin)
-                source_inventory_valid = false;
-            }
+          if (call_index >= statement.argument_validator_calls.size()) {
+            source_inventory_valid = false;
+            continue;
           }
-          validator.range_boundary = normalize_argument_range_flags(validator_syntax.range_flags);
-          validator.operands.reserve(validator_syntax.operands.size());
-          for (const auto& operand_syntax : validator_syntax.operands) {
+          const auto& expression = statement.argument_validator_calls[call_index].expression;
+          if (expression.children.empty()) {
+            source_inventory_valid = false;
+            continue;
+          }
+          const auto& callee = expression.children.front();
+          const auto* definition = find_argument_validator(callee.value);
+          const auto* binding = table.expression(callee.id);
+          const auto version =
+              language_version.automatic() ? LanguageVersion{2024, 2} : language_version;
+          if (definition == nullptr || binding == nullptr ||
+              binding->binding != BindingKind::builtin ||
+              binding->argument_validator != definition->validator ||
+              version < definition->minimum_version) {
+            if (retained_source_plan(expression.id))
+              add_error(diagnostics, expression.location, stage,
+                        "standard validator plan bypasses source binding or version availability");
+            source_inventory_valid = false;
+            continue;
+          }
+          const auto contract = semantic::decode_standard_validator_call(
+              expression, declaration.name, definition->validator);
+          if (contract.error != semantic::ValidatorCallError::none) {
+            if (retained_source_plan(expression.id))
+              add_error(diagnostics, expression.location, stage,
+                        "standard validator plan bypasses source call arity or operand ABI");
+            source_inventory_valid = false;
+            continue;
+          }
+          ArgumentValidatorPlan validator;
+          validator.validator = definition->validator;
+          validator.source_call = expression.id;
+          validator.source_callee = callee.id;
+          validator.range_boundary = contract.range_boundary;
+          validator.operands.reserve(contract.operands.size());
+          for (const auto& operand_syntax : contract.operands) {
             ArgumentValidatorOperandPlan operand;
             operand.kind = operand_syntax.kind;
             if (operand.kind == ArgumentValidatorOperandKind::numeric_literal) {
@@ -1444,10 +1477,9 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
           call.validator < statement.argument_declarations[call.declaration].validators.size() &&
           !call.expression.children.empty()) {
         const auto* callee = table.expression(call.expression.children.front().id);
-        if (callee != nullptr && callee->binding == BindingKind::builtin)
-          context = statement.argument_declarations[call.declaration]
-                        .validators[call.validator]
-                        .validator;
+        const auto* definition = find_argument_validator(call.expression.children.front().value);
+        if (callee != nullptr && callee->binding == BindingKind::builtin && definition != nullptr)
+          context = definition->validator;
       }
       verify_expression(call.expression, table, source_language, seen, stage, diagnostics, false,
                         context);
@@ -1456,8 +1488,10 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
       verify_expression(selector.lower, table, source_language, seen, stage, diagnostics);
       verify_expression(selector.upper, table, source_language, seen, stage, diagnostics);
     }
-    verify_statements(statement.body, table, source_language, seen, stage, diagnostics);
-    verify_statements(statement.alternative, table, source_language, seen, stage, diagnostics);
+    verify_statements(statement.body, table, source_language, language_version, seen, stage,
+                      diagnostics);
+    verify_statements(statement.alternative, table, source_language, language_version, seen, stage,
+                      diagnostics);
   }
 }
 
@@ -1496,32 +1530,39 @@ void reindex_statements(std::vector<Statement>& statements, SemanticTable& sourc
     for (auto& expression : statement.parameter_defaults) {
       reindex_expression(expression, source, result, ids);
     }
-    for (auto& call : statement.argument_validator_calls) {
-      reindex_expression(call.expression, source, result, ids);
+    struct ValidatorOrigins {
+      HirNodeId previous_callee;
+      HirNodeId call;
+      HirNodeId callee;
+    };
+    std::unordered_map<HirNodeId::value_type, ValidatorOrigins> validator_origins;
+    if (!statement.argument_validator_calls.empty())
+      validator_origins.reserve(statement.argument_validator_calls.size());
+    for (auto& invocation : statement.argument_validator_calls) {
+      const auto previous_call = invocation.expression.id;
+      const auto previous_callee = invocation.expression.children.empty()
+                                       ? HirNodeId{}
+                                       : invocation.expression.children.front().id;
+      reindex_expression(invocation.expression, source, result, ids);
+      validator_origins.emplace(previous_call.value(),
+                                ValidatorOrigins{previous_callee, invocation.expression.id,
+                                                 invocation.expression.children.empty()
+                                                     ? HirNodeId{}
+                                                     : invocation.expression.children.front().id});
     }
-    // Never retain side-table pointers across recursive reindexing. Rebuild strong origins
-    // from their source owners, rather than assuming old and new dense ID orders coincide.
+    // Match source owners by their old strong identities, not source/plan ordinals. Failed
+    // user compilations can legitimately have gaps in the successfully classified builtin plans.
     auto* statement_facts = result.statement(statement.id);
-    if (statement_facts != nullptr && !statement.argument_validator_calls.empty()) {
-      std::unordered_map<std::string_view, ArgumentValidationPlan*> input_plans;
-      std::unordered_map<std::string_view, ArgumentValidationPlan*> output_plans;
+    if (statement_facts != nullptr && !validator_origins.empty()) {
       for (auto& plan : statement_facts->argument_validations) {
-        const auto& names = plan.direction == ArgumentDirection::input ? statement.parameters
-                                                                       : statement.return_names;
-        auto& plans = plan.direction == ArgumentDirection::input ? input_plans : output_plans;
-        if (plan.ordinal < names.size()) plans.emplace(names[plan.ordinal], &plan);
-      }
-      for (const auto& call : statement.argument_validator_calls) {
-        if (call.declaration >= statement.argument_declarations.size()) continue;
-        const auto& declaration = statement.argument_declarations[call.declaration];
-        const auto& plans =
-            declaration.direction == ArgumentDirection::input ? input_plans : output_plans;
-        const auto found = plans.find(declaration.name);
-        if (found == plans.end() || call.validator >= found->second->validators.size()) continue;
-        auto& validator = found->second->validators[call.validator];
-        validator.source_call = call.expression.id;
-        validator.source_callee =
-            call.expression.children.empty() ? HirNodeId{} : call.expression.children.front().id;
+        for (auto& validator : plan.validators) {
+          const auto found = validator_origins.find(validator.source_call.value());
+          if (found != validator_origins.end() &&
+              validator.source_callee == found->second.previous_callee) {
+            validator.source_call = found->second.call;
+            validator.source_callee = found->second.callee;
+          }
+        }
       }
     }
     for (auto& selector : statement.case_selectors) {
@@ -1617,7 +1658,8 @@ std::vector<Diagnostic> verify_semantics(const Program& program, const SemanticT
     }
   }
   std::vector<bool> seen(program.node_count + 1U, false);
-  verify_statements(program.statements, table, program.language, seen, stage, diagnostics);
+  verify_statements(program.statements, table, program.language, program.semantics.language_version,
+                    seen, stage, diagnostics);
   for (std::size_t index = 1; index < seen.size(); ++index) {
     if (!seen[index] || table.nodes[index].kind == SemanticNodeKind::absent) {
       add_error(diagnostics, {1, 1}, stage,

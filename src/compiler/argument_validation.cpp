@@ -54,39 +54,6 @@ class NumericLocale {
 
 }  // namespace
 
-std::string_view argument_validator_name(const ArgumentValidator validator) noexcept {
-  static constexpr std::string_view names[]{"mustBeNumeric",
-                                            "mustBeNumericOrLogical",
-                                            "mustBeFloat",
-                                            "mustBeReal",
-                                            "mustBeFinite",
-                                            "mustBeNonNan",
-                                            "mustBePositive",
-                                            "mustBeNonpositive",
-                                            "mustBeNonnegative",
-                                            "mustBeNegative",
-                                            "mustBeNonzero",
-                                            "mustBeInteger",
-                                            "mustBeNonempty",
-                                            "mustBeScalarOrEmpty",
-                                            "mustBeVector",
-                                            "mustBeRow",
-                                            "mustBeColumn",
-                                            "mustBeMatrix",
-                                            "mustBeNonmissing",
-                                            "mustBeNonzeroLengthText",
-                                            "mustBeText",
-                                            "mustBeTextScalar",
-                                            "mustBeValidVariableName",
-                                            "mustBeGreaterThan",
-                                            "mustBeGreaterThanOrEqual",
-                                            "mustBeLessThan",
-                                            "mustBeLessThanOrEqual",
-                                            "mustBeInRange"};
-  const auto index = static_cast<std::size_t>(validator);
-  return index < std::size(names) ? names[index] : std::string_view{};
-}
-
 std::optional<std::string> normalize_argument_numeric_literal(const std::string_view value) {
   if (!valid_argument_numeric_literal(value)) return std::nullopt;
   static const NumericLocale locale;

@@ -92,10 +92,8 @@ TEST_CASE("AST validator verifier rejects missing reordered foreign and mismatch
       auto& call = arena.expressions[arena.records[invocation.expression.value()].index];
       if (mutation == 4)
         arena.expressions[arena.records[call.children[0].value()].index].value = "mustBePositive";
-      if (mutation == 5)
-        arena.expressions[arena.records[call.children[1].value()].index].value = "lower";
-      if (mutation == 6)
-        arena.expressions[arena.records[call.children[5].value()].index].value = "'inclusive'";
+      if (mutation == 5) call.children.pop_back();
+      if (mutation == 6) call.children.back() = invocation.expression;
     }
     REQUIRE(!matlab_frontend().verify(parsed.ast).empty());
   }
@@ -108,9 +106,9 @@ TEST_CASE("HIR validator verifier rejects call ownership operands and duplicate 
     auto& invocation = function.argument_validator_calls[1];
     if (mutation == 0) function.argument_validator_calls.pop_back();
     if (mutation == 1) invocation.validator = 0U;
-    if (mutation == 2) invocation.expression.children[3].value = "2e2";
+    if (mutation == 2) invocation.expression.kind = ExpressionKind::identifier;
     if (mutation == 3) invocation.expression.children.front().id = invocation.expression.id;
-    if (mutation == 4) invocation.expression.children[2].unary_operation = UnaryOperator::positive;
+    if (mutation == 4) invocation.expression.children.pop_back();
     if (mutation == 5) lowered.program.language = mpf::SourceLanguage::python;
     REQUIRE(!hir::verify(lowered.program, "validator-invocation").empty());
   }

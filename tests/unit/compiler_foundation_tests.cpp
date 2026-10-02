@@ -577,8 +577,7 @@ TEST_CASE("Matlab arguments blocks build language-owned declarations and default
   REQUIRE(values.dimensions[1].any);
   REQUIRE(values.class_constraint == mpf::detail::ArgumentClassConstraint::matlab_double);
   REQUIRE((values.validators == std::vector<mpf::detail::ArgumentValidatorSyntax>{
-                                    {mpf::detail::ArgumentValidator::numeric, {}},
-                                    {mpf::detail::ArgumentValidator::finite, {}}}));
+                                    {"mustBeNumeric", 1U, false}, {"mustBeFinite", 1U, false}}));
 
   const auto& factor = function.argument_declarations[1];
   REQUIRE(factor.has_default);
@@ -607,19 +606,25 @@ TEST_CASE("Matlab arguments parser preserves parameterized relational validator 
   const auto& function = matlab_statement(*program, program->roots.front());
   REQUIRE(function.argument_declarations.size() == 2U);
   const auto& lower = function.argument_declarations[0].validators.front();
-  REQUIRE(lower.validator == mpf::detail::ArgumentValidator::greater_than);
-  REQUIRE(lower.operands.size() == 1U);
-  REQUIRE(lower.operands.front().kind ==
-          mpf::detail::ArgumentValidatorOperandKind::numeric_literal);
-  REQUIRE(lower.operands.front().value == "-1.5e+1");
+  REQUIRE(lower.name == "mustBeGreaterThan");
+  REQUIRE(lower.argument_count == 2U);
+  REQUIRE(lower.explicit_call);
+  const auto expression = [&](const mpf::detail::AstNodeId id) -> const auto& {
+    return program->expressions[program->records[id.value()].index];
+  };
+  const auto& lower_call = expression(function.argument_validator_calls[0].expression);
+  const auto& threshold = expression(lower_call.children[2]);
+  REQUIRE(threshold.unary_operation == mpf::detail::UnaryOperator::negative);
+  REQUIRE(expression(threshold.children.front()).value == "1.5e+1");
   const auto& value = function.argument_declarations[1].validators;
   REQUIRE(value.size() == 3U);
-  REQUIRE(value[0].validator == mpf::detail::ArgumentValidator::greater_than_or_equal);
-  REQUIRE(value[0].operands.front().kind ==
-          mpf::detail::ArgumentValidatorOperandKind::input_argument);
-  REQUIRE(value[0].operands.front().value == "lower");
-  REQUIRE(value[1].operands.front().value == "+20");
-  REQUIRE(value[2].validator == mpf::detail::ArgumentValidator::less_than_or_equal);
+  REQUIRE(value[0].name == "mustBeGreaterThanOrEqual");
+  REQUIRE(
+      expression(expression(function.argument_validator_calls[1].expression).children[2]).value ==
+      "lower");
+  REQUIRE(expression(expression(function.argument_validator_calls[2].expression).children[2])
+              .unary_operation == mpf::detail::UnaryOperator::positive);
+  REQUIRE(value[2].name == "mustBeLessThanOrEqual");
   REQUIRE(mpf::detail::matlab_frontend().verify(parsed.ast).empty());
 }
 

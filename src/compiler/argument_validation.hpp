@@ -91,13 +91,6 @@ enum class ArgumentRangeBoundary : std::uint8_t {
   exclusive = 3U
 };
 
-[[nodiscard]] inline ArgumentRangeBoundary normalize_argument_range_flags(
-    const std::vector<ArgumentRangeBoundary>& flags) noexcept {
-  std::uint8_t exclusions = 0U;
-  for (const auto flag : flags) exclusions |= static_cast<std::uint8_t>(flag);
-  return static_cast<ArgumentRangeBoundary>(exclusions);
-}
-
 [[nodiscard]] constexpr std::optional<std::size_t> argument_validator_operand_count(
     const ArgumentValidator validator) noexcept {
   const auto ordinal = static_cast<std::uint8_t>(validator);
@@ -111,18 +104,12 @@ enum class ArgumentRangeBoundary : std::uint8_t {
 // independent verifier. The canonical token is a decimal floating literal in both targets.
 [[nodiscard]] std::optional<std::string> normalize_argument_numeric_literal(std::string_view value);
 
-// Frontend-owned spelling for the explicit operands of a parameterized validation function.
-// The value being validated is implicit for the existing no-argument form and is checked by the
-// Matlab parser when a parameterized call explicitly names it as the first call operand.
-struct ArgumentValidatorOperandSyntax {
-  ArgumentValidatorOperandKind kind{ArgumentValidatorOperandKind::numeric_literal};
-  std::string value;
-};
-
+// Syntax records only invocation spelling and grammar. The source-owned AST/HIR call is the
+// sole owner of argument expressions; builtin identity and ABI are resolved after binding.
 struct ArgumentValidatorSyntax {
-  ArgumentValidator validator{ArgumentValidator::numeric};
-  std::vector<ArgumentValidatorOperandSyntax> operands;
-  std::vector<ArgumentRangeBoundary> range_flags{};
+  std::string name;
+  std::size_t argument_count{1U};
+  bool explicit_call{false};
 };
 
 // Analyzer-owned validator operand.  Source names never cross this boundary: references are
@@ -199,15 +186,10 @@ struct ArgumentCallBoundary {
          left.validators == right.validators && left.has_default == right.has_default;
 }
 
-[[nodiscard]] inline bool operator==(const ArgumentValidatorOperandSyntax& left,
-                                     const ArgumentValidatorOperandSyntax& right) noexcept {
-  return left.kind == right.kind && left.value == right.value;
-}
-
 [[nodiscard]] inline bool operator==(const ArgumentValidatorSyntax& left,
                                      const ArgumentValidatorSyntax& right) noexcept {
-  return left.validator == right.validator && left.operands == right.operands &&
-         left.range_flags == right.range_flags;
+  return left.name == right.name && left.argument_count == right.argument_count &&
+         left.explicit_call == right.explicit_call;
 }
 
 [[nodiscard]] inline bool operator==(const ArgumentValidatorOperandPlan& left,
@@ -289,25 +271,8 @@ struct ArgumentCallBoundary {
     return false;
   }
   for (const auto& validator : declaration.validators) {
-    const auto operand_count = argument_validator_operand_count(validator.validator);
-    if (!operand_count.has_value() || validator.operands.size() != *operand_count) return false;
-    if (validator.range_flags.size() > 2U ||
-        (validator.validator != ArgumentValidator::in_range && !validator.range_flags.empty()))
+    if (validator.name.empty() || (!validator.explicit_call && validator.argument_count != 1U))
       return false;
-    for (const auto flag : validator.range_flags) {
-      if (static_cast<std::uint8_t>(flag) >
-          static_cast<std::uint8_t>(ArgumentRangeBoundary::exclusive))
-        return false;
-    }
-    for (const auto& operand : validator.operands) {
-      if (operand.value.empty() ||
-          (operand.kind != ArgumentValidatorOperandKind::numeric_literal &&
-           operand.kind != ArgumentValidatorOperandKind::input_argument) ||
-          (operand.kind == ArgumentValidatorOperandKind::numeric_literal &&
-           !valid_argument_numeric_literal(operand.value))) {
-        return false;
-      }
-    }
   }
   return true;
 }

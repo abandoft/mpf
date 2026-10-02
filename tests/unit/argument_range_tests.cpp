@@ -67,9 +67,9 @@ mpf::detail::mir::LoweringResult lower_range() {
   REQUIRE(ast != nullptr);
   const auto& root = ast->records[ast->roots.front().value()];
   const auto& syntax = ast->statements[root.index].argument_declarations[2].validators.back();
-  REQUIRE(syntax.range_flags.size() == 2U);
-  REQUIRE(syntax.range_flags.front() == mpf::detail::ArgumentRangeBoundary::exclude_lower);
-  REQUIRE(syntax.range_flags.back() == mpf::detail::ArgumentRangeBoundary::exclude_upper);
+  REQUIRE(syntax.name == "mustBeInRange");
+  REQUIRE(syntax.argument_count == 5U);
+  REQUIRE(syntax.explicit_call);
   auto hir = frontend.lower(std::move(parsed.ast));
   REQUIRE(hir.diagnostics.empty());
   auto analysis = mpf::detail::analyze_program(hir.program, std::move(hir.semantics));
@@ -148,16 +148,19 @@ TEST_CASE("Matlab validators accept explicit unary calls and enforce complete ca
           "mustBeInRange(value,0,1,)", "mustBeInRange(value,0,1,'closed')",
           "mustBeInRange(value,0,1,'exclusive','exclusive','exclusive')",
           "mustBeInRange(value,0,1,flag)", "mustBeInRange(value,0,1 + 2)",
-          "mustBeInRange(value,[0],1)", "mustBeInRange(value,0,1i)", "mustBeInRange(value,0x10,20)",
-          "mustBeInRange"}) {
+          "mustBeInRange(value,[0],1)", "mustBeInRange(value,0,1i)", "mustBeInRange"}) {
       const auto failed = compile(validator_source(call), target);
       REQUIRE(!failed.success());
       REQUIRE(failed.code.empty());
-      REQUIRE(diagnostic(failed, "MPF1200"));
+      REQUIRE(diagnostic(failed, "MPF2060") || diagnostic(failed, "MPF1200"));
       REQUIRE(!diagnostic(failed, "MPF0005"));
       REQUIRE(!diagnostic(failed, "MPF0006"));
     }
     const auto range = validator_source("mustBeInRange(value,0,1)");
+    const auto unsupported_hex = compile(validator_source("mustBeInRange(value,0x10,20)"), target);
+    REQUIRE(!unsupported_hex.success());
+    REQUIRE(diagnostic(unsupported_hex, "MPF1012"));
+    REQUIRE(!diagnostic(unsupported_hex, "MPF0005"));
     REQUIRE(compile(range, target, {2020, 2}).success());
     const auto old = compile(range, target, {2020, 1});
     REQUIRE(!old.success());
@@ -212,18 +215,15 @@ TEST_CASE("Matlab range syntax and plans reject invalid or inactive boundary sta
   ArgumentDeclarationSyntax declaration;
   declaration.name = "value";
   declaration.line = 1U;
-  declaration.validators = {{ArgumentValidator::in_range,
-                             {{ArgumentValidatorOperandKind::numeric_literal, "0"},
-                              {ArgumentValidatorOperandKind::numeric_literal, "1"}},
-                             {ArgumentRangeBoundary::exclude_lower}}};
+  declaration.validators = {{"mustBeInRange", 4U, true}};
   REQUIRE(valid_argument_declaration_syntax(declaration));
-  inject_range_boundary_byte(declaration.validators.front().range_flags.front(), 4U);
+  declaration.validators.front().name.clear();
   REQUIRE(!valid_argument_declaration_syntax(declaration));
-  declaration.validators.front().range_flags = {ArgumentRangeBoundary::inclusive};
-  declaration.validators.front().validator = ArgumentValidator::greater_than;
-  declaration.validators.front().operands.pop_back();
+  declaration.validators.front().name = "customRange";
+  REQUIRE(valid_argument_declaration_syntax(declaration));
+  declaration.validators.front().explicit_call = false;
   REQUIRE(!valid_argument_declaration_syntax(declaration));
-  declaration.validators.front().range_flags.clear();
+  declaration.validators.front().argument_count = 1U;
   REQUIRE(valid_argument_declaration_syntax(declaration));
 
   ArgumentValidationPlan plan;

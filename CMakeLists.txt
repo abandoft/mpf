@@ -123,6 +123,7 @@ add_library(mpf_core STATIC
   src/lexer/scanner.cpp
   src/compiler/expression.cpp
   src/compiler/argument_validation.cpp
+  src/compiler/argument_validator_catalog.cpp
   src/compiler/dependency_graph.cpp
   src/compiler/intrinsic.cpp
   src/compiler/code_binding.cpp
@@ -139,6 +140,8 @@ add_library(mpf_core STATIC
   src/semantic/analyzer.cpp
   src/semantic/expression_analyzer.cpp
   src/semantic/argument_validator_analysis.cpp
+  src/semantic/argument_validator_contract.cpp
+  src/semantic/argument_validator_plan.cpp
   src/semantic/flow_analysis.cpp
   src/semantic/function_dependencies.cpp
   src/semantic/name_analysis.cpp

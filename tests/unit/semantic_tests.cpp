@@ -115,7 +115,8 @@ TEST_CASE("Matlab arguments declarations fail closed at unsupported grammar boun
       "output = input\n"
       "end\n");
   REQUIRE(!custom_validator.success());
-  REQUIRE(has_diagnostic(custom_validator, "MPF1200", "custom"));
+  REQUIRE(has_diagnostic(custom_validator, "MPF2001", "mustBeCustom"));
+  REQUIRE(!has_diagnostic(custom_validator, "MPF1200"));
 
   const auto output_default = matlab(
       "function output = identity(input)\n"
@@ -177,7 +178,7 @@ TEST_CASE("Matlab parameterized relational validators enforce visible scalar thr
       "output = value\n"
       "end\n");
   REQUIRE(!wrong_validated_operand.success());
-  REQUIRE(has_diagnostic(wrong_validated_operand, "MPF1200", "declared argument first"));
+  REQUIRE(has_diagnostic(wrong_validated_operand, "MPF2060", "declared argument first"));
 
   const auto expression_threshold = matlab(
       "function output = bounded(value)\n"
@@ -187,7 +188,7 @@ TEST_CASE("Matlab parameterized relational validators enforce visible scalar thr
       "output = value\n"
       "end\n");
   REQUIRE(!expression_threshold.success());
-  REQUIRE(has_diagnostic(expression_threshold, "MPF1200", "scalar numeric literal"));
+  REQUIRE(has_diagnostic(expression_threshold, "MPF2060", "general expressions"));
 
   const auto overflow_threshold = matlab(
       "function output = bounded(value)\n"
@@ -199,13 +200,19 @@ TEST_CASE("Matlab parameterized relational validators enforce visible scalar thr
   REQUIRE(!overflow_threshold.success());
   REQUIRE(has_diagnostic(overflow_threshold, "MPF2060", "finite binary64"));
   REQUIRE(!has_diagnostic(overflow_threshold, "MPF0005"));
-  for (const auto token : {"1i", "0x10", "1e", "1.2.3"}) {
+  struct InvalidThreshold {
+    const char* token;
+    const char* code;
+  };
+  for (const auto& fixture :
+       {InvalidThreshold{"1i", "MPF2060"}, InvalidThreshold{"0x10", "MPF1012"},
+        InvalidThreshold{"1e", "MPF1005"}, InvalidThreshold{"1.2.3", "MPF1012"}}) {
     const auto invalid_literal = matlab(
         "function output = bounded(value)\narguments\n"
         "value (1,1) double {mustBeGreaterThan(value," +
-        std::string(token) + ")}\nend\noutput = value\nend\n");
+        std::string(fixture.token) + ")}\nend\noutput = value\nend\n");
     REQUIRE(!invalid_literal.success());
-    REQUIRE(has_diagnostic(invalid_literal, "MPF1200", "decimal scalar threshold"));
+    REQUIRE(has_diagnostic(invalid_literal, fixture.code));
     REQUIRE(!has_diagnostic(invalid_literal, "MPF0005"));
     REQUIRE(!has_diagnostic(invalid_literal, "MPF0006"));
   }

@@ -6,6 +6,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include "compiler/argument_validator_catalog.hpp"
+
 namespace mpf::detail {
 namespace {
 
@@ -279,10 +281,10 @@ class NameAnalyzer final {
     if (invocation.validator >= declaration.validators.size()) return;
     const auto& callee = call.children.front();
     const auto symbol = resolve(scope, callee.value);
-    const auto candidate = declaration.validators[invocation.validator].validator;
-    const auto builtin = symbol.valid() || callee.value != argument_validator_name(candidate)
+    const auto* candidate = symbol.valid() ? nullptr : find_argument_validator(callee.value);
+    const auto builtin = candidate == nullptr
                              ? std::nullopt
-                             : std::optional<ArgumentValidator>{candidate};
+                             : std::optional<ArgumentValidator>{candidate->validator};
     add_use(callee.id, scope, symbol, NameRole::reference, 0U,
             symbol.valid()        ? binding_for(result_.names.symbols[symbol.value()].kind)
             : builtin.has_value() ? BindingKind::builtin
@@ -680,13 +682,11 @@ void verify_reference_bindings(const hir::Program& program, const NameTable& nam
           continue;
         const auto& declaration = function.argument_declarations[invocation.declaration];
         const auto& callee = call.children.front();
+        const auto* candidate = find_argument_validator(callee.value);
         if (invocation.validator < declaration.validators.size() && callee.id.valid() &&
-            callee.id.value() < names.nodes.size() &&
-            callee.value ==
-                argument_validator_name(declaration.validators[invocation.validator].validator)) {
+            callee.id.value() < names.nodes.size() && candidate != nullptr) {
           if (validator_context.empty()) validator_context.resize(names.nodes.size());
-          validator_context[callee.id.value()] =
-              declaration.validators[invocation.validator].validator;
+          validator_context[callee.id.value()] = candidate->validator;
         }
       }
       self(self, function.body);

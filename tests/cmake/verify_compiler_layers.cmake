@@ -1611,6 +1611,9 @@ endif()
 file(READ "${SOURCE_DIR}/src/compiler/argument_validation.hpp" argument_validation_contract)
 file(READ "${SOURCE_DIR}/src/frontends/matlab/argument_block.cpp" argument_parser_contract)
 file(READ "${SOURCE_DIR}/src/compiler/argument_invocation.hpp" argument_invocation_contract)
+file(READ "${SOURCE_DIR}/src/compiler/argument_validator_catalog.cpp" argument_catalog_contract)
+file(READ "${SOURCE_DIR}/src/semantic/argument_validator_plan.cpp" argument_semantic_plan_contract)
+file(READ "${SOURCE_DIR}/src/semantic/argument_validator_contract.cpp" argument_call_contract)
 file(READ "${SOURCE_DIR}/src/ir/mir_argument_validation.cpp" mir_validator_source_contract)
 file(READ "${SOURCE_DIR}/src/backends/javascript/argument_validation_runtime.cpp"
   javascript_argument_runtime_contract)
@@ -1619,15 +1622,17 @@ file(READ "${SOURCE_DIR}/src/backends/cpp/argument_validation_runtime.cpp"
 if(NOT argument_validation_contract MATCHES "ArgumentValidatorSyntax" OR
    NOT argument_validation_contract MATCHES "ArgumentValidatorOperandPlan" OR
    NOT argument_validation_contract MATCHES "ArgumentRangeBoundary" OR
-   NOT argument_validation_contract MATCHES "normalize_argument_range_flags" OR
    NOT argument_validation_contract MATCHES "input_ordinal" OR
    NOT argument_validation_contract MATCHES "normalize_argument_numeric_literal" OR
    NOT argument_validation_contract MATCHES "scalar_argument_validator_formal" OR
-   NOT argument_parser_contract MATCHES "explicit_operand_count" OR
-   NOT argument_parser_contract MATCHES "mustBeGreaterThanOrEqual" OR
-   NOT argument_parser_contract MATCHES "mustBeLessThanOrEqual" OR
-   NOT argument_parser_contract MATCHES "mustBeInRange" OR
-   NOT argument_parser_contract MATCHES "parse_validator_call")
+   NOT argument_parser_contract MATCHES "argument_count" OR
+   NOT argument_parser_contract MATCHES "explicit_call" OR
+   argument_parser_contract MATCHES "mustBe|minimum_version|explicit_operand_count" OR
+   NOT argument_catalog_contract MATCHES "spelling_order" OR
+   NOT argument_semantic_plan_contract MATCHES "use->binding" OR
+   NOT argument_semantic_plan_contract MATCHES "minimum_version" OR
+   NOT argument_semantic_plan_contract MATCHES "decode_standard_validator_call" OR
+   NOT argument_call_contract MATCHES "ValidatorCallError::arity")
   message(FATAL_ERROR
     "Matlab parameterized validators do not own typed frontend and Analyzer contracts")
 endif()
