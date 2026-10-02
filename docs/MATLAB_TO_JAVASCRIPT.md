@@ -185,7 +185,7 @@ LIR v49 固化 exception operation/message-form/stack-policy，交付 `MExceptio
 格式化 `error`、`throw`/`throwAsCaller`/`rethrow`、不可变 `addCause` 和 basic/extended
 `getReport`；异常 runtime 在两个目标内独立实现并按需裁剪。frontend 同时只为未被参数、结果、
 赋值或声明遮蔽的已知零输入 local function 接受裸调用，避免把普通变量表达式误转成 call。
-0.7.9 开发分支以 Matlab AST v5、Semantic v35、MIR v41 和双目标 LIR v51 增加 `arguments`
+0.7.9 已发布的纵切面以 Matlab AST v5、Semantic v35、MIR v41 和双目标 LIR v51 增加 `arguments`
 declaration/validation 与逐 call boundary contract。JavaScript 和 C++ 分别执行 class/size conversion、
 N 维 scalar expansion、row/column reshape、top-to-bottom default 与 input/output validator；Analyzer
 side table 显式保存 formal representation rank，Emitter 不再从 `ValueType` 反推 ABI。validator
@@ -193,8 +193,17 @@ availability 按官方引入版本失败关闭：R2020b 才开放 `mustBeFloat`�
 nonmissing 与 variable-name 组，`mustBeRow`/`mustBeColumn`/`mustBeMatrix` 则要求 R2024b；双目标
 runtime 同步处理 logical、character、empty value、complex-storage realness，以及 R2024b 的 63 字符
 变量名和关键字限制。
+
+后续开发分支以 Matlab AST v6、Semantic v36、MIR v42 与双目标 LIR v52 接入
+`mustBeGreaterThan`/`mustBeGreaterThanOrEqual`/`mustBeLessThan`/`mustBeLessThanOrEqual`。
+threshold 支持有限 binary64 literal 和前序 scalar input，output validator 可引用 input；未定
+类型的 input 需要显式 singleton dimensions，并保留 runtime numeric/logical/complex-storage
+检查。Analyzer 绑定 formal ordinal，双目标 LIR 固化各自 token/symbol/access form，Emitter
+不推断 optional ABI；字面量统一为十进制浮点 token，避免 leading-zero octal 与超宽 integer，
+同时保持 signed zero、subnormal、下溢舍入、默认值顺序及 validator 首错顺序。此增量未发布，
+尚未实现 threshold 任意表达式、其余参数化标准/custom validator 或 name-value/Repeating。
 一般 NDArray 表示与不可结构恢复动态零 extent、stride/view/owner/COW、限定名/package/class 与
-外部 path/project command 解析、完整 name-value/Repeating/parameterized/custom `arguments`、公开 cause/stack/correction 属性、完整格式化表面、cell/struct/string
+外部 path/project command 解析、完整 name-value/Repeating/其余 parameterized/custom `arguments`、公开 cause/stack/correction 属性、完整格式化表面、cell/struct/string
 仍不在当前可保持边界。因此文档、版本说明和 CLI
 必须继续使用“已验证子集”的表述。
 
@@ -382,6 +391,7 @@ P0 完成前，产品定位保持“实验性已验证子集”。以下顺序�
 - [x] 0.7.7 assignment conformability 第二纵切面：Semantic v33、MIR v39 与双目标 LIR v48 固化 runtime selector 和 overwrite-or-grow；动态 scalar/numeric/logical/range selector、线性/多维覆盖与间隙扩容、单轴删除、N 维页扩容、JavaScript copied-root、C++ staged-value、失败回滚、runtime-selector/dense-assignment 按需片段及 sparse 产物裁剪、源码映射、差分、fuzz、计划污染拒绝与性能预算完成
 - [x] 0.7.8 exception object 与裸无参 local command 纵切面：Semantic v34、MIR v40 与双目标 LIR v49 固化 operation/message-form/stack-policy；`MException`、常用 scalar 格式化、三类 throw policy、不可变 cause、basic/extended report、按需双目标 runtime、静态/运行期拒错、source map、差分、fuzz、性能和遮蔽回归完成
 - [x] 0.7.9 `arguments` 第一纵切面：Matlab AST v5、Semantic v35、MIR v41、双目标 LIR v51、formal rank、class/size boundary、ordered default、input/output validation、N 维 conversion、source map、差分、生成 C++、runtime rejection、fuzz、性能与逐层损坏拒绝完成
+- [x] 开发分支关系 validator：四种比较、literal/前序 scalar input/output reference、finite binary64 normalization、独立目标 call plan、optional access、首错顺序与 complex/NaN 边界；不扩大到任意表达式或完整参数化 validator 支持
 - [ ] P0-A：继续补齐 R2024 限定名/package/class command、外部 path/project 解析、name-value/`Repeating`/parameterized/custom `arguments`、动态 rank/class ABI、公开 cause/stack/correction 对象、完整格式化合同及未支持语法的精确恢复与诊断
 - [ ] P0-B：在两项已交付的 assignment conformability 纵切面上继续交付可跨函数携带不可结构恢复零 extent、动态 rank/shape、stride/layout 与 value ownership 的统一 NDArray ABI
 - [ ] P0-C：依次交付 char/string、cell、struct，再扩展 table/datetime 等高频对象语义
