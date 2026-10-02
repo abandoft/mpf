@@ -6,6 +6,7 @@ add_executable(mpf-tests
   unit/argument_representation_tests.cpp
   unit/compiler_foundation_tests.cpp
   unit/extension_architecture_tests.cpp
+  unit/function_dependency_tests.cpp
   unit/multilevel_ir_tests.cpp
   unit/name_binding_tests.cpp
   unit/reduction_contract_tests.cpp
