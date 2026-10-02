@@ -12,6 +12,7 @@
 - Matlab `length` now returns 0 for arrays with any zero extent; both `length` and `numel` also support numeric, logical, and complex scalars.
 - Local functions, formals, outputs, and assignments that shadow standard validator names now produce focused diagnostics instead of invoking the wrong builtin.
 - Generated C++17 no longer allocates temporary flatten buffers for compatible scalar inputs or flattens and rebuilds arrays with matching types and shapes.
+- Output class and size conversions now retain the function's internal workspace values while giving callers correctly typed logical, numeric, complex, and reshaped results, including functions that share an input and output name.
 
 ## 0.7.9
 

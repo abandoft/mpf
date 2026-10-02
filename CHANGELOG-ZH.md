@@ -12,6 +12,7 @@
 - `length` 现对任一零 extent 的 Matlab 数组返回 0；`length` 和 `numel` 同时支持 numeric、logical 和 complex scalar。
 - 本地函数、formal、输出和赋值 binding 遮蔽标准 validator 名称时，现报告聚焦诊断，不再错误调用同名标准 builtin。
 - 生成的 C++17 对相容的 scalar 参数不再分配临时 flatten buffer；同类型、同 shape 的数组也不再展开重建。
+- 输出的 class/size 转换现保留函数内部的计算值，并向调用方提供类型正确的 logical、numeric、complex 和重塑结果；输入与输出同名的函数也会保留已初始化的输入值。
 
 ## 0.7.9
 
