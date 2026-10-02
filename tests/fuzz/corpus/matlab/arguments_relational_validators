@@ -1,0 +1,13 @@
+value = bounded(-1, 5, [0 4]);
+disp(value)
+function output = bounded(lower, upper, input)
+arguments
+lower (1,1) double {mustBeGreaterThan(lower,-10)}
+upper (1,1) double {mustBeGreaterThan(upper,lower),mustBeLessThanOrEqual(upper,10)}
+input (1,:) double {mustBeGreaterThanOrEqual(input,lower),mustBeLessThan(input,upper)}
+end
+arguments (Output)
+output (1,1) double {mustBeLessThanOrEqual(output,upper)}
+end
+output = input(1);
+end

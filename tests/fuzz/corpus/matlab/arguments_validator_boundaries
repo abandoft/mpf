@@ -1,0 +1,10 @@
+function output = checked(lower, value)
+arguments
+lower (1,1) = 0
+value (1,:) double {mustBeFinite,mustBeGreaterThanOrEqual(value,lower),mustBeLessThan(value,18446744073709551616)} = 1
+end
+arguments (Output)
+output (1,:) double {mustBeGreaterThan(output,-1e-400)}
+end
+output = value;
+end
