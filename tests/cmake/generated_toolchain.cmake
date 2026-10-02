@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-# Every generated-code test uses the parent compiler, generator and deployment target.
+# Generated-code tests and installed consumers use the parent toolchain and deployment target.
 function(mpf_append_generated_toolchain output_variable)
   set(result "${${output_variable}}")
   if(DEFINED OSX_DEPLOYMENT_TARGET AND NOT OSX_DEPLOYMENT_TARGET STREQUAL "")

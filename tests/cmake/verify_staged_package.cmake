@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 
+include("${CMAKE_CURRENT_LIST_DIR}/generated_toolchain.cmake")
+set(consumer_toolchain)
+mpf_append_generated_toolchain(consumer_toolchain)
+
 if(NOT DEFINED STAGE OR NOT DEFINED BUILD_DIR OR NOT DEFINED SOURCE_DIR OR
    NOT DEFINED LICENSE_FILE OR NOT DEFINED INSTALL_DOCDIR OR NOT DEFINED CONFIG OR
    NOT DEFINED PROJECT_VERSION)
@@ -64,6 +68,7 @@ file(WRITE "${incompatible_source}/CMakeLists.txt"
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -S "${incompatible_source}" -B "${incompatible_build}"
     -DCMAKE_PREFIX_PATH=${STAGE}
+    ${consumer_toolchain}
   RESULT_VARIABLE incompatible_status
   OUTPUT_VARIABLE incompatible_output
   ERROR_VARIABLE incompatible_error)
@@ -79,6 +84,7 @@ foreach(example IN ITEMS frontend backend)
     COMMAND "${CMAKE_COMMAND}" -S "${SOURCE_DIR}/examples/installed/${example}"
       -B "${example_build}" -DCMAKE_BUILD_TYPE=${CONFIG} -DCMAKE_PREFIX_PATH=${STAGE}
       -DMPF_REQUIRED_VERSION=${PROJECT_VERSION}
+      ${consumer_toolchain}
     RESULT_VARIABLE configure_status
     OUTPUT_VARIABLE configure_output
     ERROR_VARIABLE configure_error)
@@ -95,10 +101,14 @@ foreach(example IN ITEMS frontend backend)
     message(FATAL_ERROR
       "installed ${example} example build failed:\n${build_output}\n${build_error}")
   endif()
+  set(executable_name "mpf-installed-${example}-example")
   if(WIN32)
-    set(executable "${example_build}/${CONFIG}/mpf-installed-${example}-example.exe")
+    string(APPEND executable_name ".exe")
+  endif()
+  if(EXISTS "${example_build}/${CONFIG}/${executable_name}")
+    set(executable "${example_build}/${CONFIG}/${executable_name}")
   else()
-    set(executable "${example_build}/mpf-installed-${example}-example")
+    set(executable "${example_build}/${executable_name}")
   endif()
   execute_process(
     COMMAND "${executable}"
