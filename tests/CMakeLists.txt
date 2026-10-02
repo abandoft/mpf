@@ -89,6 +89,19 @@ add_custom_target(mpf-performance
   DEPENDS mpf-benchmark
   USES_TERMINAL)
 
+add_executable(mpf-performance-report-fixture performance/report_fixture.cpp)
+target_link_libraries(mpf-performance-report-fixture PRIVATE mpf::mpf)
+target_compile_features(mpf-performance-report-fixture PRIVATE cxx_std_17)
+add_test(NAME mpf.performance.report-contract
+  COMMAND ${CMAKE_COMMAND}
+    -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/performance-report-contract
+    -DFIXTURE=$<TARGET_FILE:mpf-performance-report-fixture>
+    -DPROJECT_VERSION=${PROJECT_VERSION}
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_performance_report.cmake)
+set_tests_properties(mpf.performance.report-contract PROPERTIES
+  LABELS "infrastructure;coverage-excluded" TIMEOUT 30)
+
 if(MPF_BUILD_FUZZERS)
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     message(FATAL_ERROR "MPF_BUILD_FUZZERS requires Clang/libFuzzer")
