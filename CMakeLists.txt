@@ -51,7 +51,8 @@ option(MPF_ENABLE_CPP_BACKEND "Build the C++17 backend" ON)
 option(MPF_REQUIRE_DIFFERENTIAL_RUNTIME
   "Require Node.js and Python when differential tests are enabled" OFF)
 
-find_program(MPF_CLANG_FORMAT_EXECUTABLE NAMES clang-format)
+find_program(MPF_CLANG_FORMAT_EXECUTABLE NAMES clang-format-18 clang-format
+  DOC "clang-format 18 executable used by MPF formatting targets")
 add_custom_target(mpf-format
   COMMAND ${CMAKE_COMMAND}
     -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
