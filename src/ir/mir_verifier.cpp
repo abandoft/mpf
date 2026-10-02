@@ -8,6 +8,7 @@
 
 #include "compiler/numeric_contract.hpp"
 #include "mir.hpp"
+#include "mir_argument_entry.hpp"
 #include "mir_argument_validation.hpp"
 #include "mir_opcode.hpp"
 #include "mir_parameter_defaults.hpp"
@@ -2379,10 +2380,20 @@ void verify_cfg(const Program& program, std::vector<Diagnostic>& diagnostics,
                 "function entry block arguments do not match its parameter signature");
     } else {
       for (std::size_t parameter = 0; parameter < function.parameter_types.size(); ++parameter) {
+        const auto expected_type = function.raw_parameter_types.empty()
+                                       ? function.parameter_types[parameter]
+                                   : parameter < function.raw_parameter_types.size()
+                                       ? function.raw_parameter_types[parameter]
+                                       : TypeId{};
+        const auto expected_shape = function.raw_parameter_shapes.empty()
+                                        ? function.parameter_shapes[parameter]
+                                    : parameter < function.raw_parameter_shapes.size()
+                                        ? function.raw_parameter_shapes[parameter]
+                                        : ShapeId{};
         if (!valid_index(function.parameter_types[parameter], program.types) ||
             !valid_index(function.parameter_shapes[parameter], program.shapes) ||
-            entry_block.arguments[parameter].type != function.parameter_types[parameter] ||
-            entry_block.arguments[parameter].shape != function.parameter_shapes[parameter]) {
+            entry_block.arguments[parameter].type != expected_type ||
+            entry_block.arguments[parameter].shape != expected_shape) {
           add_error(diagnostics, {1, 1}, stage,
                     "function parameter type/shape is invalid or differs from its entry argument");
         }
@@ -2997,6 +3008,11 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
                                     (!write || memory_access_writes(access.mode));
                            });
       };
+      if ((instruction.opcode == Opcode::argument_normalize ||
+           instruction.opcode == Opcode::argument_validate) &&
+          argument_operation(program, instruction.id) == nullptr)
+        add_error(diagnostics, instruction.location, stage,
+                  "argument operation has no typed source-semantic attribute");
       if ((instruction.opcode == Opcode::load || instruction.opcode == Opcode::index ||
            instruction.opcode == Opcode::slice) &&
           instruction.storage.valid() && !has_access(true, false)) {
@@ -3120,6 +3136,7 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
   }
   verify_statements(program, diagnostics, stage);
   verify_argument_validator_sources(program, diagnostics, stage);
+  verify_argument_entries(program, diagnostics, stage);
   verify_parameter_defaults(program, parameter_presence_instructions, diagnostics, stage);
   verify_expression_ownership(program, diagnostics, stage);
   return diagnostics;

@@ -397,10 +397,11 @@ class Builder final {
     if (result.kind == StatementKind::function) {
       initialize_function_signature(result, semantic_facts);
       if (guarded_defaults) {
-        for (std::size_t index = 0U; index < source.parameter_defaults.size(); ++index) {
-          if (!source.parameter_defaults[index].valid()) continue;
-          result.parameter_defaults[index] =
-              lower_parameter_default(std::move(source.parameter_defaults[index]), index);
+        for (std::size_t index = 0U; index < result.parameters.size(); ++index) {
+          if (index < source.parameter_defaults.size() && source.parameter_defaults[index].valid())
+            result.parameter_defaults[index] =
+                lower_parameter_default(std::move(source.parameter_defaults[index]), index);
+          if (!current_function().argument_entries.empty()) lower_argument_entry(result, index);
         }
       }
     }
@@ -1847,6 +1848,11 @@ class Builder final {
 
   void initialize_function_signature(const Statement& statement, const hir::StatementFacts* facts) {
     auto& function = current_function();
+    const bool raw_inputs =
+        program_.source_language == SourceLanguage::matlab &&
+        std::any_of(statement.argument_validations.begin(), statement.argument_validations.end(),
+                    [](const auto& plan) { return plan.direction == ArgumentDirection::input; });
+    if (raw_inputs) function.argument_entries.resize(statement.parameters.size());
     function.parameter_types.reserve(statement.parameters.size());
     function.parameter_shapes.reserve(statement.parameters.size());
     function.parameter_optional =
@@ -1877,14 +1883,41 @@ class Builder final {
       const auto intent = facts != nullptr && index < facts->parameter_intents.size()
                               ? facts->parameter_intents[index]
                               : ParameterIntent::none;
+      const auto symbol = index < statement.parameter_symbols.size()
+                              ? statement.parameter_symbols[index]
+                              : SymbolId{};
+      const auto raw_type = raw_inputs ? intern_type(ValueType::unknown, ValueType::unknown) : type;
+      const auto raw_shape = raw_inputs ? intern_raw_argument_shape() : shape;
       const auto storage = storage_for(
           index < statement.parameter_symbols.size() ? statement.parameter_symbols[index]
                                                      : SymbolId{},
-          statement.parameters[index], statement.origin, type, shape, StorageKind::parameter,
-          intent, function.parameter_optional[index]);
+          statement.parameters[index], statement.origin, raw_type, raw_shape,
+          StorageKind::parameter, intent, function.parameter_optional[index]);
       const auto value = value_ids_.next();
-      current_block().arguments.push_back({value, type, shape, storage});
+      current_block().arguments.push_back({value, raw_type, raw_shape, storage});
       storage_values_[storage] = value;
+      if (raw_inputs) {
+        function.raw_parameter_types.push_back(raw_type);
+        function.raw_parameter_shapes.push_back(raw_shape);
+        const StorageId formal{static_cast<StorageId::value_type>(program_.storages.size())};
+        program_.storages.push_back({statement.parameters[index],
+                                     symbol,
+                                     statement.origin,
+                                     type,
+                                     shape,
+                                     true,
+                                     false,
+                                     StorageKind::local,
+                                     StorageLifetime::function,
+                                     {},
+                                     StorageViewKind::none,
+                                     ParameterIntent::none});
+        storages_[symbol] = formal;
+        auto& flow = function.argument_entries[index];
+        flow.parameter = index;
+        flow.raw_storage = storage;
+        flow.storage = formal;
+      }
       function.parameter_types.push_back(type);
       function.parameter_shapes.push_back(shape);
       signature_parameters.push_back(
@@ -1935,6 +1968,127 @@ class Builder final {
       }
     }
     function.signature = intern_function_type(signature_parameters, function.result_types);
+  }
+
+  ShapeId intern_raw_argument_shape() {
+    constexpr auto key = "$raw-argument";
+    const auto found = shapes_.find(key);
+    if (found != shapes_.end()) return found->second;
+    const ShapeId id{static_cast<ShapeId::value_type>(program_.shapes.size())};
+    program_.shapes.push_back({{}, {}, semantic::IndexLayout::column_major, true});
+    shapes_.emplace(key, id);
+    return id;
+  }
+
+  void append_argument_operation(Instruction instruction, ArgumentOperation operation,
+                                 std::vector<MemoryAccess> accesses = {}) {
+    if (program_.argument_operations.empty()) program_.argument_operations.emplace_back();
+    operation.instruction = instruction.id;
+    const ArgumentOperationId id{
+        static_cast<ArgumentOperationId::value_type>(program_.argument_operations.size())};
+    program_.argument_operations.push_back(std::move(operation));
+    const auto instruction_id = instruction.id;
+    append_instruction(std::move(instruction), std::move(accesses));
+    program_.attributes.instructions[instruction_id.value()].argument_operation = id;
+  }
+
+  void lower_argument_entry(const Statement& statement, const std::size_t parameter) {
+    const auto plan = std::find_if(statement.argument_validations.begin(),
+                                   statement.argument_validations.end(), [&](const auto& item) {
+                                     return item.direction == ArgumentDirection::input &&
+                                            item.ordinal == parameter;
+                                   });
+    if (plan == statement.argument_validations.end()) return;
+    auto& flow = current_function().argument_entries[parameter];
+    flow.block = current_block_;
+    flow.selected = storage_values_.at(flow.raw_storage);
+    Instruction normalize;
+    normalize.id = instruction_ids_.next();
+    flow.normalization = normalize.id;
+    normalize.opcode = Opcode::argument_normalize;
+    normalize.origin = statement.origin;
+    normalize.location = {plan->line, 1U};
+    normalize.storage = flow.storage;
+    normalize.type = current_function().parameter_types[parameter];
+    normalize.shape = current_function().parameter_shapes[parameter];
+    normalize.result = value_ids_.next();
+    normalize.operands = {flow.selected};
+    ArgumentOperation operation;
+    operation.owner = statement.origin;
+    operation.parameter = parameter;
+    operation.class_constraint = plan->class_constraint;
+    operation.dimensions_declared = plan->dimensions_declared;
+    operation.dimensions = plan->dimensions;
+    operation.rank = plan->validated_rank;
+    const auto normalized = normalize.result;
+    append_argument_operation(std::move(normalize), std::move(operation),
+                              {make_memory_access(flow.raw_storage, full_region(flow.raw_storage),
+                                                  MemoryAccessMode::read)});
+    Instruction initialize;
+    initialize.id = instruction_ids_.next();
+    flow.initialization = initialize.id;
+    initialize.opcode = Opcode::store;
+    initialize.origin = statement.origin;
+    initialize.location = {plan->line, 1U};
+    initialize.storage = flow.storage;
+    initialize.type = current_function().parameter_types[parameter];
+    initialize.shape = current_function().parameter_shapes[parameter];
+    initialize.result = value_ids_.next();
+    initialize.operands = {normalized};
+    flow.result = initialize.result;
+    storage_values_[flow.storage] = flow.result;
+    append_instruction(
+        std::move(initialize),
+        {make_memory_access(flow.storage, full_region(flow.storage), MemoryAccessMode::write)});
+    for (const auto& validator : plan->validators) {
+      std::vector<ValueId> operands{flow.result};
+      std::vector<MemoryAccess> reads{
+          make_memory_access(flow.storage, full_region(flow.storage), MemoryAccessMode::read)};
+      for (const auto& operand : validator.operands) {
+        if (operand.kind == ArgumentValidatorOperandKind::numeric_literal) {
+          Instruction literal;
+          literal.id = instruction_ids_.next();
+          literal.opcode = Opcode::literal;
+          literal.origin = validator.source_call;
+          literal.location = {plan->line, 1U};
+          literal.type = intern_type(ValueType::real, ValueType::unknown, real_numeric_type);
+          literal.shape = intern_shape({}, false);
+          literal.result = value_ids_.next();
+          operands.push_back(literal.result);
+          ArgumentOperation threshold;
+          threshold.owner = statement.origin;
+          threshold.parameter = parameter;
+          threshold.kind = ArgumentOperationKind::threshold;
+          threshold.literal = operand.numeric_literal;
+          append_argument_operation(std::move(literal), std::move(threshold));
+        } else {
+          const auto storage =
+              current_function().argument_entries.at(operand.input_ordinal).storage;
+          operands.push_back(storage_values_.at(storage));
+          if (std::none_of(reads.begin(), reads.end(),
+                           [&](const auto& access) { return access.storage == storage; }))
+            reads.push_back(
+                make_memory_access(storage, full_region(storage), MemoryAccessMode::read));
+        }
+      }
+      Instruction validate;
+      validate.id = instruction_ids_.next();
+      flow.validators.push_back(validate.id);
+      validate.opcode = Opcode::argument_validate;
+      validate.origin = validator.source_call;
+      validate.location = {plan->line, 1U};
+      validate.storage = flow.storage;
+      validate.operands = std::move(operands);
+      ArgumentOperation call;
+      call.owner = statement.origin;
+      call.parameter = parameter;
+      call.kind = ArgumentOperationKind::validation;
+      call.validator = validator;
+      append_argument_operation(std::move(validate), std::move(call), std::move(reads));
+    }
+    flow.continuation = make_function_block();
+    set_branch(flow.continuation, statement.origin);
+    current_block_ = flow.continuation;
   }
 
   StorageRegion full_region(const StorageId storage) const {

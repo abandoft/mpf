@@ -101,7 +101,7 @@ TEST_CASE("Matlab default CFG initializes all formals before guarded ordered eva
     REQUIRE(writes->memory_accesses[0].mode == mir::MemoryAccessMode::write);
   }
   REQUIRE(function.parameter_defaults[0].test_block == function.entry);
-  REQUIRE(function.parameter_defaults[1].test_block == function.parameter_defaults[0].merge_block);
+  REQUIRE(function.parameter_defaults[1].test_block == function.argument_entries[0].continuation);
   const auto* second = mir::expression(program, statement.parameter_defaults[1]);
   REQUIRE(second != nullptr);
   REQUIRE(second->children.size() == 2U);
@@ -109,7 +109,7 @@ TEST_CASE("Matlab default CFG initializes all formals before guarded ordered eva
   REQUIRE(first_reference != nullptr);
   const auto& first_load = program.instructions[first_reference->instruction.value()];
   REQUIRE(first_load.opcode == mir::Opcode::load);
-  REQUIRE(first_load.storage == function.parameter_defaults[0].storage);
+  REQUIRE(first_load.storage == function.argument_entries[0].storage);
   // MIR loads read memory, not an SSA value operand. The initialized version is merged on
   // both CFG edges; the independent dependence analysis checks the subsequent storage read.
   REQUIRE(first_load.operands.empty());
@@ -239,8 +239,10 @@ TEST_CASE("default flow verifier rejects guard storage inventory and merge corru
         auto& statement = owner(program, function);
         const auto instruction = statement.instruction;
         auto& merge =
-            program.blocks[function.parameter_defaults.back().merge_block.value()].instructions;
-        merge.erase(std::find(merge.begin(), merge.end(), instruction));
+            program.blocks[function.argument_entries.back().continuation.value()].instructions;
+        const auto found = std::find(merge.begin(), merge.end(), instruction);
+        REQUIRE(found != merge.end());
+        merge.erase(found);
         program.blocks[function.entry.value()].instructions.push_back(instruction);
       }};
   for (const auto& mutate : mutations) {
@@ -304,6 +306,8 @@ TEST_CASE("JavaScript default lowering independently binds the verified MIR abse
     REQUIRE(plan.source.source == lir->statements[0].parameter_defaults[index].origin);
     REQUIRE(plan.source.presence == checked(program).parameter_defaults[index].presence);
   }
+  // Keep an independent snapshot: the pointed-to program is mutated and restored below.
+  // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
   const auto clean = *lir;
   lir->statements[0].plan.default_flows[0].form = javascript::lir::ParameterDefaultForm::none;
   javascript::verify_lir_representation(*lir, diagnostics);
@@ -338,6 +342,8 @@ TEST_CASE(
   REQUIRE(lir->statements[0].plan.default_flows.size() == 2U);
   REQUIRE(lir->statements[0].plan.default_flows[0].form ==
           cpp::lir::ParameterDefaultForm::optional_resolve);
+  // Keep an independent snapshot: the pointed-to program is mutated and restored below.
+  // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
   const auto clean = *lir;
   lir->statements[0].plan.default_flows[0].source.result = {};
   cpp::verify_lir_representation(*lir, diagnostics);

@@ -59,6 +59,8 @@ void verify_parameter_defaults(const Program& program,
         instruction_blocks[instruction.value()] = identity;
     for (const auto successor : block.terminator.successors)
       if (valid(successor, incoming)) incoming[successor.value()].push_back(identity);
+    if (valid(block.exception_handler, incoming))
+      incoming[block.exception_handler.value()].push_back(identity);
   }
   std::unordered_map<HirNodeId::value_type, const Statement*> owners;
   for (std::size_t index = 1U; index < program.statements.size(); ++index) {
@@ -140,9 +142,17 @@ void verify_parameter_defaults(const Program& program,
           block_functions[flow.default_exit.value()] != function.id ||
           block_functions[flow.merge_block.value()] != function.id ||
           storage.kind != StorageKind::parameter || !storage.optional ||
-          storage.type != function.parameter_types[flow.parameter] ||
+          storage.type != (function.raw_parameter_types.empty()
+                               ? function.parameter_types[flow.parameter]
+                           : flow.parameter < function.raw_parameter_types.size()
+                               ? function.raw_parameter_types[flow.parameter]
+                               : TypeId{}) ||
           flow.parameter >= function.parameter_shapes.size() ||
-          storage.shape != function.parameter_shapes[flow.parameter] ||
+          storage.shape != (function.raw_parameter_shapes.empty()
+                                ? function.parameter_shapes[flow.parameter]
+                            : flow.parameter < function.raw_parameter_shapes.size()
+                                ? function.raw_parameter_shapes[flow.parameter]
+                                : ShapeId{}) ||
           flow.parameter >= statement.parameter_symbols.size() ||
           storage.symbol != statement.parameter_symbols[flow.parameter] ||
           presence.opcode != Opcode::parameter_presence ||
@@ -162,8 +172,14 @@ void verify_parameter_defaults(const Program& program,
           test.terminator.successors[1] != flow.default_blocks.front() ||
           !present.instructions.empty() || !branches_to(present, flow.merge_block) ||
           !branches_to(exit, flow.merge_block) ||
-          (previous_merge.valid() ? flow.test_block != previous_merge
-                                  : flow.test_block != function.entry)) {
+          (!function.argument_entries.empty()
+               ? (flow.parameter >= function.argument_entries.size() ||
+                  flow.test_block !=
+                      (flow.parameter == 0U
+                           ? function.entry
+                           : function.argument_entries[flow.parameter - 1U].continuation))
+               : (previous_merge.valid() ? flow.test_block != previous_merge
+                                         : flow.test_block != function.entry))) {
         fail(diagnostics, location, stage,
              "presence guard, formal identity, or declaration order is invalid");
       }
@@ -246,7 +262,9 @@ void verify_parameter_defaults(const Program& program,
     }
     if (previous_merge.valid() &&
         (!valid(statement.instruction, instruction_blocks) ||
-         instruction_blocks[statement.instruction.value()] != previous_merge))
+         instruction_blocks[statement.instruction.value()] !=
+             (function.argument_entries.empty() ? previous_merge
+                                                : function.argument_entries.back().continuation)))
       fail(diagnostics, location, stage, "function body starts before its default sequence merges");
   }
   for (const auto instruction : presence_instructions)

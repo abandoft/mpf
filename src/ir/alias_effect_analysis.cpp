@@ -87,6 +87,8 @@ Effect minimum_effects(const Instruction& instruction) noexcept {
     case Opcode::identifier: return Effect::none;
     case Opcode::load:
     case Opcode::parameter_presence: return Effect::read;
+    case Opcode::argument_normalize: return Effect::read | Effect::allocate | Effect::may_fail;
+    case Opcode::argument_validate: return Effect::read | Effect::may_fail | Effect::control;
     case Opcode::comparison_chain:
     case Opcode::conditional:
     case Opcode::return_value:
