@@ -75,12 +75,26 @@ cloning 和 Fortran optional actual 触发真实扩容；ASan/UBSan 与 fuzz 检
 
 ## 当前开发分支基线
 
+函数依赖回归覆盖 Matlab default 的 forward/transitive local call、Python definition scope 与
+Matlab formal scope、相同 spelling 不同 `SymbolId`、variable-callee 非依赖、50,000 节点链与
+SCC、重复分析以及 256 张有向图的独立 reachability oracle。名称 verifier 负向测试覆盖跨函数
+rebinding、绕过最近 formal shadowing、builtin identity 污染、foreign symbol/node 与循环 scope
+parent。C++ resource verifier 从 LIR 独立重建 graph，拒绝损坏 definition order 后才索引 ABI。
+`argument_default_functions.m` 在两端执行 defaults 的按需调用和副作用顺序，并另进入严格生成
+C++ 编译与 fuzz；`matlab-default-functions` 性能场景编译 128 个前向 default-call 函数。
+
+生成代码的 compile-only、runtime rejection、plan corruption 与 differential 子构建共享
+`generated_toolchain.cmake`，继承主构建的 compiler/generator/platform/toolset 与显式 macOS
+deployment target。后者同时进入 CMake cache 和 compiler-identification 子进程环境；contract
+测试验证带空格的 compiler/generator、完整参数与空参数不污染既有环境。GCC macOS 回归不依赖
+测试调用方额外导出 deployment 环境变量。
+
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 345 项，零失败 |
-| CTest | 当前 dev preset 为 198 项普通测试；包含 120 项 differential、1 项 C++ 单元/集成、63 项生成 runtime 拒绝、5 项生成 C++ 编译，以及 fuzz、架构、发布脚本、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
-| Differential corpus | Python 22、Fortran 19、Matlab 75、TypeScript 4，共 120 个 case |
-| 工具完整环境执行路径 | 285 条程序路径，另有每 case 一条 oracle |
+| C++ 单元与集成测试 | 356 项，零失败 |
+| CTest | 当前 dev preset 为 201 项普通测试；包含 121 项 differential、1 项 C++ 单元/集成、63 项生成 runtime 拒绝、6 项生成 C++ 编译，以及 fuzz、架构、发布脚本、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
+| Differential corpus | Python 22、Fortran 19、Matlab 76、TypeScript 4，共 121 个 case |
+| 工具完整环境执行路径 | 287 条程序路径，另有每 case 一条 oracle |
 | 生产代码行覆盖率 | 硬门槛 85%；当前结果以 `coverage-report` workflow artifact 为准 |
 
 ## Differential corpus
@@ -89,10 +103,10 @@ cloning 和 Fortran optional actual 触发真实扩容；ASan/UBSan 与 fuzz 检
 
 - 22 个 Python case：CPython 3.14、Node.js、生成 C++17 与 oracle 四路比较；
 - 19 个 Fortran case：gfortran 严格 `-std=f2018` reference mode、Node.js、生成 C++17 与 oracle 四路比较；`MPF_FORTRAN_REFERENCE_STANDARD` 可在工具链支持后切换到 `f2023`；
-- 75 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较；
+- 76 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较；
 - 4 个 TypeScript case：Node.js 24 直接执行可擦除类型的 source、生成 JavaScript、生成 C++17 与声明式 oracle 四路比较；覆盖 basic、typed array、lexical block 和 canonical `for`，完整 type-check 仍待接入与 manifest 匹配的 `tsc`。
 
-在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 120 个 case 共执行 285 条程序输出路径：120 条生成 JavaScript/Node.js、120 条生成 C++17、22 条 CPython、19 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。Matlab `arguments.m` 固定 input/output、class/validator、ordered default、logical/char/empty validator 语义与 R2024b variable-name 成功路径，`argument_conversion.m` 固定 N 维 scalar expansion、column-to-row reshape，以及前序参数完成 logical conversion 后才求值的 default。其余 matrix/sparse/control/exception/dynamic-assignment corpus 继续固定各自已记录合同；所有 case 均执行两个目标 runtime。63 项 runtime-rejection 测试另覆盖 complex-storage realness、非法/超长变量名和既有 shape/broadcast/division/mutation/sparse ABI 污染边界。
+在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 121 个 case 共执行 287 条程序输出路径：121 条生成 JavaScript/Node.js、121 条生成 C++17、22 条 CPython、19 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。Matlab `arguments.m` 固定 input/output、class/validator、ordered default、logical/char/empty validator 语义与 R2024b variable-name 成功路径，`argument_conversion.m` 固定 N 维 scalar expansion、column-to-row reshape，以及前序参数完成 logical conversion 后才求值的 default。其余 matrix/sparse/control/exception/dynamic-assignment corpus 继续固定各自已记录合同；所有 case 均执行两个目标 runtime。63 项 runtime-rejection 测试另覆盖 complex-storage realness、非法/超长变量名和既有 shape/broadcast/division/mutation/sparse ABI 污染边界。
 
 `shape_mutation.m` 额外固定 dense direct alias 与 local-function 参数在 growth/write 后仍保持 Matlab value semantics；`complex_sparse_storage.m` 同时固定 sparse copy 在 assignment/growth/zero erase 后通过 immutable root replacement 隔离旧 alias。
 
@@ -132,7 +146,7 @@ build/fuzz/tests/mpf-transpiler-fuzzer build/fuzz/corpus
 
 ## 性能门禁
 
-`mpf.performance.release-gate` 运行两个目标的四十六类编译场景和八路并发 session，重复编译还会逐字节比较代码与 source map。场景覆盖 small、吞吐、深 CFG、大 shape、函数图、TypeScript 吞吐、128 个同根交错 section 调用的 storage-region 分析、branch/loop/index-write memory-dependence fixed point，以及 Matlab return/command、数组、N 维 tensor、logical kernel、logical reduction kernel、矩阵 solve/power、rank-aware/秩亏 solve、condition-aware、diagonal/upper/lower/dense 与 pivoted-tridiagonal/Cholesky/对称不定回退结构感知方阵 solve、动态 `end`、runtime-shape broadcast、shape mutation、dynamic section assignment、empty-array、complex scalar/array、complex square matrix、complex rectangular CPQR、sparse CSC square-solve、sparse matrix-product、sparse scalar-product、sparse element-wise product、sparse arithmetic、sparse square-power、sparse-index、sparse-assignment、sparse-reshape、logical-sparse storage、complex sparse storage lifecycle、sparse-logical operator、argument-validation 及 exception-object kernel。sparse-product workload 同时覆盖三种 storage 组合；sparse-elementwise workload 覆盖五种 operand form 和双轴广播；sparse-arithmetic workload 覆盖 sparse-sparse `+`/`-`、两类 mixed dense 路径、双向 scalar、row/column/outer expansion 与重复 sparse result；complex-sparse-arithmetic workload 进一步覆盖 complex CSC、mixed real dense、双向 complex scalar、complex row/column expansion 与 value-domain promotion；complex-sparse-multiply workload 覆盖三种 CSC/dense storage 组合、real/logical promotion、零 extent、canonical complex CSC 与重复乘法；sparse-power workload 覆盖 real/logical CSC base、正整数/零次幂、identity、logical promotion 与重复乘法；sparse-logical workload 覆盖 NOT、sparse/dense AND、sparse-sparse/mixed OR、row-column broadcast、scalar 和 storage materialization；sparse-reduction workload 覆盖 numeric/logical CSC 的按列、按行、全维、高于 rank 与零 extent 归约；sparse-reshape workload 覆盖 size vector、推断维度、N 维请求折叠与反复 shape 恢复；sparse-solve workload 同时覆盖 zero/inferred/sized/reserved triplet construction、duplicate accumulation、full/sparse transpose、零维系数、dense/CSC RHS/LHS 与四种 shaped-empty 左右除；logical-sparse workload 覆盖 logical dense/triplet construction、duplicate `any` 及完整 storage lifecycle；dynamic-section-assignment workload 覆盖 runtime scalar/numeric/logical/range selector、线性/多维覆盖与增长、三维页扩容和失败回滚。Matlab 三十八个场景另有独立的最大延迟、最低吞吐和最大产物预算，避免被全局宽阈值掩盖。结果写入 `build/<preset>/performance-report.json`，并由 [`tests/performance/baseline.json`](../tests/performance/baseline.json) 的精确当前版本上限/下限检查延迟、吞吐、峰值 arena 和最大生成大小；performance schema v3 还允许为已命名的重型场景设置独立覆盖值；当前 sparse-index/sparse-assignment/sparse-reshape/sparse-multiply/sparse-scale/sparse-elementwise/sparse-arithmetic/complex-sparse-arithmetic/complex-sparse-multiply/sparse-power/logical-sparse/complex-sparse/sparse-logical/sparse-reduction 覆盖不会放宽其余 Matlab 场景阈值，也不读取旧版本 baseline。性能 workflow 显式运行独立 `mpf-performance` 目标并归档机器可读报告；该非插桩门禁不在普通 CTest、coverage 或 ASan/UBSan 测试集中重复执行，避免重型测试争抢 CPU 后制造伪回归。
+`mpf.performance.release-gate` 运行两个目标的四十七类编译场景和八路并发 session，重复编译还会逐字节比较代码与 source map。场景覆盖 small、吞吐、深 CFG、大 shape、函数图、TypeScript 吞吐、128 个同根交错 section 调用的 storage-region 分析、branch/loop/index-write memory-dependence fixed point，以及 Matlab return/command、数组、N 维 tensor、logical kernel、logical reduction kernel、矩阵 solve/power、rank-aware/秩亏 solve、condition-aware、diagonal/upper/lower/dense 与 pivoted-tridiagonal/Cholesky/对称不定回退结构感知方阵 solve、动态 `end`、runtime-shape broadcast、shape mutation、dynamic section assignment、empty-array、complex scalar/array、complex square matrix、complex rectangular CPQR、sparse CSC square-solve、sparse matrix-product、sparse scalar-product、sparse element-wise product、sparse arithmetic、sparse square-power、sparse-index、sparse-assignment、sparse-reshape、logical-sparse storage、complex sparse storage lifecycle、sparse-logical operator、argument-validation、前向 default-call 函数链及 exception-object kernel。sparse-product workload 同时覆盖三种 storage 组合；sparse-elementwise workload 覆盖五种 operand form 和双轴广播；sparse-arithmetic workload 覆盖 sparse-sparse `+`/`-`、两类 mixed dense 路径、双向 scalar、row/column/outer expansion 与重复 sparse result；complex-sparse-arithmetic workload 进一步覆盖 complex CSC、mixed real dense、双向 complex scalar、complex row/column expansion 与 value-domain promotion；complex-sparse-multiply workload 覆盖三种 CSC/dense storage 组合、real/logical promotion、零 extent、canonical complex CSC 与重复乘法；sparse-power workload 覆盖 real/logical CSC base、正整数/零次幂、identity、logical promotion 与重复乘法；sparse-logical workload 覆盖 NOT、sparse/dense AND、sparse-sparse/mixed OR、row-column broadcast、scalar 和 storage materialization；sparse-reduction workload 覆盖 numeric/logical CSC 的按列、按行、全维、高于 rank 与零 extent 归约；sparse-reshape workload 覆盖 size vector、推断维度、N 维请求折叠与反复 shape 恢复；sparse-solve workload 同时覆盖 zero/inferred/sized/reserved triplet construction、duplicate accumulation、full/sparse transpose、零维系数、dense/CSC RHS/LHS 与四种 shaped-empty 左右除；logical-sparse workload 覆盖 logical dense/triplet construction、duplicate `any` 及完整 storage lifecycle；dynamic-section-assignment workload 覆盖 runtime scalar/numeric/logical/range selector、线性/多维覆盖与增长、三维页扩容和失败回滚。Matlab 三十九个场景另有独立的最大延迟、最低吞吐和最大产物预算，避免被全局宽阈值掩盖。结果写入 `build/<preset>/performance-report.json`，并由 [`tests/performance/baseline.json`](../tests/performance/baseline.json) 的精确当前版本上限/下限检查延迟、吞吐、峰值 arena 和最大生成大小；performance schema v3 还允许为已命名的重型场景设置独立覆盖值；当前 sparse-index/sparse-assignment/sparse-reshape/sparse-multiply/sparse-scale/sparse-elementwise/sparse-arithmetic/complex-sparse-arithmetic/complex-sparse-multiply/sparse-power/logical-sparse/complex-sparse/sparse-logical/sparse-reduction 覆盖不会放宽其余 Matlab 场景阈值，也不读取旧版本 baseline。性能 workflow 显式运行独立 `mpf-performance` 目标并归档机器可读报告；该非插桩门禁不在普通 CTest、coverage 或 ASan/UBSan 测试集中重复执行，避免重型测试争抢 CPU 后制造伪回归。
 
 质量与覆盖率门禁：
 
