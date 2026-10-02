@@ -4509,7 +4509,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto first_hir = mpf::detail::dump_hir(lowered.program);
   const auto second_hir = mpf::detail::dump_hir(lowered.program);
   REQUIRE(first_hir == second_hir);
-  REQUIRE(first_hir.find("hir-v4") != std::string::npos);
+  REQUIRE(first_hir.find("hir-v5") != std::string::npos);
   REQUIRE(first_hir.find("stmt %h") != std::string::npos);
   auto invalid_hir_profile = lowered.program;
   invalid_hir_profile.semantics.division_by_zero = mpf::detail::semantic::DivisionByZero::ieee754;
@@ -4527,7 +4527,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v44") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v45") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
