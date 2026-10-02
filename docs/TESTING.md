@@ -54,7 +54,7 @@ expansion、row/column reshape、23 个无参数 validator、source map、JavaSc
 编译、runtime rejection、fuzz seed 和独立性能 workload 共同覆盖当前纵切面。name-value、
 Repeating、parameterized/custom validator 与动态 rank/class ABI 继续使用负向测试保持失败关闭。
 
-后续开发分支的关系 validator 使用 Matlab AST v9、Semantic v38、MIR v48 与双目标 LIR v57。
+后续开发分支的关系 validator 使用 Matlab AST v9、Semantic v39、MIR v48 与双目标 LIR v58。
 定向测试覆盖四种比较、literal/前序 input/output reference、optional access、source map，以及
 literal/ordinal/formal shape 和目标 opcode/token/symbol/access form 的独立损坏拒绝。双目标
 执行覆盖 strict/非 strict 边界、complex-zero-imag storage、NaN threshold 和首错顺序；另以
@@ -67,6 +67,13 @@ fuzz seed 与既有 argument-validation 性能 workload 同步扩展。当前增
 `numel`；旧 empty/sparse-zero/sparse-indexing 的 oracle 按官方空数组 length=0 规则校正，不能
 以两个目标一起输出错误作为通过理由。不宣称其余参数化/custom validator
 或 name-value/Repeating 已被完成。
+
+输出转换回归固定内部 workspace 与 caller signature 的分离、logical display、多输出、
+scalar/N 维 expansion、column-major wildcard reshape、complex identity、同名 input/output
+和 size-free validator。`argument_output_tests.cpp` 独立污染 semantic class/shape/rank，以及
+两个目标的 materialization/opcode/dimensions/ordinal 与临时身份；污染前先验证完整私有计划。
+`matlab_argument_output_class_failure.m` 要求 logical conversion 后 `mustBeNumeric` 失败，
+不能让 raw numeric value 绕过验证。公共 MIR output exit 与 body catch 隔离的回归仍须补齐。
 
 Analyzer 生命周期回归测试主动收紧 expression side-table capacity，再通过 Matlab 默认参数的
 嵌套 call、scalar/multi-axis selector、slice bound、indexed mutation、Python tuple/default
@@ -131,10 +138,10 @@ deployment target。后者同时进入 CMake cache 和 compiler-identification �
 
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 401 项，零失败 |
-| CTest | 当前 dev preset 为 206 项普通测试；包含 123 项 differential、1 项 C++ 单元/集成、63 项生成 runtime 拒绝、8 项生成 C++ 编译，以及 fuzz、架构、发布脚本、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
-| Differential corpus | Python 22、Fortran 19、Matlab 78、TypeScript 4，共 123 个 case |
-| 工具完整环境执行路径 | 291 条程序路径，另有每 case 一条 oracle |
+| C++ 单元与集成测试 | 411 项，零失败 |
+| CTest | 当前 dev preset 为 209 项普通测试；包含 124 项 differential、1 项 C++ 单元/集成、64 项生成 runtime 拒绝、9 项生成 C++ 编译，以及 fuzz、架构、发布脚本、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
+| Differential corpus | Python 22、Fortran 19、Matlab 79、TypeScript 4，共 124 个 case |
+| 工具完整环境执行路径 | 293 条程序路径，另有每 case 一条 oracle |
 | 生产代码行覆盖率 | 硬门槛 85%；当前结果以 `coverage-report` workflow artifact 为准 |
 
 ## Differential corpus
@@ -143,10 +150,10 @@ deployment target。后者同时进入 CMake cache 和 compiler-identification �
 
 - 22 个 Python case：CPython 3.14、Node.js、生成 C++17 与 oracle 四路比较；
 - 19 个 Fortran case：gfortran 严格 `-std=f2018` reference mode、Node.js、生成 C++17 与 oracle 四路比较；`MPF_FORTRAN_REFERENCE_STANDARD` 可在工具链支持后切换到 `f2023`；
-- 78 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较；
+- 79 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较；
 - 4 个 TypeScript case：Node.js 24 直接执行可擦除类型的 source、生成 JavaScript、生成 C++17 与声明式 oracle 四路比较；覆盖 basic、typed array、lexical block 和 canonical `for`，完整 type-check 仍待接入与 manifest 匹配的 `tsc`。
 
-在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 123 个 case 共执行 291 条程序输出路径：123 条生成 JavaScript/Node.js、123 条生成 C++17、22 条 CPython、19 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。Matlab `arguments.m` 固定 input/output、class/validator、ordered default、logical/char/empty validator 语义与 R2024b variable-name 成功路径，`argument_conversion.m` 固定 N 维 scalar expansion、column-to-row reshape，以及前序参数完成 logical conversion 后才求值的 default。`argument_default_control_flow.m` 固定 supplied/omitted/empty、默认值的 IO/异常/嵌套短路，以及 logical scalar/array 的 class conversion/validation；C++ runtime 需将 `vector<bool>` proxy 还原为实际 scalar 再转换/检查，不能依赖 libc++/libstdc++ 的 proxy 类型一致。其余 matrix/sparse/control/exception/dynamic-assignment corpus 继续固定各自已记录合同；所有 case 均执行两个目标 runtime。63 项 runtime-rejection 测试另覆盖 complex-storage realness、非法/超长变量名和既有 shape/broadcast/division/mutation/sparse ABI 污染边界。
+在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 124 个 case 共执行 293 条程序输出路径：124 条生成 JavaScript/Node.js、124 条生成 C++17、22 条 CPython、19 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。Matlab `arguments.m` 固定 input/output、class/validator、ordered default、logical/char/empty validator 语义与 R2024b variable-name 成功路径，`argument_conversion.m` 固定 N 维 scalar expansion、column-to-row reshape，以及前序参数完成 logical conversion 后才求值的 default。`argument_default_control_flow.m` 固定 supplied/omitted/empty、默认值的 IO/异常/嵌套短路，以及 logical scalar/array 的 class conversion/validation；C++ runtime 需将 `vector<bool>` proxy 还原为实际 scalar 再转换/检查，不能依赖 libc++/libstdc++ 的 proxy 类型一致。其余 matrix/sparse/control/exception/dynamic-assignment corpus 继续固定各自已记录合同；所有 case 均执行两个目标 runtime。64 项 runtime-rejection 测试另覆盖 complex-storage realness、非法/超长变量名和既有 shape/broadcast/division/mutation/sparse ABI 污染边界。
 
 `shape_mutation.m` 额外固定 dense direct alias 与 local-function 参数在 growth/write 后仍保持 Matlab value semantics；`complex_sparse_storage.m` 同时固定 sparse copy 在 assignment/growth/zero erase 后通过 immutable root replacement 隔离旧 alias。
 
