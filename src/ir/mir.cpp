@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "mir_argument_exit.hpp"
 #include "mir_opcode.hpp"
 #include "semantic/name_analysis.hpp"
 
@@ -68,6 +69,9 @@ class Builder final {
                       const bool exported = false) {
     storages_.clear();
     storage_values_.clear();
+    argument_output_symbols_.clear();
+    argument_output_input_symbols_.clear();
+    argument_output_threshold_inputs_.clear();
     Function function;
     function.id = function_ids_.next();
     function.origin = origin;
@@ -82,6 +86,44 @@ class Builder final {
   }
 
   void finish_function() {
+    if (current_function().argument_exit.merge.valid()) {
+      const auto owner_id = current_function().argument_exit.owner;
+      const auto& owner = program_.statements.at(owner_id.value());
+      if (current_block().terminator.kind == TerminatorKind::none)
+        capture_argument_return(owner.origin, true);
+      current_block_ = current_function().argument_exit.merge;
+      const auto binding = [&](const SymbolId symbol) {
+        const auto found = storages_.find(symbol);
+        if (found == storages_.end()) return ArgumentExitBinding{};
+        return ArgumentExitBinding{found->second};
+      };
+      std::vector<ArgumentExitBinding> outputs;
+      outputs.reserve(argument_output_symbols_.size());
+      for (const auto symbol : argument_output_symbols_) outputs.push_back(binding(symbol));
+      std::vector<ArgumentExitBinding> inputs;
+      if (!argument_output_threshold_inputs_.empty())
+        inputs.resize(argument_output_threshold_inputs_.back() + 1U);
+      for (const auto ordinal : argument_output_threshold_inputs_)
+        inputs.at(ordinal) = binding(argument_output_input_symbols_.at(ordinal));
+      bool literals = false;
+      for (const auto& plan : owner.argument_validations)
+        if (plan.direction == ArgumentDirection::output)
+          for (const auto& validator : plan.validators)
+            for (const auto& operand : validator.operands)
+              literals = literals || operand.kind == ArgumentValidatorOperandKind::numeric_literal;
+      const auto literal_type =
+          literals ? intern_type(ValueType::real, ValueType::unknown, real_numeric_type) : TypeId{};
+      const bool tuple = current_function().result_types.size() > 1U;
+      const auto scalar_shape = literals || tuple ? intern_shape({}, false) : ShapeId{};
+      const auto tuple_type = tuple ? intern_tuple_type(current_function().result_types) : TypeId{};
+      const auto workspace_type = intern_type(ValueType::unknown, ValueType::unknown);
+      const auto workspace_shape = intern_raw_argument_shape();
+      lower_argument_exit({program_, current_function(), owner, std::move(outputs),
+                           std::move(inputs), literal_type, scalar_shape, tuple_type,
+                           workspace_type, workspace_shape, instruction_ids_, value_ids_,
+                           block_ids_});
+      current_block_ = current_function().argument_exit.continuation;
+    }
     auto& block = current_block();
     if (block.terminator.kind == TerminatorKind::none) {
       block.terminator.kind = TerminatorKind::return_value;
@@ -404,6 +446,7 @@ class Builder final {
           if (!current_function().argument_entries.empty()) lower_argument_entry(result, index);
         }
       }
+      initialize_argument_exit(result);
     }
 
     emit_statement_instruction(result, result_attributes, semantic_facts);
@@ -702,12 +745,16 @@ class Builder final {
     }
 
     if (result.kind == StatementKind::return_statement) {
-      auto& terminator = current_block().terminator;
-      terminator.kind = TerminatorKind::return_value;
-      terminator.origin = result.origin;
-      const auto* returned = expression(program_, result.expression);
-      if (returned != nullptr && returned->value_id.valid()) {
-        terminator.operands.push_back(returned->value_id);
+      if (current_function().argument_exit.merge.valid()) {
+        capture_argument_return(result.origin, false);
+      } else {
+        auto& terminator = current_block().terminator;
+        terminator.kind = TerminatorKind::return_value;
+        terminator.origin = result.origin;
+        const auto* returned = expression(program_, result.expression);
+        if (returned != nullptr && returned->value_id.valid()) {
+          terminator.operands.push_back(returned->value_id);
+        }
       }
     }
     if (result.kind == StatementKind::break_statement && !loops_.empty()) {
@@ -824,7 +871,11 @@ class Builder final {
   [[nodiscard]] TypeId intern_expression_type(const hir::ExpressionFacts* facts,
                                               const std::vector<MirExpressionId>& children) {
     if (facts == nullptr) return intern_type(ValueType::unknown, ValueType::unknown);
-    if (facts->inferred_type != ValueType::tuple && facts->tuple_types.empty()) {
+    // A Matlab call can retain the full callee output inventory while selecting only its first
+    // result. That inventory is not the type of the selected expression value.
+    if (facts->inferred_type != ValueType::tuple &&
+        (facts->tuple_types.empty() ||
+         (facts->multi_output_call && facts->requested_outputs == 1U))) {
       return intern_type(facts->inferred_type, facts->element_type, facts->numeric_type,
                          facts->element_numeric_type, facts->array_storage);
     }
@@ -1178,9 +1229,10 @@ class Builder final {
       }
       result_attributes.binding = semantic_facts->binding;
       result_attributes.intrinsic = semantic_facts->intrinsic;
-      result_attributes.tuple_shapes.reserve(semantic_facts->tuple_shapes.size());
-      for (const auto& tuple_shape : semantic_facts->tuple_shapes) {
-        result_attributes.tuple_shapes.push_back(intern_shape(tuple_shape, false));
+      if (!semantic_facts->multi_output_call || semantic_facts->requested_outputs != 1U) {
+        result_attributes.tuple_shapes.reserve(semantic_facts->tuple_shapes.size());
+        for (const auto& tuple_shape : semantic_facts->tuple_shapes)
+          result_attributes.tuple_shapes.push_back(intern_shape(tuple_shape, false));
       }
       result_attributes.sequence_elements.reserve(semantic_facts->sequence_elements.size());
       for (const auto& element : semantic_facts->sequence_elements) {
@@ -1992,6 +2044,34 @@ class Builder final {
     program_.attributes.instructions[instruction_id.value()].argument_operation = id;
   }
 
+  void initialize_argument_exit(const Statement& statement) {
+    if (program_.source_language != SourceLanguage::matlab ||
+        std::none_of(statement.argument_validations.begin(), statement.argument_validations.end(),
+                     [](const auto& plan) { return plan.direction == ArgumentDirection::output; }))
+      return;
+    auto& flow = current_function().argument_exit;
+    flow.owner = statement.id;
+    flow.origin = statement.origin;
+    flow.merge = make_function_block();
+    argument_output_symbols_ = statement.return_symbols;
+    argument_output_input_symbols_ = statement.parameter_symbols;
+    for (const auto& plan : statement.argument_validations)
+      if (plan.direction == ArgumentDirection::output)
+        for (const auto& validator : plan.validators)
+          for (const auto& operand : validator.operands)
+            if (operand.kind == ArgumentValidatorOperandKind::input_argument)
+              argument_output_threshold_inputs_.push_back(operand.input_ordinal);
+    std::sort(argument_output_threshold_inputs_.begin(), argument_output_threshold_inputs_.end());
+    argument_output_threshold_inputs_.erase(std::unique(argument_output_threshold_inputs_.begin(),
+                                                        argument_output_threshold_inputs_.end()),
+                                            argument_output_threshold_inputs_.end());
+  }
+
+  void capture_argument_return(const HirNodeId origin, const bool implicit) {
+    current_function().argument_exit.returns.push_back({origin, current_block_, implicit});
+    set_branch(current_function().argument_exit.merge, origin);
+  }
+
   void lower_argument_entry(const Statement& statement, const std::size_t parameter) {
     const auto plan = std::find_if(statement.argument_validations.begin(),
                                    statement.argument_validations.end(), [&](const auto& item) {
@@ -2246,6 +2326,9 @@ class Builder final {
   std::unordered_map<SymbolId, StorageId> storages_;
   std::unordered_map<SymbolId, StorageId> global_storages_;
   StorageVersions storage_values_;
+  std::vector<SymbolId> argument_output_symbols_;
+  std::vector<SymbolId> argument_output_input_symbols_;
+  std::vector<std::size_t> argument_output_threshold_inputs_;
   std::vector<LoopContext> loops_;
   std::vector<UnresolvedCall> unresolved_calls_;
 };

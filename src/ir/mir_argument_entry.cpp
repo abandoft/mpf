@@ -42,10 +42,15 @@ void verify_argument_entries(const Program& program, std::vector<Diagnostic>& di
     active = active || !function.argument_entries.empty() ||
              !function.raw_parameter_types.empty() || !function.raw_parameter_shapes.empty();
   if (!active) return;
+  for (const auto& operation : program.argument_operations)
+    if (operation.direction != ArgumentDirection::input &&
+        operation.direction != ArgumentDirection::output)
+      fail(diagnostics, {1U, 1U}, stage, "argument operation has an invalid direction");
   if (!program.argument_operations.empty()) {
     const auto& sentinel = program.argument_operations.front();
     if (sentinel.instruction.valid() || sentinel.owner.valid() || sentinel.parameter != 0U ||
         sentinel.kind != ArgumentOperationKind::normalization ||
+        sentinel.direction != ArgumentDirection::input ||
         sentinel.class_constraint != ArgumentClassConstraint::none ||
         sentinel.dimensions_declared || !sentinel.dimensions.empty() || sentinel.rank != 0U ||
         !(sentinel.validator == ArgumentValidatorPlan{}) || !sentinel.literal.empty())
@@ -181,6 +186,7 @@ void verify_argument_entries(const Program& program, std::vector<Diagnostic>& di
       const auto consume = [&](const InstructionId id, const ArgumentOperationKind kind) {
         const auto* operation = argument_operation(program, id);
         if (!valid(id, program.instructions) || operation == nullptr || operation->kind != kind ||
+            operation->direction != ArgumentDirection::input ||
             operation->owner != function.origin || operation->parameter != parameter ||
             instruction_blocks[id.value()] != flow.block || cursor >= block.instructions.size() ||
             block.instructions[cursor++] != id) {
@@ -298,7 +304,8 @@ void verify_argument_entries(const Program& program, std::vector<Diagnostic>& di
       fail(diagnostics, location, stage, "function body begins before validation completes");
   }
   for (std::size_t index = 1U; index < used.size(); ++index)
-    if (!used[index]) fail(diagnostics, {1U, 1U}, stage, "orphan argument operation");
+    if (!used[index] && program.argument_operations[index].direction == ArgumentDirection::input)
+      fail(diagnostics, {1U, 1U}, stage, "orphan input argument operation");
 }
 
 }  // namespace mpf::detail::mir

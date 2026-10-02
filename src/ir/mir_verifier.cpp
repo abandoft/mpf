@@ -9,6 +9,7 @@
 #include "compiler/numeric_contract.hpp"
 #include "mir.hpp"
 #include "mir_argument_entry.hpp"
+#include "mir_argument_exit.hpp"
 #include "mir_argument_validation.hpp"
 #include "mir_opcode.hpp"
 #include "mir_parameter_defaults.hpp"
@@ -3137,6 +3138,7 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
   verify_statements(program, diagnostics, stage);
   verify_argument_validator_sources(program, diagnostics, stage);
   verify_argument_entries(program, diagnostics, stage);
+  verify_argument_outputs(program, diagnostics, stage);
   verify_parameter_defaults(program, parameter_presence_instructions, diagnostics, stage);
   verify_expression_ownership(program, diagnostics, stage);
   return diagnostics;

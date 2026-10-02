@@ -180,6 +180,14 @@ std::vector<Diagnostic> canonicalize_shapes(Program& program, OptimizationStatis
 }
 
 void replace_value(Program& program, const ValueId from, const ValueId to) {
+  for (std::size_t index = 1U; index < program.functions.size(); ++index) {
+    auto& function = program.functions[index];
+    if (function.argument_exit.returned == from) function.argument_exit.returned = to;
+    for (auto& flow : function.argument_outputs) {
+      if (flow.selected == from) flow.selected = to;
+      if (flow.result == from) flow.result = to;
+    }
+  }
   for (std::size_t index = 1U; index < program.functions.size(); ++index)
     for (auto& flow : program.functions[index].argument_entries) {
       if (flow.selected == from) flow.selected = to;
@@ -565,6 +573,13 @@ void compact_instructions(Program& program, const std::vector<bool>& removed,
   for (auto& call : program.calls) remap_id(call.instruction);
   for (auto& operation : program.argument_operations) remap_id(operation.instruction);
   for (std::size_t index = 1U; index < program.functions.size(); ++index) {
+    remap_id(program.functions[index].argument_exit.aggregation);
+    for (auto& flow : program.functions[index].argument_outputs) {
+      remap_id(flow.selection);
+      remap_id(flow.normalization);
+      remap_id(flow.initialization);
+      for (auto& instruction : flow.validators) remap_id(instruction);
+    }
     for (auto& flow : program.functions[index].argument_entries) {
       remap_id(flow.normalization);
       remap_id(flow.initialization);
@@ -697,6 +712,13 @@ void compact_blocks(Program& program, const std::vector<bool>& kept,
   for (std::size_t index = 1; index < program.functions.size(); ++index) {
     remap_id(program.functions[index].entry);
     for (auto& block : program.functions[index].blocks) remap_id(block);
+    remap_id(program.functions[index].argument_exit.merge);
+    remap_id(program.functions[index].argument_exit.continuation);
+    for (auto& source : program.functions[index].argument_exit.returns) remap_id(source.block);
+    for (auto& flow : program.functions[index].argument_outputs) {
+      remap_id(flow.block);
+      remap_id(flow.continuation);
+    }
     for (auto& flow : program.functions[index].argument_entries) {
       remap_id(flow.block);
       remap_id(flow.continuation);
@@ -737,6 +759,18 @@ std::vector<Diagnostic> cleanup_cfg(Program& program, OptimizationStatistics& st
     for (std::size_t index = 1; index < program.functions.size(); ++index) {
       if (program.functions[index].entry.valid())
         entry[program.functions[index].entry.value()] = true;
+      const auto retain_output = [&](const BlockId block) {
+        if (block.valid() && block.value() < structural_blocks.size())
+          structural_blocks[block.value()] = true;
+      };
+      retain_output(program.functions[index].argument_exit.merge);
+      retain_output(program.functions[index].argument_exit.continuation);
+      for (const auto& source : program.functions[index].argument_exit.returns)
+        retain_output(source.block);
+      for (const auto& flow : program.functions[index].argument_outputs) {
+        retain_output(flow.block);
+        retain_output(flow.continuation);
+      }
       for (const auto& flow : program.functions[index].argument_entries)
         for (const auto block : {flow.block, flow.continuation})
           if (block.valid() && block.value() < structural_blocks.size())
