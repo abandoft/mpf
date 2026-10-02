@@ -317,7 +317,37 @@ inline std::string_view argument_validator_name(const std::uint8_t validator) no
     case 20U: return "mustBeText";
     case 21U: return "mustBeTextScalar";
     case 22U: return "mustBeValidVariableName";
+    case 23U: return "mustBeGreaterThan";
+    case 24U: return "mustBeGreaterThanOrEqual";
+    case 25U: return "mustBeLessThan";
+    case 26U: return "mustBeLessThanOrEqual";
     default: return "unknown validator";
+  }
+}
+
+struct argument_validator_operand {
+  double value{0.0};
+  bool valid{true};
+
+  argument_validator_operand(const double number, const bool is_valid = true)
+      : value(number), valid(is_valid) {}
+};
+
+struct argument_validator_call {
+  std::uint8_t validator{0U};
+  argument_validator_operand operand{0.0};
+  bool has_operand{false};
+};
+
+template <typename T>
+argument_validator_operand argument_validator_threshold(const T& value) {
+  using Value = std::decay_t<T>;
+  if constexpr (std::is_arithmetic_v<Value>) {
+    return {static_cast<double>(value)};
+  } else {
+    // Preserve complex storage identity, including zero imaginary parts. Failure is deferred
+    // until this validator runs so earlier validators retain their first-error ordering.
+    return {0.0, false};
   }
 }
 
@@ -330,12 +360,12 @@ inline bool argument_is_matlab_keyword(const std::string_view value) noexcept {
   return std::find(keywords.begin(), keywords.end(), value) != keywords.end();
 }
 
-template <typename T>
+template <typename T, typename Validators>
 void validate_argument(const T& value, const std::string_view name,
                        const std::string_view direction,
                        const std::vector<std::int64_t>& dimensions,
                        const std::uint8_t class_constraint,
-                       const std::vector<std::uint8_t>& validators) {
+                       const Validators& validators) {
   std::vector<std::size_t> shape;
   argument_shape(value, shape);
   const auto fail = [&](const std::string_view requirement) {
@@ -380,7 +410,10 @@ void validate_argument(const T& value, const std::string_view name,
   }
   if (class_constraint == 3U && !std::is_same_v<std::decay_t<T>, std::string>)
     fail("char class validation");
-  for (const auto validator : validators) {
+  for (const auto& validator_call : validators) {
+    const auto validator = validator_call.validator;
+    const bool parameterized = validator >= 23U && validator <= 26U;
+    if (parameterized != validator_call.has_operand) fail("validator call ABI");
     bool valid = true;
     switch (validator) {
       case 0U: valid = empty || argument_all(value, numeric); break;
@@ -526,6 +559,46 @@ void validate_argument(const T& value, const std::string_view name,
         } else {
           valid = false;
         }
+        break;
+      case 23U:
+        valid = validator_call.operand.valid && (empty || argument_all(value, [&](const auto& item) {
+          using Item = std::decay_t<decltype(item)>;
+          if constexpr (std::is_arithmetic_v<Item>) {
+            return static_cast<double>(item) > validator_call.operand.value;
+          } else {
+            return false;
+          }
+        }));
+        break;
+      case 24U:
+        valid = validator_call.operand.valid && (empty || argument_all(value, [&](const auto& item) {
+          using Item = std::decay_t<decltype(item)>;
+          if constexpr (std::is_arithmetic_v<Item>) {
+            return static_cast<double>(item) >= validator_call.operand.value;
+          } else {
+            return false;
+          }
+        }));
+        break;
+      case 25U:
+        valid = validator_call.operand.valid && (empty || argument_all(value, [&](const auto& item) {
+          using Item = std::decay_t<decltype(item)>;
+          if constexpr (std::is_arithmetic_v<Item>) {
+            return static_cast<double>(item) < validator_call.operand.value;
+          } else {
+            return false;
+          }
+        }));
+        break;
+      case 26U:
+        valid = validator_call.operand.valid && (empty || argument_all(value, [&](const auto& item) {
+          using Item = std::decay_t<decltype(item)>;
+          if constexpr (std::is_arithmetic_v<Item>) {
+            return static_cast<double>(item) <= validator_call.operand.value;
+          } else {
+            return false;
+          }
+        }));
         break;
       default: valid = false; break;
     }

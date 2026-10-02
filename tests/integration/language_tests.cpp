@@ -426,6 +426,50 @@ TEST_CASE("Matlab arguments lower defaults conversion validation and output cont
   REQUIRE(plain.code.find("function __mpf_validate_argument") == std::string::npos);
 }
 
+TEST_CASE(
+    "Matlab relational argument validators lower literal and bound-formal operands per target") {
+  const std::string source =
+      "function output = bounded(lower, upper, values)\n"
+      "arguments (Input)\n"
+      "lower (1,1) double {mustBeGreaterThan(lower,-10)}\n"
+      "upper (1,1) double {mustBeGreaterThan(upper,lower), "
+      "mustBeLessThanOrEqual(upper,10)}\n"
+      "values (1,:) double {mustBeGreaterThanOrEqual(values,lower), "
+      "mustBeLessThan(values,upper)}\n"
+      "end\n"
+      "arguments (Output)\n"
+      "output (1,1) double {mustBeLessThanOrEqual(output,upper)}\n"
+      "end\n"
+      "output = values(1)\n"
+      "end\n";
+  const auto javascript = transpile(source, mpf::SourceLanguage::matlab);
+  const auto cpp = transpile(source, mpf::SourceLanguage::matlab, mpf::TargetLanguage::cpp);
+  REQUIRE(javascript.success());
+  REQUIRE(cpp.success());
+
+  REQUIRE(javascript.code.find("lower = __mpf_validate_argument(lower, \"lower\", \"input\", "
+                               "[1, 1], 1, [[23, -10.0]]);") != std::string::npos);
+  REQUIRE(javascript.code.find("[[23, lower], [26, 10.0]]") != std::string::npos);
+  REQUIRE(javascript.code.find("[[24, lower], [25, upper]]") != std::string::npos);
+  REQUIRE(javascript.code.find("[[26, upper]]") != std::string::npos);
+  REQUIRE(cpp.code.find("struct argument_validator_call") != std::string::npos);
+  REQUIRE(cpp.code.find("argument_validator_call{23U, -10.0, true}") != std::string::npos);
+  REQUIRE(cpp.code.find("argument_validator_call{23U, "
+                        "mpf_runtime::argument_validator_threshold(lower), true}") !=
+          std::string::npos);
+  REQUIRE(cpp.code.find("argument_validator_call{25U, "
+                        "mpf_runtime::argument_validator_threshold(upper), true}") !=
+          std::string::npos);
+
+  for (const auto* result : {&javascript, &cpp}) {
+    for (const auto declaration_line : {3U, 4U, 5U, 8U}) {
+      REQUIRE(std::any_of(
+          result->source_map.segments.begin(), result->source_map.segments.end(),
+          [&](const auto& segment) { return segment.original_line == declaration_line; }));
+    }
+  }
+}
+
 TEST_CASE("Matlab early return preserves single and multiple declared outputs") {
   const std::string source =
       "single = choose(1);\n"
