@@ -202,6 +202,7 @@ if(MPF_ENABLE_JAVASCRIPT_BACKEND)
     src/backends/javascript/exception_runtime.cpp
     src/backends/javascript/lir_planning.cpp
     src/backends/javascript/lir_representation.cpp
+    src/backends/javascript/parameter_default_plan.cpp
     src/backends/javascript/lowering.cpp
     src/backends/javascript/matrix_runtime.cpp
     src/backends/javascript/renderer.cpp

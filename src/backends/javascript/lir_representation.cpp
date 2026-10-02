@@ -7,8 +7,10 @@
 #include <string_view>
 #include <utility>
 
+#include "backends/common/parameter_default_source.hpp"
 #include "backends/common/source_segments.hpp"
 #include "backends/javascript/argument_validation_plan.hpp"
+#include "parameter_default_plan.hpp"
 
 namespace mpf::detail::javascript {
 namespace {
@@ -1687,6 +1689,7 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
   lir::StatementPlan result;
   result.valid = true;
   result.argument_validators = plan_argument_validators(statement);
+  result.default_flows = plan_parameter_defaults(statement);
   switch (statement.kind) {
     case StatementKind::declaration:
       result.target_access = variable_access(context, statement.name);
@@ -1756,6 +1759,10 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
       }
       break;
     case StatementKind::print:
+      if (source_language == SourceLanguage::matlab && statement.has_expression &&
+          statement.expression.inferred_type == ValueType::boolean &&
+          statement.expression.shape.empty())
+        result.print_value = lir::PrintValueForm::matlab_logical_scalar;
       result.form = !statement.has_expression ? lir::StatementForm::print_empty
                     : statement.expression.plan.form == lir::ExpressionForm::tuple
                         ? lir::StatementForm::print_tuple
@@ -1874,7 +1881,8 @@ bool same_assignment_leaf(const lir::AssignmentLeafPlan& left,
 }
 
 bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPlan& right) noexcept {
-  if (left.valid != right.valid || left.form != right.form || left.condition != right.condition ||
+  if (left.valid != right.valid || left.form != right.form ||
+      left.print_value != right.print_value || left.condition != right.condition ||
       left.assignment_value != right.assignment_value ||
       left.mutation_ownership != right.mutation_ownership ||
       left.target_access != right.target_access || left.has_alternative != right.has_alternative ||
@@ -1910,7 +1918,8 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
       left.assignment_leaves.size() != right.assignment_leaves.size() ||
       left.selectors != right.selectors || left.parameter_defaults != right.parameter_defaults ||
       left.return_names != right.return_names ||
-      left.argument_validators != right.argument_validators) {
+      left.argument_validators != right.argument_validators ||
+      left.default_flows != right.default_flows) {
     return false;
   }
   for (std::size_t index = 0; index < left.assignment_leaves.size(); ++index) {
@@ -1969,6 +1978,9 @@ void verify_statements(const std::vector<lir::Statement>& statements,
                        const bool in_function = false) {
   for (const auto& statement : statements) {
     const bool nested_in_function = in_function || statement.kind == StatementKind::function;
+    if (!valid_parameter_default_sources(statement, source_language))
+      add_error(diagnostics, {statement.line, 1U},
+                "JavaScript LIR default flow has invalid MIR provenance");
     if (!statement.argument_validations.empty()) {
       if (source_language != SourceLanguage::matlab || statement.kind != StatementKind::function ||
           !valid_argument_validation_inventory(statement.argument_validations,
