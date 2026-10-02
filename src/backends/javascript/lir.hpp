@@ -12,6 +12,7 @@
 #include "compiler/assignment_pattern.hpp"
 #include "compiler/binding.hpp"
 #include "compiler/call_contract.hpp"
+#include "ir/argument_entry_flow.hpp"
 #include "ir/ids.hpp"
 #include "ir/parameter_default_flow.hpp"
 #include "ir/semantics.hpp"
@@ -508,6 +509,21 @@ struct ParameterDefaultPlan {
   }
 };
 
+enum class ArgumentEntryForm : std::uint8_t { runtime_normalization };
+struct ArgumentEntryPlan {
+  ArgumentEntryForm form{ArgumentEntryForm::runtime_normalization};
+  std::size_t declaration{0U};
+  mir::ArgumentEntrySource source;
+  std::uint8_t class_opcode{0U};
+  std::vector<ArgumentDimensionConstraint> dimensions;
+  std::size_t rank{0U};
+  friend bool operator==(const ArgumentEntryPlan& left, const ArgumentEntryPlan& right) noexcept {
+    return left.form == right.form && left.declaration == right.declaration &&
+           left.source == right.source && left.class_opcode == right.class_opcode &&
+           left.dimensions == right.dimensions && left.rank == right.rank;
+  }
+};
+
 struct StatementPlan {
   bool valid{false};
   PrintValueForm print_value{PrintValueForm::direct};
@@ -540,6 +556,7 @@ struct StatementPlan {
   std::vector<std::string> return_names;
   std::vector<std::vector<ValidatorCallPlan>> argument_validators;
   std::vector<ParameterDefaultPlan> default_flows;
+  std::vector<ArgumentEntryPlan> argument_entries;
 };
 
 enum class RuntimeFragment : std::uint8_t {
@@ -685,6 +702,7 @@ struct Statement {
   std::vector<Expression> parameter_defaults;
   std::vector<ArgumentValidationPlan> argument_validations;
   std::vector<mir::ParameterDefaultSource> source_parameter_defaults;
+  std::vector<mir::ArgumentEntrySource> source_argument_entries;
   std::vector<ParameterIntent> parameter_intents;
   std::vector<bool> parameter_optional;
   std::vector<ValueType> parameter_types;

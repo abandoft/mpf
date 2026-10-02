@@ -13,6 +13,7 @@
 #include "compiler/binding.hpp"
 #include "compiler/call_contract.hpp"
 #include "compiler/function_graph.hpp"
+#include "ir/argument_entry_flow.hpp"
 #include "ir/ids.hpp"
 #include "ir/parameter_default_flow.hpp"
 #include "ir/semantics.hpp"
@@ -598,6 +599,17 @@ struct ParameterDefaultPlan {
   }
 };
 
+enum class ArgumentEntryForm : std::uint8_t { local_materialization };
+struct ArgumentEntryPlan {
+  ArgumentEntryForm form{ArgumentEntryForm::local_materialization};
+  std::size_t declaration{0U};
+  mir::ArgumentEntrySource source;
+  friend bool operator==(const ArgumentEntryPlan& left, const ArgumentEntryPlan& right) noexcept {
+    return left.form == right.form && left.declaration == right.declaration &&
+           left.source == right.source;
+  }
+};
+
 struct StatementPlan {
   bool valid{false};
   StatementForm form{StatementForm::discard};
@@ -627,6 +639,7 @@ struct StatementPlan {
   std::vector<ArgumentInputPlan> argument_inputs;
   std::vector<std::vector<ValidatorCallPlan>> argument_validators;
   std::vector<ParameterDefaultPlan> default_flows;
+  std::vector<ArgumentEntryPlan> argument_entries;
 };
 
 enum class RuntimeFragment : std::uint8_t {
@@ -777,6 +790,7 @@ struct Statement {
   std::vector<Expression> parameter_defaults;
   std::vector<ArgumentValidationPlan> argument_validations;
   std::vector<mir::ParameterDefaultSource> source_parameter_defaults;
+  std::vector<mir::ArgumentEntrySource> source_argument_entries;
   std::vector<ParameterIntent> parameter_intents;
   std::vector<bool> parameter_optional;
   std::vector<ValueType> parameter_types;

@@ -6,6 +6,7 @@
 
 #include "ir/ids.hpp"
 #include "ir/mir.hpp"
+#include "ir/mir_argument_entry.hpp"
 
 namespace mpf::detail {
 
@@ -328,6 +329,23 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
     for (const auto& flow : function->parameter_defaults)
       result.source_parameter_defaults.push_back(
           static_cast<const mir::ParameterDefaultSource&>(flow));
+    result.source_argument_entries.reserve(function->argument_entries.size());
+    for (const auto& flow : function->argument_entries) {
+      mir::ArgumentEntrySource entry;
+      entry.flow = flow;
+      const auto* normalization = mir::argument_operation(program, flow.normalization);
+      if (normalization != nullptr) {
+        entry.class_constraint = normalization->class_constraint;
+        entry.dimensions_declared = normalization->dimensions_declared;
+        entry.dimensions = normalization->dimensions;
+        entry.rank = normalization->rank;
+      }
+      for (const auto validator_instruction : flow.validators) {
+        const auto* operation = mir::argument_operation(program, validator_instruction);
+        if (operation != nullptr) entry.validators.push_back(operation->validator);
+      }
+      result.source_argument_entries.push_back(std::move(entry));
+    }
   }
   result.id = ids.next();
   result.origin = source.origin;
