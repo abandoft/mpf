@@ -52,6 +52,7 @@ constexpr std::array<IntrinsicDescriptor, static_cast<std::size_t>(IntrinsicId::
         {IntrinsicId::matlab_rethrow, "matlab_rethrow"},
         {IntrinsicId::matlab_add_cause, "matlab_add_cause"},
         {IntrinsicId::matlab_get_report, "matlab_get_report"},
+        {IntrinsicId::matlab_nargout, "matlab_nargout"},
         {IntrinsicId::present, "present"},
     }};
 

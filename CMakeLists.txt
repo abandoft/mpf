@@ -144,8 +144,10 @@ add_library(mpf_core STATIC
   src/ir/mir_argument_exit.cpp
   src/ir/mir_argument_exit_verifier.cpp
   src/ir/mir_output_demand.cpp
+  src/ir/mir_invocation_context.cpp
   src/ir/mir_parameter_defaults.cpp
   src/semantic/analyzer.cpp
+  src/semantic/matlab_bare_calls.cpp
   src/semantic/expression_analyzer.cpp
   src/semantic/argument_validator_analysis.cpp
   src/semantic/argument_validator_contract.cpp

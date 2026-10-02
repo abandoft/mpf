@@ -13,6 +13,7 @@
 #include "compiler/call_contract.hpp"
 #include "hir.hpp"
 #include "ids.hpp"
+#include "invocation_context.hpp"
 #include "parameter_default_flow.hpp"
 #include "semantic_table.hpp"
 #include "storage_region.hpp"
@@ -94,6 +95,7 @@ enum class Opcode {
   function,
   control,
   catch_exception,
+  invocation_output_count,
   parameter_presence,
   argument_normalize,
   argument_validate
@@ -165,6 +167,7 @@ struct Instruction {
   StorageId storage{};
   std::size_t result_index{dynamic_extent};
   std::vector<ValueId> operands;
+  InvocationDemand invocation_demand;
 };
 
 struct Terminator {
@@ -219,6 +222,7 @@ struct Function {
   std::vector<ArgumentEntryFlow> argument_entries;
   ArgumentExitFlow argument_exit;
   std::vector<ArgumentOutputFlow> argument_outputs;
+  InvocationFrame invocation_frame;
 };
 
 struct CallSite {
@@ -246,6 +250,7 @@ struct CallSite {
   TypeId result_type{};
   std::size_t requested_results{1};
   SourceOutputDemand output_demand;
+  InvocationDemand invocation_demand;
 };
 
 struct Expression {

@@ -50,6 +50,7 @@ enum class IntrinsicId : std::size_t {
   matlab_rethrow,
   matlab_add_cause,
   matlab_get_report,
+  matlab_nargout,
   present,
   count
 };
