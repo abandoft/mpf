@@ -137,6 +137,7 @@ add_library(mpf_core STATIC
   src/ir/mir_optimization.cpp
   src/ir/mir_verifier.cpp
   src/ir/mir_argument_validation.cpp
+  src/ir/mir_parameter_defaults.cpp
   src/semantic/analyzer.cpp
   src/semantic/expression_analyzer.cpp
   src/semantic/argument_validator_analysis.cpp

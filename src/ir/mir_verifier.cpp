@@ -10,6 +10,7 @@
 #include "mir.hpp"
 #include "mir_argument_validation.hpp"
 #include "mir_opcode.hpp"
+#include "mir_parameter_defaults.hpp"
 
 namespace mpf::detail::mir {
 namespace {
@@ -2947,8 +2948,11 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
       add_error(diagnostics, {1, 1}, stage, "storage kind and lifetime contract are inconsistent");
     }
   }
+  std::vector<InstructionId> parameter_presence_instructions;
   for (std::size_t index = 1; index < program.instructions.size(); ++index) {
     const auto& instruction = program.instructions[index];
+    if (instruction.opcode == Opcode::parameter_presence)
+      parameter_presence_instructions.emplace_back(static_cast<InstructionId::value_type>(index));
     if (instruction.id.value() != index || instruction.opcode == Opcode::invalid ||
         !instruction.origin.valid()) {
       add_error(diagnostics, instruction.location, stage,
@@ -3073,6 +3077,16 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
       add_error(diagnostics, instruction.location, stage,
                 "non-transfer operation unexpectedly carries a call transfer mode");
     }
+    if (instruction.opcode == Opcode::parameter_presence &&
+        (!valid_index(instruction.storage, program.storages) ||
+         program.storages[instruction.storage.value()].kind != StorageKind::parameter ||
+         !program.storages[instruction.storage.value()].optional ||
+         instruction.operands.size() != 1U || !instruction.result.valid() ||
+         value_type(program, instruction.type) != ValueType::boolean ||
+         instruction.intrinsic != IntrinsicId::none || instruction.callee.valid())) {
+      add_error(diagnostics, instruction.location, stage,
+                "parameter-presence operation has an invalid optional formal or boolean result");
+    }
     if (instruction.opcode == Opcode::truthiness &&
         (instruction.operands.size() != 1U ||
          value_type(program, instruction.type) != ValueType::boolean)) {
@@ -3105,6 +3119,7 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
   }
   verify_statements(program, diagnostics, stage);
   verify_argument_validator_sources(program, diagnostics, stage);
+  verify_parameter_defaults(program, parameter_presence_instructions, diagnostics, stage);
   verify_expression_ownership(program, diagnostics, stage);
   return diagnostics;
 }
