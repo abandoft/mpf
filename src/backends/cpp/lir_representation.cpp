@@ -7,8 +7,10 @@
 #include <string_view>
 #include <utility>
 
+#include "backends/common/parameter_default_source.hpp"
 #include "backends/common/source_segments.hpp"
 #include "backends/cpp/argument_validation_plan.hpp"
+#include "parameter_default_plan.hpp"
 
 namespace mpf::detail::cpp {
 namespace {
@@ -1876,6 +1878,7 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
   lir::StatementPlan result;
   result.valid = true;
   result.argument_validators = plan_argument_validators(statement);
+  result.default_flows = plan_parameter_defaults(statement);
   result.argument_defaults.reserve(statement.argument_validations.size());
   for (const auto& validation : statement.argument_validations) {
     auto form = lir::ArgumentDefaultForm::none;
@@ -2092,7 +2095,8 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
       left.assignment_leaves.size() != right.assignment_leaves.size() ||
       left.selectors != right.selectors || left.return_names != right.return_names ||
       left.argument_defaults != right.argument_defaults ||
-      left.argument_validators != right.argument_validators) {
+      left.argument_validators != right.argument_validators ||
+      left.default_flows != right.default_flows) {
     return false;
   }
   for (std::size_t index = 0; index < left.assignment_leaves.size(); ++index) {
@@ -2150,6 +2154,9 @@ void verify_statements(const std::vector<lir::Statement>& statements,
                        const bool in_function = false) {
   for (const auto& statement : statements) {
     const bool nested_in_function = in_function || statement.kind == StatementKind::function;
+    if (!valid_parameter_default_sources(statement, source_language))
+      add_error(diagnostics, {statement.line, 1U},
+                "cpp LIR default flow has invalid MIR provenance");
     if (!statement.argument_validations.empty()) {
       if (source_language != SourceLanguage::matlab || statement.kind != StatementKind::function ||
           !valid_argument_validation_inventory(statement.argument_validations,

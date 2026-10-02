@@ -235,6 +235,7 @@ if(MPF_ENABLE_CPP_BACKEND)
     src/backends/cpp/function_dependencies.cpp
     src/backends/cpp/lir_planning.cpp
     src/backends/cpp/lir_representation.cpp
+    src/backends/cpp/parameter_default_plan.cpp
     src/backends/cpp/lowering.cpp
     src/backends/cpp/matrix_runtime.cpp
     src/backends/cpp/renderer.cpp
