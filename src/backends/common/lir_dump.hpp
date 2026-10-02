@@ -500,6 +500,8 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
           }
           output << ')';
         }
+        if (call.validator == ArgumentValidator::in_range)
+          output << ":bounds=" << static_cast<unsigned>(call.range_boundary);
       }
       output << ":default=" << plan.has_default << ":rank=" << plan.validated_rank << '}';
     }
@@ -520,7 +522,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
             output << static_cast<unsigned>(planned.form) << ':' << std::quoted(planned.token)
                    << "@$" << planned.symbol.value();
           }
-          output << ')';
+          output << "):bounds=" << static_cast<unsigned>(calls[call].range_boundary);
         }
         output << ']';
       }
@@ -546,7 +548,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v52 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v53 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";
