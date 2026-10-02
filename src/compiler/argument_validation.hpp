@@ -2,7 +2,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "expression_ast.hpp"
@@ -67,7 +69,52 @@ enum class ArgumentValidator : std::uint8_t {
   nonzero_length_text,
   text,
   text_scalar,
-  valid_variable_name
+  valid_variable_name,
+  greater_than,
+  greater_than_or_equal,
+  less_than,
+  less_than_or_equal
+};
+
+enum class ArgumentValidatorOperandKind : std::uint8_t { numeric_literal, input_argument };
+
+[[nodiscard]] constexpr std::optional<std::size_t> argument_validator_operand_count(
+    const ArgumentValidator validator) noexcept {
+  const auto ordinal = static_cast<std::uint8_t>(validator);
+  if (ordinal <= static_cast<std::uint8_t>(ArgumentValidator::valid_variable_name)) return 0U;
+  if (ordinal <= static_cast<std::uint8_t>(ArgumentValidator::less_than_or_equal)) return 1U;
+  return std::nullopt;
+}
+
+// Locale-independent finite binary64 normalization, shared by semantic construction and its
+// independent verifier. The canonical token is a decimal floating literal in both targets.
+[[nodiscard]] std::optional<std::string> normalize_argument_numeric_literal(std::string_view value);
+
+// Frontend-owned spelling for the explicit operands of a parameterized validation function.
+// The value being validated is implicit for the existing no-argument form and is checked by the
+// Matlab parser when a parameterized call explicitly names it as the first call operand.
+struct ArgumentValidatorOperandSyntax {
+  ArgumentValidatorOperandKind kind{ArgumentValidatorOperandKind::numeric_literal};
+  std::string value;
+};
+
+struct ArgumentValidatorSyntax {
+  ArgumentValidator validator{ArgumentValidator::numeric};
+  std::vector<ArgumentValidatorOperandSyntax> operands;
+};
+
+// Analyzer-owned validator operand.  Source names never cross this boundary: references are
+// resolved to the input formal ordinal, while numeric literals remain validated target-neutral
+// tokens so both target renderers serialize the exact same IEEE-754 value.
+struct ArgumentValidatorOperandPlan {
+  ArgumentValidatorOperandKind kind{ArgumentValidatorOperandKind::numeric_literal};
+  std::string numeric_literal;
+  std::size_t input_ordinal{dynamic_extent};
+};
+
+struct ArgumentValidatorPlan {
+  ArgumentValidator validator{ArgumentValidator::numeric};
+  std::vector<ArgumentValidatorOperandPlan> operands;
 };
 
 struct ArgumentDimensionConstraint {
@@ -84,7 +131,7 @@ struct ArgumentDeclarationSyntax {
   bool dimensions_declared{false};
   std::vector<ArgumentDimensionConstraint> dimensions;
   ArgumentClassConstraint class_constraint{ArgumentClassConstraint::none};
-  std::vector<ArgumentValidator> validators;
+  std::vector<ArgumentValidatorSyntax> validators;
   bool has_default{false};
 };
 
@@ -97,7 +144,7 @@ struct ArgumentValidationPlan {
   bool dimensions_declared{false};
   std::vector<ArgumentDimensionConstraint> dimensions;
   ArgumentClassConstraint class_constraint{ArgumentClassConstraint::none};
-  std::vector<ArgumentValidator> validators;
+  std::vector<ArgumentValidatorPlan> validators;
   bool has_default{false};
   // Analyzer-owned ABI rank after class/size normalization. Scalars and character-vector
   // representations use rank zero; dense arrays use their concrete nested-container rank.
@@ -127,6 +174,27 @@ struct ArgumentCallBoundary {
          left.validators == right.validators && left.has_default == right.has_default;
 }
 
+[[nodiscard]] inline bool operator==(const ArgumentValidatorOperandSyntax& left,
+                                     const ArgumentValidatorOperandSyntax& right) noexcept {
+  return left.kind == right.kind && left.value == right.value;
+}
+
+[[nodiscard]] inline bool operator==(const ArgumentValidatorSyntax& left,
+                                     const ArgumentValidatorSyntax& right) noexcept {
+  return left.validator == right.validator && left.operands == right.operands;
+}
+
+[[nodiscard]] inline bool operator==(const ArgumentValidatorOperandPlan& left,
+                                     const ArgumentValidatorOperandPlan& right) noexcept {
+  return left.kind == right.kind && left.numeric_literal == right.numeric_literal &&
+         left.input_ordinal == right.input_ordinal;
+}
+
+[[nodiscard]] inline bool operator==(const ArgumentValidatorPlan& left,
+                                     const ArgumentValidatorPlan& right) noexcept {
+  return left.validator == right.validator && left.operands == right.operands;
+}
+
 [[nodiscard]] inline bool operator==(const ArgumentValidationPlan& left,
                                      const ArgumentValidationPlan& right) noexcept {
   return left.ordinal == right.ordinal && left.line == right.line &&
@@ -154,34 +222,156 @@ struct ArgumentCallBoundary {
   return true;
 }
 
+[[nodiscard]] inline bool valid_argument_numeric_literal(const std::string_view value) noexcept {
+  if (value.empty()) return false;
+  std::size_t cursor = 0U;
+  if (value[cursor] == '+' || value[cursor] == '-') ++cursor;
+  bool digits = false;
+  while (cursor < value.size() && value[cursor] >= '0' && value[cursor] <= '9') {
+    digits = true;
+    ++cursor;
+  }
+  if (cursor < value.size() && value[cursor] == '.') {
+    ++cursor;
+    while (cursor < value.size() && value[cursor] >= '0' && value[cursor] <= '9') {
+      digits = true;
+      ++cursor;
+    }
+  }
+  if (!digits) return false;
+  if (cursor < value.size() && (value[cursor] == 'e' || value[cursor] == 'E')) {
+    ++cursor;
+    if (cursor < value.size() && (value[cursor] == '+' || value[cursor] == '-')) ++cursor;
+    const auto exponent = cursor;
+    while (cursor < value.size() && value[cursor] >= '0' && value[cursor] <= '9') ++cursor;
+    if (cursor == exponent) return false;
+  }
+  return cursor == value.size();
+}
+
 [[nodiscard]] inline bool valid_argument_declaration_syntax(
     const ArgumentDeclarationSyntax& declaration) noexcept {
-  return !declaration.name.empty() && declaration.line != 0U &&
-         valid_argument_dimensions(declaration.dimensions_declared, declaration.dimensions) &&
-         (!declaration.has_default || declaration.direction == ArgumentDirection::input);
+  if (declaration.name.empty() || declaration.line == 0U ||
+      (declaration.direction != ArgumentDirection::input &&
+       declaration.direction != ArgumentDirection::output) ||
+      static_cast<std::uint8_t>(declaration.class_constraint) >
+          static_cast<std::uint8_t>(ArgumentClassConstraint::matlab_char) ||
+      !valid_argument_dimensions(declaration.dimensions_declared, declaration.dimensions) ||
+      (declaration.has_default && declaration.direction != ArgumentDirection::input)) {
+    return false;
+  }
+  for (const auto& validator : declaration.validators) {
+    const auto operand_count = argument_validator_operand_count(validator.validator);
+    if (!operand_count.has_value() || validator.operands.size() != *operand_count) return false;
+    for (const auto& operand : validator.operands) {
+      if (operand.value.empty() ||
+          (operand.kind != ArgumentValidatorOperandKind::numeric_literal &&
+           operand.kind != ArgumentValidatorOperandKind::input_argument) ||
+          (operand.kind == ArgumentValidatorOperandKind::numeric_literal &&
+           !valid_argument_numeric_literal(operand.value))) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 [[nodiscard]] inline bool valid_argument_validation_plan(const ArgumentValidationPlan& plan,
                                                          const std::size_t input_count,
-                                                         const std::size_t output_count) noexcept {
+                                                         const std::size_t output_count) {
   const auto count = plan.direction == ArgumentDirection::input ? input_count : output_count;
-  return plan.ordinal < count && plan.line != 0U &&
-         valid_argument_dimensions(plan.dimensions_declared, plan.dimensions) &&
-         (!plan.has_default || plan.direction == ArgumentDirection::input);
+  if (plan.ordinal >= count || plan.line == 0U ||
+      (plan.direction != ArgumentDirection::input && plan.direction != ArgumentDirection::output) ||
+      static_cast<std::uint8_t>(plan.class_constraint) >
+          static_cast<std::uint8_t>(ArgumentClassConstraint::matlab_char) ||
+      !valid_argument_dimensions(plan.dimensions_declared, plan.dimensions) ||
+      (plan.has_default && plan.direction != ArgumentDirection::input)) {
+    return false;
+  }
+  for (const auto& validator : plan.validators) {
+    const auto operand_count = argument_validator_operand_count(validator.validator);
+    if (!operand_count.has_value() || validator.operands.size() != *operand_count) return false;
+    for (const auto& operand : validator.operands) {
+      if (operand.kind == ArgumentValidatorOperandKind::numeric_literal) {
+        const auto normalized = normalize_argument_numeric_literal(operand.numeric_literal);
+        if (!normalized.has_value() || *normalized != operand.numeric_literal ||
+            operand.input_ordinal != dynamic_extent)
+          return false;
+      } else if (operand.kind == ArgumentValidatorOperandKind::input_argument) {
+        const bool visible =
+            operand.input_ordinal < input_count &&
+            (plan.direction == ArgumentDirection::output || operand.input_ordinal < plan.ordinal);
+        if (!operand.numeric_literal.empty() || !visible) {
+          return false;
+        }
+      } else {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 [[nodiscard]] inline bool valid_argument_validation_inventory(
     const std::vector<ArgumentValidationPlan>& plans, const std::size_t input_count,
     const std::size_t output_count) {
-  std::vector<bool> inputs(input_count, false);
-  std::vector<bool> outputs(output_count, false);
+  std::optional<std::size_t> previous_input;
+  std::optional<std::size_t> previous_output;
+  bool optional_seen = false;
   for (const auto& plan : plans) {
     if (!valid_argument_validation_plan(plan, input_count, output_count)) return false;
-    auto& seen = plan.direction == ArgumentDirection::input ? inputs : outputs;
-    if (seen[plan.ordinal]) return false;
-    seen[plan.ordinal] = true;
+    if (plan.direction == ArgumentDirection::input) {
+      if (previous_output.has_value() ||
+          (previous_input.has_value() && plan.ordinal <= *previous_input) ||
+          (optional_seen && !plan.has_default))
+        return false;
+      previous_input = plan.ordinal;
+      optional_seen = optional_seen || plan.has_default;
+    } else {
+      if (previous_output.has_value() && plan.ordinal <= *previous_output) return false;
+      previous_output = plan.ordinal;
+    }
   }
   return true;
+}
+
+// Each IR supplies its own formal type/shape evidence; resolved ordinals alone are not proof
+// that a threshold has a scalar numeric/logical ABI.
+template <typename ScalarNumericFormal>
+[[nodiscard]] bool valid_argument_validator_references(
+    const std::vector<ArgumentValidationPlan>& plans, ScalarNumericFormal scalar_numeric_formal) {
+  for (const auto& plan : plans) {
+    for (const auto& validator : plan.validators) {
+      for (const auto& operand : validator.operands) {
+        if (operand.kind == ArgumentValidatorOperandKind::input_argument &&
+            !scalar_numeric_formal(operand.input_ordinal)) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] inline bool scalar_argument_validator_formal(
+    const std::vector<ArgumentValidationPlan>& plans, const std::size_t ordinal,
+    const ValueType type, const bool scalar_shape) noexcept {
+  if (!scalar_shape) return false;
+  if (type == ValueType::real || type == ValueType::integer || type == ValueType::boolean)
+    return true;
+  if (type != ValueType::unknown) return false;
+  // Unknown type is permitted only for an explicitly sized scalar, not an unknown-rank value.
+  // Runtime validation preserves numeric/logical and complex storage checks for this ABI.
+  for (const auto& plan : plans) {
+    if (plan.direction != ArgumentDirection::input || plan.ordinal != ordinal ||
+        !plan.dimensions_declared || plan.dimensions.empty())
+      continue;
+    for (const auto dimension : plan.dimensions) {
+      if (dimension.any || dimension.extent != 1U) return false;
+    }
+    return true;
+  }
+  return false;
 }
 
 [[nodiscard]] inline bool valid_argument_call_boundary(

@@ -122,6 +122,7 @@ add_library(mpf_core STATIC
   src/lexer/lexer.cpp
   src/lexer/scanner.cpp
   src/compiler/expression.cpp
+  src/compiler/argument_validation.cpp
   src/compiler/intrinsic.cpp
   src/compiler/code_binding.cpp
   src/ir/dump.cpp
@@ -184,6 +185,7 @@ endif()
 if(MPF_ENABLE_JAVASCRIPT_BACKEND)
   add_library(mpf_backend_javascript STATIC
     src/backends/javascript/backend.cpp
+    src/backends/javascript/argument_validation_plan.cpp
     src/backends/javascript/argument_validation_runtime.cpp
     src/backends/javascript/bindings.cpp
     src/backends/javascript/complex_matrix_runtime.cpp
@@ -214,6 +216,7 @@ endif()
 if(MPF_ENABLE_CPP_BACKEND)
   add_library(mpf_backend_cpp STATIC
     src/backends/cpp/backend.cpp
+    src/backends/cpp/argument_validation_plan.cpp
     src/backends/cpp/argument_validation_runtime.cpp
     src/backends/cpp/bindings.cpp
     src/backends/cpp/complex_matrix_runtime.cpp
