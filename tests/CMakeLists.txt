@@ -335,6 +335,9 @@ if(TARGET mpfc)
     matlab-argument-validation tests/fixtures/matlab_argument_validation_failure.m
     "failed mustBePositive" matlab)
   mpf_add_generated_runtime_failure_test(
+    matlab-argument-output-class tests/fixtures/matlab_argument_output_class_failure.m
+    "failed mustBeNumeric" matlab)
+  mpf_add_generated_runtime_failure_test(
     matlab-argument-invalid-keyword tests/fixtures/matlab_argument_invalid_keyword.m
     "failed mustBeValidVariableName" matlab)
   mpf_add_generated_runtime_failure_test(
