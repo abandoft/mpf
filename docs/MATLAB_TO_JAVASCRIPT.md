@@ -194,7 +194,7 @@ nonmissing 与 variable-name 组，`mustBeRow`/`mustBeColumn`/`mustBeMatrix` 则
 runtime 同步处理 logical、character、empty value、complex-storage realness，以及 R2024b 的 63 字符
 变量名和关键字限制。
 
-后续开发分支以 Matlab AST v9、Semantic v39、MIR v49 与双目标 LIR v59 接入
+后续开发分支以 Matlab AST v9、Semantic v40、MIR v50 与双目标 LIR v60 接入
 `mustBeGreaterThan`/`mustBeGreaterThanOrEqual`/`mustBeLessThan`/`mustBeLessThanOrEqual`。
 threshold 支持有限 binary64 literal 和前序 scalar input，output validator 可引用 input；未定
 类型的 input 需要显式 singleton dimensions，并保留 runtime numeric/logical/complex-storage
@@ -230,19 +230,19 @@ grammar、来源与绑定基础称为 custom validator 执行已完成。
 
 ## 产品语义边界
 
-当前 MIR v49 已把 positional default 放入真实 absence-guarded CFG，默认表达式的 local
+当前 MIR v50 已把 positional default 放入真实 absence-guarded CFG，默认表达式的 local
 call、IO、可能抛错操作和嵌套短路只在缺失路径执行，之后合并 formal storage version。
 参数存储在 default lowering 前初始化；优化的 instruction/block compaction 同步重映射
-default flow identity。LIR v59 的两端私有 planner 从 MIR provenance 选择 undefined guard/
+default flow identity。LIR v60 的两端私有 planner 从 MIR provenance 选择 undefined guard/
 optional resolution，并分别拒绝损坏来源、执行 form 与序列；不是目标层重建 default flag。
 `argument_default_control_flow.m` 在双目标验证 supplied/omitted/empty、异常和 logical
 scalar/array，并修复 C++ bool proxy 的转换/验证问题。JavaScript `disp`/`display` 对 logical
 标量使用数字显示，规则与[官方显示选项](https://www.mathworks.com/help/matlab/ref/formatteddisplaytext.html)
 一致；不修改 Python print 或冒称完整 Matlab object/array display 已完成。
-MIR v49 已将标准输入 class/shape 正规化、typed formal 写入与每条 validator 驻留到真实 CFG，
+MIR v50 已将标准输入 class/shape 正规化、typed formal 写入与每条 validator 驻留到真实 CFG，
 顺序为 raw supplied/default merge→正规化→formal publication→validator→下一参数。
 raw borrowed storage 与已验证 local formal 分离；literal/前序参数 threshold、内存访问和可能
-抛错 effect 可由独立分析读取。LIR v59 两端分别规划该 resident entry sequence，缺失/错序/污染
+抛错 effect 可由独立分析读取。LIR v60 两端分别规划该 resident entry sequence，缺失/错序/污染
 投影在发射前拒绝，优化会同步重映射身份。标准输出已接入 shared exit；表达式 threshold、
 自定义 validator 执行与完整 output-demand ABI 仍必须继续实现；这不是完整官方 `arguments` 支持。
 
@@ -254,12 +254,12 @@ default 的 IO 抑制、supplied default 跳过、前序 logical 转换结果、
 
 输出转换现区分函数 workspace 与 caller result：例如声明 `(1,1) logical` 的 output 可以
 在 body 中依次计算 2、3，caller 接收 logical true 并按 Matlab 显示为 1。输入/输出同名
-不会丢失已初始化参数。Semantic v39 传播转换后的 type/shape，双目标 LIR v59 独立规划
+不会丢失已初始化参数。Semantic v40 传播转换后的 type/shape，双目标 LIR v60 独立规划
 materialization，`argument_output_conversion.m` 固定多输出、scalar expansion、wildcard
 列主序 reshape、complex logical/double 与 size-free validator；转换后的值才进入 validator。
-MIR v49 的公共输出 CFG 现汇合正常/提前 return，并在 body try/catch 之外驻留当前 workspace
+MIR v50 的公共输出 CFG 现汇合正常/提前 return，并在 body try/catch 之外驻留当前 workspace
 读、normalization、private typed store、threshold 与 validator，最后返回单值或 typed tuple。
-JS/C++ 私有 LIR v59 独立选择共享出口控制与 materialization，输出边界只序列化一次。
+JS/C++ 私有 LIR v60 独立选择共享出口控制与 materialization，输出边界只序列化一次。
 `argument_output_control_flow.m` 固定循环 return、catch return、嵌套 try/catch、body 异常逃逸、
 阈值正文重新赋值、同名 input/output、首错顺序和单输出选择；不以目标描述符代替真实 MIR。
 单/部分多输出调用的 MIR type/shape 只保存请求前缀，不截断 callee 完整签名或输出验证。
@@ -274,14 +274,19 @@ JS/C++ 私有 LIR v59 独立选择共享出口控制与 materialization，输出
 
 | 源调用 | 当前值接收合同 | 待完善边界 |
 |---|---|---|
-| `f();` | 丢弃已计算的首值，仍验证已赋值输出 | 独立 source demand 0、条件未赋值输出与 `ans` |
+| `f();` | source demand 0，省略无用首值投影，仍验证已赋值输出 | callee 需求 ABI、条件未赋值输出与完整 `ans` |
+| `f;`（local command） | source demand 0、隐式 receiver 保留首值供 `ans` 使用 | callee 需求 ABI、条件 presence |
 | `a=f();` | MIR scalar/array 首值及目标 first-result form | 被请求但未赋值输出的错误 |
 | `[a,b]=f();` | MIR 二元 type/shape 前缀，目标单次调用/接收 | 条件 presence 与一般动态 ABI |
 | `[a,~]=f();` | 当前不支持 | 忽略位仍占 output-demand 位置，不创建普通变量 |
 | 全部接收 | 完整 typed result inventory | 条件 presence 与一般 mutable CFG join |
 
-下一步必须把 source demand 与 MIR value arity 分开建模，不能把 `requested_results=1`
-当作所有裸调用的 `nargout`，也不能将未赋值值初始化为 0 来绕过 presence 检查。
+Semantic v40/MIR v50 已将 source demand 与 MIR value arity 分开，LIR v60 两端拥有
+独立 invocation/receiver 与 discarded-result 计划；默认表达式、nested actual 与 validator
+调用也有各自上下文，镜像污染不能靠 replanning 绕过校验。`output_demand.m` 在两端
+执行副作用、默认参数跳过、隐式 `ans`、正文异常和无接收的已赋值输出验证。
+下一步必须将需求真正传入 callee，不能把 `requested_results=1` 当作所有裸调用的
+`nargout`，也不能将未赋值值初始化为 0 来绕过 presence 检查。
 完整需求 ABI、条件输出、忽略位、R2024 执行对照和一般 mutable join 继续按 TODO 验收；
 0.8.0 在这些输出需求验收完成前不打发布标签。
 
