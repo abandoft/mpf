@@ -77,10 +77,12 @@ version 冒充函数执行后的值；引用 input 的输出阈值也读取当�
 C++ 的块外标签仅在存在提前 return 时规划，所有 conversion/validator 只序列化一次，
 不增加 closure、`std::function` 或运行时出口调度。声明作用域在 body 控制块外，C++ 跳转
 不跨越同一作用域的初始化。source map 保留每条声明和提前返回位置。
-该标准输出纵切面不表示完整 `arguments` 兼容：未请求输出的失败/缺失值语义还需独立
-官方运行证据，custom call、一般 threshold expression 与动态 class/rank ABI 仍未完成。
-Matlab 单输出选择不再把 callee 的全量 output inventory 当作 expression tuple type；
-MIR call-result type/shape 与目标 first-result form 保持一致。
+该标准输出纵切面不表示完整 `arguments` 兼容：条件未赋值输出、完整 source demand ABI、
+custom call、一般 threshold expression 与动态 class/rank ABI 仍未完成。
+Matlab 单/部分输出选择不再把 callee 的全量 output inventory 当作 expression tuple type；
+MIR call-result type/shape 只保存请求前缀，callee 签名与已赋值输出的校验序列保持完整。
+两端私有 assignment plan 单次消费前缀，C++ 的 discarded-expression form 显式序列化
+void consumption，不由 Emitter 猜测返回类型或禁用编译警告。
 
 JavaScript/`cpp` 各自的 `argument_validation_plan` 将源语义操作数转换为目标私有
 `ValidatorCallPlan`：固定 opcode、literal token 或绑定 `SymbolId`/名称；C++ 另固定普通与

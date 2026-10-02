@@ -195,8 +195,10 @@ workspace/input threshold 以显式 memory read 保存可变值语义，不能�
 旧 SSA version。私有结果与 body local 具有不同 `StorageId`，read/write region 与可能失败
 effect 进入 alias/dependence。独立 verifier 检查所有路径、来源、指令顺序与 body handler
 隔离，优化同步 remap；两端由实际 MIR 来源独立规划一次性输出序列和共享返回控制，
-不存在 return-site descriptor fallback。未请求输出的失败/缺失值和部分结果需求仍须
-单独核对官方运行语义，不能据此宣称完整 output contract 已交付。
+不存在 return-site descriptor fallback。call value type/shape 按请求的静态前缀构造，
+callee 的完整 result signature 和 resident validation 不受截断。官方 Matlab 校验触发条件
+是返回时已经赋值，而非 caller 请求位置；条件 presence 与 source demand（包含零接收
+和忽略位）仍须进入独立 MIR/目标 ABI，不能据此宣称完整 output contract 已交付。
 
 Matlab 默认表达式遵循[官方缺省求值规则](https://www.mathworks.com/help/matlab/matlab_prog/validate-required-and-optional-positional-arguments.html)：
 只在实参缺失时执行，传入空数组不等同于省略参数。MIR v49 在逻辑 parameter signature 与 raw storage

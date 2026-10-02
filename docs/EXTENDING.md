@@ -19,7 +19,9 @@ output temporary 由各自稠密资源计划分配并独立验证，validator �
 不能恢复 return-site descriptor fallback；新增输出 operation 必须独立验证 instruction、
 storage、declaration order、normal-return inventory 和 body exception-region 隔离，并同步
 优化 remap。两端各自规划 return control、materialization 和碰撞安全 label，不共享目标
-枚举或 runtime token。未请求输出/部分输出需求、custom call 与动态 ABI 仍须另外验收。
+枚举或 runtime token。静态部分输出调用的 type/shape 必须与请求前缀一致，不能截断
+callee 的完整返回签名或跳过已赋值输出校验；C++ 丢弃表达式应保留 void consumption。
+条件未赋值输出、零接收/忽略位的 source demand ABI、custom call 与动态 ABI 仍须另外验收。
 
 多操作数 validator 还必须明确源 option 与 canonical semantic policy 的边界：
 `mustBeInRange` 的 bound flags 在 AST 保留，在 Analyzer 变成 `ArgumentRangeBoundary`，两个
