@@ -12,6 +12,7 @@
 #include "compiler/assignment_pattern.hpp"
 #include "compiler/binding.hpp"
 #include "compiler/call_contract.hpp"
+#include "compiler/output_demand.hpp"
 #include "ir/argument_entry_flow.hpp"
 #include "ir/argument_exit_flow.hpp"
 #include "ir/ids.hpp"
@@ -196,7 +197,27 @@ enum class EvaluationForm : std::uint8_t {
   writable_call_arrow_iife
 };
 
-enum class CallValueForm : std::uint8_t { direct, first_result };
+enum class CallValueForm : std::uint8_t { direct, first_result, discarded_result };
+
+enum class OutputInvocationForm : std::uint8_t { unspecified, fixed_count };
+struct OutputInvocationPlan {
+  std::size_t count{0U};
+  OutputInvocationForm form{OutputInvocationForm::unspecified};
+  bool implicit_result{false};
+  constexpr OutputInvocationPlan() noexcept = default;
+  constexpr OutputInvocationPlan(const OutputInvocationForm invocation, const std::size_t requested,
+                                 const bool capture) noexcept
+      : count(requested), form(invocation), implicit_result(capture) {}
+  friend bool operator==(const OutputInvocationPlan& left,
+                         const OutputInvocationPlan& right) noexcept {
+    return left.form == right.form && left.count == right.count &&
+           left.implicit_result == right.implicit_result;
+  }
+  friend bool operator!=(const OutputInvocationPlan& left,
+                         const OutputInvocationPlan& right) noexcept {
+    return !(left == right);
+  }
+};
 
 enum class WritebackForm : std::uint8_t { none, direct, element, section };
 
@@ -404,6 +425,7 @@ struct ExpressionPlan {
   CallForm call{CallForm::none};
   EvaluationForm evaluation{EvaluationForm::direct};
   CallValueForm call_value{CallValueForm::direct};
+  OutputInvocationPlan output_invocation;
   std::vector<CallArgumentPlan> call_arguments;
   IndexForm index{IndexForm::none};
   std::vector<semantic::IndexSelectorKind> index_selectors;
@@ -663,6 +685,7 @@ struct Expression {
   bool sequence_is_list{false};
   std::vector<ValueMetadata> sequence_elements;
   std::size_t requested_outputs{1};
+  SourceOutputDemand output_demand;
   bool multi_output_call{false};
   std::vector<ArgumentTransfer> argument_transfers;
   std::vector<ArgumentCallBoundary> argument_boundaries;

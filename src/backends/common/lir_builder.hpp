@@ -264,6 +264,7 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
     result.sequence_elements.push_back(lower_value_metadata(program, element));
   }
   result.requested_outputs = attributes.requested_results;
+  result.output_demand = attributes.output_demand;
   result.multi_output_call = attributes.multi_result_call;
   if (source.kind == ExpressionKind::call && source.origin.valid() &&
       source.origin.value() < call_sites.size()) {
