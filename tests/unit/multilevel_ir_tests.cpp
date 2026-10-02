@@ -296,10 +296,20 @@ TEST_CASE("Matlab arguments contracts remain typed through semantic MIR and targ
   REQUIRE(facts->argument_validations[0].ordinal == 0U);
   REQUIRE(facts->argument_validations[0].validated_rank == 2U);
   REQUIRE(facts->argument_validations[0].dimensions[1].any);
-  REQUIRE((facts->argument_validations[0].validators ==
-           std::vector<mpf::detail::ArgumentValidatorPlan>{
-               {mpf::detail::ArgumentValidator::numeric, {}},
-               {mpf::detail::ArgumentValidator::finite, {}}}));
+  const auto& validators = facts->argument_validations[0].validators;
+  REQUIRE(validators.size() == 2U);
+  REQUIRE(validators[0].validator == mpf::detail::ArgumentValidator::numeric);
+  REQUIRE(validators[1].validator == mpf::detail::ArgumentValidator::finite);
+  REQUIRE(validators[0].operands.empty());
+  REQUIRE(validators[1].operands.empty());
+  REQUIRE(validators[0].source_call ==
+          lowered.program.statements.front().argument_validator_calls[0].expression.id);
+  REQUIRE(validators[0].source_callee == lowered.program.statements.front()
+                                             .argument_validator_calls[0]
+                                             .expression.children.front()
+                                             .id);
+  REQUIRE(validators[1].source_call ==
+          lowered.program.statements.front().argument_validator_calls[1].expression.id);
   REQUIRE(facts->argument_validations[1].has_default);
   REQUIRE(facts->argument_validations[1].validated_rank == 0U);
   REQUIRE(facts->argument_validations[2].direction == mpf::detail::ArgumentDirection::output);
@@ -4499,14 +4509,14 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto first_hir = mpf::detail::dump_hir(lowered.program);
   const auto second_hir = mpf::detail::dump_hir(lowered.program);
   REQUIRE(first_hir == second_hir);
-  REQUIRE(first_hir.find("hir-v3") != std::string::npos);
+  REQUIRE(first_hir.find("hir-v4") != std::string::npos);
   REQUIRE(first_hir.find("stmt %h") != std::string::npos);
   auto invalid_hir_profile = lowered.program;
   invalid_hir_profile.semantics.division_by_zero = mpf::detail::semantic::DivisionByZero::ieee754;
   REQUIRE(!mpf::detail::hir::verify(invalid_hir_profile, "invalid-division-profile").empty());
   const auto first_semantics = mpf::detail::dump_semantics(analysis.semantics);
   REQUIRE(first_semantics == mpf::detail::dump_semantics(analysis.semantics));
-  REQUIRE(first_semantics.find("semantic-v37") != std::string::npos);
+  REQUIRE(first_semantics.find("semantic-v38") != std::string::npos);
 
   auto mir = mpf::detail::mir::lower_from_hir(std::move(lowered.program),
                                               std::move(analysis.semantics), analysis.names);
@@ -4517,7 +4527,7 @@ TEST_CASE("HIR and MIR dumps are deterministic and stage specific") {
   const auto alias_effects = mpf::detail::mir::analyze_alias_effects(mir.program);
   const auto first_mir = mpf::detail::dump_mir(mir.program, alias_effects);
   REQUIRE(first_mir == mpf::detail::dump_mir(mir.program, alias_effects));
-  REQUIRE(first_mir.find("mir-v43") != std::string::npos);
+  REQUIRE(first_mir.find("mir-v44") != std::string::npos);
   REQUIRE(first_mir.find("alias-effect-v3") != std::string::npos);
   REQUIRE(first_mir.find("memory-accesses=[") != std::string::npos);
   REQUIRE(first_mir.find("function @f") != std::string::npos);
@@ -6196,9 +6206,9 @@ TEST_CASE("backends create isolated semantic pipelines and strongly typed LIR ar
   REQUIRE(!mpf::detail::javascript::lower(mir.program, stale_effects, options).diagnostics.empty());
   const auto javascript_dump = javascript.artifact->debug_dump();
   const auto cpp_dump = cpp.artifact->debug_dump();
-  REQUIRE(javascript_dump.find("javascript-semantic-lir-v53") != std::string::npos);
+  REQUIRE(javascript_dump.find("javascript-semantic-lir-v54") != std::string::npos);
   REQUIRE(javascript_dump.find("expr %l") != std::string::npos);
-  REQUIRE(cpp_dump.find("cpp-semantic-lir-v53") != std::string::npos);
+  REQUIRE(cpp_dump.find("cpp-semantic-lir-v54") != std::string::npos);
   REQUIRE(cpp_dump.find("function-order") != std::string::npos);
   REQUIRE(javascript_dump == read_golden("lir/javascript-basic.lir"));
   REQUIRE(cpp_dump == read_golden("lir/cpp-basic.lir"));

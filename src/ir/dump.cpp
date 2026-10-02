@@ -42,6 +42,12 @@ void dump_hir_statements(std::ostringstream& output, const std::vector<hir::Stat
     for (const auto& expression : statement.parameter_defaults) {
       dump_hir_expression(output, expression, depth + 1U);
     }
+    for (const auto& call : statement.argument_validator_calls) {
+      output << std::string((depth + 1U) * 2U, ' ')
+             << "validator-call declaration=" << call.declaration << " validator=" << call.validator
+             << '\n';
+      dump_hir_expression(output, call.expression, depth + 2U);
+    }
     for (const auto& selector : statement.case_selectors) {
       dump_hir_expression(output, selector.lower, depth + 1U);
       dump_hir_expression(output, selector.upper, depth + 1U);
@@ -92,6 +98,12 @@ void dump_normalized_hir_statements(std::ostringstream& output,
     dump_normalized_hir_expression(output, statement.target_expression, depth + 1U);
     for (const auto& expression : statement.parameter_defaults) {
       dump_normalized_hir_expression(output, expression, depth + 1U);
+    }
+    for (const auto& call : statement.argument_validator_calls) {
+      output << std::string((depth + 1U) * 2U, ' ')
+             << "validator-call declaration=" << call.declaration << " validator=" << call.validator
+             << '\n';
+      dump_normalized_hir_expression(output, call.expression, depth + 2U);
     }
     dump_normalized_hir_statements(output, statement.body, depth + 1U);
     dump_normalized_hir_statements(output, statement.alternative, depth + 1U);
@@ -151,6 +163,7 @@ void dump_argument_validations(std::ostringstream& output,
       }
       if (call.validator == ArgumentValidator::in_range)
         output << ":bounds=" << enum_value(call.range_boundary);
+      output << ":source=%h" << call.source_call.value() << "/%h" << call.source_callee.value();
     }
     output << ":default=" << plan.has_default << ":rank=" << plan.validated_rank << '}';
   }
@@ -190,7 +203,7 @@ void dump_memory_accesses(std::ostringstream& output,
 
 std::string dump_hir(const hir::Program& program) {
   std::ostringstream output;
-  output << "hir-v3 language=" << enum_value(program.language) << " nodes=" << program.node_count
+  output << "hir-v4 language=" << enum_value(program.language) << " nodes=" << program.node_count
          << " revision=" << program.revision << '\n';
   output << "semantics truthiness=" << enum_value(program.semantics.truthiness)
          << " logical-result=" << enum_value(program.semantics.logical_result)
@@ -205,14 +218,14 @@ std::string dump_hir(const hir::Program& program) {
 
 std::string dump_normalized_hir(const hir::Program& program) {
   std::ostringstream output;
-  output << "normalized-hir-v1\n";
+  output << "normalized-hir-v2\n";
   dump_normalized_hir_statements(output, program.statements, 0);
   return output.str();
 }
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v37 hir-nodes=" << table.hir_node_count
+  output << "semantic-v38 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -226,7 +239,10 @@ std::string dump_semantics(const hir::SemanticTable& table) {
       dump_numeric_type(output, facts.element_numeric_type);
       output << " array-storage=" << enum_value(facts.array_storage);
       output << " binding=" << enum_value(facts.binding)
-             << " intrinsic=" << enum_value(facts.intrinsic) << " shape=[";
+             << " intrinsic=" << enum_value(facts.intrinsic);
+      if (facts.argument_validator.has_value())
+        output << " validator=" << enum_value(*facts.argument_validator);
+      output << " shape=[";
       for (std::size_t extent = 0; extent < facts.shape.size(); ++extent) {
         if (extent != 0) output << ',';
         output << facts.shape[extent];
@@ -489,7 +505,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v43 language=" << enum_value(program.source_language)
+  output << "mir-v44 language=" << enum_value(program.source_language)
          << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
          << " operations=" << (program.statements.empty() ? 0U : program.statements.size() - 1U)
@@ -713,6 +729,18 @@ std::string dump_mir(const mir::Program& program) {
            << " exception-handler-line=" << statement.exception_handler_line;
     output << " argument-validations=";
     dump_argument_validations(output, statement.argument_validations);
+    if (!statement.argument_validator_sources.empty()) {
+      output << " validator-sources=[";
+      for (std::size_t source = 0U; source < statement.argument_validator_sources.size();
+           ++source) {
+        if (source != 0U) output << ',';
+        const auto& binding = statement.argument_validator_sources[source];
+        output << enum_value(binding.direction) << ':' << binding.formal << ':'
+               << binding.validator_index << ':' << enum_value(binding.validator) << "@%h"
+               << binding.call.value() << "/%h" << binding.callee.value();
+      }
+      output << ']';
+    }
     if (attributes != nullptr) {
       output << " procedure-call=" << attributes->procedure_call
              << " implicit-result=" << enum_value(attributes->implicit_result)
