@@ -324,7 +324,7 @@ HIR→MIR lowering 必须显式生成 CFG 和 evaluation order。结构 verifier
 默认公共管线按固定顺序运行，并在每个变换后提升 `Program::revision`、同步 `OperationAttributeTable::mir_revision`、失效未声明保留的分析、记录耗时和执行完整 MIR verifier；instruction compaction 必须与稠密 `InstructionAttributes` 同步重映射：
 
 1. `mir-shape-canonicalization` 重新计算静态 row/column-major canonical stride，按 rank/layout/extent/stride 去重 shape，并一次性重写所有强类型 `ShapeId` 引用；dynamic-rank 的运行时 stride 不被臆测。
-2. `mir-copy-propagation` 只删除带 storage 身份、且每条 incoming edge 的 actual 完全相同的 block argument；同时按同一 ordinal 删除所有前驱 actual，其他 phi-equivalent 合并不做猜测。
+2. `mir-copy-propagation` 只删除带 storage 身份、且每条 incoming edge 的 actual 经已有替换后完全相同的 block argument；其他 phi-equivalent 合并不做猜测。独立 `mir_copy_propagation` 组件一次建立前驱库存，以依赖 worklist 和路径压缩 substitutions 唤醒实际受影响的合流；分析期间保留原始 edge ordinal，结束后逐块/逐边批量压缩参数，并一次重写指令、terminator 与 entry/default/shared-output provenance。不会为每次消除重扫全部 CFG/指令；无 storage 的语义值合流、不同 actual、锚定 self-merge 与无有效 incoming 的参数仍保留。
 3. `mir-constant-folding-dce` 只折叠同时落在 `int64` 与 ECMAScript safe-integer 共同精确域的 checked 加减乘/正负号、布尔非和可证明整数/布尔比较；溢出、目标共同精度外整数、除法、实数、identity/membership 和 lazy CFG 保持不动。折叠后仅回收 opcode contract 已证明纯的 literal/unary/binary 子树，保留稳定 expression tombstone 并紧凑重映射 resident instruction。
 4. `mir-cfg-cleanup` 只删除非 entry、无参数、无 instruction 的单目标 forwarding block，以及无前驱的空 unreachable block；exception region 的 protected/handler/continuation block 和任何 exceptional-edge endpoint 均保留，随后紧凑重映射 `BlockId`、普通/异常 successor、region inventory 和函数 block inventory。
 
