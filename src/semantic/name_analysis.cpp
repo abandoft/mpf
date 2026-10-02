@@ -382,7 +382,7 @@ class NameAnalyzer final {
 };
 
 bool scope_contains(const NameTable& names, ScopeId scope, const ScopeId expected) {
-  while (scope.valid()) {
+  for (std::size_t depth = 0U; scope.valid() && depth < names.scopes.size(); ++depth) {
     if (scope == expected) return true;
     const auto* data = names.scope(scope);
     if (data == nullptr) return false;
@@ -395,6 +395,10 @@ void verify_expression(const hir::Expression& expression, const ScopeId scope,
                        const NameTable& names, std::vector<bool>& resident,
                        const std::string_view stage, std::vector<Diagnostic>& diagnostics) {
   if (!expression.valid()) return;
+  if (!expression.id.valid() || expression.id.value() >= resident.size()) {
+    add_error(diagnostics, expression.location, stage, "expression has a foreign HIR identity");
+    return;
+  }
   resident[expression.id.value()] = true;
   if (expression.kind == ExpressionKind::identifier) {
     const auto* use = names.reference(expression.id);
@@ -458,6 +462,10 @@ void verify_statements(const hir::Program& program, const std::vector<hir::State
                        const ScopeId scope, const NameTable& names, std::vector<bool>& resident,
                        const std::string_view stage, std::vector<Diagnostic>& diagnostics) {
   for (const auto& statement : statements) {
+    if (!statement.id.valid() || statement.id.value() >= resident.size()) {
+      add_error(diagnostics, {statement.line, 1}, stage, "statement has a foreign HIR identity");
+      continue;
+    }
     resident[statement.id.value()] = true;
     if (statement.implicit_result != semantic::ImplicitResultPolicy::none) {
       require_definition(statement, scope, names, NameRole::assignment, 0, !lexical_blocks(program),
@@ -623,6 +631,67 @@ void verify_statements(const hir::Program& program, const std::vector<hir::State
   }
 }
 
+// Reconstruct the lexical spelling index independently of recorded NameUse bindings. Merely
+// checking that a symbol is in an ancestor scope misses same-spelling shadowing and cross-function
+// rebinding; both can otherwise corrupt dependency ordering while retaining structurally valid IDs.
+void verify_reference_bindings(const hir::Program& program, const NameTable& names,
+                               const std::string_view stage, std::vector<Diagnostic>& diagnostics) {
+  std::vector<std::unordered_map<std::string_view, SymbolId>> scopes(names.scopes.size());
+  for (std::size_t index = 1U; index < names.symbols.size(); ++index) {
+    const auto& symbol = names.symbols[index];
+    if (symbol.scope.value() >= scopes.size()) continue;
+    if (!scopes[symbol.scope.value()].emplace(symbol.name, symbol.id).second) {
+      add_error(diagnostics, {1, 1}, stage, "scope contains duplicate symbol spellings");
+    }
+  }
+  const auto resolve = [&](ScopeId scope, const std::string_view name) {
+    for (std::size_t depth = 0U; scope.valid() && depth < names.scopes.size(); ++depth) {
+      const auto* data = names.scope(scope);
+      if (data == nullptr) return SymbolId{};
+      const auto found = scopes[scope.value()].find(name);
+      if (found != scopes[scope.value()].end()) return found->second;
+      scope = data->parent;
+    }
+    return SymbolId{};
+  };
+  const auto expression = [&](const auto& self, const hir::Expression& node) -> void {
+    if (!node.valid()) return;
+    if (node.kind == ExpressionKind::identifier) {
+      const auto* use = names.reference(node.id);
+      if (use != nullptr) {
+        const auto symbol_id = resolve(use->scope, node.value);
+        const auto* symbol = names.symbol(symbol_id);
+        const auto intrinsic =
+            symbol == nullptr ? find_intrinsic(program.language, node.value) : IntrinsicId::none;
+        const auto binding = symbol != nullptr                ? binding_for(symbol->kind)
+                             : intrinsic != IntrinsicId::none ? BindingKind::builtin
+                                                              : BindingKind::unresolved;
+        if (use->symbol != symbol_id || use->binding != binding || use->intrinsic != intrinsic) {
+          add_error(diagnostics, node.location, stage,
+                    "identifier binding disagrees with its spelling and nearest lexical scope");
+        }
+      }
+    }
+    for (const auto& child : node.children) self(self, child);
+  };
+  const auto statements = [&](const auto& self, const std::vector<hir::Statement>& nodes) -> void {
+    for (const auto& node : nodes) {
+      expression(expression, node.expression);
+      expression(expression, node.secondary_expression);
+      expression(expression, node.tertiary_expression);
+      expression(expression, node.target_expression);
+      for (const auto& value : node.parameter_defaults) expression(expression, value);
+      for (const auto& selector : node.case_selectors) {
+        expression(expression, selector.lower);
+        expression(expression, selector.upper);
+      }
+      self(self, node.body);
+      self(self, node.alternative);
+    }
+  };
+  statements(statements, program.statements);
+}
+
 }  // namespace
 
 const NameUse* NameTable::use(const HirNodeId origin, const NameRole role,
@@ -698,7 +767,9 @@ std::vector<Diagnostic> verify_names(const hir::Program& program, const NameTabl
   for (std::size_t index = 1; index < names.scopes.size(); ++index) {
     const auto& scope = names.scopes[index];
     if (scope.id.value() != index ||
-        (scope.parent.valid() && names.scope(scope.parent) == nullptr) ||
+        (scope.kind == NameScopeKind::global && scope.parent.valid()) ||
+        (scope.kind != NameScopeKind::global &&
+         (!scope.parent.valid() || scope.parent.value() >= index)) ||
         (scope.kind == NameScopeKind::global) != (scope.id == names.global_scope)) {
       add_error(diagnostics, {1, 1}, stage, "scope identity or parent is invalid");
     }
@@ -770,8 +841,8 @@ std::vector<Diagnostic> verify_names(const hir::Program& program, const NameTabl
             use.binding != binding_for(symbol->kind) || use.intrinsic != IntrinsicId::none) {
           add_error(diagnostics, {1, 1}, stage, "resolved name use has an invalid symbol contract");
         }
-        if (use.role != NameRole::reference && use.role != NameRole::assignment &&
-            symbol->scope != use.scope) {
+        if (symbol != nullptr && use.role != NameRole::reference &&
+            use.role != NameRole::assignment && symbol->scope != use.scope) {
           add_error(diagnostics, {1, 1}, stage, "definition does not belong to its scope");
         }
       } else if ((use.binding == BindingKind::builtin) != (use.intrinsic != IntrinsicId::none) ||
@@ -783,6 +854,7 @@ std::vector<Diagnostic> verify_names(const hir::Program& program, const NameTabl
   if (std::find(seen_use.begin(), seen_use.end(), false) != seen_use.end()) {
     add_error(diagnostics, {1, 1}, stage, "name-use inventory contains an unowned entry");
   }
+  verify_reference_bindings(program, names, stage, diagnostics);
   return diagnostics;
 }
 
