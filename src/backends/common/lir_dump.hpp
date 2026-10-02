@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "compiler/argument_validation.hpp"
 #include "ir/semantics.hpp"
 
 namespace mpf::detail {
@@ -486,11 +487,46 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
       output << ":validators=";
       for (std::size_t validator = 0U; validator < plan.validators.size(); ++validator) {
         if (validator != 0U) output << '/';
-        output << static_cast<int>(plan.validators[validator]);
+        const auto& call = plan.validators[validator];
+        output << static_cast<int>(call.validator);
+        if (!call.operands.empty()) {
+          output << '(';
+          for (std::size_t operand = 0U; operand < call.operands.size(); ++operand) {
+            if (operand != 0U) output << ',';
+            if (call.operands[operand].kind == ArgumentValidatorOperandKind::numeric_literal)
+              output << '#' << call.operands[operand].numeric_literal;
+            else
+              output << '$' << call.operands[operand].input_ordinal;
+          }
+          output << ')';
+        }
       }
       output << ":default=" << plan.has_default << ":rank=" << plan.validated_rank << '}';
     }
-    output << "]\n";
+    output << ']';
+    if (!statement.plan.argument_validators.empty()) {
+      output << " validator-call-abi [";
+      for (std::size_t validation = 0U; validation < statement.plan.argument_validators.size();
+           ++validation) {
+        if (validation != 0U) output << ',';
+        output << '[';
+        const auto& calls = statement.plan.argument_validators[validation];
+        for (std::size_t call = 0U; call < calls.size(); ++call) {
+          if (call != 0U) output << ',';
+          output << static_cast<unsigned>(calls[call].opcode) << '(';
+          for (std::size_t operand = 0U; operand < calls[call].operands.size(); ++operand) {
+            if (operand != 0U) output << ',';
+            const auto& planned = calls[call].operands[operand];
+            output << static_cast<unsigned>(planned.form) << ':' << std::quoted(planned.token)
+                   << "@$" << planned.symbol.value();
+          }
+          output << ')';
+        }
+        output << ']';
+      }
+      output << ']';
+    }
+    output << '\n';
     dump_target_expression(output, statement.expression, depth + 1U);
     dump_target_expression(output, statement.secondary_expression, depth + 1U);
     dump_target_expression(output, statement.tertiary_expression, depth + 1U);
@@ -510,7 +546,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v51 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v52 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

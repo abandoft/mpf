@@ -1595,6 +1595,53 @@ if(NOT cpp_lir_contract MATCHES "ArgumentDefaultForm" OR
     "cpp LIR does not exclusively own Matlab optional-default conversion lowering")
 endif()
 
+file(READ "${SOURCE_DIR}/src/compiler/argument_validation.hpp" argument_validation_contract)
+file(READ "${SOURCE_DIR}/src/frontends/matlab/argument_block.cpp" argument_parser_contract)
+file(READ "${SOURCE_DIR}/src/backends/javascript/argument_validation_runtime.cpp"
+  javascript_argument_runtime_contract)
+file(READ "${SOURCE_DIR}/src/backends/cpp/argument_validation_runtime.cpp"
+  cpp_argument_runtime_contract)
+if(NOT argument_validation_contract MATCHES "ArgumentValidatorSyntax" OR
+   NOT argument_validation_contract MATCHES "ArgumentValidatorOperandPlan" OR
+   NOT argument_validation_contract MATCHES "input_ordinal" OR
+   NOT argument_validation_contract MATCHES "normalize_argument_numeric_literal" OR
+   NOT argument_validation_contract MATCHES "scalar_argument_validator_formal" OR
+   NOT argument_parser_contract MATCHES "explicit_operand_count" OR
+   NOT argument_parser_contract MATCHES "mustBeGreaterThanOrEqual" OR
+   NOT argument_parser_contract MATCHES "mustBeLessThanOrEqual")
+  message(FATAL_ERROR
+    "Matlab parameterized validators do not own typed frontend and Analyzer contracts")
+endif()
+foreach(target javascript cpp)
+  file(READ "${SOURCE_DIR}/src/backends/${target}/argument_validation_plan.cpp"
+    argument_target_plan)
+  if(NOT argument_target_plan MATCHES "plan_argument_validators" OR
+     NOT argument_target_plan MATCHES "operand.input_ordinal" OR
+     NOT argument_target_plan MATCHES "parameter_symbols")
+    message(FATAL_ERROR "${target} does not own bound validator operand lowering")
+  endif()
+endforeach()
+if(NOT javascript_renderer_contract MATCHES "validator\.operands" OR
+   NOT javascript_renderer_contract MATCHES "statement\.plan\.argument_validators" OR
+   javascript_renderer_contract MATCHES "operand\.input_ordinal" OR
+   javascript_renderer_contract MATCHES "mustBe(Greater|Less)Than" OR
+   NOT cpp_renderer_contract MATCHES "validator\.operands" OR
+   NOT cpp_renderer_contract MATCHES "statement\.plan\.argument_validators" OR
+   cpp_renderer_contract MATCHES "operand\.input_ordinal" OR
+   NOT cpp_renderer_contract MATCHES "argument_validator_threshold" OR
+   cpp_renderer_contract MATCHES "mustBe(Greater|Less)Than")
+  message(FATAL_ERROR
+    "target renderers do not purely serialize parameterized validator operand plans")
+endif()
+if(NOT javascript_argument_runtime_contract MATCHES "case 23" OR
+   NOT javascript_argument_runtime_contract MATCHES "case 26" OR
+   NOT cpp_argument_runtime_contract MATCHES "argument_validator_call" OR
+   NOT cpp_argument_runtime_contract MATCHES "case 23U" OR
+   NOT cpp_argument_runtime_contract MATCHES "case 26U")
+  message(FATAL_ERROR
+    "target runtimes do not implement the complete relational validator family")
+endif()
+
 if(NOT cpp_lir_contract MATCHES "TranslationUnitPlan" OR
    NOT cpp_lir_contract MATCHES "standard_headers" OR
    NOT cpp_lir_contract MATCHES "forward_declarations" OR
