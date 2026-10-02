@@ -13,6 +13,7 @@
 #include "compiler/binding.hpp"
 #include "compiler/call_contract.hpp"
 #include "ir/ids.hpp"
+#include "ir/parameter_default_flow.hpp"
 #include "ir/semantics.hpp"
 
 namespace mpf::detail::javascript::lir {
@@ -488,8 +489,28 @@ struct ValidatorCallPlan {
          left.source_callee == right.source_callee;
 }
 
+enum class ParameterDefaultForm : std::uint8_t { none, undefined_guard };
+enum class PrintValueForm : std::uint8_t { direct, matlab_logical_scalar };
+
+struct ParameterDefaultPlan {
+  ParameterDefaultForm form{ParameterDefaultForm::none};
+  mir::ParameterDefaultSource source;
+
+  friend bool operator==(const ParameterDefaultPlan& left,
+                         const ParameterDefaultPlan& right) noexcept {
+    return left.form == right.form && left.source.parameter == right.source.parameter &&
+           left.source.source == right.source.source &&
+           left.source.storage == right.source.storage &&
+           left.source.presence == right.source.presence &&
+           left.source.initialization == right.source.initialization &&
+           left.source.merge_block == right.source.merge_block &&
+           left.source.result == right.source.result;
+  }
+};
+
 struct StatementPlan {
   bool valid{false};
+  PrintValueForm print_value{PrintValueForm::direct};
   StatementForm form{StatementForm::discard};
   ConditionForm condition{ConditionForm::direct};
   AssignmentValueForm assignment_value{AssignmentValueForm::direct};
@@ -518,6 +539,7 @@ struct StatementPlan {
   std::vector<bool> parameter_defaults;
   std::vector<std::string> return_names;
   std::vector<std::vector<ValidatorCallPlan>> argument_validators;
+  std::vector<ParameterDefaultPlan> default_flows;
 };
 
 enum class RuntimeFragment : std::uint8_t {
@@ -662,6 +684,7 @@ struct Statement {
   std::vector<ParameterKind> parameter_kinds;
   std::vector<Expression> parameter_defaults;
   std::vector<ArgumentValidationPlan> argument_validations;
+  std::vector<mir::ParameterDefaultSource> source_parameter_defaults;
   std::vector<ParameterIntent> parameter_intents;
   std::vector<bool> parameter_optional;
   std::vector<ValueType> parameter_types;

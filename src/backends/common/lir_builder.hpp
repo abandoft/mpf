@@ -323,6 +323,12 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
                             ? &program.storages[instruction->storage.value()]
                             : nullptr;
   const auto* function = function_for_origin(program, source.origin);
+  if (function != nullptr) {
+    result.source_parameter_defaults.reserve(function->parameter_defaults.size());
+    for (const auto& flow : function->parameter_defaults)
+      result.source_parameter_defaults.push_back(
+          static_cast<const mir::ParameterDefaultSource&>(flow));
+  }
   result.id = ids.next();
   result.origin = source.origin;
   result.kind = source.kind;
