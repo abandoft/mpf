@@ -1167,17 +1167,20 @@ std::string matlab_command_syntax_workload(const std::size_t calls) {
 std::string matlab_argument_validation_workload(const std::size_t calls) {
   std::string source = "values = [1 2 3 4];\nresult = 0;\n";
   for (std::size_t index = 0U; index < calls; ++index) {
-    source += "result = result + sum(validated(values));\n";
+    source += "result = result + sum(validated(0, values));\n";
   }
   source +=
       "disp(result)\n"
-      "function output = validated(input, factor)\n"
+      "function output = validated(lower, input, factor)\n"
       "arguments (Input)\n"
-      "input (1,:) double {mustBeNumeric, mustBeFinite}\n"
-      "factor (1,1) double {mustBePositive, mustBeInteger} = 2\n"
+      "lower (1,1) double {mustBeFinite}\n"
+      "input (1,:) double {mustBeNumeric, mustBeFinite, mustBeGreaterThan(input,lower), "
+      "mustBeLessThanOrEqual(input,4)}\n"
+      "factor (1,1) double {mustBePositive, mustBeInteger, "
+      "mustBeGreaterThan(factor,lower), mustBeLessThanOrEqual(factor,4)} = 2\n"
       "end\n"
       "arguments (Output)\n"
-      "output (1,:) double {mustBeFinite, mustBeNonempty}\n"
+      "output (1,:) double {mustBeFinite, mustBeNonempty, mustBeGreaterThan(output,lower)}\n"
       "end\n"
       "output = input .* factor;\n"
       "end\n";
