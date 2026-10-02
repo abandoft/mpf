@@ -118,6 +118,7 @@ class Analyzer final {
                              std::vector<const Expression*>& returns) const;
   void infer_python_tuple_returns(Statement& function) const;
   void infer_python_sequence_metadata(Statement& function) const;
+  void normalize_matlab_output_contract(Statement& function);
   void analyze_matlab_argument_declarations(Statement& function);
   void plan_matlab_argument_validators(Statement& function, std::size_t declaration_index,
                                        std::size_t call_offset, ArgumentValidationPlan& plan);
