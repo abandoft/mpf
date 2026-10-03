@@ -41,6 +41,13 @@ const __mpf_argument_validator_names = [
   'mustBeGreaterThan', 'mustBeGreaterThanOrEqual', 'mustBeLessThan',
   'mustBeLessThanOrEqual', 'mustBeInRange'
 ];
+function __mpf_argument_validator_failure(name, direction, position, requested, failed = requested) {
+  const prefix = direction === 'output' ? `Invalid output '${name}'.`
+    : `Invalid argument at position ${position}.`;
+  const message = `${prefix} MPF Matlab argument '${name}' failed ${__mpf_argument_validator_names[requested]}`;
+  __mpf_throw_exception_record(__mpf_exception_record(
+    `MATLAB:validators:${__mpf_argument_validator_names[failed]}`, message), false);
+}
 const __mpf_matlab_keywords = new Set([
   'break', 'case', 'catch', 'classdef', 'continue', 'else', 'elseif', 'end',
   'for', 'function', 'global', 'if', 'otherwise', 'parfor', 'persistent',
@@ -111,11 +118,14 @@ function __mpf_argument_convert_size(value, name, direction, dimensions, represe
   return representationRank === 0 ? converted[0] : __mpf_build_column_major(converted, target);
 }
 function __mpf_validate_argument(value, name, direction, dimensions, classConstraint, validators,
-                                 representationRank) {
+                                 representationRank, position) {
   if (!Number.isSafeInteger(representationRank) || representationRank < 0 ||
       (dimensions.length !== 0 && representationRank !== 0 &&
        representationRank !== dimensions.length))
     __mpf_argument_failure(name, 'argument representation ABI');
+  if (!Number.isSafeInteger(position) || position < 1 ||
+      (direction !== 'input' && direction !== 'output'))
+    __mpf_argument_failure(name, 'argument boundary ABI');
   if (classConstraint === 1) {
     value = __mpf_argument_map(value, (item) => {
       if (__mpf_is_complex(item)) return item;
@@ -150,6 +160,13 @@ function __mpf_validate_argument(value, name, direction, dimensions, classConstr
         (validator === 27 && (!Number.isInteger(validatorCall[3]) || validatorCall[3] < 0 ||
                              validatorCall[3] > 3)))
       __mpf_argument_failure(name, 'validator call ABI');
+    const requiresNumeric = (validator >= 6 && validator <= 11) || validator >= 23;
+    if (!empty && requiresNumeric && !items.every(numericOrLogical))
+      __mpf_argument_validator_failure(name, direction, position, validator, 1);
+    const requiresReal = (validator >= 6 && validator <= 9) || validator === 11 ||
+                         (validator >= 23 && validator <= 26);
+    if (!empty && requiresReal && items.some(__mpf_is_complex))
+      __mpf_argument_validator_failure(name, direction, position, validator, 3);
     let valid = true;
     switch (validator) {
       case 0: valid = empty || items.every(numeric); break;
@@ -191,7 +208,10 @@ function __mpf_validate_argument(value, name, direction, dimensions, classConstr
       case 19: valid = typeof value === 'string' && value.length !== 0; break;
       case 20: valid = typeof value === 'string'; break;
       case 21: valid = typeof value === 'string'; break;
-      case 22: valid = typeof value === 'string' && value.length <= 63 &&
+      case 22:
+        if (typeof value !== 'string' || value.length === 0)
+          __mpf_argument_validator_failure(name, direction, position, validator, 19);
+        valid = value.length <= 63 &&
         /^[A-Za-z][A-Za-z0-9_]*$/.test(value) && !__mpf_matlab_keywords.has(value); break;
       case 23: valid = !__mpf_is_complex(operand) && numericOrLogical(operand) &&
         (empty || items.every((item) => !__mpf_is_complex(item) && numericOrLogical(item) &&
@@ -217,8 +237,7 @@ function __mpf_validate_argument(value, name, direction, dimensions, classConstr
       }
       default: valid = false; break;
     }
-    if (!valid) __mpf_argument_failure(
-      name, __mpf_argument_validator_names[validator] ?? `unknown validator ${validator}`);
+    if (!valid) __mpf_argument_validator_failure(name, direction, position, validator);
   }
   return value;
 }

@@ -151,7 +151,7 @@ class Renderer final {
       emit_argument_dimensions(entry.dimensions);
       output_ << ", " << static_cast<unsigned>(entry.class_opcode) << ", ";
       emit_argument_validators(statement.plan.argument_validators[validation]);
-      output_ << ", " << entry.rank << ");\n";
+      output_ << ", " << entry.rank << ", " << plan.ordinal + 1U << ");\n";
     }
   }
 
@@ -173,7 +173,7 @@ class Renderer final {
       emit_argument_dimensions(materialization.dimensions);
       output_ << ", " << static_cast<unsigned>(materialization.class_opcode) << ", ";
       emit_argument_validators(statement.plan.argument_validators[validation]);
-      output_ << ", " << materialization.rank << ");\n";
+      output_ << ", " << materialization.rank << ", " << plan.ordinal + 1U << ");\n";
     }
   }
 
