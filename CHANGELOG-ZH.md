@@ -6,7 +6,7 @@
 - 关系与区间 validator 可使用有限数值 literal、已转换的前序 scalar input，以及输出验证中的 scalar input 引用作为阈值。
 - 数值阈值现保持 binary64 rounding、signed zero、subnormal 和下溢结果，并明确拒绝溢出值。
 - positional default 现可惰性调用前向声明的本地函数；supplied 参数跳过 default，嵌套短路仍只求值实际需要的路径。
-- 修复参数入口的首错顺序：每条声明完成 default、class/size 正规化和 validator 后才处理下一参数，后续转换或 default 不再抢先覆盖前序失败。
+- 参数验证现保留原生 Matlab validator 的异常标识与输入/输出上下文，包括类型不符时的前置检查错误；每条声明完成默认值、转换和验证后才处理下一参数，保持首错顺序。
 - 生成的 C++17 现会按 Matlab 源顺序求值非平凡的多个实参，并在进入参数验证前完成实参求值。
 - 修复 JavaScript 中 singleton input 和 array default 的 scalar/array 表示，保持声明的维度和元素顺序。
 - `length` 现对任一零 extent 的 Matlab 数组返回 0；`length` 和 `numel` 同时支持 numeric、logical 和 complex scalar。
