@@ -1,0 +1,22 @@
+[first,~,third] = counted();
+[~,second,~] = counted();
+[first,~,~] = counted();
+[~,~,~] = counted();
+[first] = counted();
+[~] = counted();
+[scalar] = sqrt(81);
+[~] = counted(counted());
+disp(first + second + third + scalar);
+function [first,second,third] = counted(input)
+arguments
+input (1,1) double = 7
+end
+arguments (Output)
+first (1,1) double {mustBePositive}
+second (1,1) logical
+third (1,1) double {mustBePositive}
+end
+first = input + nargout;
+second = nargout() > 0;
+third = input + nargout + 20;
+end

@@ -11,6 +11,9 @@ semantic-table growth; regression tests force the same arena relocation under AS
 The invocation-context seed covers binding-based bare calls with default inputs, per-call
 `nargout`/`nargout()` reads, zero/one/multiple-output demand, and source parameter shadowing.
 Mutations run through both independent target ABIs and the frame/query/source verifiers.
+The output-receiver seed adds single brackets, mixed/repeated/all ignored slots, scalar
+builtin results, and nested actual calls. It exercises full positional demand without fake
+discard bindings, duplicated evaluation, or suppressed output validation.
 
 Clang/libFuzzer builds are enabled with `-DMPF_BUILD_FUZZERS=ON`. This build mode instruments
 the production core, both enabled backends, and the facade with
