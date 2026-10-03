@@ -180,7 +180,7 @@ class Renderer final {
     emit_argument_dimensions(plan);
     output_ << ", " << static_cast<unsigned>(plan.class_constraint) << "U, ";
     emit_argument_validators(calls);
-    output_ << ");\n";
+    output_ << ", " << plan.ordinal + 1U << "U);\n";
   }
 
   void emit_argument_size_normalization(const std::string& value,

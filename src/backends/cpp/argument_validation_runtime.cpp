@@ -347,6 +347,18 @@ inline std::string_view argument_validator_name(const std::uint8_t validator) no
   }
 }
 
+[[noreturn]] inline void argument_validator_failure(
+    const std::string_view name, const std::string_view direction,
+    const std::size_t position, const std::uint8_t requested, const std::uint8_t failed) {
+  const auto prefix = direction == "output"
+      ? "Invalid output '" + std::string(name) + "'."
+      : "Invalid argument at position " + std::to_string(position) + ".";
+  throw matlab_exception{
+      "MATLAB:validators:" + std::string(argument_validator_name(failed)),
+      prefix + " MPF Matlab argument '" + std::string(name) + "' failed " +
+          std::string(argument_validator_name(requested))};
+}
+
 struct argument_validator_operand {
   double value{0.0};
   bool valid{true};
@@ -399,13 +411,15 @@ void validate_argument(const T& value, const std::string_view name,
                        const std::string_view direction,
                        const std::vector<std::int64_t>& dimensions,
                        const std::uint8_t class_constraint,
-                       const Validators& validators) {
+                       const Validators& validators, const std::size_t position) {
   std::vector<std::size_t> shape;
   argument_shape(value, shape);
   const auto fail = [&](const std::string_view requirement) {
     throw std::invalid_argument("MPF Matlab argument '" + std::string(name) +
                                 "' failed " + std::string(requirement));
   };
+  if (position == 0U || (direction != "input" && direction != "output"))
+    fail("argument boundary ABI");
   if (!dimensions.empty()) {
     const auto size_requirement =
         direction == "input" ? "input size validation" : "output size validation";
@@ -451,6 +465,15 @@ void validate_argument(const T& value, const std::string_view name,
         validator_call.range_boundary > 3U ||
         (validator != 27U && validator_call.range_boundary != 0U))
       fail("validator call ABI");
+    const bool requires_numeric = (validator >= 6U && validator <= 11U) || validator >= 23U;
+    if (!empty && requires_numeric && !argument_all(value, numeric_or_logical))
+      argument_validator_failure(name, direction, position, validator, 1U);
+    const bool requires_real = (validator >= 6U && validator <= 9U) || validator == 11U ||
+                               (validator >= 23U && validator <= 26U);
+    if (!empty && requires_real && !argument_all(value, [](const auto& item) {
+          return !argument_is_complex<std::decay_t<decltype(item)>>::value;
+        }))
+      argument_validator_failure(name, direction, position, validator, 3U);
     const auto& operand = validator_call.operands[0];
     bool valid = true;
     switch (validator) {
@@ -584,6 +607,7 @@ void validate_argument(const T& value, const std::string_view name,
       case 21U: valid = std::is_same_v<std::decay_t<T>, std::string>; break;
       case 22U:
         if constexpr (std::is_same_v<std::decay_t<T>, std::string>) {
+          if (value.empty()) argument_validator_failure(name, direction, position, validator, 19U);
           valid = !value.empty() && value.size() <= 63U && !argument_is_matlab_keyword(value) &&
                   ((value.front() >= 'A' && value.front() <= 'Z') ||
                    (value.front() >= 'a' && value.front() <= 'z')) &&
@@ -595,7 +619,7 @@ void validate_argument(const T& value, const std::string_view name,
                                        character == '_';
                               });
         } else {
-          valid = false;
+          argument_validator_failure(name, direction, position, validator, 19U);
         }
         break;
       case 23U:
@@ -651,7 +675,7 @@ void validate_argument(const T& value, const std::string_view name,
       }
       default: valid = false; break;
     }
-    if (!valid) fail(argument_validator_name(validator));
+    if (!valid) argument_validator_failure(name, direction, position, validator, validator);
   }
 }
 )mpf";
