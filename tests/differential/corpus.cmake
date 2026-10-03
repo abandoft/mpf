@@ -43,7 +43,7 @@ mpf_add_differential_case(
   "2 3 1 1 1 2 6 4 4 1 0 1 2 3 1 2 3 3 0 0")
 mpf_add_differential_case(
   matlab-argument-output-control-flow matlab examples/matlab/argument_output_control_flow.m
-  "999 6 1 2 1 1 12 998 MPF:Body 7 1 6 MPF Matlab argument 'first' failed mustBePositive 4 1 MPF Matlab argument 'second' failed mustBePositive MPF Matlab argument 'second' failed mustBePositive")
+  "999 6 1 2 1 1 12 998 MPF:Body 7 1 6 Invalid output 'first'. MPF Matlab argument 'first' failed mustBePositive 4 1 Invalid output 'second'. MPF Matlab argument 'second' failed mustBePositive Invalid output 'second'. MPF Matlab argument 'second' failed mustBePositive")
 mpf_add_differential_case(
   matlab-argument-default-functions matlab examples/matlab/argument_default_functions.m
   "111 222 7 222 11 13")
@@ -52,13 +52,16 @@ mpf_add_differential_case(
   "111 222 7 222 13 6 333 1 0 444 555 MPF:Default 4 1 1 1")
 mpf_add_differential_case(
   matlab-argument-entry-order matlab examples/matlab/argument_entry_order.m
-  "MPF Matlab argument 'first' failed mustBePositive MPF Matlab argument 'first' failed mustBePositive 21 22 MPF Matlab argument 'first' failed mustBePositive 31 7 44 5 3 2 3 7")
+  "Invalid argument at position 1. MPF Matlab argument 'first' failed mustBePositive Invalid argument at position 1. MPF Matlab argument 'first' failed mustBePositive 21 22 Invalid argument at position 1. MPF Matlab argument 'first' failed mustBePositive 31 7 44 5 3 2 3 7")
 mpf_add_differential_case(
   matlab-output-demand matlab examples/matlab/output_demand.m
-  "111 111 4 111 4 111 4 1 111 4 111 222 4 222 9 333 MPF:Demand 444 MPF Matlab argument 'second' failed mustBePositive")
+  "111 111 4 111 4 111 4 1 111 4 111 222 4 222 9 333 MPF:Demand 444 Invalid output 'second'. MPF Matlab argument 'second' failed mustBePositive")
 mpf_add_differential_case(
   matlab-invocation-context matlab examples/matlab/invocation_context.m
   "0 0 0 1 1 2 2 12 3 3 13 23 1 101 0 1 7 2 7 102 1 9 1 0 0 0 2 42 1 1 2 12 3 3 23 2 3 1 2 7 2 2 1 1 17 19 9 1 2 404 2 405 1 406 901")
+mpf_add_differential_case(
+  matlab-validator-identities matlab tests/fixtures/matlab_validator_exception_identity.m
+  "MATLAB:validators:mustBeNumeric MATLAB:validators:mustBeNumeric MATLAB:validators:mustBeNumericOrLogical MATLAB:validators:mustBeNumericOrLogical MATLAB:validators:mustBeFloat MATLAB:validators:mustBeFloat MATLAB:validators:mustBeReal MATLAB:validators:mustBeReal MATLAB:validators:mustBeFinite MATLAB:validators:mustBeFinite MATLAB:validators:mustBeNonNan MATLAB:validators:mustBeNonNan MATLAB:validators:mustBePositive MATLAB:validators:mustBePositive MATLAB:validators:mustBeNonpositive MATLAB:validators:mustBeNonpositive MATLAB:validators:mustBeNonnegative MATLAB:validators:mustBeNonnegative MATLAB:validators:mustBeNegative MATLAB:validators:mustBeNegative MATLAB:validators:mustBeNonzero MATLAB:validators:mustBeNonzero MATLAB:validators:mustBeInteger MATLAB:validators:mustBeInteger MATLAB:validators:mustBeNonempty MATLAB:validators:mustBeNonempty MATLAB:validators:mustBeScalarOrEmpty MATLAB:validators:mustBeScalarOrEmpty MATLAB:validators:mustBeVector MATLAB:validators:mustBeVector MATLAB:validators:mustBeRow MATLAB:validators:mustBeRow MATLAB:validators:mustBeColumn MATLAB:validators:mustBeColumn MATLAB:validators:mustBeMatrix MATLAB:validators:mustBeMatrix MATLAB:validators:mustBeNonmissing MATLAB:validators:mustBeNonmissing MATLAB:validators:mustBeNonzeroLengthText MATLAB:validators:mustBeNonzeroLengthText MATLAB:validators:mustBeText MATLAB:validators:mustBeText MATLAB:validators:mustBeTextScalar MATLAB:validators:mustBeTextScalar MATLAB:validators:mustBeValidVariableName MATLAB:validators:mustBeValidVariableName MATLAB:validators:mustBeGreaterThan MATLAB:validators:mustBeGreaterThan MATLAB:validators:mustBeGreaterThanOrEqual MATLAB:validators:mustBeGreaterThanOrEqual MATLAB:validators:mustBeLessThan MATLAB:validators:mustBeLessThan MATLAB:validators:mustBeLessThanOrEqual MATLAB:validators:mustBeLessThanOrEqual MATLAB:validators:mustBeInRange MATLAB:validators:mustBeInRange MATLAB:validators:mustBeReal MATLAB:validators:mustBeReal MATLAB:validators:mustBeNumericOrLogical MATLAB:validators:mustBeNumericOrLogical MATLAB:validators:mustBeReal MATLAB:validators:mustBeReal MATLAB:validators:mustBeNumericOrLogical MATLAB:validators:mustBeNumericOrLogical MATLAB:validators:mustBeNonzeroLengthText MATLAB:validators:mustBeNonzeroLengthText MATLAB:validators:mustBeReal MATLAB:validators:mustBeReal MATLAB:validators:mustBeNumericOrLogical MATLAB:validators:mustBeNumericOrLogical MATLAB:validators:mustBeNonzeroLengthText MATLAB:validators:mustBeNonzeroLengthText MATLAB:validators:mustBeInRange MATLAB:validators:mustBeInRange MATLAB:validators:mustBeInRange MATLAB:validators:mustBeInRange MATLAB:validators:mustBeInRange MATLAB:validators:mustBeInRange accepted-text accepted-text accepted-empty accepted-empty")
 mpf_add_differential_case(
   matlab-argument-relational-validators matlab
   examples/matlab/argument_relational_validators.m "3 2")
