@@ -109,10 +109,20 @@ bool token_ends_matlab_vector_element(const TokenKind kind) noexcept {
          kind == TokenKind::conjugate_transpose;
 }
 
-bool starts_matlab_vector_element(const unsigned char character) noexcept {
+bool starts_matlab_vector_element(const std::string_view input, const std::size_t offset) noexcept {
+  const auto character = static_cast<unsigned char>(input[offset]);
+  // A whitespace-delimited, tightly attached sign starts a new unary element;
+  // a sign with following whitespace remains a binary operator in this element.
+  if (character == '+' || character == '-')
+    return offset + 1U < input.size() &&
+           std::isspace(static_cast<unsigned char>(input[offset + 1U])) == 0;
+  // Dot-prefixed numeric literals may start an element, but dotted arithmetic
+  // and transpose continue the preceding expression.
+  if (character == '.')
+    return offset + 1U < input.size() &&
+           std::isdigit(static_cast<unsigned char>(input[offset + 1U])) != 0;
   return word_start(character) || std::isdigit(character) != 0 || character == '\'' ||
-         character == '"' || character == '[' || character == '(' || character == '+' ||
-         character == '-' || character == '.';
+         character == '"' || character == '[' || character == '(';
 }
 
 }  // namespace
@@ -121,7 +131,7 @@ LexerResult scan_expression(const std::string_view input, const ExpressionScanne
                             const std::size_t line, const std::size_t base_column) {
   LexerResult result;
   std::size_t index = 0;
-  int bracket_depth = 0;
+  std::vector<TokenKind> delimiters;
   while (index < input.size()) {
     const auto character = static_cast<unsigned char>(input[index]);
     if (std::isspace(character) != 0) {
@@ -129,10 +139,10 @@ LexerResult scan_expression(const std::string_view input, const ExpressionScanne
       while (index < input.size() && std::isspace(static_cast<unsigned char>(input[index])) != 0) {
         ++index;
       }
-      if (profile.matrix_whitespace_separates_elements && bracket_depth > 0 &&
-          !result.tokens.empty() && index < input.size() &&
-          token_ends_matlab_vector_element(result.tokens.back().kind) &&
-          starts_matlab_vector_element(static_cast<unsigned char>(input[index]))) {
+      if (profile.matrix_whitespace_separates_elements && !delimiters.empty() &&
+          delimiters.back() == TokenKind::left_bracket && !result.tokens.empty() &&
+          index < input.size() && token_ends_matlab_vector_element(result.tokens.back().kind) &&
+          starts_matlab_vector_element(input, index)) {
         result.tokens.push_back(
             {TokenKind::comma, ",", {line, column_at(input, whitespace_begin, base_column)}});
       }
@@ -283,10 +293,14 @@ LexerResult scan_expression(const std::string_view input, const ExpressionScanne
     if (const auto* symbol = match_symbol(input, index, profile); symbol != nullptr) {
       result.tokens.push_back({symbol->kind, std::string(symbol->spelling), {line, token_column}});
       index += symbol->spelling.size();
-      if (symbol->kind == TokenKind::left_bracket)
-        ++bracket_depth;
-      else if (symbol->kind == TokenKind::right_bracket)
-        --bracket_depth;
+      if (profile.matrix_whitespace_separates_elements) {
+        if (symbol->kind == TokenKind::left_bracket || symbol->kind == TokenKind::left_parenthesis)
+          delimiters.push_back(symbol->kind);
+        else if ((symbol->kind == TokenKind::right_bracket ||
+                  symbol->kind == TokenKind::right_parenthesis) &&
+                 !delimiters.empty())
+          delimiters.pop_back();
+      }
       continue;
     }
 
