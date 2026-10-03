@@ -531,7 +531,15 @@ void validate_statements(const mir::Program& program, const std::vector<MirState
       }
       if (statement->symbol_id.valid()) {
         const auto [probe, inserted] = assignment_type_probes.emplace(statement->symbol_id, value);
-        if (!inserted && !attributes->previous_assigned &&
+        const auto* initial_shape =
+            inserted ? nullptr : mir::shape(program, probe->second->shape_id);
+        const auto* next_shape = mir::shape(program, value->shape_id);
+        const bool array_rank_change =
+            !inserted && mir::value_type(program, probe->second->type_id) == ValueType::list &&
+            mir::value_type(program, value->type_id) == ValueType::list &&
+            initial_shape != nullptr && next_shape != nullptr &&
+            initial_shape->extents.size() != next_shape->extents.size();
+        if (!inserted && (!attributes->previous_assigned || array_rank_change) &&
             !cpp_declaration_probes_compatible(program, *probe->second, *value, function_returns) &&
             incompatible_assignments.insert(statement->symbol_id).second) {
           add_error(diagnostics, statement->line, "MPF2007",
