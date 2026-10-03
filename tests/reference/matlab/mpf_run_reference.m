@@ -35,6 +35,19 @@ function mpf_run_reference(project_root, output_root)
     write_utf8(fullfile(output_root, 'provenance.json'), ...
         jsonencode(provenance, 'PrettyPrint', true));
 
+    validator_case = 'matlab-validator-identities';
+    validator_source = 'tests/fixtures/matlab_validator_exception_identity.m';
+    validator_snapshot = 'source/matlab_validator_exception_identity.m';
+    copyfile(fullfile(project_root, validator_source), fullfile(output_root, validator_snapshot));
+    validator_transcript = execute_source(fullfile(output_root, validator_snapshot));
+    write_utf8(fullfile(output_root, [validator_case, '.stdout']), validator_transcript);
+    validator_provenance = struct('schemaVersion', 1, 'matlabRelease', actual_release, ...
+        'matlabVersion', version(), 'sourceRevision', source_revision, ...
+        'caseName', validator_case, 'source', validator_source, ...
+        'sourceSnapshot', validator_snapshot);
+    write_utf8(fullfile(output_root, 'validator-parity-provenance.json'), ...
+        jsonencode(validator_provenance, 'PrettyPrint', true));
+
     % These observations cover pending MPF semantics, not implemented parity.
     observations = mpf_output_semantics();
     observations.matlabRelease = actual_release;

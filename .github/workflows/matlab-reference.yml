@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   native-r2024b:
-    name: R2024b invocation parity and output observations
+    name: R2024b invocation and validator parity
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -33,7 +33,7 @@ jobs:
       - name: Execute both generated targets
         run: >-
           ctest --test-dir build/matlab-reference --output-on-failure
-          -R '^mpf\.differential\.matlab-invocation-context$'
+          -R '^mpf\.differential\.matlab-(invocation-context|validator-identities)$'
       - name: Set up actual MATLAB R2024b
         uses: matlab-actions/setup-matlab@f9e43010f1ae678f7cfa0542fe2a4f60f7d1ad8d # v3
         with:
@@ -51,6 +51,7 @@ jobs:
           cmake -DSOURCE_DIR="$PWD"
           -DREFERENCE_DIR="$PWD/build/matlab-reference/official"
           -DDIFFERENTIAL_RESULT="$PWD/build/matlab-reference/differential/matlab-invocation-context/differential-result.txt"
+          -DVALIDATOR_DIFFERENTIAL_RESULT="$PWD/build/matlab-reference/differential/matlab-validator-identities/differential-result.txt"
           -DSOURCE_REVISION="$SOURCE_REVISION"
           -P tests/cmake/verify_matlab_reference.cmake
       - name: Preserve original source, native observations, and target execution
@@ -65,4 +66,5 @@ jobs:
             build/matlab-reference/differential/matlab-invocation-context/differential-result.txt
             build/matlab-reference/differential/matlab-invocation-context/generated.mjs
             build/matlab-reference/differential/matlab-invocation-context/generated.cpp
+            build/matlab-reference/differential/matlab-validator-identities
             build/matlab-reference/Testing/Temporary/LastTest.log
