@@ -49,7 +49,8 @@ function(verify_matlab_validator_parity source_root reference_root build_root re
       list(APPEND expected_tokens "${expected_${key}-${context}}")
     endforeach()
   endforeach()
-  list(APPEND expected_tokens accepted-text accepted-text accepted-empty accepted-empty)
+  list(APPEND expected_tokens accepted-text accepted-text
+    "${expected_numeric-input}" "${expected_numeric-output}")
   string(JOIN " " expected_output ${expected_tokens})
   if(NOT native_output STREQUAL expected_output)
     message(FATAL_ERROR "Native validator fixture output differs from recorded R2024b identities")

@@ -482,14 +482,14 @@ catch exception
     disp(exception.identifier);
 end
 
-% Numeric validators retain MATLAB's empty-value exemption, even for empty char.
+% R2024b numeric validators check class even when a character value is empty.
 try
     input_numeric('');
     input_numeric_or_logical('');
     input_floating('');
     input_positive('');
     input_integer('');
-    disp('accepted-empty');
+    disp('unexpected-empty-success');
 catch exception
     disp(exception.identifier);
 end
@@ -499,7 +499,7 @@ try
     output_floating('');
     output_positive('');
     output_integer('');
-    disp('accepted-empty');
+    disp('unexpected-empty-success');
 catch exception
     disp(exception.identifier);
 end

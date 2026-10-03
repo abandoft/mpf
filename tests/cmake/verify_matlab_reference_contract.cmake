@@ -99,7 +99,8 @@ foreach(key IN LISTS validator_keys)
     list(APPEND validator_tokens "${expected_${key}-${context}}")
   endforeach()
 endforeach()
-list(APPEND validator_tokens accepted-text accepted-text accepted-empty accepted-empty)
+list(APPEND validator_tokens accepted-text accepted-text
+  "${expected_numeric-input}" "${expected_numeric-output}")
 string(JOIN " " validator_stdout ${validator_tokens})
 set(validator_result "case=matlab-validator-identities\n"
   "input=${SOURCE_DIR}/tests/fixtures/matlab_validator_exception_identity.m\n"
