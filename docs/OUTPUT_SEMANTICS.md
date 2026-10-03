@@ -65,5 +65,9 @@
 
 该 run 证明已经实现的 receiver/count/default/assigned-output validation 行为。
 27 项 observations 仍包含 MPF 尚未实现的条件缺失值与完整 `ans`，不能将采集结果或
-synthetic verifier fixture 冒充这些功能的 parity。标准 validator 的原生异常 identity 也待对齐。
+synthetic verifier fixture 冒充这些功能的 parity。28 个已建模标准 validator 的失败 identity、
+输入 position/输出名称和已核验类型前置错误已接入两个独立 runtime；129 项原生观察冻结于
+[run 37091387836](https://github.com/abandoft/mpf/actions/runs/37091387836)，后续独立目标
+fixture 复核 78 项失败与文本/empty 接受。完整 class/size/custom validator 异常和所有类型
+组合仍待对齐；消息尾部不宣称原生本地化文本的逐字等价。
 0.8.0 的发布仍等待这些剩余验收及 release workflow 接入，当前不创建发布标签。

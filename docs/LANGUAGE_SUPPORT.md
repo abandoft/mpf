@@ -69,6 +69,14 @@ custom validator 的职责依据官方 [validation functions](https://www.mathwo
 
 运行语义遵循“class/size conversion 后再执行 validator”，并按 declaration 自上而下处理。省略的 default 只在到达该 formal 时求值，因此能够读取已经转换并验证的前序参数。显式 dimensions 支持固定非负 integer extent 与 `:`；N 维 scalar expansion、元素数相同的 row/column reshape、零 extent 和列主序重建由 JavaScript/C++ 各自的 runtime 实现。函数 output 在每个显式 return 和自然 fallthrough 返回前验证。生成源码中的 conversion/validation 行保留到 source map。
 
+开发分支的 28 个已建模标准 validator 失败现使用 `MATLAB:validators:*` identity，
+可由源 `MException.identifier` 观察；输入消息带实际 formal position，输出消息带声明名称。
+已核验的 numeric/logical 与 realness 前置失败保留其自己的 ID，不统一折叠成请求的 validator。
+数值 validator 的 empty-value exemption 保持不变，包括空 char；消息后半段仍提供 MPF
+诊断文本，不承诺与原生本地化消息逐字一致。class/size conversion、其余 validator、自定义
+validator、一般对象和各类型/阈值错误的完整组合仍须分别审计，不把当前子集称为完整异常兼容。
+证据范围见 [原生对照](../tests/reference/matlab/README.md)。
+
 开发分支的 output class/size 声明只约束返回给 caller 的结果，不提前约束内部 workspace
 变量；input/output 同名保持已初始化的 formal，caller metadata 使用转换后的 type/shape。
 两个目标使用独立 output temporary 检查转换结果。标准输出现驻留公共 MIR shared exit，
