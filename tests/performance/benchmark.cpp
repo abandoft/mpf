@@ -1229,8 +1229,11 @@ std::string matlab_invocation_context_workload(const std::size_t functions) {
   for (std::size_t index = 0U; index < functions; ++index) {
     const auto suffix = std::to_string(index);
     const auto name = "counted_" + suffix;
-    source.append(name).append(";\nvalue_").append(suffix).append(" = ").append(name);
-    source.append("();\n[left_").append(suffix).append(",right_").append(suffix);
+    source.append(name).append(";\n[value_").append(suffix).append("] = ").append(name);
+    source.append("();\n[");
+    source.append(index % 4U == 1U || index % 4U == 3U ? "~" : "left_" + suffix);
+    source.append(",");
+    source.append(index % 4U == 2U || index % 4U == 3U ? "~" : "right_" + suffix);
     source.append("] = ").append(name).append("();\n");
   }
   for (std::size_t index = 0U; index < functions; ++index) {
