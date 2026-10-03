@@ -35,6 +35,11 @@ mpf_add_differential_case(
 mpf_add_differential_case(matlab-multi-output matlab examples/matlab/multi_output.m "97")
 mpf_add_differential_case(matlab-function-graph matlab examples/matlab/function_graph.m "61")
 mpf_add_differential_case(
+  matlab-mutable-array-joins matlab examples/matlab/mutable_array_joins.m "4 3 5 3")
+mpf_add_differential_case(
+  matlab-matrix-expression-spacing matlab examples/matlab/matrix_expression_spacing.m
+  "2 3 2 3 2 -3 2 4 2 4 4 5 3 2 4 8")
+mpf_add_differential_case(
   matlab-arguments matlab examples/matlab/arguments.m "12 42 1 ready 1 2 0")
 mpf_add_differential_case(
   matlab-argument-conversion matlab examples/matlab/argument_conversion.m "24 2 2")
