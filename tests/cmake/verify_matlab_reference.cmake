@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-foreach(required SOURCE_DIR REFERENCE_DIR DIFFERENTIAL_RESULT SOURCE_REVISION)
+foreach(required SOURCE_DIR REFERENCE_DIR DIFFERENTIAL_RESULT VALIDATOR_DIFFERENTIAL_RESULT SOURCE_REVISION)
   if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
     message(FATAL_ERROR "Native Matlab reference verification requires ${required}")
   endif()
@@ -206,6 +206,10 @@ endforeach()
 check_artifact("${reference_root}/validator-semantics.json" "${reference_root}")
 file(READ "${reference_root}/validator-semantics.json" validator_observations)
 include("${CMAKE_CURRENT_LIST_DIR}/verify_matlab_validator_observations.cmake")
-verify_matlab_validator_observations("${validator_observations}" "${revision}" "${matlab_version}")
+verify_matlab_validator_observations("${validator_observations}" "${revision}" "${matlab_version}"
+  "${source_root}/tests/reference/matlab/validator-semantics-contract.json")
+include("${CMAKE_CURRENT_LIST_DIR}/verify_matlab_validator_parity.cmake")
+verify_matlab_validator_parity("${source_root}" "${reference_root}" "${build_root}" "${revision}"
+  "${matlab_version}" "${VALIDATOR_DIFFERENTIAL_RESULT}" "${validator_observations}")
 message(STATUS "Verified R2024b reference provenance/snapshot and both target results on ${revision}")
 message(STATUS "Checked ${observation_count} native output observations; pending MPF parity is not implied")
