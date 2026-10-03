@@ -6,7 +6,7 @@
 - Relational and range validators accept finite numeric literals, previously converted scalar inputs, and scalar input references in output validation as thresholds.
 - Numeric thresholds preserve binary64 rounding, signed zero, subnormals, and underflow results, while overflowing values are rejected explicitly.
 - Positional defaults can lazily call forward-declared local functions; supplied arguments skip their defaults, and nested short-circuit expressions evaluate only the required paths.
-- Argument validation now preserves native Matlab validator exception identifiers and input/output context, including prerequisite failures for invalid types. Each declaration completes its default, conversion, and validation before the next argument is processed, preserving the first error.
+- Argument validation now preserves native Matlab validator exception identifiers and input/output context, including prerequisite failures for invalid types. Each declaration completes its default, conversion, and validation before the next argument is processed, preserving the first error. Empty character values are no longer mistaken for numeric values or row/vector arrays.
 - Generated C++17 evaluates nontrivial multiple Matlab arguments in source order and completes actual-argument evaluation before parameter validation begins.
 - Fixed scalar/array representation for singleton inputs and array defaults in JavaScript while preserving declared dimensions and element order.
 - Matlab `length` now returns 0 for arrays with any zero extent; both `length` and `numel` also support numeric, logical, and complex scalars.
