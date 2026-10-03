@@ -297,6 +297,14 @@ default 的输入按普通 omission 处理，其他 scope 的同名参数不再�
 R2024 执行对照和一般 mutable join 继续按 TODO 验收；
 0.8.0 在这些输出需求验收完成前不打发布标签。
 
+R2024b Update 10 已实际执行并采集 27 项原生输出观察，冻结在
+[原生参考合同](../tests/reference/matlab/README.md)。它明确要求：缺失但未请求输出
+不触发验证；已赋值但未请求输出仍验证；验证全部完成后才检查请求前缀的缺失值，
+所以第二输出验证失败优先于第一输出缺失。`~` 保留请求位置，缺失值仍报
+`MATLAB:unassignedOutputs`；不引入 MATLAB 不存在的 `isargout` builtin。
+括号/裸零需求调用都更新存在的首输出到 `ans`，void/absent/failed 保留旧值。
+这些规则仍须贯通实际 MIR 和双目标 receiver，不能把原生观察通过当作 MPF 已支持。
+
 Matlab frontend 必须按照 Matlab 语义建立规范事实，不能先生成 JavaScript 再让其他目标
 读取 JavaScript。生产链路固定为：
 
