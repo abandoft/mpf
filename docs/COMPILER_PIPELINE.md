@@ -200,6 +200,23 @@ callee 的完整 result signature 和 resident validation 不受截断。官方 
 是返回时已经赋值，而非 caller 请求位置；条件 presence 和忽略位仍须贯通
 callee/目标 ABI，不能据此宣称完整 output contract 已交付。
 
+R2024b Update 10 的 27 项原生观察已实际采集，结果与来源保存在
+[参考执行合同](../tests/reference/matlab/README.md)。剩余 presence 设计必须使用真实规则：
+输出在 entry 时保留独立 assignedness，input/output 同名继承已初始化 formal；每条
+实际 store 更新本路径的 presence，CFG merge 选择路径值，不能用所有前驱 OR 或
+默认 0 冒充输出。共享出口分为**两阶段**：先按声明顺序对所有已赋值输出作正规化和
+验证，未赋值槽不读取值/阈值；全部验证成功后，再检查 caller 请求的完整前缀是否
+有缺失值。native 的 missing-first/invalid-second 会先报 second 的 validator 错误，
+所以不能把每个槽的缺失错误插在其验证位置之前。以上阶段仍须真正驻留 MIR CFG，
+带 dominance、异常出口、storage/effect 和 source provenance，而不是 emitter 条件文本。
+
+`~` 必须有 typed receiver identity，只跳过 caller 绑定/投影，不减 count、不跳过
+被请求缺失检查，也不生成假变量。当前原生 `isargout` builtin 不存在；callee 不需要
+为此引入 Octave 风格忽略位查询。caller 的 `ans` 在零需求的括号/裸调用中只在边界
+成功且首值存在时更新；void、缺失首值与失败验证保留原值。两端各自选择 presence-aware
+return/receiver 表示，source verifier 和私有计划 verifier 独立复核。普通确定赋值分析
+仍保护正文读取；条件输出许可不能泛化为接受任意未赋值 local。
+
 源调用需求由紧凑的 `SourceOutputDemand {count, form, implicit_result}` 单独保存，
 不能从 `requested_results` 推导 `nargout`。Semantic v41 按 source-owned 语句、嵌套表达式、
 default 和 validator 上下文分析，MIR v51 的 expression attributes 与 user-call inventory
