@@ -76,6 +76,7 @@ LirExpression lower_lir_expression(const mir::Program& program, const MirExpress
   const auto& source = *source_node;
   const auto& attributes = *source_attributes;
   if (source.valid()) result.id = ids.next();
+  result.source_value = source.value_id;
   result.origin = source.origin;
   result.location = source.location;
   result.kind = source.kind;
@@ -528,8 +529,18 @@ LirStatement lower_lir_statement(const mir::Program& program, const MirStatement
       }
     }
   }
-  result.target_names = source.target_names;
+  result.receivers = source.receivers;
   result.target_symbols = source.target_symbols;
+  result.source_receivers.reserve(source.receivers.size());
+  for (std::size_t index = 0U; index < source.receivers.size(); ++index) {
+    const auto& receiver_instruction = program.instructions.at(source.instruction.value() + index);
+    result.source_receivers.push_back(
+        {source.origin, index, source.receivers[index].kind, source.target_symbols.at(index),
+         receiver_instruction.id, receiver_instruction.opcode, receiver_instruction.storage,
+         receiver_instruction.result,
+         receiver_instruction.operands.empty() ? ValueId{} : receiver_instruction.operands.front(),
+         source.receivers[index].name, source.receivers[index].location});
+  }
   result.target_pattern = lower_assignment_pattern(program, attributes.target_pattern);
   result.has_target_pattern = source.has_target_pattern;
   result.target_types.reserve(attributes.targets.size());

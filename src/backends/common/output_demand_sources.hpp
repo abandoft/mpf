@@ -42,7 +42,7 @@ void verify_output_demand_sources(const Program& program, std::vector<Diagnostic
         root = {OutputDemandForm::statement, 0U,
                 statement.implicit_result != semantic::ImplicitResultPolicy::none};
       else if (statement.kind == StatementKind::multi_assignment)
-        root = {OutputDemandForm::prefix, statement.target_names.size(), false};
+        root = {OutputDemandForm::prefix, statement.receivers.size(), false};
     }
     append(statement.expression, root);
     append(statement.secondary_expression, value);

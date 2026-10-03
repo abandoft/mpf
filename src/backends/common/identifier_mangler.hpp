@@ -106,11 +106,12 @@ void collect_identifier_statements(const std::vector<Statement>& statements,
           index < statement.return_symbols.size() ? statement.return_symbols[index] : SymbolId{},
           statement.return_names[index]);
     }
-    for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
+    for (std::size_t index = 0; index < statement.receivers.size(); ++index) {
+      if (!statement.receivers[index].binds()) continue;
       add_identifier(
           identifiers,
           index < statement.target_symbols.size() ? statement.target_symbols[index] : SymbolId{},
-          statement.target_names[index]);
+          statement.receivers[index].name);
     }
     if (statement.has_expression) collect_identifier_expression(statement.expression, identifiers);
     if (statement.has_target_expression) {

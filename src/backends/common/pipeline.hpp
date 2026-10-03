@@ -20,8 +20,7 @@ struct TargetProfile {
   bool supports_modules{false};
 };
 
-constexpr std::size_t mir_opcode_count =
-    static_cast<std::size_t>(mir::Opcode::argument_validate) + 1U;
+constexpr std::size_t mir_opcode_count = static_cast<std::size_t>(mir::Opcode::discard_output) + 1U;
 
 using LegalizationTable = std::array<LegalizationAction, mir_opcode_count>;
 
