@@ -26,7 +26,9 @@ default ordinal 不受污染。post-binding normalization 补齐 default-input �
 遮蔽，parser 不再全文件扫描猜测。typed 忽略接收槽已实现；条件 presence 与完整 `ans` 仍未实现。
 当前标准 validator runtime 保留已核验的原生异常 identity、输入 position/输出名称以及
 numeric/logical/realness 前置首错；空 char 不被误判为 numeric，真正空 numeric 保持。
-空 logical/complex/sparse 与一般动态数组的 storage-class identity 仍须进一步审计。完整 class/size/custom
+空 char 的 `0×0` shape-validator 语义已修正；168 项实际空 char/double 观察已冻结，
+当前原始 fixture 扩展为 194-token 双目标执行。空 logical/complex/sparse 与一般动态数组的
+storage-class identity 仍须进一步审计。完整 class/size/custom
 validator 错误和所有类型组合尚未完成，用户日志不以原生探针或测试数量代替功能更新。
 本轮先补齐功能及跨层验证，不把内部测试数量、覆盖率或门禁调整写成用户更新条目；
 真实用户更新累计达到 8–20 条后再定版发布。
@@ -46,7 +48,7 @@ validator 错误和所有类型组合尚未完成，用户日志不以原生探�
 | Matlab complex sparse product | 静态 rank-2 complex CSC 支持 sparse×sparse、sparse×dense 与 dense×sparse 矩阵乘法；sparse 结果保持 canonical CSC，mixed 结果直接物化 dense，real/logical operand 自动提升，并保持零 extent 与 exact-zero cancellation |
 | Matlab control/function | 函数与脚本裸 `return`、通用 command syntax、`ans`、`disp`/`display`、`try`/单一 `catch [exception]` 和 exception object 已贯通名称/flow/MIR/双目标 LIR。`arguments` block 当前覆盖 positional input/output、显式 scalar/N 维 `double`/`logical`/char-vector ABI、按声明顺序的 default、输入/输出 validation、scalar expansion、row/column reshape 和 23 个 unary 标准 validator 与四个参数化关系 validator；unsupported attribute/class/validator 在 frontend/Analyzer/target capability 边界失败关闭。 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流；已知静态 shape 下可证明不相交的同根连续、步长与 N 维矩形 writable section actual |
-| 工程门禁 | 496 项内部测试；128 个差分 case、301 条工具完整环境执行路径；当前 dev preset 为 221 项普通 CTest，Release 流程另运行独立性能发布目标；四语言 fuzz smoke、可选 libFuzzer、64 项生成 runtime 拒绝测试、13 项生成 C++ 编译、发布脚本、失败性能报告、原生参考证据校验与 clang-format 18 工具链正/负契约、49 项独立版本化通用及 Matlab 专项性能场景、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率硬门槛为 85%；Release 在标签 SHA 上复用七类 required workflow，门禁后才允许三平台候选测试/安装/消费/归档、来源证明和公开资产回验 |
+| 工程门禁 | 496 项内部测试；128 个差分 case、301 条工具完整环境执行路径；当前 dev preset 为 222 项普通 CTest，Release 流程另运行独立性能发布目标；四语言 fuzz smoke、可选 libFuzzer、64 项生成 runtime 拒绝测试、13 项生成 C++ 编译、发布脚本、失败性能报告、原生参考证据校验与 clang-format 18 工具链正/负契约、49 项独立版本化通用及 Matlab 专项性能场景、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率硬门槛为 85%；Release 在标签 SHA 上复用七类 required workflow，门禁后才允许三平台候选测试/安装/消费/归档、来源证明和公开资产回验 |
 | 发布状态 | 0.x 开发快照；包消费要求精确当前版本，不提供旧 MPF API/ABI/schema/CLI/CMake 兼容承诺或迁移 shim |
 
 ## 本轮商业级收尾验收（完成）
@@ -139,6 +141,9 @@ validator 错误和所有类型组合尚未完成，用户日志不以原生探�
     - [ ] Matlab validation 完整异常身份：class/size conversion、其余/custom validator、一般对象和所有支持类型/阈值组合仍须核验原生 identity 与首错顺序；不能只比较错误文本或把所有失败折叠为一个 ID
       - [x] 当前 28 个标准 validator 的原生 identity 纵切面：run 37091387836 / 完整 SHA `153bce9eb0258c7c2adfa324008ced9402c50a3e` 实际采集并冻结 129 项直接/输入/输出观察。两个独立目标 runtime 保留 `MATLAB:validators:*`、输入 formal position/输出名称，以及已核验的 numeric/logical/realness 前置 ID。80 项失败与两组文本接受构成 82-token 原始 fixture，进入双目标差分/严格 C++、native workflow、fuzz；目标 dependency closure 与 replanning 丢失 exception feature 独立拒绝，synthetic native verifier 拒绝缺失/污染 provenance/库存/状态/前置 ID/context/snapshot/执行结果。129 项采集不等于随后新增目标 fixture 的原生 parity，必须核验其实际远程步骤和产物后再记真实验收
       - [x] 原生空 char class 错误复现与修复：run 37093296126 已实际执行两端/原始源码与 129 项观察，verifier 正确拒绝最后两个空 char token；两个目标和旧 `arguments.m` 都把空 char 当作 numeric。按真实 R2024b identity 修正前置 type/class 检查，旧示例改用真正空 double，保留失败证据，不用最新 R2026b 空值忽略文档覆盖旧版本实际行为
+      - [x] 修正后的真实原生 parity：run 37094163608 / 完整 SHA `8dce8ea5b21e63cc2c9a534858c13bad80a05062` 的实际 R2024b Update 10/JS/严格 C++ 执行与所有验证步骤成功，82 个原始 token 一致；同轮采集的 168 项 empty-char/empty-double direct/input/output 观察已冻结。这是该提交的实际证据，不追认后来扩展源码，也不覆盖条件 presence
+      - [x] 空 char shape 修复与完整已采集空值输入/输出矩阵：两个 runtime 将空 char 规范为 `0×0`，不再误接受 row/vector；原始 fixture 增加 112 项独立 empty-char/empty-double input/output 执行，共 194-token 双目标/严格 C++ 检查。独立 native helper 检查 168 项库存/类型/身份/outcome/cause/message，synthetic 损坏回归拒绝错误接受与上下文污染；fuzz 增加 empty shape/class seed
+      - [ ] 当前 194-token 扩展源码的 R2024b 原生 parity：必须实际执行对应完整提交、核验原始 snapshot 与两端结果后记录成功；不能拿旧 82-token run 代替。一般不可结构恢复零 extent、empty logical/complex/sparse 和其余类型组合保持独立未完成项
       - [ ] 扩展 native 拒错矩阵覆盖每个 validator 的 text/logical/real/complex/empty、阈值类型/非有限值与 class/size conversion；当前已核验主路径与少量前置路径不能冒称全组合完成，尾部消息仍不承诺原生本地化逐字等价
   - [ ] 一般 mutable CFG join：同一绑定在 try 正常/handler 路径拥有不同 scalar/array type/shape 时，storage-entry metadata 不能作为所有 phi actual 的类型；修正 typed value merge 与 memory/version 合同，JavaScript 动态表示和 C++ capability 拒绝应在目标层各自处理，而不是公共 MIR 报 MPF0006。本轮 scalar→array 多输出重新绑定复现已定位，暂不混入输出验证示例掩盖问题
   - [x] 双目标入口首错顺序修复：MIR 明确 callee-entry adaptation；C++ 私有 raw-input template ABI 将 supplied conversion/default/validator 按声明交错执行，碰撞安全 raw/type 临时身份与 optional access 独立验证。非平凡多实参在进入验证前有序求值；兼容 scalar conversion 无 flatten 分配、同类型同 shape 数组不重建。双目标差分固定后续尺寸错误不得覆盖前序 validator、后续 default IO 抑制、supplied default 跳过及已转换前序参数引用；不将其冒称完整 resident validation CFG
