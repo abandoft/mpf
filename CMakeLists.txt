@@ -148,6 +148,9 @@ add_library(mpf_core STATIC
   src/ir/hir.cpp
   src/ir/alias_effect_analysis.cpp
   src/ir/memory_dependence.cpp
+  src/ir/output_assignment.cpp
+  src/ir/output_assignment_verifier.cpp
+  src/ir/output_assignment_dump.cpp
   src/ir/semantic_table.cpp
   src/ir/semantic_argument_outputs.cpp
   src/ir/storage_region.cpp

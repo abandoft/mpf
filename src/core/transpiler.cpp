@@ -15,6 +15,7 @@
 #include "ir/memory_dependence.hpp"
 #include "ir/mir.hpp"
 #include "ir/mir_optimization.hpp"
+#include "ir/output_assignment.hpp"
 #include "ir/pass_manager.hpp"
 #include "semantic/analyzer.hpp"
 #include "source_map_builder.hpp"
@@ -392,6 +393,19 @@ TranspileResult Transpiler::transpile(const std::string_view source,
       }
     }
     session.record("mir-memory-dependence", memory_dependences->dependence_count, analysis_started);
+  }
+  if (result.success() && mir_result.program.source_language == SourceLanguage::matlab) {
+    const auto analysis_started = session.begin_stage();
+    const auto& output_assignments = mir_analyses.get<detail::mir::OutputAssignmentTable>(
+        mir_result.program, "output-assignment", [&](const detail::mir::Program& program) {
+          return detail::mir::analyze_output_assignments(program, *alias_effects);
+        });
+    auto assignment_diagnostics = detail::mir::verify_output_assignments(
+        mir_result.program, *alias_effects, output_assignments, "mir-output-assignment");
+    result.diagnostics.insert(result.diagnostics.end(),
+                              std::make_move_iterator(assignment_diagnostics.begin()),
+                              std::make_move_iterator(assignment_diagnostics.end()));
+    session.record("mir-output-assignment", output_assignments.states.size(), analysis_started);
   }
   if (result.success()) {
     auto binding_diagnostics =
