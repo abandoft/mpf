@@ -285,9 +285,11 @@ Semantic v41/MIR v51 已将 source demand 与 MIR value arity 分开，LIR v61 �
 独立 invocation/receiver 与 discarded-result 计划；默认表达式、nested actual 与 validator
 调用也有各自上下文，镜像污染不能靠 replanning 绕过校验。`output_demand.m` 在两端
 执行副作用、默认参数跳过、隐式 `ans`、正文异常和无接收的已赋值输出验证。
-MIR v51 已通过独立 typed frame/call immediate 传入 count，函数体/default 的裸 `nargout`
+MIR v51 已通过独立 typed frame/call immediate 传入 count，函数体的裸 `nargout`
 与 `nargout()` 读取自身调用，递归调用相互隔离。私有 JS/cpp ABI 各自拥有尾部 count
 formal，外部默认 1；0/N 必须由外部调用适配器显式指定，不猜测目标接收上下文。
+`arguments` default/validator 中直接出现的 query（包括嵌套表达式）按 R2024b
+原生拒错规则报告 `MPF2059`；已绑定同名 input 和独立 helper workspace 不混淆。
 `InvocationDemand` 与 logical actual/signature/default ordinal 分开验证，不把
 `requested_results=1` 当作裸调用的 `nargout`。裸调用在 lexical binding 后规范化，带
 default 的输入按普通 omission 处理，其他 scope 的同名参数不再影响函数调用。
