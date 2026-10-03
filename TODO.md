@@ -30,6 +30,12 @@ numeric/logical/realness 前置首错；空 char 不被误判为 numeric，真�
 当前原始 fixture 扩展为 194-token 双目标执行。空 logical/complex/sparse 与一般动态数组的
 storage-class identity 仍须进一步审计。完整 class/size/custom
 validator 错误和所有类型组合尚未完成，用户日志不以原生探针或测试数量代替功能更新。
+mutable binding 的 MIR 合流现从实际 SSA edge value 求 type/shape 固定点，不再使用首次
+storage 声明的类型替代所有路径；JS 可执行 scalar/array 分支、循环和 catch 重新绑定，
+C++ 不可表示的类型/rank 变化在独立目标 capability 边界拒绝。同类型数组 extent 变化
+已有双目标执行；矩阵 literal 的带空格二元正负号、括号与点运算符也已补齐词法回归。
+新三类源码已接入独立 R2024b 对照，真实远程验收仍须核验，不能用 synthetic verifier
+检查代替。该基础修复不交付条件输出 presence 或完整 `ans`。
 本轮先补齐功能及跨层验证，不把内部测试数量、覆盖率或门禁调整写成用户更新条目；
 真实用户更新累计达到 8–20 条后再定版发布。
 
@@ -145,7 +151,10 @@ validator 错误和所有类型组合尚未完成，用户日志不以原生探�
       - [x] 空 char shape 修复与完整已采集空值输入/输出矩阵：两个 runtime 将空 char 规范为 `0×0`，不再误接受 row/vector；原始 fixture 增加 112 项独立 empty-char/empty-double input/output 执行，共 194-token 双目标/严格 C++ 检查。独立 native helper 检查 168 项库存/类型/身份/outcome/cause/message，synthetic 损坏回归拒绝错误接受与上下文污染；fuzz 增加 empty shape/class seed
       - [x] 194-token 扩展源码的真实 R2024b parity：run 37095935051 / 完整 SHA `4b43f1112e5d42c2221fc3006297bfe43346ca54` 的所有实际执行和验证步骤成功；原始源码与隔离 snapshot SHA-256 同为 `deae270dd63614cb0f192e59be873c905f8fb61b8a0199f5b2bac7f5075fb7cf`。已回读 artifact、比较原生/JS/严格 C++ 的 194 个 token，并复核 129+168 项冻结观察。一般不可结构恢复零 extent、empty logical/complex/sparse 和其余类型组合保持独立未完成项；这不是 presence/ans 或完整官方 grammar 的验收
       - [ ] 扩展 native 拒错矩阵覆盖每个 validator 的 text/logical/real/complex/empty、阈值类型/非有限值与 class/size conversion；当前已核验主路径与少量前置路径不能冒称全组合完成，尾部消息仍不承诺原生本地化逐字等价
-  - [ ] 一般 mutable CFG join：同一绑定在 try 正常/handler 路径拥有不同 scalar/array type/shape 时，storage-entry metadata 不能作为所有 phi actual 的类型；修正 typed value merge 与 memory/version 合同，JavaScript 动态表示和 C++ capability 拒绝应在目标层各自处理，而不是公共 MIR 报 MPF0006。本轮 scalar→array 多输出重新绑定复现已定位，暂不混入输出验证示例掩盖问题
+  - [x] mutable CFG value join 基础：storage-version phi 从实际 incoming SSA definition 求 worklist 固定点；同类型保留类型，同 rank/layout 只放宽变化的轴，异类/异 rank 合流显式进入动态 domain。独立 iterative SCC verifier 从原始边和外部 anchor 重算，拒绝缩窄 type/shape、stride 污染和缺失 definition，不复用 producer 输出。覆盖 128 张 reachable-anchor oracle 图、10,000 反向依赖链、循环、自合流、真实 if/loop/catch 和 source map；JS scalar/array 动态执行、C++ 相容数组 extent 变化执行与不可表示 rank/type 的目标拒错分别验收。Analyzer 的 unknown binding storage-format 正规化不放宽独立 verifier
+    - [x] 同类词法修复：Matlab matrix whitespace 不再把 `[step, step + 1, step + 2]` 的二元正号拆为额外元素；紧贴操作数的一元正负号、parenthesized/call expression 和 dotted arithmetic 分别验证，不影响其他 frontend
+    - [ ] 新 mutable/spacing 源码的真实 R2024b parity：三个 byte-identical snapshot、完整源码 SHA/runtime/source inventory 与实际目标 transcript 已接入 manual/reusable workflow；必须检查实际执行步骤、artifact 和新增独立 verifier 后再记录通过，synthetic 正向/七类损坏检查只证明 verifier 逻辑
+    - [ ] 一般动态 workspace/NDArray 表示与精化：继续贯通 typed SSA read/use、跨函数动态 rank/class/stride、物理 storage 与 alias/view/lifetime 合同，以及 C++ 的一般动态值 ABI。当前动态 top 是保守值域，不等于 union/object 模型已完成；首次 storage metadata 不证明运行时值类型，也不证明输出已赋值
   - [x] 双目标入口首错顺序修复：MIR 明确 callee-entry adaptation；C++ 私有 raw-input template ABI 将 supplied conversion/default/validator 按声明交错执行，碰撞安全 raw/type 临时身份与 optional access 独立验证。非平凡多实参在进入验证前有序求值；兼容 scalar conversion 无 flatten 分配、同类型同 shape 数组不重建。双目标差分固定后续尺寸错误不得覆盖前序 validator、后续 default IO 抑制、supplied default 跳过及已转换前序参数引用；不将其冒称完整 resident validation CFG
   - [ ] 独立目标 lowering：标准 validator runtime operation 与普通 custom local call 分开绑定，按 MIR 顺序惰性求值阈值；JS/C++ LIR 各自验证参数、无输出调用、异常与源码映射，Emitter 仍只序列化
 - [x] 开发分支 Analyzer 生命周期修复：递归 default/optional normalization 后重新取得稠密 facts；index/slice plan 先局部构造再发布，Python tuple child 先分析再追加；Matlab/Python/Fortran 的强制扩容回归与新增 fuzz seed 进入 ASan/UBSan 检查
