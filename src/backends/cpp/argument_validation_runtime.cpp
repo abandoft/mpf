@@ -68,7 +68,8 @@ void argument_shape(const T&, std::vector<std::size_t>& shape) {
   shape = {1U, 1U};
 }
 inline void argument_shape(const std::string& value, std::vector<std::size_t>& shape) {
-  shape = {1U, value.size()};
+  shape = value.empty() ? std::vector<std::size_t>{0U, 0U}
+                        : std::vector<std::size_t>{1U, value.size()};
 }
 template <typename T>
 void argument_shape(const std::vector<T>& values, std::vector<std::size_t>& shape) {
