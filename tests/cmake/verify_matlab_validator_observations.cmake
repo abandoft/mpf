@@ -1,0 +1,73 @@
+cmake_minimum_required(VERSION 3.20)
+
+# This collection is independent native evidence, not a claim of generated-target parity.
+function(verify_matlab_validator_observations observations revision matlab_version)
+  foreach(field schemaVersion matlabRelease matlabVersion sourceRevision)
+    string(JSON value ERROR_VARIABLE error GET "${observations}" ${field})
+    if(NOT error STREQUAL "NOTFOUND")
+      message(FATAL_ERROR "Invalid native validator provenance: ${field}")
+    endif()
+    if(field STREQUAL "schemaVersion" AND NOT value STREQUAL "1")
+      message(FATAL_ERROR "Invalid native validator schema")
+    elseif(field STREQUAL "matlabRelease" AND NOT value STREQUAL "R2024b")
+      message(FATAL_ERROR "Native validator evidence requires R2024b")
+    elseif(field STREQUAL "matlabVersion" AND NOT value STREQUAL matlab_version)
+      message(FATAL_ERROR "Native validator runtime differs from the reference provenance")
+    elseif(field STREQUAL "sourceRevision" AND NOT value STREQUAL revision)
+      message(FATAL_ERROR "Native validator revision differs from the reference provenance")
+    endif()
+  endforeach()
+  set(expected_keys
+    numeric numeric_or_logical floating real finite
+    non_nan positive nonpositive nonnegative negative
+    nonzero integer nonempty scalar_or_empty vector
+    row column matrix nonmissing nonzero_length_text
+    text text_scalar valid_variable_name greater_than greater_than_or_equal
+    less_than less_than_or_equal in_range positive-complex positive-text
+    integer-complex integer-text finite-text nonmissing-text nonzero-length-text-type
+    valid-variable-name-type greater-than-complex greater-than-text nonzero-length-text-empty-double text-scalar-char-matrix
+    range-exclusive range-exclude-lower range-exclude-upper
+  )
+  set(contexts direct input output)
+  list(LENGTH expected_keys key_count)
+  math(EXPR expected_count "${key_count} * 3")
+  string(JSON count ERROR_VARIABLE error LENGTH "${observations}" cases)
+  if(NOT error STREQUAL "NOTFOUND" OR NOT count EQUAL expected_count)
+    message(FATAL_ERROR "Native validator observation inventory is incomplete")
+  endif()
+  set(index 0)
+  foreach(key IN LISTS expected_keys)
+    foreach(context IN LISTS contexts)
+      foreach(field name validator context exceptionIdentifier exceptionMessage)
+        string(JSON field_type ERROR_VARIABLE error TYPE "${observations}" cases ${index} ${field})
+        if(NOT error STREQUAL "NOTFOUND" OR NOT field_type STREQUAL "STRING")
+          message(FATAL_ERROR "Native validator textual metadata must be strings")
+        endif()
+      endforeach()
+      string(JSON name GET "${observations}" cases ${index} name)
+      string(JSON actual_context GET "${observations}" cases ${index} context)
+      string(JSON validator GET "${observations}" cases ${index} validator)
+      if(NOT name STREQUAL "${key}-${context}" OR NOT actual_context STREQUAL context OR
+          NOT validator MATCHES "^mustBe[A-Za-z]+$")
+        message(FATAL_ERROR "Native validator order/identity differs at ${index}")
+      endif()
+      string(JSON success_type TYPE "${observations}" cases ${index} succeeded)
+      string(JSON success GET "${observations}" cases ${index} succeeded)
+      string(JSON identifier GET "${observations}" cases ${index} exceptionIdentifier)
+      string(JSON exception_message GET "${observations}" cases ${index} exceptionMessage)
+      string(JSON cause_type TYPE "${observations}" cases ${index} causeIdentifiers)
+      if(NOT success_type STREQUAL "BOOLEAN" OR NOT cause_type STREQUAL "ARRAY")
+        message(FATAL_ERROR "Native validator outcome/cause metadata has invalid types")
+      endif()
+      if(success)
+        if(NOT identifier STREQUAL "" OR NOT exception_message STREQUAL "")
+          message(FATAL_ERROR "Successful native validator observation retains an exception")
+        endif()
+      elseif(NOT identifier MATCHES "^MATLAB:[A-Za-z0-9_:]+$" OR exception_message STREQUAL "")
+        message(FATAL_ERROR "Failed native validator observation has no complete native exception")
+      endif()
+      math(EXPR index "${index} + 1")
+    endforeach()
+  endforeach()
+  message(STATUS "Checked ${count} native validator observations; target parity is verified separately")
+endfunction()
