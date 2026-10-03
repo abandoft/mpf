@@ -1306,7 +1306,15 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
       add_error(diagnostics, {statement.line, 1}, stage,
                 "function result semantic arity disagrees with HIR");
     }
-    const auto targets = statement.target_names.size();
+    const auto targets = statement.receivers.size();
+    if ((!statement.receivers.empty() && statement.kind != StatementKind::multi_assignment) ||
+        (statement.kind == StatementKind::multi_assignment && statement.receivers.empty()))
+      add_error(diagnostics, {statement.line, 1}, stage,
+                "HIR receiver inventory has no output assignment owner");
+    for (const auto& receiver : statement.receivers) {
+      if (!receiver.valid() || (!receiver.binds() && source_language != SourceLanguage::matlab))
+        add_error(diagnostics, receiver.location, stage, "HIR receiver identity is malformed");
+    }
     if (statement.has_target_pattern && !facts->target_pattern.valid()) {
       add_error(diagnostics, {statement.line, 1}, stage,
                 "analyzed assignment pattern is missing from the semantic table");
@@ -1324,6 +1332,21 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
         !compatible_arity(facts->target_previous_array_storage.size(), targets)) {
       add_error(diagnostics, {statement.line, 1}, stage,
                 "assignment target semantic arity disagrees with HIR");
+    }
+    for (std::size_t index = 0U; index < targets; ++index) {
+      if (statement.receivers[index].binds()) continue;
+      if ((index < facts->target_previous_types.size() &&
+           facts->target_previous_types[index] != ValueType::unknown) ||
+          (index < facts->target_previous_numeric_types.size() &&
+           facts->target_previous_numeric_types[index] != unknown_numeric_type) ||
+          (index < facts->target_previous_element_types.size() &&
+           facts->target_previous_element_types[index] != ValueType::unknown) ||
+          (index < facts->target_previous_element_numeric_types.size() &&
+           facts->target_previous_element_numeric_types[index] != unknown_numeric_type) ||
+          (index < facts->target_previous_array_storage.size() &&
+           facts->target_previous_array_storage[index] != ArrayStorageFormat::none))
+        add_error(diagnostics, statement.receivers[index].location, stage,
+                  "discarded HIR output receiver has invented previous binding state");
     }
     if (statement.kind == StatementKind::indexed_assignment) {
       const auto* target_facts = table.expression(statement.target_expression.id);
@@ -1484,7 +1507,7 @@ void verify_statements(const std::vector<Statement>& statements, const SemanticT
       invocation_context = {OutputDemandForm::statement, 0U,
                             statement.implicit_result != semantic::ImplicitResultPolicy::none};
     else if (statement.kind == StatementKind::multi_assignment)
-      invocation_context = {OutputDemandForm::prefix, statement.target_names.size(), false};
+      invocation_context = {OutputDemandForm::prefix, statement.receivers.size(), false};
     verify_expression(statement.expression, table, source_language, seen, stage, diagnostics,
                       condition_context, std::nullopt, &invocation_context);
     verify_expression(statement.secondary_expression, table, source_language, seen, stage,

@@ -901,7 +901,7 @@ bool Analyzer::analyze_statement(Statement& statement) {
       return false;
     }
     case StatementKind::multi_assignment: {
-      semantic(semantics_, statement.expression).requested_outputs = statement.target_names.size();
+      semantic(semantics_, statement.expression).requested_outputs = statement.receivers.size();
       analyze_expression(statement.expression);
       semantic(semantics_, statement).target_types.clear();
       semantic(semantics_, statement).target_numeric_types.clear();
@@ -914,27 +914,33 @@ bool Analyzer::analyze_statement(Statement& statement) {
       semantic(semantics_, statement).target_previous_element_types.clear();
       semantic(semantics_, statement).target_previous_element_numeric_types.clear();
       semantic(semantics_, statement).target_previous_array_storage.clear();
-      semantic(semantics_, statement).target_types.reserve(statement.target_names.size());
-      semantic(semantics_, statement).target_numeric_types.reserve(statement.target_names.size());
-      semantic(semantics_, statement).target_element_types.reserve(statement.target_names.size());
+      semantic(semantics_, statement).target_types.reserve(statement.receivers.size());
+      semantic(semantics_, statement).target_numeric_types.reserve(statement.receivers.size());
+      semantic(semantics_, statement).target_element_types.reserve(statement.receivers.size());
       semantic(semantics_, statement)
-          .target_element_numeric_types.reserve(statement.target_names.size());
-      semantic(semantics_, statement).target_array_storage.reserve(statement.target_names.size());
-      semantic(semantics_, statement).target_shapes.reserve(statement.target_names.size());
-      semantic(semantics_, statement).target_previous_types.reserve(statement.target_names.size());
+          .target_element_numeric_types.reserve(statement.receivers.size());
+      semantic(semantics_, statement).target_array_storage.reserve(statement.receivers.size());
+      semantic(semantics_, statement).target_shapes.reserve(statement.receivers.size());
+      semantic(semantics_, statement).target_previous_types.reserve(statement.receivers.size());
       semantic(semantics_, statement)
-          .target_previous_numeric_types.reserve(statement.target_names.size());
+          .target_previous_numeric_types.reserve(statement.receivers.size());
       semantic(semantics_, statement)
-          .target_previous_element_types.reserve(statement.target_names.size());
+          .target_previous_element_types.reserve(statement.receivers.size());
       semantic(semantics_, statement)
-          .target_previous_element_numeric_types.reserve(statement.target_names.size());
+          .target_previous_element_numeric_types.reserve(statement.receivers.size());
       semantic(semantics_, statement)
-          .target_previous_array_storage.reserve(statement.target_names.size());
+          .target_previous_array_storage.reserve(statement.receivers.size());
       if (program_.language == SourceLanguage::matlab) {
+        const auto& value = semantic(semantics_, statement.expression);
+        const bool scalar_result =
+            statement.receivers.size() == 1U &&
+            (value.procedure_has_result || (value.inferred_type != ValueType::unknown &&
+                                            value.inferred_type != ValueType::null_value &&
+                                            value.inferred_type != ValueType::function));
         if (statement.expression.kind != ExpressionKind::call ||
-            !semantic(semantics_, statement.expression).multi_output_call) {
+            (!value.multi_output_call && !scalar_result)) {
           diagnose(statement.line, "MPF2034",
-                   "Matlab multi-output assignment requires a function with multiple outputs");
+                   "Matlab output assignment requires a call with enough result positions");
           return false;
         }
       } else if (program_.language == SourceLanguage::python) {
@@ -990,54 +996,67 @@ bool Analyzer::analyze_statement(Statement& statement) {
         return false;
       }
       std::unordered_set<std::string> targets;
-      for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
-        const auto& name = statement.target_names[index];
-        if (!targets.insert(name).second && program_.language == SourceLanguage::matlab) {
+      for (std::size_t index = 0; index < statement.receivers.size(); ++index) {
+        const auto& receiver = statement.receivers[index];
+        const auto& name = receiver.name;
+        if (receiver.binds() && !targets.insert(name).second &&
+            program_.language == SourceLanguage::matlab) {
           diagnose(statement.line, "MPF2034",
                    "Matlab multi-output assignment target '" + name + "' is duplicated");
         }
-        auto& symbol = definition_state(statement, NameRole::assignment, index);
+        auto* symbol =
+            receiver.binds() ? &definition_state(statement, NameRole::assignment, index) : nullptr;
+        const auto& value = semantic(semantics_, statement.expression);
+        const bool scalar_result = statement.receivers.size() == 1U;
         const auto type = index < semantic(semantics_, statement.expression).tuple_types.size()
                               ? semantic(semantics_, statement.expression).tuple_types[index]
-                              : ValueType::unknown;
+                              : (scalar_result ? value.inferred_type : ValueType::unknown);
         const auto element_type =
             index < semantic(semantics_, statement.expression).tuple_element_types.size()
                 ? semantic(semantics_, statement.expression).tuple_element_types[index]
-                : ValueType::unknown;
+                : (scalar_result ? value.element_type : ValueType::unknown);
         const auto numeric_type =
             index < semantic(semantics_, statement.expression).tuple_numeric_types.size()
                 ? semantic(semantics_, statement.expression).tuple_numeric_types[index]
-                : default_numeric_type(type);
+                : (scalar_result ? value.numeric_type : default_numeric_type(type));
         const auto element_numeric_type =
             index < semantic(semantics_, statement.expression).tuple_element_numeric_types.size()
                 ? semantic(semantics_, statement.expression).tuple_element_numeric_types[index]
-                : default_numeric_type(element_type);
+                : (scalar_result ? value.element_numeric_type : default_numeric_type(element_type));
         const auto shape = index < semantic(semantics_, statement.expression).tuple_shapes.size()
                                ? semantic(semantics_, statement.expression).tuple_shapes[index]
-                               : std::vector<std::size_t>{};
+                               : (scalar_result ? value.shape : std::vector<std::size_t>{});
         const auto array_storage =
             index < semantic(semantics_, statement.expression).tuple_array_storage.size()
                 ? semantic(semantics_, statement.expression).tuple_array_storage[index]
-                : (type == ValueType::list ? ArrayStorageFormat::unknown
-                                           : ArrayStorageFormat::none);
-        semantic(semantics_, statement).target_previous_types.push_back(symbol.type);
+                : (scalar_result ? value.array_storage
+                                 : (type == ValueType::list ? ArrayStorageFormat::unknown
+                                                            : ArrayStorageFormat::none));
         semantic(semantics_, statement)
-            .target_previous_numeric_types.push_back(symbol.numeric_type);
+            .target_previous_types.push_back(symbol == nullptr ? ValueType::unknown : symbol->type);
         semantic(semantics_, statement)
-            .target_previous_element_types.push_back(symbol.element_type);
+            .target_previous_numeric_types.push_back(symbol == nullptr ? unknown_numeric_type
+                                                                       : symbol->numeric_type);
         semantic(semantics_, statement)
-            .target_previous_element_numeric_types.push_back(symbol.element_numeric_type);
+            .target_previous_element_types.push_back(symbol == nullptr ? ValueType::unknown
+                                                                       : symbol->element_type);
         semantic(semantics_, statement)
-            .target_previous_array_storage.push_back(symbol.array_storage);
-        symbol.binding = BindingKind::variable;
-        symbol.type = join_types(symbol.type, type);
-        symbol.numeric_type = join_numeric_types(symbol.numeric_type, numeric_type);
-        symbol.element_type = join_types(symbol.element_type, element_type);
-        symbol.element_numeric_type =
-            join_numeric_types(symbol.element_numeric_type, element_numeric_type);
-        symbol.array_storage = join_array_storage_formats(symbol.array_storage, array_storage);
-        if (symbol.shape.empty()) symbol.shape = shape;
-        symbol.assigned = true;
+            .target_previous_element_numeric_types.push_back(
+                symbol == nullptr ? unknown_numeric_type : symbol->element_numeric_type);
+        semantic(semantics_, statement)
+            .target_previous_array_storage.push_back(symbol == nullptr ? ArrayStorageFormat::none
+                                                                       : symbol->array_storage);
+        if (symbol != nullptr) {
+          symbol->binding = BindingKind::variable;
+          symbol->type = join_types(symbol->type, type);
+          symbol->numeric_type = join_numeric_types(symbol->numeric_type, numeric_type);
+          symbol->element_type = join_types(symbol->element_type, element_type);
+          symbol->element_numeric_type =
+              join_numeric_types(symbol->element_numeric_type, element_numeric_type);
+          symbol->array_storage = join_array_storage_formats(symbol->array_storage, array_storage);
+          if (symbol->shape.empty()) symbol->shape = shape;
+          symbol->assigned = true;
+        }
         semantic(semantics_, statement).target_types.push_back(type);
         semantic(semantics_, statement).target_numeric_types.push_back(numeric_type);
         semantic(semantics_, statement).target_element_types.push_back(element_type);

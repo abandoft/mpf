@@ -26,7 +26,7 @@ void analyze_output_demands(const hir::Program& program, hir::SemanticTable& sem
       demand = {OutputDemandForm::statement, 0U,
                 statement.implicit_result != semantic::ImplicitResultPolicy::none};
     else if (statement.kind == StatementKind::multi_assignment)
-      demand = {OutputDemandForm::prefix, statement.target_names.size(), false};
+      demand = {OutputDemandForm::prefix, statement.receivers.size(), false};
     append(statement.expression, demand);
     append(statement.secondary_expression, value);
     append(statement.tertiary_expression, value);

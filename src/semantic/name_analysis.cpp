@@ -144,8 +144,9 @@ class NameAnalyzer final {
           break;
         case StatementKind::multi_assignment:
           if (!lexical_blocks()) {
-            for (const auto& name : statement.target_names) {
-              declare(scope, name, NameSymbolKind::variable, statement.id);
+            for (const auto& receiver : statement.receivers) {
+              if (receiver.binds())
+                declare(scope, receiver.name, NameSymbolKind::variable, statement.id);
             }
           }
           break;
@@ -336,11 +337,12 @@ class NameAnalyzer final {
             add_definition(statement.id, scope, statement.name, NameRole::assignment, 0);
           break;
         case StatementKind::multi_assignment:
-          for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
+          for (std::size_t index = 0; index < statement.receivers.size(); ++index) {
+            if (!statement.receivers[index].binds()) continue;
             if (lexical_blocks())
-              add_assignment(statement.id, scope, statement.target_names[index], index);
+              add_assignment(statement.id, scope, statement.receivers[index].name, index);
             else
-              add_definition(statement.id, scope, statement.target_names[index],
+              add_definition(statement.id, scope, statement.receivers[index].name,
                              NameRole::assignment, index);
           }
           break;
@@ -544,7 +546,13 @@ void verify_statements(const hir::Program& program, const std::vector<hir::State
                            !lexical_blocks(program), stage, diagnostics);
         break;
       case StatementKind::multi_assignment:
-        for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
+        for (std::size_t index = 0; index < statement.receivers.size(); ++index) {
+          if (!statement.receivers[index].binds()) {
+            if (names.use(statement.id, NameRole::assignment, index) != nullptr)
+              add_error(diagnostics, statement.receivers[index].location, stage,
+                        "discarded output receiver has a source binding");
+            continue;
+          }
           require_definition(statement, scope, names, NameRole::assignment, index,
                              !lexical_blocks(program), stage, diagnostics);
         }
