@@ -1224,6 +1224,19 @@ std::string matlab_output_exit_workload(const std::size_t functions, const std::
   return source;
 }
 
+std::string matlab_mutable_array_join_workload(const std::size_t regions) {
+  std::string source = "total = 0;\n";
+  for (std::size_t region = 0U; region < regions; ++region) {
+    source +=
+        "for mode = 0:1\nvalues = [1, 2];\ntry\n"
+        "values = [3, 4, 5, 6];\nif mode == 1\n"
+        "error('MPF:Join', 'body');\nend\ncatch exception\n"
+        "values = [7, 8, 9];\nend\ntotal = total + numel(values);\nend\n";
+  }
+  source += "disp(total);\n";
+  return source;
+}
+
 std::string matlab_invocation_context_workload(const std::size_t functions) {
   std::string source;
   for (std::size_t index = 0U; index < functions; ++index) {
@@ -1460,6 +1473,8 @@ int main() {
       {"matlab-output-exit", matlab_output_exit_workload(32, 8), mpf::SourceLanguage::matlab, 16U},
       {"matlab-invocation-context", matlab_invocation_context_workload(32),
        mpf::SourceLanguage::matlab, 16U},
+      {"matlab-mutable-array-joins", matlab_mutable_array_join_workload(64),
+       mpf::SourceLanguage::matlab, 32U, true},
       {"matlab-default-functions", matlab_default_function_workload(128),
        mpf::SourceLanguage::matlab},
       {"matlab-exception-control", matlab_exception_workload(64), mpf::SourceLanguage::matlab},
