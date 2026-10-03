@@ -210,6 +210,11 @@ Analyzer 按已解析 binding 检查 `arguments` default/validator 的 source-ow
 外部生成入口默认 count 1，0/N 需求必须由调用适配器显式传入，不能从目标接收语法猜测。
 `nargout(fun)`、条件输出 presence、忽略接收槽和完整 `ans` 仍是
 [TODO](../TODO.md) 的发布前任务，不能将 count ABI 表述为完整输出需求支持。
+R2024b 实际观察已确认剩余出口顺序：先按声明顺序验证所有已赋值输出，随后检查
+完整请求前缀的缺失值（包含 `~`）；零需求的括号/裸调用仅在成功且首值存在时更新
+`ans`。这些是待实现 presence-aware CFG/receiver 的约束，不是当前 MIR 已完成能力；
+细化设计与原生来源见 [管线方案](COMPILER_PIPELINE.md) 和
+[参考合同](../tests/reference/matlab/README.md)。
 
 Matlab AST v10 将裸 local 调用留给名称绑定后的迭代 normalization，parser 不再扫描
 全文件 assignment/header 猜测调用。只有 function binding 转成零实参 call；default-input
