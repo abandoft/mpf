@@ -18,6 +18,8 @@ add_executable(mpf-tests
   unit/argument_representation_tests.cpp
   unit/argument_output_tests.cpp
   unit/compiler_foundation_tests.cpp
+  unit/control_value_join_tests.cpp
+  unit/matlab_matrix_spacing_tests.cpp
   unit/extension_architecture_tests.cpp
   unit/function_dependency_tests.cpp
   unit/multilevel_ir_tests.cpp
@@ -179,6 +181,14 @@ add_test(NAME mpf.matlab-reference.empty-validator-contract
     -DREFERENCE_CONTRACT_SECTION=empty-validators
     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_matlab_reference_contract.cmake)
 set_tests_properties(mpf.matlab-reference.empty-validator-contract PROPERTIES
+  LABELS "infrastructure;matlab" TIMEOUT 30)
+
+add_test(NAME mpf.matlab-reference.control-join-contract
+  COMMAND ${CMAKE_COMMAND}
+    -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/matlab-control-join-contract
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_matlab_control_join_contract.cmake)
+set_tests_properties(mpf.matlab-reference.control-join-contract PROPERTIES
   LABELS "infrastructure;matlab" TIMEOUT 30)
 
 add_test(NAME mpf.format.toolchain-contract
@@ -381,6 +391,17 @@ if(TARGET mpfc)
   endif()
 
   include(${CMAKE_CURRENT_SOURCE_DIR}/differential/corpus.cmake)
+  if(MPF_NODE_EXECUTABLE)
+    add_test(NAME mpf.capability.matlab-mutable-value-joins
+      COMMAND ${CMAKE_COMMAND}
+        -DMPFC=$<TARGET_FILE:mpfc>
+        -DNODE=${MPF_NODE_EXECUTABLE}
+        -DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/matlab_mutable_value_joins.m
+        -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/capability/matlab-mutable-value-joins
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_mutable_value_join.cmake)
+    set_tests_properties(mpf.capability.matlab-mutable-value-joins PROPERTIES
+      LABELS "generated;matlab;capability" TIMEOUT 30)
+  endif()
   mpf_add_generated_cpp_compile_test(matlab-basic examples/matlab/basic.m)
   mpf_add_generated_cpp_compile_test(matlab-arguments examples/matlab/arguments.m)
   mpf_add_generated_cpp_compile_test(
