@@ -128,6 +128,13 @@ binding-aware 拒错；合法源码与独立非法定义观察分开。这是剩
 原生执行证据。0.8.0 输出验收与发布门禁接入仍保持未完成。运行方式与证据范围见
 [原生对照指南](../tests/reference/matlab/README.md)。
 
+原生用例使用保持原文件名的 byte-identical 隔离快照执行，避免 `run` 进入示例目录
+而令邻近 `transpose.m` 遮蔽 MATLAB builtin；verifier 仍保留原始 transcript 并拒绝
+任何额外警告文本。27 项真实观察已固定 values/class/size/exception identity 与首错
+message fragment 的 R2024b 基线，新增损坏回归拒绝错误 `ans`、忽略槽异常身份、
+验证/缺失顺序和伪造 `isargout` availability。synthetic fixtures 只检验这套 verifier，
+并明确标记其非运行证据身份。
+
 Analyzer 生命周期回归测试主动收紧 expression side-table capacity，再通过 Matlab 默认参数的
 嵌套 call、scalar/multi-axis selector、slice bound、indexed mutation、Python tuple/default
 cloning 和 Fortran optional actual 触发真实扩容；ASan/UBSan 与 fuzz 检查其引用和容器计划
