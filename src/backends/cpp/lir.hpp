@@ -51,6 +51,8 @@ struct RuntimeRequirements {
 
   void require(const RuntimeFeature feature) noexcept {
     bits |= 1U << static_cast<std::uint32_t>(feature);
+    if (feature == RuntimeFeature::argument_validation)
+      bits |= 1U << static_cast<std::uint32_t>(RuntimeFeature::exception_handling);
   }
   [[nodiscard]] bool contains(const RuntimeFeature feature) const noexcept {
     return (bits & (1U << static_cast<std::uint32_t>(feature))) != 0;

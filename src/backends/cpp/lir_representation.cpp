@@ -2469,7 +2469,8 @@ void verify_lir_representation(const lir::SemanticProgram& program,
     return false;
   };
   const bool validation = has_argument_validation(has_argument_validation, program.statements);
-  if (validation != program.runtime.contains(lir::RuntimeFeature::argument_validation)) {
+  if (validation != program.runtime.contains(lir::RuntimeFeature::argument_validation) ||
+      (validation && !program.runtime.contains(lir::RuntimeFeature::exception_handling))) {
     add_error(diagnostics, {1, 1},
               "cpp LIR argument validation runtime requirement is inconsistent");
   }

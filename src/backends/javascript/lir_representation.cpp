@@ -2286,7 +2286,8 @@ void verify_lir_representation(const lir::SemanticProgram& program,
   };
   const bool validation = has_argument_validation(has_argument_validation, program.statements);
   if (validation != program.runtime.contains(lir::RuntimeFeature::argument_validation) ||
-      (validation && (!program.runtime.contains(lir::RuntimeFeature::arrays) ||
+      (validation && (!program.runtime.contains(lir::RuntimeFeature::exception_handling) ||
+                      !program.runtime.contains(lir::RuntimeFeature::arrays) ||
                       !program.runtime.contains(lir::RuntimeFeature::complex_numbers)))) {
     add_error(diagnostics, {1, 1},
               "JavaScript LIR argument validation runtime requirements are inconsistent");
