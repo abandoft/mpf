@@ -1236,7 +1236,7 @@ std::string matlab_invocation_context_workload(const std::size_t functions) {
   for (std::size_t index = 0U; index < functions; ++index) {
     source += "function [first,second] = counted_" + std::to_string(index) +
               "(input)\n"
-              "arguments\ninput (1,1) double = nargout\nend\n"
+              "arguments\ninput (1,1) double = 7\nend\n"
               "arguments (Output)\nfirst (1,1) double {mustBeNonnegative}\n"
               "second (1,1) double {mustBePositive}\nend\n"
               "first = input + nargout;\nsecond = nargout() + 10;\nend\n";
