@@ -76,12 +76,14 @@ custom validator 的职责依据官方 [validation functions](https://www.mathwo
 捕获返回边界失败，正文异常逃逸也不执行输出验证。literal/input 阈值保留当前 workspace
 读取，单输出与静态部分多输出调用保持转换结果前缀的 type/shape；函数完整签名与全部
 已赋值输出校验不被截断，包括单接收/丢弃调用中的未请求输出失败。条件未赋值输出、
-忽略位的 callee ABI 和一般动态 ABI 尚未完成独立验收，不将这个纵切面
+一般动态 ABI 尚未完成独立验收，不将这个纵切面
 表述为完整输出验证支持。当前 source demand 与所选值 arity 已分离：语句为 0、
 普通表达式/default 为 1、静态多接收为位置数，命令隐式 `ans` 不改变需求数。无 receiver
 语句在两端省略无用首值投影，但保留调用、输出验证及异常。开发分支已把需求作为独立
 typed count 传入每次 local invocation；函数体可使用裸 `nargout`
-或 `nargout()`，递归调用各自隔离。`nargout(fun)`、条件 presence 和 `~` 接收槽仍不支持；
+或 `nargout()`，递归调用各自隔离。方括号接收以 typed receiver 保存每一位置，支持
+`[value]`、混合及重复 `~`、全忽略列表；`~` 不创建变量、不减少 count，
+也不省略调用或已赋值输出校验。`nargout(fun)` 和条件 presence 仍不支持；
 script 顶层 query、不支持的 introspection 或 `arguments` 块内的直接 query 以
 `MPF2059` 拒绝。默认值/validator 表达式中的嵌套 query 同样拒绝；已绑定的同名
 input 变量不是 query，独立 helper 函数正文中的 query 读取 helper 自身 frame。
