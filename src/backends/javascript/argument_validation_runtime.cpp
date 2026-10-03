@@ -161,7 +161,7 @@ function __mpf_validate_argument(value, name, direction, dimensions, classConstr
                              validatorCall[3] > 3)))
       __mpf_argument_failure(name, 'validator call ABI');
     const requiresNumeric = (validator >= 6 && validator <= 11) || validator >= 23;
-    if (!empty && requiresNumeric && !items.every(numericOrLogical))
+    if (requiresNumeric && !items.every(numericOrLogical))
       __mpf_argument_validator_failure(name, direction, position, validator, 1);
     const requiresReal = (validator >= 6 && validator <= 9) || validator === 11 ||
                          (validator >= 23 && validator <= 26);
@@ -169,9 +169,9 @@ function __mpf_validate_argument(value, name, direction, dimensions, classConstr
       __mpf_argument_validator_failure(name, direction, position, validator, 3);
     let valid = true;
     switch (validator) {
-      case 0: valid = empty || items.every(numeric); break;
-      case 1: valid = empty || items.every(numericOrLogical); break;
-      case 2: valid = empty || items.every(numeric); break;
+      case 0: valid = items.every(numeric); break;
+      case 1: valid = items.every(numericOrLogical); break;
+      case 2: valid = items.every(numeric); break;
       case 3: valid = empty || typeof value === 'string' ||
         items.every((item) => numericOrLogical(item) && !__mpf_is_complex(item)); break;
       case 4: valid = empty || typeof value === 'string' || items.every((item) =>
