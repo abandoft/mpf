@@ -352,16 +352,41 @@ foreach(required IN ITEMS
     "std::vector<ShapeId> parameter_shapes"
     "std::vector<ShapeId> result_shapes"
     "bool lazy_cfg"
-    "load"
-    "store_indexed"
-    "copy"
-    "writeback"
-    "truthiness"
     "ComparisonOperator comparison")
   if(NOT mir_contract MATCHES "${required}")
     message(FATAL_ERROR "MIR contract is missing commercial CFG/alias field: ${required}")
   endif()
 endforeach()
+if(NOT mir_contract MATCHES "#include \"opcode.hpp\"")
+  message(FATAL_ERROR "MIR does not consume the independent opcode contract")
+endif()
+file(READ "${SOURCE_DIR}/src/ir/opcode.hpp" opcode_contract)
+foreach(required_opcode IN ITEMS load store_indexed copy writeback truthiness discard_output)
+  if(NOT opcode_contract MATCHES "[ \t\r\n]${required_opcode}[,\r\n]")
+    message(FATAL_ERROR "independent MIR opcode contract is missing: ${required_opcode}")
+  endif()
+endforeach()
+foreach(target IN ITEMS javascript cpp)
+  file(READ "${SOURCE_DIR}/src/backends/${target}/lir.hpp" receiver_lir)
+  foreach(required_receiver IN ITEMS
+      "struct ReceiverPlan" "multi_scalar" "multi_discard"
+      "std::vector<OutputReceiver> receivers"
+      "std::vector<mir::OutputReceiverSource> source_receivers"
+      "ValueId source_value")
+    if(NOT receiver_lir MATCHES "${required_receiver}")
+      message(FATAL_ERROR "target receiver LIR contract is missing: ${target}/${required_receiver}")
+    endif()
+  endforeach()
+  mpf_assert_file_excludes("src/backends/${target}/lir.hpp" "ir/mir\\.hpp"
+    "target LIR imports the entire MIR rather than lightweight source contracts")
+  mpf_assert_file_excludes("src/backends/${target}/renderer.cpp"
+    "statement\\.target_symbols\\[|statement\\.receivers"
+    "receiver printer infers target bindings from source receiver mirrors")
+endforeach()
+file(READ "${SOURCE_DIR}/src/ir/mir_verifier.cpp" receiver_verifier)
+if(NOT receiver_verifier MATCHES "verify_output_receivers\\(program")
+  message(FATAL_ERROR "resident output receiver verification is not part of MIR acceptance")
+endif()
 if(mir_contract MATCHES "std::vector<Expression>[ \t]+children" OR
    mir_contract MATCHES "std::vector<Statement>[ \t]+(body|alternative)")
   message(FATAL_ERROR "MIR restored a recursive HIR-compatible expression/statement projection")
