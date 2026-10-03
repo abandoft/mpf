@@ -48,6 +48,28 @@ function mpf_run_reference(project_root, output_root)
     write_utf8(fullfile(output_root, 'validator-parity-provenance.json'), ...
         jsonencode(validator_provenance, 'PrettyPrint', true));
 
+    control_sources = {
+        'matlab-mutable-array-joins', 'examples/matlab/mutable_array_joins.m';
+        'matlab-mutable-value-joins', 'tests/fixtures/matlab_mutable_value_joins.m';
+        'matlab-matrix-expression-spacing', 'examples/matlab/matrix_expression_spacing.m'
+    };
+    control_cases = repmat(struct('caseName', '', 'source', '', 'sourceSnapshot', ''), 1, 3);
+    for index = 1:size(control_sources, 1)
+        [~, basename, extension] = fileparts(control_sources{index, 2});
+        relative_copy = ['source/', basename, extension];
+        copyfile(fullfile(project_root, control_sources{index, 2}), ...
+            fullfile(output_root, relative_copy));
+        control_transcript = execute_source(fullfile(output_root, relative_copy));
+        write_utf8(fullfile(output_root, [control_sources{index, 1}, '.stdout']), ...
+            control_transcript);
+        control_cases(index) = struct('caseName', control_sources{index, 1}, ...
+            'source', control_sources{index, 2}, 'sourceSnapshot', relative_copy);
+    end
+    control_provenance = struct('schemaVersion', 1, 'matlabRelease', actual_release, ...
+        'matlabVersion', version(), 'sourceRevision', source_revision, 'cases', control_cases);
+    write_utf8(fullfile(output_root, 'control-join-parity.json'), ...
+        jsonencode(control_provenance, 'PrettyPrint', true));
+
     % These observations cover pending MPF semantics, not implemented parity.
     observations = mpf_output_semantics();
     observations.matlabRelease = actual_release;

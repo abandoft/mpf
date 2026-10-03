@@ -33,7 +33,7 @@ jobs:
       - name: Execute both generated targets
         run: >-
           ctest --test-dir build/matlab-reference --output-on-failure
-          -R '^mpf\.differential\.matlab-(invocation-context|validator-identities)$'
+          -R '^mpf\.(differential\.matlab-(invocation-context|validator-identities|mutable-array-joins|matrix-expression-spacing)|capability\.matlab-mutable-value-joins)$'
       - name: Set up actual MATLAB R2024b
         uses: matlab-actions/setup-matlab@f9e43010f1ae678f7cfa0542fe2a4f60f7d1ad8d # v3
         with:
@@ -54,6 +54,17 @@ jobs:
           -DVALIDATOR_DIFFERENTIAL_RESULT="$PWD/build/matlab-reference/differential/matlab-validator-identities/differential-result.txt"
           -DSOURCE_REVISION="$SOURCE_REVISION"
           -P tests/cmake/verify_matlab_reference.cmake
+      - name: Verify native mutable joins and matrix expression boundaries
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        run: >-
+          cmake -DSOURCE_DIR="$PWD"
+          -DREFERENCE_DIR="$PWD/build/matlab-reference/official"
+          -DSOURCE_REVISION="$SOURCE_REVISION"
+          -DARRAY_RESULT="$PWD/build/matlab-reference/differential/matlab-mutable-array-joins/differential-result.txt"
+          -DVALUE_RESULT="$PWD/build/matlab-reference/capability/matlab-mutable-value-joins/capability-result.txt"
+          -DSPACING_RESULT="$PWD/build/matlab-reference/differential/matlab-matrix-expression-spacing/differential-result.txt"
+          -P tests/cmake/verify_matlab_control_join_parity.cmake
       - name: Preserve original source, native observations, and target execution
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -67,4 +78,7 @@ jobs:
             build/matlab-reference/differential/matlab-invocation-context/generated.mjs
             build/matlab-reference/differential/matlab-invocation-context/generated.cpp
             build/matlab-reference/differential/matlab-validator-identities
+            build/matlab-reference/differential/matlab-mutable-array-joins
+            build/matlab-reference/differential/matlab-matrix-expression-spacing
+            build/matlab-reference/capability/matlab-mutable-value-joins
             build/matlab-reference/Testing/Temporary/LastTest.log
