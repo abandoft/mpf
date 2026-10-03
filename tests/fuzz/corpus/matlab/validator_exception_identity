@@ -1,0 +1,27 @@
+try
+    checked(complex(2,1));
+catch exception
+    disp(exception.identifier);
+end
+try
+    checked('text');
+catch exception
+    disp(exception.identifier);
+end
+try
+    failed_output();
+catch exception
+    disp(exception.identifier);
+end
+function result = checked(value)
+arguments
+    value {mustBePositive(value),mustBeInteger}
+end
+result = 1;
+end
+function result = failed_output()
+arguments (Output)
+    result (1,1) double {mustBeInRange(result,0,1,'exclusive')}
+end
+result = 0;
+end
