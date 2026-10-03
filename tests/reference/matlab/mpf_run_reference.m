@@ -65,6 +65,8 @@ function mpf_run_reference(project_root, output_root)
     write_utf8(fullfile(output_root, 'validator-semantics.json'), ...
         jsonencode(validators, 'PrettyPrint', true));
     fprintf('Recorded %d native standard-validator observations.\n', numel(validators.cases));
+    fprintf('Recorded %d additional R2024b empty-class observations.\n', ...
+        numel(validators.emptyCharacter) + numel(validators.emptyNumeric));
 end
 
 function transcript = execute_source(source_path)
