@@ -23,7 +23,10 @@ MIR entry CFG，标准输出现以 resident shared exit 汇合正常/提前 retu
 typed `InvocationFrame`/`InvocationDemand` 已将 count 传入每次 callee，裸 `nargout` 和
 `nargout()` 从本函数独立 frame 读取。两个目标各自选择 trailing count ABI；逻辑参数和
 default ordinal 不受污染。post-binding normalization 补齐 default-input 裸调用与 scope
-遮蔽，parser 不再全文件扫描猜测。条件 presence、忽略接收槽及完整 `ans` 仍未实现。
+遮蔽，parser 不再全文件扫描猜测。typed 忽略接收槽已实现；条件 presence 与完整 `ans` 仍未实现。
+当前标准 validator runtime 保留已核验的原生异常 identity、输入 position/输出名称以及
+numeric/logical/realness 前置首错；空值免检不被前置类型检查误伤。完整 class/size/custom
+validator 错误和所有类型组合尚未完成，用户日志不以原生探针或测试数量代替功能更新。
 本轮先补齐功能及跨层验证，不把内部测试数量、覆盖率或门禁调整写成用户更新条目；
 真实用户更新累计达到 8–20 条后再定版发布。
 
@@ -42,7 +45,7 @@ default ordinal 不受污染。post-binding normalization 补齐 default-input �
 | Matlab complex sparse product | 静态 rank-2 complex CSC 支持 sparse×sparse、sparse×dense 与 dense×sparse 矩阵乘法；sparse 结果保持 canonical CSC，mixed 结果直接物化 dense，real/logical operand 自动提升，并保持零 extent 与 exact-zero cancellation |
 | Matlab control/function | 函数与脚本裸 `return`、通用 command syntax、`ans`、`disp`/`display`、`try`/单一 `catch [exception]` 和 exception object 已贯通名称/flow/MIR/双目标 LIR。`arguments` block 当前覆盖 positional input/output、显式 scalar/N 维 `double`/`logical`/char-vector ABI、按声明顺序的 default、输入/输出 validation、scalar expansion、row/column reshape 和 23 个 unary 标准 validator 与四个参数化关系 validator；unsupported attribute/class/validator 在 frontend/Analyzer/target capability 边界失败关闭。 |
 | Fortran 最新能力 | integer/character/logical `SELECT CASE`、范围/default、重叠检查和任意分支确定赋值合流；已知静态 shape 下可证明不相交的同根连续、步长与 N 维矩形 writable section actual |
-| 工程门禁 | 492 项内部测试；127 个差分 case、299 条工具完整环境执行路径；当前 dev preset 为 219 项普通 CTest，Release 流程另运行独立性能发布目标；四语言 fuzz smoke、可选 libFuzzer、64 项生成 runtime 拒绝测试、12 项生成 C++ 编译、发布脚本、失败性能报告、原生参考证据校验与 clang-format 18 工具链正/负契约、49 项独立版本化通用及 Matlab 专项性能场景、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率硬门槛为 85%；Release 在标签 SHA 上复用七类 required workflow，门禁后才允许三平台候选测试/安装/消费/归档、来源证明和公开资产回验 |
+| 工程门禁 | 496 项内部测试；128 个差分 case、301 条工具完整环境执行路径；当前 dev preset 为 221 项普通 CTest，Release 流程另运行独立性能发布目标；四语言 fuzz smoke、可选 libFuzzer、64 项生成 runtime 拒绝测试、13 项生成 C++ 编译、发布脚本、失败性能报告、原生参考证据校验与 clang-format 18 工具链正/负契约、49 项独立版本化通用及 Matlab 专项性能场景、逐 pass/优化/内存依赖统计报告；生产代码行覆盖率硬门槛为 85%；Release 在标签 SHA 上复用七类 required workflow，门禁后才允许三平台候选测试/安装/消费/归档、来源证明和公开资产回验 |
 | 发布状态 | 0.x 开发快照；包消费要求精确当前版本，不提供旧 MPF API/ABI/schema/CLI/CMake 兼容承诺或迁移 shim |
 
 ## 本轮商业级收尾验收（完成）
@@ -132,7 +135,9 @@ default ordinal 不受污染。post-binding normalization 补齐 default-input �
     - [ ] presence-aware MIR CFG：以已交付的输出赋值来源/状态分析为基础，生成 entry assignedness/共享 input-output 初始化、实际 store 更新、路径选择的 typed Boolean merge 与异常点状态；出口先有条件地正规化/验证全部已赋值槽，再完整检查 requested prefix（包括忽略位）的缺失值。原生第二输出 validator 错误优先于第一输出缺失，不能逐槽交错抛缺失错误；普通正文确定赋值检查保持不变。精确合同见 [输出语义](docs/OUTPUT_SEMANTICS.md)
     - [x] typed output receiver：Matlab AST v11/HIR v6 逐位置保存 binding/discard 与源坐标，NameTable 不为忽略位建立 symbol；MIR v52 逐位置生成 store/discard_output，共用单次 RHS，无 discarded storage/result/memory access。双目标 LIR v62 各自拥有 scalar/tuple/discard 与 resident provenance，replanning 不能掩盖槽位/绑定/来源污染；`[value]`、混合/重复/全忽略位、typed 单槽 probe、严格生成编译、已赋值忽略输出验证、source map、fuzz 与既有 32 函数性能场景有专项覆盖。扩展源码原生 parity 已核验，条件缺失值仍待 presence
     - [ ] 完整 `ans` 与 presence-aware receiver：括号/裸零需求调用在成功且首值存在时更新，void/absent/failed 保留旧值；条件缺失值在完整 requested prefix（含 `~`）中仍报错。两端各自拥有 presence-aware return/receiver、verifier、严格生成编译与 native parity，不把已赋值槽的忽略接收冒称完整输出语义
-    - [ ] Matlab 标准 validator 异常身份对齐：原生输出错误使用 `MATLAB:validators:mustBePositive` 等稳定 identity，审计当前生成 runtime 的 MPF 私有标识与 source `MException.identifier` 可观察行为；按 validator/输入输出边界补齐官方原生拒错对照，不能只比较错误文本或把所有失败折叠为一个 ID
+    - [ ] Matlab validation 完整异常身份：class/size conversion、其余/custom validator、一般对象和所有支持类型/阈值组合仍须核验原生 identity 与首错顺序；不能只比较错误文本或把所有失败折叠为一个 ID
+      - [x] 当前 28 个标准 validator 的原生 identity 纵切面：run 37091387836 / 完整 SHA `153bce9eb0258c7c2adfa324008ced9402c50a3e` 实际采集并冻结 129 项直接/输入/输出观察。两个独立目标 runtime 保留 `MATLAB:validators:*`、输入 formal position/输出名称，以及已核验的 numeric/logical/realness 前置 ID；empty-value exemption 保持。78 项失败、文本/空 char 接受构成 82-token 原始 fixture，进入双目标差分/严格 C++、native workflow、fuzz；目标 dependency closure 与 replanning 丢失 exception feature 独立拒绝，synthetic native verifier 拒绝缺失/污染 provenance/库存/状态/前置 ID/context/snapshot/执行结果。129 项采集不等于随后新增目标 fixture 的原生 parity，必须核验其实际远程步骤和产物后再记真实验收
+      - [ ] 扩展 native 拒错矩阵覆盖每个 validator 的 text/logical/real/complex/empty、阈值类型/非有限值与 class/size conversion；当前已核验主路径与少量前置路径不能冒称全组合完成，尾部消息仍不承诺原生本地化逐字等价
   - [ ] 一般 mutable CFG join：同一绑定在 try 正常/handler 路径拥有不同 scalar/array type/shape 时，storage-entry metadata 不能作为所有 phi actual 的类型；修正 typed value merge 与 memory/version 合同，JavaScript 动态表示和 C++ capability 拒绝应在目标层各自处理，而不是公共 MIR 报 MPF0006。本轮 scalar→array 多输出重新绑定复现已定位，暂不混入输出验证示例掩盖问题
   - [x] 双目标入口首错顺序修复：MIR 明确 callee-entry adaptation；C++ 私有 raw-input template ABI 将 supplied conversion/default/validator 按声明交错执行，碰撞安全 raw/type 临时身份与 optional access 独立验证。非平凡多实参在进入验证前有序求值；兼容 scalar conversion 无 flatten 分配、同类型同 shape 数组不重建。双目标差分固定后续尺寸错误不得覆盖前序 validator、后续 default IO 抑制、supplied default 跳过及已转换前序参数引用；不将其冒称完整 resident validation CFG
   - [ ] 独立目标 lowering：标准 validator runtime operation 与普通 custom local call 分开绑定，按 MIR 顺序惰性求值阈值；JS/C++ LIR 各自验证参数、无输出调用、异常与源码映射，Emitter 仍只序列化
