@@ -2,12 +2,15 @@
 
 This directory runs original MATLAB source on **R2024b**. It is not a frontend grammar
 fixture directory: the observation runner deliberately uses MATLAB constructs that MPF
-has not yet implemented, including function handles and ignored output receivers.
+has not yet implemented, including function handles and conditionally missing outputs.
 
 The manual/reusable `Matlab Reference` workflow has two distinct results:
 
 1. `invocation_context.m` is executed by MATLAB and compared with the actual generated
-   JavaScript and strictly compiled C++ results from the differential runner.
+   JavaScript and strictly compiled C++ results from the differential runner. Its current
+   receiver coverage includes single brackets, mixed/repeated/all ignored slots, nested
+   actual evaluation, scalar and parameter-dependent tuple results, rejected assigned
+   outputs despite discards, and retaining the caller's `ans`.
 2. Twenty-seven native observations record conditional output assignment, missing requested
    outputs, ignored receiver positions/count, validation/error ordering, defaults, shared
    input/output bindings, scoped `ans`, and forbidden direct invocation queries in argument

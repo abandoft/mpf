@@ -54,7 +54,7 @@ expansion、row/column reshape、23 个无参数 validator、source map、JavaSc
 编译、runtime rejection、fuzz seed 和独立性能 workload 共同覆盖当前纵切面。name-value、
 Repeating、parameterized/custom validator 与动态 rank/class ABI 继续使用负向测试保持失败关闭。
 
-后续开发分支的关系 validator 使用 Matlab AST v10、Semantic v41、MIR v51 与双目标 LIR v61。
+后续开发分支的关系 validator 使用 Matlab AST v11、Semantic v42、MIR v52 与双目标 LIR v62。
 定向测试覆盖四种比较、literal/前序 input/output reference、optional access、source map，以及
 literal/ordinal/formal shape 和目标 opcode/token/symbol/access form 的独立损坏拒绝。双目标
 执行覆盖 strict/非 strict 边界、complex-zero-imag storage、NaN threshold 和首错顺序；另以
@@ -98,8 +98,19 @@ source map/确定性和 query/frame/call/private-plan 的独立损坏拒绝（�
 在 Node/严格 C++17 中执行 statement/bare/表达式/多接收、default、递归 frame 隔离与源
 同名 formal；声明式 oracle 不等于 Matlab 官方运行差分。新增第 49 项性能场景覆盖
 32 个函数的 0/1/2 需求、默认值 query 与输出验证，保留现有所有场景预算。
-校验触发条件已有官方文档依据；条件缺失值、忽略位、完整 `ans` 与 R2024 执行对照
+校验触发条件已有官方文档依据；条件缺失值、完整 `ans` 与 R2024 执行对照
 仍须验收。
+
+`output_receiver_tests.cpp` 专项验证 typed binding/discard、源坐标、重复忽略与非法
+列表、NameTable ordinal、无假 symbol/storage/result、单次共享 RHS、纯 discard
+effect、MIR/私有 LIR 来源损坏拒绝和 replanning、单槽 scalar/tuple type probe、
+全忽略无无用 temporary 与确定性/source map。
+接收 binding 的 source map 同时核对精确 original column，normalized HIR 保留
+binding/discard 差异但消除源空白差异。扩展 `invocation_context.m` 实际执行
+单槽、混合/重复/全忽略、nested actual count、参数相关 tuple、已赋值忽略/未请求
+输出仍验证、失败后旧 `ans` 保留；使用相同 byte-identical 源码进行原生对照。
+fuzz 增加合法 receiver seed；既有 32 函数 performance workload 按固定比例覆盖
+bound/mixed/all-discard，没有缩减规模或放宽预算。条件未赋值输出不因此获得支持。
 
 libFuzzer 模式将 production core、启用的 backend 和 facade 以
 `fuzzer-no-link,address,undefined` 插桩，不能仅给 driver 加 coverage counters。
