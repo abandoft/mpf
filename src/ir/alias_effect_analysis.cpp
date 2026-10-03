@@ -106,8 +106,8 @@ Effect minimum_effects(const Instruction& instruction) noexcept {
     case Opcode::aggregate:
     case Opcode::allocate: return Effect::allocate;
     case Opcode::store:
-    case Opcode::store_indexed:
     case Opcode::writeback: return Effect::write;
+    case Opcode::store_indexed: return Effect::write | Effect::may_fail;
     case Opcode::copy:
       return Effect::allocate |
              (instruction.transfer == ArgumentTransfer::copy_in_out ? Effect::read : Effect::none);
