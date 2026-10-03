@@ -70,7 +70,13 @@ synthetic verifier fixture 冒充这些功能的 parity。28 个已建模标准 
 [run 37091387836](https://github.com/abandoft/mpf/actions/runs/37091387836)，后续独立目标
 fixture 复核 80 项失败与两组文本接受，空 char 保留 R2024b 的 numeric class 拒错。
 真实 run 37093296126 因两个目标/旧示例错误接受空 char 而失败，不能记成原生 parity
-已通过；已按该证据修正 runtime 和空 numeric 示例，扩展 empty-class 原生采集。
+已通过；已按该证据修正 runtime 和空 numeric 示例。
+[run 37094163608](https://github.com/abandoft/mpf/actions/runs/37094163608) 在完整 SHA
+`8dce8ea5b21e63cc2c9a534858c13bad80a05062` 实际核验修正后的 82-token fixture，
+所有原生/双目标执行与验证步骤成功，另采集并冻结 168 项空 char/空 double 观察。
+这些观察进一步固定 `0×0` 空 char 的 shape validator 行为；两个目标已修正，
+当前 194-token fixture 增加对应 112 项输入/输出执行。旧 run 不作为新增源码的原生 parity，
+空值校验修复也不作为条件输出 presence 的交付证明。
 完整 class/size/custom validator 异常和所有类型
 组合仍待对齐；消息尾部不宣称原生本地化文本的逐字等价。
 0.8.0 的发布仍等待这些剩余验收及 release workflow 接入，当前不创建发布标签。
