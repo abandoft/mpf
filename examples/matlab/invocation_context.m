@@ -21,6 +21,47 @@ disp(with_default(9));
 disp(recursive(3));
 disp(shadowed(42));
 
+% Bracket receivers keep their requested positions, including ignored values.
+[one] = counted();
+disp(one);
+[~, second] = counted();
+disp(second);
+[first, ~, third] = counted();
+disp(first);
+disp(third);
+[~, ~] = counted();
+[~, ~, ~] = counted();
+[~] = counted();
+[first, ~] = with_default();
+disp(first);
+[first, ~] = counted();
+disp(first);
+[~] = with_default(counted());
+[scalar] = shadowed(17);
+disp(scalar);
+[generic] = passthrough(19);
+disp(generic);
+[builtin] = sqrt(81);
+disp(builtin);
+ans = 901;
+[~] = counted();
+try
+    [~, ~] = invalid_discard();
+catch
+    disp(404);
+end
+try
+    [first, ~] = invalid_discard();
+catch
+    disp(405);
+end
+try
+    [~] = invalid_discard();
+catch
+    disp(406);
+end
+disp(ans);
+
 function [first, second, third] = counted()
     disp(nargout);
     first = nargout;
@@ -63,4 +104,19 @@ end
 function output = default_input()
     % This separate workspace receives one requested output from the default expression.
     output = nargout + 6;
+end
+
+function [first, second] = invalid_discard()
+    arguments (Output)
+        first (1,1) double {mustBePositive}
+        second (1,1) double {mustBePositive}
+    end
+    disp(nargout);
+    first = 4;
+    second = -1;
+end
+
+function [first, second] = passthrough(input)
+    first = input;
+    second = input + 1;
 end
