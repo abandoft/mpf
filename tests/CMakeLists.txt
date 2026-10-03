@@ -167,8 +167,18 @@ add_test(NAME mpf.matlab-reference.verifier-contract
   COMMAND ${CMAKE_COMMAND}
     -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
     -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/matlab-reference-contract
+    -DREFERENCE_CONTRACT_SECTION=core
     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_matlab_reference_contract.cmake)
 set_tests_properties(mpf.matlab-reference.verifier-contract PROPERTIES
+  LABELS "infrastructure;matlab" TIMEOUT 30)
+
+add_test(NAME mpf.matlab-reference.empty-validator-contract
+  COMMAND ${CMAKE_COMMAND}
+    -DSOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DTEST_BINARY_DIR=${CMAKE_BINARY_DIR}/matlab-empty-validator-contract
+    -DREFERENCE_CONTRACT_SECTION=empty-validators
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify_matlab_reference_contract.cmake)
+set_tests_properties(mpf.matlab-reference.empty-validator-contract PROPERTIES
   LABELS "infrastructure;matlab" TIMEOUT 30)
 
 add_test(NAME mpf.format.toolchain-contract

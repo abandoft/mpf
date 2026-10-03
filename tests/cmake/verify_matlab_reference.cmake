@@ -208,6 +208,9 @@ file(READ "${reference_root}/validator-semantics.json" validator_observations)
 include("${CMAKE_CURRENT_LIST_DIR}/verify_matlab_validator_observations.cmake")
 verify_matlab_validator_observations("${validator_observations}" "${revision}" "${matlab_version}"
   "${source_root}/tests/reference/matlab/validator-semantics-contract.json")
+include("${CMAKE_CURRENT_LIST_DIR}/verify_matlab_empty_validator_observations.cmake")
+verify_matlab_empty_validator_observations("${validator_observations}"
+  "${source_root}/tests/reference/matlab/empty-validator-semantics-contract.json")
 include("${CMAKE_CURRENT_LIST_DIR}/verify_matlab_validator_parity.cmake")
 verify_matlab_validator_parity("${source_root}" "${reference_root}" "${build_root}" "${revision}"
   "${matlab_version}" "${VALIDATOR_DIFFERENTIAL_RESULT}" "${validator_observations}")
