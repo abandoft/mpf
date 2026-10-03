@@ -466,7 +466,7 @@ void validate_argument(const T& value, const std::string_view name,
         (validator != 27U && validator_call.range_boundary != 0U))
       fail("validator call ABI");
     const bool requires_numeric = (validator >= 6U && validator <= 11U) || validator >= 23U;
-    if (!empty && requires_numeric && !argument_all(value, numeric_or_logical))
+    if (requires_numeric && !argument_all(value, numeric_or_logical))
       argument_validator_failure(name, direction, position, validator, 1U);
     const bool requires_real = (validator >= 6U && validator <= 9U) || validator == 11U ||
                                (validator >= 23U && validator <= 26U);
@@ -477,10 +477,10 @@ void validate_argument(const T& value, const std::string_view name,
     const auto& operand = validator_call.operands[0];
     bool valid = true;
     switch (validator) {
-      case 0U: valid = empty || argument_all(value, numeric); break;
-      case 1U: valid = empty || argument_all(value, numeric_or_logical); break;
+      case 0U: valid = argument_all(value, numeric); break;
+      case 1U: valid = argument_all(value, numeric_or_logical); break;
       case 2U:
-        valid = empty || argument_all(value, [](const auto& item) {
+        valid = argument_all(value, [](const auto& item) {
           using Item = std::decay_t<decltype(item)>;
           return std::is_floating_point_v<Item> || argument_is_complex<Item>::value;
         });
