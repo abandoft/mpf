@@ -178,7 +178,10 @@ direct/input/output × empty-char/empty-double 共 168 项。run
 82 个 token 与两个执行目标一致；168 项空值观察现冻结于独立 contract 并由独立 helper
 逐项检查。该矩阵发现空 char 被错误视为 `1×0` 的 row/vector，两个 runtime 已改为规范
 `0×0`。当前 fixture 增加 112 项独立输入/输出执行，共 194 个 token；普通差分和严格 C++
-检查已接入，新增源码的原生 parity 仍须在对应提交上实际运行，不能追认旧 run。
+检查已接入。新增源码由 [run 37095935051](https://github.com/abandoft/mpf/actions/runs/37095935051)
+在完整 SHA `4b43f1112e5d42c2221fc3006297bfe43346ca54` 实际执行，所有原生/两端执行与
+验证步骤成功；已回读 artifact，194 个原生/JS/C++ token 一致，原始与 snapshot SHA-256
+均为 `deae270dd63614cb0f192e59be873c905f8fb61b8a0199f5b2bac7f5075fb7cf`。
 synthetic verifier 另拒绝缺失/错序矩阵、非 Boolean outcome、错误 validator/cause/context、
 错误接受空值与成功记录残留 exception；这不是完整 logical/complex/sparse storage-class 审计。
 core 与 empty-validator contract 作为独立 CTest、使用不同 build 子目录并保留各自 30 秒预算；

@@ -75,8 +75,12 @@ fixture 复核 80 项失败与两组文本接受，空 char 保留 R2024b 的 nu
 `8dce8ea5b21e63cc2c9a534858c13bad80a05062` 实际核验修正后的 82-token fixture，
 所有原生/双目标执行与验证步骤成功，另采集并冻结 168 项空 char/空 double 观察。
 这些观察进一步固定 `0×0` 空 char 的 shape validator 行为；两个目标已修正，
-当前 194-token fixture 增加对应 112 项输入/输出执行。旧 run 不作为新增源码的原生 parity，
-空值校验修复也不作为条件输出 presence 的交付证明。
+当前 194-token fixture 增加对应 112 项输入/输出执行，由
+[run 37095935051](https://github.com/abandoft/mpf/actions/runs/37095935051) 在完整 SHA
+`4b43f1112e5d42c2221fc3006297bfe43346ca54` 实际验证通过。已回读 artifact，三个运行目标
+输出一致，原始/snapshot SHA-256 同为
+`deae270dd63614cb0f192e59be873c905f8fb61b8a0199f5b2bac7f5075fb7cf`。
+空值校验修复不是条件输出 presence 的交付证明。
 完整 class/size/custom validator 异常和所有类型
 组合仍待对齐；消息尾部不宣称原生本地化文本的逐字等价。
 0.8.0 的发布仍等待这些剩余验收及 release workflow 接入，当前不创建发布标签。

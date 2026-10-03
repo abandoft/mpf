@@ -45,6 +45,16 @@ values merely because they have zero elements. The current 194-token fixture add
 execution for the corresponding 112 input/output cases; the earlier successful run is evidence
 for 82 tokens, not retroactive acceptance of this newly expanded source.
 
+The 194-token source subsequently passed actual R2024b Update 10 execution in
+[37095935051](https://github.com/abandoft/mpf/actions/runs/37095935051), at full revision
+`4b43f1112e5d42c2221fc3006297bfe43346ca54`. Every actual execution and verification step
+succeeded. The downloaded artifact's native, JavaScript, and strict C++ transcripts match,
+and original/snapshot SHA-256 is
+`deae270dd63614cb0f192e59be873c905f8fb61b8a0199f5b2bac7f5075fb7cf`.
+The 129 main and 168 empty-value observations matched their separate frozen contracts.
+This proves the executed validator cases, not full output-presence, `ans`, general object,
+dynamic empty-shape, or all remaining class/size/custom-validator semantics.
+
 The first actual R2024b run rejected a direct `nargout` default that MPF had incorrectly
 accepted. Legal execution fixtures now evaluate defaults through a separate helper; the compiler has a binding-aware
 context check, and deliberately invalid definitions live in separate files loaded through
