@@ -8,6 +8,7 @@
 
 #include "compiler/argument_validation.hpp"
 #include "compiler/expression_ast.hpp"
+#include "compiler/output_receiver.hpp"
 #include "compiler/statement_kind.hpp"
 #include "ids.hpp"
 #include "semantics.hpp"
@@ -65,7 +66,7 @@ struct Statement {
   std::vector<ArgumentDeclarationSyntax> argument_declarations;
   std::vector<ArgumentValidatorCall> argument_validator_calls;
   std::vector<std::string> return_names;
-  std::vector<std::string> target_names;
+  std::vector<OutputReceiver> receivers;
   bool has_target_pattern{false};
   std::vector<CaseSelector> case_selectors;
   bool default_case{false};

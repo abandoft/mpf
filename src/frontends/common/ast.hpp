@@ -10,6 +10,7 @@
 #include "compiler/argument_validation.hpp"
 #include "compiler/assignment_pattern.hpp"
 #include "compiler/expression_ast.hpp"
+#include "compiler/output_receiver.hpp"
 #include "compiler/statement_kind.hpp"
 #include "ir/hir_lowering.hpp"
 #include "ir/ids.hpp"
@@ -126,7 +127,7 @@ struct ArenaStatement {
   std::vector<std::vector<std::size_t>> return_shapes;
   bool return_sequence_is_list{false};
   std::vector<ValueMetadata> return_sequence_elements;
-  std::vector<std::string> target_names;
+  std::vector<OutputReceiver> receivers;
   AssignmentPattern target_pattern;
   bool has_target_pattern{false};
   std::vector<ValueType> target_types;

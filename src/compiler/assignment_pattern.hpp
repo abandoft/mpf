@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "expression_ast.hpp"
+#include "output_receiver.hpp"
 
 namespace mpf::detail {
 
@@ -37,14 +38,14 @@ struct AssignmentPattern {
   [[nodiscard]] bool valid() const noexcept { return kind != AssignmentPatternKind::invalid; }
 };
 
-inline void collect_assignment_names(const AssignmentPattern& pattern,
-                                     std::vector<std::string>& names) {
+inline void collect_assignment_receivers(const AssignmentPattern& pattern,
+                                         std::vector<OutputReceiver>& receivers) {
   if (pattern.kind == AssignmentPatternKind::name ||
       pattern.kind == AssignmentPatternKind::starred_name) {
-    names.push_back(pattern.name);
+    receivers.push_back({OutputReceiverKind::binding, pattern.name, pattern.location});
     return;
   }
-  for (const auto& child : pattern.children) collect_assignment_names(child, names);
+  for (const auto& child : pattern.children) collect_assignment_receivers(child, receivers);
 }
 
 inline void collect_assignment_leaves(AssignmentPattern& pattern,
