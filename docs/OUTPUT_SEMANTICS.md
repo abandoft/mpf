@@ -68,6 +68,9 @@
 synthetic verifier fixture 冒充这些功能的 parity。28 个已建模标准 validator 的失败 identity、
 输入 position/输出名称和已核验类型前置错误已接入两个独立 runtime；129 项原生观察冻结于
 [run 37091387836](https://github.com/abandoft/mpf/actions/runs/37091387836)，后续独立目标
-fixture 复核 78 项失败与文本/empty 接受。完整 class/size/custom validator 异常和所有类型
+fixture 复核 80 项失败与两组文本接受，空 char 保留 R2024b 的 numeric class 拒错。
+真实 run 37093296126 因两个目标/旧示例错误接受空 char 而失败，不能记成原生 parity
+已通过；已按该证据修正 runtime 和空 numeric 示例，扩展 empty-class 原生采集。
+完整 class/size/custom validator 异常和所有类型
 组合仍待对齐；消息尾部不宣称原生本地化文本的逐字等价。
 0.8.0 的发布仍等待这些剩余验收及 release workflow 接入，当前不创建发布标签。

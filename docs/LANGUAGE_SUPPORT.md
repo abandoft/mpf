@@ -72,7 +72,8 @@ custom validator 的职责依据官方 [validation functions](https://www.mathwo
 开发分支的 28 个已建模标准 validator 失败现使用 `MATLAB:validators:*` identity，
 可由源 `MException.identifier` 观察；输入消息带实际 formal position，输出消息带声明名称。
 已核验的 numeric/logical 与 realness 前置失败保留其自己的 ID，不统一折叠成请求的 validator。
-数值 validator 的 empty-value exemption 保持不变，包括空 char；消息后半段仍提供 MPF
+实际 R2024b 对空 char 仍执行 numeric class 检查，不能把最新在线文档的 empty-value
+忽略规则套到 Matlab 2024；真正空 numeric 仍可通过相应数值 validator。消息后半段仍提供 MPF
 诊断文本，不承诺与原生本地化消息逐字一致。class/size conversion、其余 validator、自定义
 validator、一般对象和各类型/阈值错误的完整组合仍须分别审计，不把当前子集称为完整异常兼容。
 证据范围见 [原生对照](../tests/reference/matlab/README.md)。
