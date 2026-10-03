@@ -203,6 +203,10 @@ logical parameter signature 与 default ordinal 保持不变。local call 的 ty
 `InvocationDemand` 固定 source count，`invocation_output_count` 纯指令读取本函数 frame。
 两个目标各自拥有 trailing-count ABI 与 collision-safe temporary；query、callee frame、
 源上下文和 private plan 分别验证，优化同步 remap。无全局调用计数，递归 frame 相互隔离。
+Analyzer 按已解析 binding 检查 `arguments` default/validator 的 source-owned expression：
+直接 `nargout` query（包括嵌套）报告 `MPF2059`，不从 spelling 误拒同名 input，
+也不把限制传播到独立 helper 的函数正文。R2024b 实际运行发现了此上下文限制；
+合法执行 fixture 与独立非法定义观察文件分别保留，不能只修改 oracle 掩盖编译器误接受。
 外部生成入口默认 count 1，0/N 需求必须由调用适配器显式传入，不能从目标接收语法猜测。
 `nargout(fun)`、条件输出 presence、忽略接收槽和完整 `ans` 仍是
 [TODO](../TODO.md) 的发布前任务，不能将 count ABI 表述为完整输出需求支持。

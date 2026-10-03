@@ -223,7 +223,10 @@ source-owned verifier 独立复核投影，renderer 只序列化参数和 token�
 生成函数的外部入口默认 count 为 1；外部适配器若要求 0 或 N，必须在全部逻辑实参后
 显式传入 count。此入口是当前私有生成 ABI，不是稳定绑定接口，也不从 JavaScript
 接收上下文推断需求。计数规则依据 [MathWorks `nargout`](https://www.mathworks.com/help/matlab/ref/nargout.html)，
-尚无本机 R2024 执行对照。`nargout(fun)`、条件输出 presence、忽略槽和完整隐式 `ans` 仍待实现。
+R2024b runner 已实际执行并发现直接在 `arguments` default 中查询的上下文错误；
+Analyzer 对 source-owned default/validator expression 的已绑定 query 作 `MPF2059`
+检查，同名 input 变量和独立 helper 正文不受此限制。合法双目标/native parity 仍须由
+真实远程执行产物证明。`nargout(fun)`、条件输出 presence、忽略槽和完整隐式 `ans` 仍待实现。
 
 Matlab AST v10 不再通过全文件 assignment/header 扫描猜测裸 local 调用。parser 保留
 identifier，名称绑定后的独立迭代 normalization 仅将 function binding 转成零实参 call，
