@@ -504,6 +504,682 @@ catch exception
     disp(exception.identifier);
 end
 
+% Original R2024b emptyCharacter matrix: independent input/output execution.
+try
+    input_numeric('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_numeric('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_numeric_or_logical('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_numeric_or_logical('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_floating('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_floating('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_real('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_real('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_finite('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_finite('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_non_nan('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_non_nan('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_positive('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_positive('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_nonpositive('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_nonpositive('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_nonnegative('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_nonnegative('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_negative('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_negative('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_nonzero('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_nonzero('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_integer('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_integer('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_nonempty('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_nonempty('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_scalar_or_empty('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_scalar_or_empty('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_vector('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_vector('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_row('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_row('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_column('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_column('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_matrix('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_matrix('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_nonmissing('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_nonmissing('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_nonzero_length_text('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_nonzero_length_text('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_text('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_text('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_text_scalar('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_text_scalar('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_valid_variable_name('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_valid_variable_name('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_greater_than('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_greater_than('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_greater_than_or_equal('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_greater_than_or_equal('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_less_than('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_less_than('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_less_than_or_equal('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_less_than_or_equal('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_in_range('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_in_range('');
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+
+% Original R2024b emptyNumeric matrix: independent input/output execution.
+try
+    input_numeric([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_numeric([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_numeric_or_logical([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_numeric_or_logical([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_floating([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_floating([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_real([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_real([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_finite([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_finite([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_non_nan([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_non_nan([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_positive([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_positive([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_nonpositive([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_nonpositive([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_nonnegative([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_nonnegative([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_negative([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_negative([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_nonzero([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_nonzero([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_integer([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_integer([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_nonempty([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_nonempty([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_scalar_or_empty([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_scalar_or_empty([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_vector([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_vector([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_row([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_row([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_column([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_column([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_matrix([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_matrix([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_nonmissing([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_nonmissing([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_nonzero_length_text([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_nonzero_length_text([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_text([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_text([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_text_scalar([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_text_scalar([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_valid_variable_name([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_valid_variable_name([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_greater_than([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_greater_than([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_greater_than_or_equal([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_greater_than_or_equal([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_less_than([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_less_than([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_less_than_or_equal([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_less_than_or_equal([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    input_in_range([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+try
+    output_in_range([]);
+    disp('accepted-empty');
+catch exception
+    disp(exception.identifier);
+end
+
 function input_numeric(value)
 arguments
     value {mustBeNumeric}
