@@ -2,6 +2,7 @@ add_executable(mpf-tests
   test_main.cpp
   unit/api_tests.cpp
   unit/argument_validation_tests.cpp
+  unit/argument_exception_tests.cpp
   unit/argument_invocation_tests.cpp
   unit/argument_input_order_tests.cpp
   unit/argument_entry_flow_tests.cpp
@@ -393,6 +394,8 @@ if(TARGET mpfc)
     matlab-output-demand examples/matlab/output_demand.m)
   mpf_add_generated_cpp_compile_test(
     matlab-invocation-context examples/matlab/invocation_context.m)
+  mpf_add_generated_cpp_compile_test(
+    matlab-validator-identities tests/fixtures/matlab_validator_exception_identity.m)
   mpf_add_generated_runtime_failure_test(
     matlab-argument-validation tests/fixtures/matlab_argument_validation_failure.m
     "failed mustBePositive" matlab)

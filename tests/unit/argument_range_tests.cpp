@@ -196,7 +196,7 @@ TEST_CASE("Matlab range serialization retains both operands and declaration sour
   const auto cpp = compile(source, mpf::TargetLanguage::cpp);
   REQUIRE(javascript.success());
   REQUIRE(cpp.success());
-  REQUIRE(javascript.code.find("[4, [27, lower, upper, 3]], 0);") != std::string::npos);
+  REQUIRE(javascript.code.find("[4, [27, lower, upper, 3]], 0, 3);") != std::string::npos);
   REQUIRE(
       cpp.code.find("argument_validator_call{27U, "
                     "{mpf_runtime::argument_validator_real_component(lower.value()), "
