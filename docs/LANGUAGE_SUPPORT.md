@@ -73,7 +73,10 @@ custom validator 的职责依据官方 [validation functions](https://www.mathwo
 可由源 `MException.identifier` 观察；输入消息带实际 formal position，输出消息带声明名称。
 已核验的 numeric/logical 与 realness 前置失败保留其自己的 ID，不统一折叠成请求的 validator。
 实际 R2024b 对空 char 仍执行 numeric class 检查，不能把最新在线文档的 empty-value
-忽略规则套到 Matlab 2024；真正空 numeric 仍可通过相应数值 validator。消息后半段仍提供 MPF
+忽略规则套到 Matlab 2024；真正空 numeric 仍可通过相应数值 validator。`''` 和规范 `[]`
+使用 `0×0`，不会因为空值而被 `mustBeRow`/`mustBeVector` 接受；空文本仍可通过
+`mustBeText`/`mustBeTextScalar`。明确形状的零 extent 数组不能统一坍缩为 `0×0`，
+跨函数丢失不可结构恢复 extent 的一般动态数组 ABI 仍在待办中。消息后半段仍提供 MPF
 诊断文本，不承诺与原生本地化消息逐字一致。class/size conversion、其余 validator、自定义
 validator、一般对象和各类型/阈值错误的完整组合仍须分别审计，不把当前子集称为完整异常兼容。
 证据范围见 [原生对照](../tests/reference/matlab/README.md)。
