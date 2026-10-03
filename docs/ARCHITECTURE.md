@@ -106,6 +106,14 @@ Matlab 参数的 shape 与目标 container representation 必须同时满足声�
 此 contract 已接入四个关系 validator、23 个显式 unary call 与 scalar-bound range，但不表示
 完整 parameterized/custom validator、name-value/Repeating 或动态 rank/class 支持。
 
+独立 `OutputAssignmentTable` v1 在最终优化 MIR/alias-effect 之后，由 `AnalysisManager`
+缓存命名输出的四态路径分析。连续 byte-sized cells 保存 block entry/normal/exceptional 与
+instruction before/after；实际成功写入拥有精确 binding/type/storage/access 来源，异常边
+观察 may-fail 指令执行前的状态，不使用 block 最终写入或 may-write effect 证明初始化。
+生产 worklist 与独立 Boolean-path exploration verifier 分别计算固定点；`store_indexed`
+的最低 effect 包含 `may_fail`。这不是可执行 presence SSA，不改变当前前端拒绝条件输出的边界。
+实现和两阶段出口/完整 `ans` 的剩余合同见 [输出语义](OUTPUT_SEMANTICS.md)。
+
 生产驱动已经切换为五层路径，旧的共享 `Program`→emitter 直通入口不存在：
 
 - 四个 statement parser 通过 `FrontendAstBuilder<LanguageTag>` 直接产生编译期互不兼容的语言 AST artifact；递归表达式解析后立即驻留，statement body/root 只保存稠密 `AstNodeId`，错误恢复也只发布可达节点。顶层 arena 容器使用 parser session PMR resource，不存在跨语言递归 syntax tree 或 parse 后整树复制；随后显式运行 AST verifier，AST→HIR visitor 原子产出 HIR v6 窄结构与按 `HirNodeId` 稠密、绑定 revision 的 `SemanticTable` seed；

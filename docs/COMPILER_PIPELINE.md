@@ -372,7 +372,16 @@ HIR→MIR lowering 必须显式生成 CFG 和 evaluation order。结构 verifier
 3. `mir-constant-folding-dce` 只折叠同时落在 `int64` 与 ECMAScript safe-integer 共同精确域的 checked 加减乘/正负号、布尔非和可证明整数/布尔比较；溢出、目标共同精度外整数、除法、实数、identity/membership 和 lazy CFG 保持不动。折叠后仅回收 opcode contract 已证明纯的 literal/unary/binary 子树，保留稳定 expression tombstone 并紧凑重映射 resident instruction。
 4. `mir-cfg-cleanup` 只删除非 entry、无参数、无 instruction 的单目标 forwarding block，以及无前驱的空 unreachable block；exception region 的 protected/handler/continuation block 和任何 exceptional-edge endpoint 均保留，随后紧凑重映射 `BlockId`、普通/异常 successor、region inventory 和函数 block inventory。
 
-默认管线先验证 lowering 输出，再执行上述保守变换；alias/effect 和 CFG memory-dependence 分析只在最终优化 revision 上依次计算并验证，capability、binding 和两个目标 lowering 因而消费完全相同的 MIR。后端不得复制一份目标专属常量折叠或要求先生成另一目标。涉及 effect 重排、浮点代数、跨调用传播、一般 phi、MemorySSA、region-aware DCE/store forwarding 的优化仍未启用，必须先补证明、负向 verifier、差分、fuzz 和性能基准。
+默认管线先验证 lowering 输出，再执行上述保守变换；alias/effect、CFG memory-dependence 和 Matlab 输出赋值状态分析只在最终优化 revision 上依次计算并验证，capability、binding 和两个目标 lowering 因而消费完全相同的 MIR。后端不得复制一份目标专属常量折叠或要求先生成另一目标。涉及 effect 重排、浮点代数、跨调用传播、一般 phi、MemorySSA、region-aware DCE/store forwarding 的优化仍未启用，必须先补证明、负向 verifier、差分、fuzz 和性能基准。
+
+`OutputAssignmentTable` v1 是独立 side analysis，不往 `Instruction` 塞可变状态。每个命名
+输出保留 workspace/result 的强类型与存储身份；连续 cell buffer 保存真实 CFG 的四态
+entry/normal/exceptional 与逐指令 before/after。只认 successful binding write；callee
+may-write、unknown-memory、private normalization temporary 与 discard receiver 不算初始化。
+异常传播使用每个 may-fail site 的 pre-commit 状态，索引写入因此必须包含最低 `may_fail` effect。
+缓存按 MIR revision 失效，独立 verifier 用两状态路径探索复核 production worklist 的固定点。
+该表仍不是运行时 Boolean SSA，presence-aware guard/return/receiver 与完整 `ans` 按
+[输出语义合同](OUTPUT_SEMANTICS.md) 继续实施，不能仅因 analysis 已存在而放宽前端检查。
 
 ## 第四层：分层的目标后端
 
