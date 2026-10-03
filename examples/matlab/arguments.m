@@ -5,7 +5,7 @@ disp(negate(0 == 1) + 0)
 disp(echo('ready'))
 disp(validate_logical(0 == 0) + 0)
 disp(validate_char('ok'))
-disp(validate_empty(''))
+disp(validate_empty([]))
 
 function output = scale(values, factor)
 arguments (Input)
@@ -62,7 +62,7 @@ end
 
 function output = validate_empty(input)
 arguments
-input (1,:) char {mustBeNumeric, mustBeFloat, mustBePositive, mustBeInteger}
+input (1,:) double {mustBeNumeric, mustBeFloat, mustBePositive, mustBeInteger}
 end
 output = length(input);
 end
