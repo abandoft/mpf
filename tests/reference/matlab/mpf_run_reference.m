@@ -44,6 +44,14 @@ function mpf_run_reference(project_root, output_root)
         jsonencode(observations, 'PrettyPrint', true));
     fprintf('Executed %s on %s; recorded %d output-semantic observations.\n', ...
         case_name, actual_release, numel(observations.cases));
+
+    validators = mpf_validator_semantics();
+    validators.matlabRelease = actual_release;
+    validators.matlabVersion = version();
+    validators.sourceRevision = source_revision;
+    write_utf8(fullfile(output_root, 'validator-semantics.json'), ...
+        jsonencode(validators, 'PrettyPrint', true));
+    fprintf('Recorded %d native standard-validator observations.\n', numel(validators.cases));
 end
 
 function transcript = execute_source(source_path)
