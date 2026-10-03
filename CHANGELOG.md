@@ -19,6 +19,7 @@
 - Translation is faster for branch-heavy functions, including Matlab functions with many early returns and output-validation declarations.
 - Matlab local functions can now use `nargout` and `nargout()` in their bodies to read the current invocation's requested output count, including discarded calls, partial results, and independently nested recursive calls. Direct queries in `arguments` blocks are rejected.
 - Bare Matlab local calls now support omitted default inputs and resolve names within their actual scope, so an unrelated same-named parameter no longer suppresses a function call.
+- Matlab bracket assignments now support ignored output positions with `~` without changing the callee's output count or skipping validation, and single receivers such as `[value] = f()` correctly accept scalar and multi-output results in both targets.
 
 ## 0.7.9
 
