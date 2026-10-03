@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "control_value_join.hpp"
 #include "mir_argument_exit.hpp"
 #include "mir_opcode.hpp"
 #include "semantic/name_analysis.hpp"
@@ -2542,6 +2543,7 @@ LoweringResult lower_from_hir(hir::Program&& source, hir::SemanticTable&& semant
     builder.finish_function();
   }
   builder.link_calls();
+  normalize_control_value_joins(result.program);
   result.program.attributes.mir_revision = result.program.revision;
   result.program.attributes.expression_count = result.program.expressions.size() - 1U;
   result.program.attributes.statement_count = result.program.statements.size() - 1U;

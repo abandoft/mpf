@@ -154,6 +154,8 @@ add_library(mpf_core STATIC
   src/ir/semantic_table.cpp
   src/ir/semantic_argument_outputs.cpp
   src/ir/storage_region.cpp
+  src/ir/control_value_join.cpp
+  src/ir/control_value_join_verifier.cpp
   src/ir/mir.cpp
   src/ir/mir_optimization.cpp
   src/ir/mir_copy_propagation.cpp

@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "compiler/numeric_contract.hpp"
+#include "control_value_join.hpp"
 #include "mir.hpp"
 #include "mir_argument_entry.hpp"
 #include "mir_argument_exit.hpp"
@@ -3126,6 +3127,7 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
     }
   }
   verify_cfg(program, diagnostics, stage);
+  verify_control_value_joins(program, diagnostics, stage);
   verify_function_types_and_calls(program, diagnostics, stage);
   const auto expression_index = build_expression_verification_index(program);
   for (std::size_t index = 1; index < program.expressions.size(); ++index) {
