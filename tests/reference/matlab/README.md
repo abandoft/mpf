@@ -11,8 +11,9 @@ The manual/reusable `Matlab Reference` workflow has three distinct results:
    receiver coverage includes single brackets, mixed/repeated/all ignored slots, nested
    actual evaluation, scalar and parameter-dependent tuple results, rejected assigned
    outputs despite discards, and retaining the caller's `ans`.
-2. `matlab_validator_exception_identity.m` executes 80 failing input/output paths plus
-   accepted text paths. The workflow compares all 82 tokens from the
+2. `matlab_validator_exception_identity.m` executes the original 80 failing input/output
+   paths and two accepted-text paths, plus 112 independent empty-char/empty-double
+   input/output paths. The workflow compares all 194 tokens from the
    original native source with both generated targets, including the standard validator
    identities and prerequisite errors. It preserves a separate byte-identical snapshot,
    full revision/runtime provenance, raw transcript, and strict generated C++ evidence.
@@ -34,8 +35,15 @@ rejected the final two tokens: native `mustBeNumeric('')` failed, while both gen
 and an older example accepted empty char as numeric. That failed run is preserved, not counted
 as acceptance. Both runtimes and the example are corrected from the native evidence; the
 latest online documentation's empty-value exemption is not a substitute for R2024b semantics.
-An additional 168 direct/input/output empty-char/empty-double observations are collected for
-the continuing type audit; collecting them alone does not claim complete generated-target parity.
+The corrected 82-token fixture passed actual R2024b Update 10 execution in
+[37094163608](https://github.com/abandoft/mpf/actions/runs/37094163608), at full revision
+`8dce8ea5b21e63cc2c9a534858c13bad80a05062`: all actual execution and verification steps
+succeeded, and both generated targets matched the native transcript. Its additional 168
+direct/input/output empty-char/empty-double observations are frozen separately in
+`empty-validator-semantics-contract.json`. They show that `''` and `[]` are not row/vector
+values merely because they have zero elements. The current 194-token fixture adds generated
+execution for the corresponding 112 input/output cases; the earlier successful run is evidence
+for 82 tokens, not retroactive acceptance of this newly expanded source.
 
 The first actual R2024b run rejected a direct `nargout` default that MPF had incorrectly
 accepted. Legal execution fixtures now evaluate defaults through a separate helper; the compiler has a binding-aware
@@ -69,7 +77,10 @@ executed MATLAB and collected all 27 cases; its final parity check rejected the 
 directory warning. The frozen native contract is a regression baseline, not MPF parity.
 `validator-semantics-contract.json` separately freezes the 129 native validator outcomes,
 contexts, prerequisite IDs, first message fragments, and causes; the verifier requires both
-baselines and rejects missing, mistyped, reordered, or changed observations. Native identity
+baselines and rejects missing, mistyped, reordered, or changed observations. The separate
+empty-validator baseline checks all 168 actual outcomes, including shape rejection and
+accepted empty numeric/text values; the target parity verifier additionally requires the
+expanded original-source transcript to match both executed targets. Native identity
 and message context do not imply byte-identical localized message tails, complete class/size
 conversion errors, every type combination, or unimplemented/custom validator support.
 
