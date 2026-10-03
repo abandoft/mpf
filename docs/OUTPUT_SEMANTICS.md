@@ -32,6 +32,13 @@
 这只是可供 lowering 使用的证明与来源信息，**不是运行时 presence flag 或可执行 Boolean SSA**。
 普通正文未赋值读取的诊断保持不变；当前前端仍拒绝不确定赋值的命名返回值。
 
+条件输出的另一项前置基础是 mutable CFG value join。它现以实际 incoming SSA value
+重建 phi type/shape，而不沿用绑定首次声明的 storage metadata；同类型数组 extent
+变化已可在两个目标执行，scalar/array 混合重新绑定可在 JS 执行，C++ 在自己的能力
+边界拒绝不能表示的 type/rank。生产 worklist 与独立 SCC proof 分开计算。这个
+修复仍不生成 presence Boolean，也不把 unknown/top 类型解释为 absent；完整动态
+workspace/NDArray 表示、typed use 精化与 C++ 动态值 ABI 仍待后续交付。
+
 ## 待实现：可执行 presence 与两阶段出口
 
 下一阶段必须从上述真实绑定/写入来源建立独立可执行合同，而不是在 Emitter 中猜变量名：

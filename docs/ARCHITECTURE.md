@@ -114,6 +114,21 @@ instruction before/after；实际成功写入拥有精确 binding/type/storage/a
 的最低 effect 包含 `may_fail`。这不是可执行 presence SSA，不改变当前前端拒绝条件输出的边界。
 实现和两阶段出口/完整 `ans` 的剩余合同见 [输出语义](OUTPUT_SEMANTICS.md)。
 
+mutable binding 的 storage-version block argument 由独立 `control_value_join` 组件正规化。
+它重建实际 CFG edge actual 与 SSA definition，用依赖 worklist 求固定点，不把 storage
+首次声明的 type/shape 当作所有后续值的类型。相同值类型保留，reference/value 的共同
+逻辑 referent 可合流；无法保留的类别进入明确的 unknown/top 值域。相同 rank/layout
+保留固定轴，仅变化的 extent 放宽，stride 有 checked 重建；rank/layout 不相容则标记
+dynamic rank。shape interning 包含物理 strides，不误合并仅 extent 相同的 view。
+
+独立 verifier 不消费 producer 算出的 facts：从原始 CFG 重建依赖，以非递归 SCC
+凝聚图传播外部 anchor，检查每个 phi 的实际 type/shape 合同。稀疏 ValueId 查询与稠密
+phi 索引避免畸形大 ID 触发巨大分配；10,000 反向依赖链不依赖 host stack。正规化在
+HIR→MIR 结构完成后、attribute revision 绑定和生产 verifier 之前运行；重复运行不
+改变 revision/type/shape inventory。它不改 source workspace、StorageId/root/lifetime
+或任一目标 ABI。JS 的动态值和 C++ 的 capability 由各自后端处理，Emitter 不参与。
+unknown/top 不是缺失值，也不是完整 union/object/动态 NDArray ABI。
+
 生产驱动已经切换为五层路径，旧的共享 `Program`→emitter 直通入口不存在：
 
 - 四个 statement parser 通过 `FrontendAstBuilder<LanguageTag>` 直接产生编译期互不兼容的语言 AST artifact；递归表达式解析后立即驻留，statement body/root 只保存稠密 `AstNodeId`，错误恢复也只发布可达节点。顶层 arena 容器使用 parser session PMR resource，不存在跨语言递归 syntax tree 或 parse 后整树复制；随后显式运行 AST verifier，AST→HIR visitor 原子产出 HIR v6 窄结构与按 `HirNodeId` 稠密、绑定 revision 的 `SemanticTable` seed；

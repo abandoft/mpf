@@ -42,6 +42,18 @@ TypeScript frontend 已注册，当前 manifest 范围为 1.0—6.0，并有 Nod
 | 类、模块、包 | 尚未支持 | 尚未支持 | 尚未支持 | 显式函数 export；import/export variable、class/interface/type/namespace 尚未支持 |
 | 异步、并行、协程 | 尚未支持 | 尚未支持 | 尚未支持 | async/await 尚未支持 |
 
+## Matlab mutable binding 与矩阵 literal
+
+Matlab matrix literal 现正确保留带空格的二元正负号，例如 `[x, x + 1, x - 2]`。
+`[1 +2 -3]` 仍表示三个元素；括号和函数实参内部的空格不产生 matrix separator，
+dotted arithmetic 不误当作点开头的数字。一般 concatenation/cell/string/object 仍以
+当前支持边界为准，不将这些词法修复称为完整 matrix construction grammar。
+
+在已支持的 if/loop/try/catch 中，JavaScript 可以执行同一 binding 的 scalar/array
+重新绑定；同类型、同 rank 数组改变 extent 也可在 C++ 执行。C++ 不能表示的
+type/rank 变化以 MPF2007 拒绝，而不是公共 MIR 内部错误或无法编译的生成代码。
+完整动态 NDArray/workspace ABI、跨函数类型精化与任意对象重绑定尚未交付。
+
 ## Matlab `arguments` 当前合同
 
 0.7.9 已发布；下面的四个参数化关系 validator 是后续开发分支新增能力，不代表已发布包包含它们。
