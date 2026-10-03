@@ -1,0 +1,9 @@
+function output = restricted(input)
+arguments
+input (1,1) double = nargout()
+end
+arguments (Output)
+output (1,1) double {mustBeGreaterThan(nargout)}
+end
+output = input;
+end

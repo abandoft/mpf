@@ -4,7 +4,7 @@ value = checked();
 disp(value);
 function [first,second] = checked(input)
 arguments
-input (1,1) double = nargout
+input (1,1) double = 7
 end
 arguments (Output)
 first (1,1) double
