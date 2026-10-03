@@ -84,6 +84,7 @@ Effect minimum_effects(const Instruction& instruction) noexcept {
     case Opcode::binary:
     case Opcode::member:
     case Opcode::expression:
+    case Opcode::discard_output:
     case Opcode::function:
     case Opcode::invocation_output_count:
     case Opcode::identifier: return Effect::none;

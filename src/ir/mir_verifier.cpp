@@ -14,6 +14,7 @@
 #include "mir_invocation_context.hpp"
 #include "mir_opcode.hpp"
 #include "mir_output_demand.hpp"
+#include "mir_output_receivers.hpp"
 #include "mir_parameter_defaults.hpp"
 
 namespace mpf::detail::mir {
@@ -1644,7 +1645,7 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
     }
     if (statement.parameter_symbols.size() != statement.parameters.size() ||
         statement.return_symbols.size() != statement.return_names.size() ||
-        statement.target_symbols.size() != statement.target_names.size()) {
+        statement.target_symbols.size() != statement.receivers.size()) {
       add_error(diagnostics, {statement.line, 1}, stage,
                 "statement symbol identity arrays have inconsistent arity");
     }
@@ -1716,7 +1717,7 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
                   "statement assignment-pattern flag disagrees with its attribute row");
       }
       if (statement.kind == StatementKind::multi_assignment &&
-          statement_attributes->targets.size() != statement.target_names.size()) {
+          statement_attributes->targets.size() != statement.receivers.size()) {
         add_error(diagnostics, {statement.line, 1}, stage,
                   "multi-assignment target attributes have inconsistent arity");
       }
@@ -1889,26 +1890,9 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
         if (!valid_index(target.type, program.types) ||
             !valid_index(target.shape, program.shapes) ||
             !valid_index(target.previous_type, program.types) ||
-            (statement.kind == StatementKind::multi_assignment &&
-             !valid_index(target.storage, program.storages))) {
+            (target.storage.valid() && !valid_index(target.storage, program.storages))) {
           add_error(diagnostics, {statement.line, 1}, stage,
                     "target attributes reference an invalid strong type or shape ID");
-        }
-      }
-      if (statement.kind == StatementKind::multi_assignment &&
-          statement_attributes->targets.size() == statement.target_names.size()) {
-        for (std::size_t target = 0; target < statement_attributes->targets.size(); ++target) {
-          const auto instruction_index =
-              static_cast<std::size_t>(statement.instruction.value()) + target;
-          const auto* store = instruction_index < program.instructions.size()
-                                  ? &program.instructions[instruction_index]
-                                  : nullptr;
-          if (store == nullptr || store->origin != statement.origin ||
-              store->opcode != Opcode::store || store->result_index != target ||
-              store->storage != statement_attributes->targets[target].storage) {
-            add_error(diagnostics, {statement.line, 1}, stage,
-                      "multi-assignment target has no explicit indexed store operation");
-          }
         }
       }
     }
@@ -1919,9 +1903,12 @@ void verify_statements(const Program& program, std::vector<Diagnostic>& diagnost
       const auto& instruction = program.instructions[statement.instruction.value()];
       if (instruction.origin != statement.origin ||
           instruction.opcode !=
-              statement_opcode(statement.kind, statement.has_expression,
-                               statement_attributes != nullptr &&
-                                   statement_attributes->implicit_result_has_value)) {
+              (statement.kind == StatementKind::multi_assignment && !statement.receivers.empty() &&
+                       !statement.receivers.front().binds()
+                   ? Opcode::discard_output
+                   : statement_opcode(statement.kind, statement.has_expression,
+                                      statement_attributes != nullptr &&
+                                          statement_attributes->implicit_result_has_value))) {
         add_error(diagnostics, {statement.line, 1}, stage,
                   "statement arena disagrees with its MIR operation instruction");
       }
@@ -3149,6 +3136,7 @@ std::vector<Diagnostic> verify(const Program& program, const std::string_view st
   verify_argument_entries(program, diagnostics, stage);
   verify_argument_outputs(program, diagnostics, stage);
   verify_output_demands(program, diagnostics, stage);
+  verify_output_receivers(program, diagnostics, stage);
   verify_invocation_contexts(program, diagnostics, stage);
   verify_parameter_defaults(program, parameter_presence_instructions, diagnostics, stage);
   verify_expression_ownership(program, diagnostics, stage);

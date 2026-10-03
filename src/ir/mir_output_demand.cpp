@@ -29,7 +29,7 @@ void verify_output_demands(const Program& program, std::vector<Diagnostic>& diag
         continue;
       auto& demand = expected[expression->id.value()];
       if (statement.kind == StatementKind::multi_assignment)
-        demand = {OutputDemandForm::prefix, statement.target_names.size(), false};
+        demand = {OutputDemandForm::prefix, statement.receivers.size(), false};
       else if (statement.kind == StatementKind::expression) {
         const auto* facts = attributes(program, statement.id);
         demand = {

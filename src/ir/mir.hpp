@@ -14,6 +14,8 @@
 #include "hir.hpp"
 #include "ids.hpp"
 #include "invocation_context.hpp"
+#include "opcode.hpp"
+#include "output_receiver_source.hpp"
 #include "parameter_default_flow.hpp"
 #include "semantic_table.hpp"
 #include "storage_region.hpp"
@@ -65,41 +67,6 @@ constexpr Effect& operator|=(Effect& left, const Effect right) noexcept {
 [[nodiscard]] constexpr bool has_effect(const Effect set, const Effect effect) noexcept {
   return (set.bits() & effect.bits()) != 0;
 }
-
-enum class Opcode {
-  invalid,
-  literal,
-  identifier,
-  load,
-  unary,
-  binary,
-  compare,
-  comparison_chain,
-  conditional,
-  truthiness,
-  call,
-  member,
-  index,
-  slice,
-  aggregate,
-  allocate,
-  store,
-  store_indexed,
-  copy,
-  writeback,
-  output,
-  return_value,
-  expression,
-  selection,
-  loop,
-  function,
-  control,
-  catch_exception,
-  invocation_output_count,
-  parameter_presence,
-  argument_normalize,
-  argument_validate
-};
 
 enum class TerminatorKind { none, branch, conditional_branch, return_value, unreachable };
 enum class AliasClass { no_alias, may_alias, must_alias };
@@ -314,7 +281,7 @@ struct Statement {
   std::vector<ArgumentValidatorSource> argument_validator_sources;
   std::vector<std::string> return_names;
   std::vector<SymbolId> return_symbols;
-  std::vector<std::string> target_names;
+  std::vector<OutputReceiver> receivers;
   std::vector<SymbolId> target_symbols;
   bool has_target_pattern{false};
   std::vector<CaseSelector> case_selectors;

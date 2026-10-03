@@ -390,11 +390,12 @@ class Builder final {
       const auto* use = names_.use(source.id, NameRole::result, index);
       result.return_symbols.push_back(use == nullptr ? SymbolId{} : use->symbol);
     }
-    result.target_names = std::move(source.target_names);
-    result.target_symbols.reserve(result.target_names.size());
-    for (std::size_t index = 0; index < result.target_names.size(); ++index) {
+    result.receivers = std::move(source.receivers);
+    result.target_symbols.reserve(result.receivers.size());
+    for (std::size_t index = 0; index < result.receivers.size(); ++index) {
       const auto* use = names_.use(source.id, NameRole::assignment, index);
-      result.target_symbols.push_back(use == nullptr ? SymbolId{} : use->symbol);
+      result.target_symbols.push_back(
+          !result.receivers[index].binds() || use == nullptr ? SymbolId{} : use->symbol);
     }
     result.has_target_pattern = source.has_target_pattern;
     if (semantic_facts != nullptr) {
@@ -1624,31 +1625,38 @@ class Builder final {
 
   void emit_statement_instruction(Statement& statement, StatementAttributes& attributes,
                                   const hir::StatementFacts* facts) {
-    if (statement.kind == StatementKind::multi_assignment && !statement.target_names.empty()) {
+    if (statement.kind == StatementKind::multi_assignment && !statement.receivers.empty()) {
       const auto* value = mir::expression(program_, statement.expression);
-      for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
+      for (std::size_t index = 0; index < statement.receivers.size(); ++index) {
         auto& target = attributes.targets[index];
-        target.storage = storage_for(
-            index < statement.target_symbols.size() ? statement.target_symbols[index] : SymbolId{},
-            statement.target_names[index], statement.origin, target.type, target.shape);
+        const auto& receiver = statement.receivers[index];
+        if (receiver.binds())
+          target.storage =
+              storage_for(index < statement.target_symbols.size() ? statement.target_symbols[index]
+                                                                  : SymbolId{},
+                          receiver.name, statement.origin, target.type, target.shape);
         Instruction store;
         store.id = instruction_ids_.next();
         if (index == 0U) statement.instruction = store.id;
-        store.opcode = Opcode::store;
+        store.opcode = receiver.binds() ? Opcode::store : Opcode::discard_output;
         store.origin = statement.origin;
-        store.location = {statement.line, 1};
+        store.location = receiver.location;
         store.storage = target.storage;
         store.type = target.type;
         store.shape = target.shape;
         store.result_index = index;
         if (value != nullptr && value->value_id.valid()) {
           store.operands.push_back(value->value_id);
-          store.result = value_ids_.next();
-          storage_values_[store.storage] = store.result;
+          if (receiver.binds()) {
+            store.result = value_ids_.next();
+            storage_values_[store.storage] = store.result;
+          }
         }
-        append_instruction(std::move(store),
-                           {make_memory_access(target.storage, full_region(target.storage),
-                                               MemoryAccessMode::write)});
+        std::vector<MemoryAccess> accesses;
+        if (receiver.binds())
+          accesses.push_back(make_memory_access(target.storage, full_region(target.storage),
+                                                MemoryAccessMode::write));
+        append_instruction(std::move(store), std::move(accesses));
       }
       return;
     }
