@@ -1,0 +1,48 @@
+try
+    checked_row('');
+catch exception
+    disp(exception.identifier);
+end
+try
+    checked_vector('');
+catch exception
+    disp(exception.identifier);
+end
+try
+    checked_column([]);
+catch exception
+    disp(exception.identifier);
+end
+try
+    checked_numeric([]);
+    checked_text('');
+catch exception
+    disp(exception.identifier);
+end
+function checked_row(value)
+arguments
+    value {mustBeRow}
+end
+end
+function result = checked_vector(value)
+arguments (Output)
+    result {mustBeVector}
+end
+result = value;
+end
+function checked_column(value)
+arguments
+    value {mustBeColumn}
+end
+end
+function checked_numeric(value)
+arguments
+    value {mustBeNumeric,mustBePositive,mustBeInteger}
+end
+end
+function result = checked_text(value)
+arguments (Output)
+    result {mustBeText,mustBeTextScalar,mustBeMatrix}
+end
+result = value;
+end
