@@ -13,6 +13,7 @@
 #include "backends/common/argument_exit_sources.hpp"
 #include "backends/common/invocation_sources.hpp"
 #include "backends/common/output_demand_sources.hpp"
+#include "backends/common/output_receiver_sources.hpp"
 #include "backends/common/parameter_default_source.hpp"
 #include "backends/common/source_segments.hpp"
 #include "backends/javascript/argument_validation_plan.hpp"
@@ -24,6 +25,7 @@ namespace {
 struct AccessContext {
   std::vector<std::pair<std::string, lir::VariableAccess>> variables;
   std::string output_count;
+  LirNodeId discarded_invocation{};
 };
 
 void add_error(std::vector<Diagnostic>& diagnostics, const SourceLocation location,
@@ -1097,12 +1099,14 @@ lir::ExpressionPlan expected_expression_plan(const lir::Expression& expression,
           : expression.output_demand.active()   ? lir::OutputInvocationForm::fixed_count
                                                 : lir::OutputInvocationForm::unspecified,
           expression.output_demand.count, expression.output_demand.implicit_result};
-      result.call_value = expression.output_demand.form == OutputDemandForm::statement &&
-                                  !expression.output_demand.implicit_result
-                              ? lir::CallValueForm::discarded_result
-                          : expression.multi_output_call && expression.requested_outputs == 1
-                              ? lir::CallValueForm::first_result
-                              : lir::CallValueForm::direct;
+      result.call_value =
+          (context.discarded_invocation.valid() && expression.id == context.discarded_invocation) ||
+                  (expression.output_demand.form == OutputDemandForm::statement &&
+                   !expression.output_demand.implicit_result)
+              ? lir::CallValueForm::discarded_result
+          : expression.multi_output_call && expression.requested_outputs == 1
+              ? lir::CallValueForm::first_result
+              : lir::CallValueForm::direct;
       result.call_arguments.reserve(expression.argument_transfers.size());
       for (std::size_t index = 0; index < expression.argument_transfers.size(); ++index) {
         const auto transfer = expression.argument_transfers[index];
@@ -1755,11 +1759,20 @@ lir::StatementPlan expected_statement_plan(const lir::Statement& statement,
         result.form = lir::StatementForm::multi_pattern;
         result.assignment_leaves = assignment_leaves(statement.target_pattern, context);
       } else {
-        result.form = lir::StatementForm::multi_destructure;
-        result.targets = statement.target_names;
-        result.target_accesses.reserve(result.targets.size());
-        for (const auto& name : result.targets) {
-          result.target_accesses.push_back(variable_access(context, name));
+        result.form = discards_all_outputs(statement)    ? lir::StatementForm::multi_discard
+                      : statement.receivers.size() == 1U ? lir::StatementForm::multi_scalar
+                                                         : lir::StatementForm::multi_destructure;
+        result.receivers.reserve(statement.receivers.size());
+        for (std::size_t index = 0U; index < statement.receivers.size(); ++index) {
+          const auto& receiver = statement.receivers[index];
+          result.receivers.push_back(
+              {receiver.binds() ? lir::ReceiverForm::binding : lir::ReceiverForm::discard,
+               index < statement.target_symbols.size() ? statement.target_symbols[index]
+                                                       : SymbolId{},
+               receiver.name,
+               receiver.binds() ? variable_access(context, receiver.name)
+                                : lir::VariableAccess::direct,
+               index, receiver.location, statement.origin});
         }
       }
       break;
@@ -1946,7 +1959,7 @@ bool same_statement_plan(const lir::StatementPlan& left, const lir::StatementPla
       left.sparse_mutation.result_shape != right.sparse_mutation.result_shape ||
       left.character_selector != right.character_selector ||
       left.array_default != right.array_default || left.array_shape != right.array_shape ||
-      left.targets != right.targets || left.target_accesses != right.target_accesses ||
+      left.receivers != right.receivers ||
       left.assignment_leaves.size() != right.assignment_leaves.size() ||
       left.selectors != right.selectors || left.parameter_defaults != right.parameter_defaults ||
       left.return_names != right.return_names ||
@@ -1988,8 +2001,9 @@ void plan_statements(std::vector<lir::Statement>& statements, const lir::Emissio
     const bool nested_in_function = in_function || statement.kind == StatementKind::function;
     const auto nested_context =
         statement.kind == StatementKind::function ? function_context(statement) : context;
-    const auto& expression_context =
-        statement.kind == StatementKind::function ? nested_context : context;
+    auto expression_context = statement.kind == StatementKind::function ? nested_context : context;
+    expression_context.discarded_invocation =
+        discards_all_outputs(statement) ? statement.expression.id : LirNodeId{};
     plan_expression(statement.expression, emission, expression_context, source_language);
     plan_expression(statement.secondary_expression, emission, expression_context, source_language);
     plan_expression(statement.tertiary_expression, emission, expression_context, source_language);
@@ -2015,6 +2029,9 @@ void verify_statements(const std::vector<lir::Statement>& statements,
                        const bool in_function = false) {
   for (const auto& statement : statements) {
     const bool nested_in_function = in_function || statement.kind == StatementKind::function;
+    if (!valid_output_receiver_sources(statement, source_language))
+      add_error(diagnostics, {statement.line, 1U},
+                "JavaScript LIR output receivers have invalid resident MIR provenance");
     if (!valid_parameter_default_sources(statement, source_language))
       add_error(diagnostics, {statement.line, 1U},
                 "JavaScript LIR default flow has invalid MIR provenance");
@@ -2069,8 +2086,9 @@ void verify_statements(const std::vector<lir::Statement>& statements,
     }
     const auto nested_context =
         statement.kind == StatementKind::function ? function_context(statement) : context;
-    const auto& expression_context =
-        statement.kind == StatementKind::function ? nested_context : context;
+    auto expression_context = statement.kind == StatementKind::function ? nested_context : context;
+    expression_context.discarded_invocation =
+        discards_all_outputs(statement) ? statement.expression.id : LirNodeId{};
     const bool condition_context = source_language == SourceLanguage::matlab &&
                                    (statement.kind == StatementKind::if_statement ||
                                     statement.kind == StatementKind::while_loop);

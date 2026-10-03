@@ -311,10 +311,11 @@ void collect_scope_names(const std::vector<lir::Statement>& statements,
       add_scope_name(statement.symbol_id, statement.name, excluded_symbols, excluded_names, symbols,
                      names);
     } else if (!lexical_blocks && statement.kind == StatementKind::multi_assignment) {
-      for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
+      for (std::size_t index = 0; index < statement.receivers.size(); ++index) {
+        if (!statement.receivers[index].binds()) continue;
         add_scope_name(
             index < statement.target_symbols.size() ? statement.target_symbols[index] : SymbolId{},
-            statement.target_names[index], excluded_symbols, excluded_names, symbols, names);
+            statement.receivers[index].name, excluded_symbols, excluded_names, symbols, names);
       }
     } else if (statement.kind == StatementKind::try_statement) {
       if (!lexical_blocks) {
@@ -564,7 +565,7 @@ void verify_statement_resources(const lir::SemanticProgram& program,
   for (const auto& statement : statements) {
     if (statement.parameter_symbols.size() != statement.parameters.size() ||
         statement.return_symbols.size() != statement.return_names.size() ||
-        statement.target_symbols.size() != statement.target_names.size()) {
+        statement.target_symbols.size() != statement.receivers.size()) {
       add_error(diagnostics, {statement.line, 1},
                 "JavaScript LIR symbol identity arrays have inconsistent arity");
     }
