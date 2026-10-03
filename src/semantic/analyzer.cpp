@@ -63,7 +63,11 @@ void finalize_array_storage(const ValueType type, ArrayStorageFormat& storage) n
     if (storage == ArrayStorageFormat::none) storage = ArrayStorageFormat::dense;
     return;
   }
-  if (type != ValueType::unknown) storage = ArrayStorageFormat::none;
+  if (type == ValueType::unknown) {
+    if (array_storage_known(storage)) storage = ArrayStorageFormat::unknown;
+  } else {
+    storage = ArrayStorageFormat::none;
+  }
 }
 
 void finalize_array_storage_vector(const std::vector<ValueType>& types,
