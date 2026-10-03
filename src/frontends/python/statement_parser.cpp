@@ -588,7 +588,7 @@ class Parser final {
                  statement.target_pattern.kind == AssignmentPatternKind::sequence) {
         statement.kind = StatementKind::multi_assignment;
         statement.has_target_pattern = true;
-        collect_assignment_names(statement.target_pattern, statement.target_names);
+        collect_assignment_receivers(statement.target_pattern, statement.receivers);
       } else if (unpack_candidate) {
         frontend::unsupported(
             diagnostics_, line.source.number,
