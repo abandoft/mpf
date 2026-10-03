@@ -13,6 +13,15 @@ MPF 的验证体系分为八层：
 
 当前 CFG memory-dependence 单元/负向测试覆盖 revision/count/density/sentinel、强类型 access site、incoming/outgoing adjacency、RAW/flow、WAR/anti、WAW/output、分支多定义合流、自然/不可归约 loop-carried、自环、unknown-memory barrier、同根 disjoint region 消边、full-root hazard 后 frontier kill、确定性 dump、`AnalysisManager` 缓存和损坏 edge 拒绝；`InstructionAttributes`、copy/writeback、跨函数 actual region、alias/conflict 与优化重映射继续回归。生产 API 测试要求编译报告公开 `mir-memory-dependence` stage 和分类计数。Python fuzz seed 覆盖分支/循环/索引写入，第八个 `memory-dependence` 性能场景同时要求最低依赖规模和非零 loop-carried 事实。
 
+输出赋值分析的 16 项专项回归覆盖真实 Matlab typed CFG、共享 raw/normalized input-output、
+四态合流、零次/重复循环、逐 may-fail 指令的 pre-commit exception 状态、失败 indexed store、
+不可达写入、pure query/discard/unknown-call 非初始化、revision cache、并发确定性、29 种
+状态/来源污染及 alias/effect dependency 污染。128 张随机循环/异常 CFG 与独立 Boolean-path
+verifier 对照；10,000-block 长链检查连续 byte-sized cells 和无 per-instruction state vector。
+synthetic CFG fixture 只检验算法，不证明源条件输出已可转译；生产 API 回归明确要求当前
+条件输出仍以 MPF2004 拒绝，同时公开 `mir-output-assignment` stage。完整运行语义仍见
+[输出语义的发布边界](OUTPUT_SEMANTICS.md)。
+
 0.4.8—0.5.6 依次覆盖 implicit expansion、索引/shape mutation、empty array、rank/condition/structure-aware real solve、logical/reduction 与 portable scalar division。0.5.7—0.5.9 又分别引入 `NumericClass`/`NumericComplexity`、complex square matrix domain 与 rank-revealing rectangular factorization；跨层损坏事实、双目标差分、source map、fuzz、warning 与第 22—24 项性能场景共同验证这些 contract。
 
 0.6.0—0.6.9 按纵切面依次引入 canonical CSC storage、`SparseConstructionPlan`、`SparseIndexPlan`、`SparseMutationPlan`、`SparseReshapePlan`、sparse matrix/scalar product、独立 `SparseElementwisePlan`、静态零 extent shape ABI，以及 `SparseValueDomain`/`SparseDuplicatePolicy`。每个纵切面都要求 Semantic→MIR→双目标 LIR 的逐层 verifier、JavaScript/C++ 独立 runtime、source map、差分、生成代码拒错、fuzz、架构检查和独立或复用的 schema-v3 性能预算；0.6.9 对应 Semantic v22、MIR v28、LIR v35、第 99 项差分 case、第 19 项生成 runtime 拒绝和第 32 项性能场景。
@@ -211,7 +220,7 @@ deployment target，避免用 Clang/libc++ 链接 GCC/libstdc++ 包造成测试�
 
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 462 项，零失败 |
+| C++ 单元与集成测试 | 492 项，零失败 |
 | CTest | 当前 dev preset 为 219 项普通测试；包含 127 项 differential、1 项 C++ 单元/集成、64 项生成 runtime 拒绝、12 项生成 C++ 编译，以及 fuzz、架构、发布脚本、失败性能报告、格式工具/原生证据校验合同、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
 | Differential corpus | Python 22、Fortran 19、Matlab 82、TypeScript 4，共 127 个 case |
 | 工具完整环境执行路径 | 299 条程序路径，另有每 case 一条 oracle |

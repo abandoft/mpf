@@ -48,6 +48,14 @@ first-error message fragments, and builtin availability from R2024b Update 10 ru
 executed MATLAB and collected all 27 cases; its final parity check rejected the unrelated
 directory warning. The frozen native contract is a regression baseline, not MPF parity.
 
+Expanded receiver parity was subsequently verified by actual R2024b Update 10 run
+[37086893737](https://github.com/abandoft/mpf/actions/runs/37086893737) at full revision
+`8f3ca74238f8d59e7bcfcd804bfe1a37cedffe91`. All execution and verification steps succeeded:
+55 original-source output tokens matched both executed targets, the 27 observations matched the
+frozen contract, and source/snapshot SHA-256 was
+`a3145e122d0693f84cd18ebb70e61a8057ebfc6b2431c975d543ced3242d794e`.
+This proves implemented receiver behavior, not MPF support for every pending observation.
+
 | Native observation | R2024b result |
 |---|---|
 | Conditional second output | Unassigned and unrequested: succeeds; requested and assigned: returns the value |
