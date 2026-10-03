@@ -120,6 +120,7 @@ class Analyzer final {
   void infer_python_sequence_metadata(Statement& function) const;
   void normalize_matlab_output_contract(Statement& function);
   void analyze_matlab_argument_declarations(Statement& function);
+  void validate_matlab_argument_expression(const Expression& expression);
   void plan_matlab_argument_validators(Statement& function, std::size_t declaration_index,
                                        std::size_t call_offset, ArgumentValidationPlan& plan);
   void analyze_matlab_validator_calls(Statement& function, ArgumentDirection direction);

@@ -28,7 +28,7 @@ using namespace mpf::detail;
 const std::string source =
     "checked();\nchecked\nvalue = checked();\n[first,second] = checked();\ndisp(checked());\n"
     "function [first,second] = checked(input)\narguments\n"
-    "input (1,1) double = nargout\nend\narguments (Output)\n"
+    "input (1,1) double = 7\nend\narguments (Output)\n"
     "first (1,1) double\nsecond (1,1) logical\nend\n"
     "first = input + nargout;\nsecond = nargout() > 0;\nend\n"
     "function output = other()\noutput = nargout;\nend\n";
@@ -125,7 +125,7 @@ void reject_target_corruption(const Program& clean, Plan plan, Resources resourc
       plan(program);
     }
     if (mutation == 5) {
-      owner.parameter_defaults.front().source_invocation_query = ValueId{999};
+      owner.body.front().expression.children.back().source_invocation_query = ValueId{999};
       plan(program);
     }
     if (mutation == 6) {
@@ -137,7 +137,7 @@ void reject_target_corruption(const Program& clean, Plan plan, Resources resourc
       plan(program);
     }
     if (mutation == 8) {
-      owner.parameter_defaults.front().source_invocation_query = {};
+      owner.body.front().expression.children.back().source_invocation_query = {};
       plan(program);
     }
     std::vector<mpf::Diagnostic> diagnostics;
@@ -185,7 +185,7 @@ TEST_CASE("Matlab nargout uses pure resident reads of each function's immutable 
       }
     }
   }
-  REQUIRE(count == 4U);
+  REQUIRE(count == 3U);
   REQUIRE(mir::verify_alias_effects(program, effects, "invocation-purity").empty());
 }
 
@@ -288,9 +288,9 @@ TEST_CASE("JavaScript and cpp own independent trailing count ABI and collision-s
           javascript::lir::OutputInvocationForm::callee_count);
   REQUIRE(cpp.statements.front().expression.plan.output_invocation.form ==
           cpp::lir::OutputInvocationForm::callee_count);
-  REQUIRE(js_owner.parameter_defaults.front().plan.token ==
+  REQUIRE(js_owner.body.front().expression.children.back().plan.token ==
           js_owner.function_abi.invocation.count_parameter);
-  REQUIRE(cpp_owner.parameter_defaults.front().plan.token ==
+  REQUIRE(cpp_owner.body.front().expression.children.back().plan.token ==
           cpp_owner.function_abi.invocation.count_parameter);
 }
 
@@ -338,6 +338,54 @@ TEST_CASE("source variables parameters and local functions named nargout retain 
   }
 }
 
+TEST_CASE("Matlab arguments reject direct invocation queries before either target emits code") {
+  const std::vector<std::string> invalid{
+      "function output = query(input)\narguments\n"
+      "input (1,1) double = nargout\nend\noutput = input;\nend\n",
+      "disp(query(7));\nfunction output = query(input)\narguments\n"
+      "input (1,1) double = nargout()\nend\noutput = input;\nend\n",
+      "function output = query(input)\narguments\n"
+      "input (1,1) double = 2 + nargout()\nend\noutput = input;\nend\n",
+      "function output = query(input)\narguments\n"
+      "input (1,1) double {mustBeGreaterThan(nargout)}\nend\noutput = input;\nend\n",
+      "function output = query()\narguments (Output)\n"
+      "output (1,1) double {mustBeGreaterThan(nargout())}\nend\noutput = 7;\nend\n"};
+  for (const auto& text : invalid) {
+    for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+      mpf::TranspileOptions options;
+      options.language = mpf::SourceLanguage::matlab;
+      options.target = target;
+      const auto result = mpf::Transpiler{}.transpile(text, options);
+      REQUIRE(!result.success());
+      REQUIRE(result.code.empty());
+      REQUIRE(std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+                          [](const auto& diagnostic) {
+                            return diagnostic.code == "MPF2059" &&
+                                   diagnostic.message.find("arguments blocks") != std::string::npos;
+                          }));
+    }
+  }
+}
+
+TEST_CASE("Matlab argument expressions distinguish bound variables and separate query workspaces") {
+  for (const auto& text :
+       {std::string{"disp(checked(7));\nfunction output = checked(nargout, input)\narguments\n"
+                    "nargout (1,1) double\ninput (1,1) double = nargout\n"
+                    "end\noutput = input;\nend\n"},
+        std::string{"disp(checked());\nfunction output = checked(input)\narguments\n"
+                    "input (1,1) double = helper()\nend\noutput = input + nargout;\nend\n"
+                    "function output = helper()\noutput = nargout;\nend\n"}}) {
+    const auto program = lower(text);
+    REQUIRE(mir::verify(program, "argument-query-isolation").empty());
+    for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
+      mpf::TranspileOptions options;
+      options.language = mpf::SourceLanguage::matlab;
+      options.target = target;
+      REQUIRE(mpf::Transpiler{}.transpile(text, options).success());
+    }
+  }
+}
+
 TEST_CASE("invocation count names avoid collisions with actual source formals in both targets") {
   const auto program = lower();
   auto javascript = javascript_plan(program);
@@ -361,7 +409,7 @@ TEST_CASE("invocation count names avoid collisions with actual source formals in
 TEST_CASE("invocation queries and bound bare calls retain deterministic target source maps") {
   const std::string text =
       "checked;\nfunction [first,second] = checked(input)\narguments\n"
-      "input (1,1) double = nargout\nend\nfirst = input + nargout;\n"
+      "input (1,1) double = 7\nend\nfirst = input + nargout;\n"
       "second = nargout();\nend\n";
   for (const auto target : {mpf::TargetLanguage::javascript, mpf::TargetLanguage::cpp}) {
     mpf::TranspileOptions options;

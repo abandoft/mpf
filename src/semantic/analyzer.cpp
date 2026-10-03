@@ -2043,6 +2043,7 @@ void Analyzer::analyze_function(Statement& function) {
     if (program_.language == SourceLanguage::matlab && index < function.parameter_defaults.size() &&
         function.parameter_defaults[index].valid()) {
       analyze_expression(function.parameter_defaults[index]);
+      validate_matlab_argument_expression(function.parameter_defaults[index]);
     }
     const auto annotated_type = index < semantic(semantics_, function).parameter_types.size()
                                     ? semantic(semantics_, function).parameter_types[index]
