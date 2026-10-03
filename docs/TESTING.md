@@ -119,8 +119,10 @@ action 的完整 SHA 和 R2024b。公开仓库通过官方 batch licensing 执�
 `invocation_context.m`，再与 Node.js 和严格编译的 C++ 实际输出比较。记录保留实际
 MATLAB 版本、完整提交 SHA、源文件快照、原始 transcript 和两端生成/执行产物。
 
-另有 23 项原生观察采集条件输出、缺失/忽略接收位、验证与异常先后、默认值、
-input/output 同名和 `ans` 行为。这是剩余功能的语义依据，不表示 MPF 已支持这些
+另有 27 项原生观察采集条件输出、缺失/忽略接收位、验证与异常先后、默认值、
+input/output 同名、`ans` 与 default/input-validator/output-validator 的直接 query
+限制。首轮真实 R2024b 已拒绝 fixture 中的直接 `nargout` default，编译器同步增加
+binding-aware 拒错；合法源码与独立非法定义观察分开。这是剩余功能的语义依据，不表示 MPF 已支持这些
 源程序；当前 parity 只覆盖 invocation-context。普通 CTest 的 verifier-contract
 使用明确标记的 synthetic fixture 检验错误拒绝逻辑，不运行 MATLAB，也不能代替
 原生执行证据。0.8.0 输出验收与发布门禁接入仍保持未完成。运行方式与证据范围见
@@ -191,7 +193,7 @@ deployment target，避免用 Clang/libc++ 链接 GCC/libstdc++ 包造成测试�
 
 | 指标 | 数量/结果 |
 |---|---:|
-| C++ 单元与集成测试 | 460 项，零失败 |
+| C++ 单元与集成测试 | 462 项，零失败 |
 | CTest | 当前 dev preset 为 219 项普通测试；包含 127 项 differential、1 项 C++ 单元/集成、64 项生成 runtime 拒绝、12 项生成 C++ 编译，以及 fuzz、架构、发布脚本、失败性能报告、格式工具/原生证据校验合同、CLI、后端隔离和安装消费测试；Release 流程另运行不计入普通测试数的独立性能发布目标 |
 | Differential corpus | Python 22、Fortran 19、Matlab 82、TypeScript 4，共 127 个 case |
 | 工具完整环境执行路径 | 299 条程序路径，另有每 case 一条 oracle |

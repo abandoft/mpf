@@ -8,10 +8,18 @@ The manual/reusable `Matlab Reference` workflow has two distinct results:
 
 1. `invocation_context.m` is executed by MATLAB and compared with the actual generated
    JavaScript and strictly compiled C++ results from the differential runner.
-2. Twenty-three native observations record conditional output assignment, missing requested
+2. Twenty-seven native observations record conditional output assignment, missing requested
    outputs, ignored receiver positions/count, validation/error ordering, defaults, shared
-   input/output bindings, and scoped `ans`. They are ground truth for pending implementation,
+   input/output bindings, scoped `ans`, and forbidden direct invocation queries in argument
+   defaults/input validators/output validators. They are ground truth for pending implementation,
    **not evidence that MPF already supports those cases**.
+
+The first actual R2024b run rejected a direct `nargout` default that MPF had incorrectly
+accepted. Legal execution fixtures now evaluate defaults through a separate helper; the compiler has a binding-aware
+context check, and deliberately invalid definitions live in separate files loaded through
+caught observations. This preserves the rejection evidence without making the observation
+collector itself unparseable. A called helper's body is a separate workspace, not a direct
+query in the caller's `arguments` block.
 
 The workflow uses the full-SHA-pinned MathWorks
 [Setup MATLAB](https://github.com/matlab-actions/setup-matlab) and
