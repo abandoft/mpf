@@ -23,7 +23,8 @@ set(names
   missing-first-versus-second-validator first-validator-versus-second-missing
   return-outside-body-handler shared-input-output default-count-one default-count-two
   parenthesized-ans bare-ans void-ans-retained absent-ans-retained default-count-zero
-  failed-output-ans)
+  failed-output-ans restricted-default-nargout-bare restricted-default-nargout-call
+  restricted-input-validator-nargout restricted-output-validator-nargout)
 set(cases "")
 foreach(name IN LISTS names)
   if(NOT cases STREQUAL "")

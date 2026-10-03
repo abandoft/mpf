@@ -47,6 +47,16 @@ function evidence = mpf_output_semantics()
         failure.valueSize = size(ans);
     end
     cases(end + 1) = failure;
+    % Keep invalid definitions in separate files: loading one must not prevent the
+    % valid native observation collector from being parsed or executed.
+    cases(end + 1) = observe('restricted-default-nargout-bare', ...
+        @restricted_default_bare);
+    cases(end + 1) = observe('restricted-default-nargout-call', ...
+        @() restricted_default_call(7));
+    cases(end + 1) = observe('restricted-input-validator-nargout', ...
+        @() restricted_input_validator(7));
+    cases(end + 1) = observe('restricted-output-validator-nargout', ...
+        @restricted_output_validator);
     evidence = struct('schemaVersion', 1, 'cases', cases, ...
         'builtinAvailability', struct('isargout', exist('isargout', 'builtin')));
 end
@@ -209,7 +219,7 @@ end
 
 function [first, second] = default_count(input)
     arguments
-        input (1,1) double = nargout
+        input (1,1) double = 7
     end
     first = input;
     second = nargout;
