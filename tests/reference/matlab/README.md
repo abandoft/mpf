@@ -4,7 +4,7 @@ This directory runs original MATLAB source on **R2024b**. It is not a frontend g
 fixture directory: the observation runner deliberately uses MATLAB constructs that MPF
 has not yet implemented, including function handles and conditionally missing outputs.
 
-The manual/reusable `Matlab Reference` workflow has three distinct results:
+The manual/reusable `Matlab Reference` workflow keeps distinct evidence categories:
 
 1. `invocation_context.m` is executed by MATLAB and compared with the actual generated
    JavaScript and strictly compiled C++ results from the differential runner. Its current
@@ -28,6 +28,15 @@ The manual/reusable `Matlab Reference` workflow has three distinct results:
    at full revision `153bce9eb0258c7c2adfa324008ced9402c50a3e`; every execution and verification
    step passed. That observation run predates the target identity fixture, so it is not by
    itself proof that the subsequently changed targets pass native parity.
+4. Three additional original-source cases check mutable array extents across if/loop/catch,
+   JavaScript scalar/array rebinding, and whitespace-sensitive matrix expressions. Each has
+   its own byte-identical snapshot and transcript in `control-join-parity.json`. Homogeneous
+   array and spacing cases require both executed targets; the mixed-value case requires
+   actual JavaScript output and an independent C++ MPF2007 capability rejection, not a
+   fabricated C++ result. The separate native verifier checks the complete source inventory,
+   runtime/full revision, snapshot bytes and target transcripts. Its synthetic positive and
+   seven negative CTest fixtures test rejection logic only. Newly connected cases remain
+   unaccepted until the actual R2024b workflow steps and artifacts have been inspected.
 
 The expanded fixture was actually executed by R2024b Update 10 in
 [37093296126](https://github.com/abandoft/mpf/actions/runs/37093296126), but its verifier correctly

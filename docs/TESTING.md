@@ -22,6 +22,21 @@ synthetic CFG fixture 只检验算法，不证明源条件输出已可转译；�
 条件输出仍以 MPF2004 拒绝，同时公开 `mir-output-assignment` stage。完整运行语义仍见
 [输出语义的发布边界](OUTPUT_SEMANTICS.md)。
 
+mutable CFG value join 的专项验证使用实际 Matlab if/loop/catch 生产路径，并用
+128 张随机图的独立 reachable-anchor set oracle 检查 worklist 和 iterative SCC proof，
+另覆盖 10,000 反向依赖链、循环、缺失 SSA definition、type/shape 缩窄、物理 strides、
+layout 与正规化幂等性。算法图 fixture 不作为源语言接受或实际执行证明。
+`matlab-mutable-array-joins` 与 `matlab-matrix-expression-spacing` 属于严格双目标
+执行 corpus；`mpf.capability.matlab-mutable-value-joins` 另行检查实际 JS 输出、source
+map 和 C++ 的 MPF2007 拒错，不能削弱双目标 corpus 的 C++ 执行要求。标准 verifier
+仍拒绝 unknown type 携带伪造的 known array-storage 格式。
+新 `matlab-mutable-array-joins` 性能场景固定 64 个真实循环/异常区域、最低 memory
+dependence 数与 loop-carried 事实；原有 49 个场景和全部预算保持不变。
+R2024b workflow 另执行上述三份原始源码，并逐份核验 snapshot bytes、完整 SHA、
+runtime/source inventory 与目标 transcript；mixed-value case 明确记录 C++ 不支持，
+不伪装为第三个执行目标。独立 synthetic control-join contract 只验证正向和七类损坏
+拒绝，不能记成 native parity。新源码的原生验收以实际远程步骤和下载 artifact 为准。
+
 0.4.8—0.5.6 依次覆盖 implicit expansion、索引/shape mutation、empty array、rank/condition/structure-aware real solve、logical/reduction 与 portable scalar division。0.5.7—0.5.9 又分别引入 `NumericClass`/`NumericComplexity`、complex square matrix domain 与 rank-revealing rectangular factorization；跨层损坏事实、双目标差分、source map、fuzz、warning 与第 22—24 项性能场景共同验证这些 contract。
 
 0.6.0—0.6.9 按纵切面依次引入 canonical CSC storage、`SparseConstructionPlan`、`SparseIndexPlan`、`SparseMutationPlan`、`SparseReshapePlan`、sparse matrix/scalar product、独立 `SparseElementwisePlan`、静态零 extent shape ABI，以及 `SparseValueDomain`/`SparseDuplicatePolicy`。每个纵切面都要求 Semantic→MIR→双目标 LIR 的逐层 verifier、JavaScript/C++ 独立 runtime、source map、差分、生成代码拒错、fuzz、架构检查和独立或复用的 schema-v3 性能预算；0.6.9 对应 Semantic v22、MIR v28、LIR v35、第 99 项差分 case、第 19 项生成 runtime 拒绝和第 32 项性能场景。
