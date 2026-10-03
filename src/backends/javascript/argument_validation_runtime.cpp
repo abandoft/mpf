@@ -20,7 +20,7 @@ function __mpf_argument_flatten(value, result = []) {
   return result;
 }
 function __mpf_argument_shape(value, name) {
-  if (typeof value === 'string') return [1, value.length];
+  if (typeof value === 'string') return value.length === 0 ? [0, 0] : [1, value.length];
   if (!Array.isArray(value)) return [1, 1];
   const shape = __mpf_matlab_runtime_shape(value, `argument '${name}'`);
   return shape.length === 1 ? [1, shape[0]] : shape;
