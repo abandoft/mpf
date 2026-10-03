@@ -30,7 +30,7 @@ end
 
 function [first, second] = with_default(input)
     arguments
-        input (1,1) double = nargout
+        input (1,1) double = default_input()
     end
     arguments (Output)
         first (1,1) double {mustBeNonnegative}
@@ -58,4 +58,9 @@ end
 
 function output = shadowed(nargout)
     output = nargout;
+end
+
+function output = default_input()
+    % This separate workspace receives one requested output from the default expression.
+    output = nargout + 6;
 end

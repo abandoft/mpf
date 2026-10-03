@@ -58,7 +58,7 @@ mpf_add_differential_case(
   "111 111 4 111 4 111 4 1 111 4 111 222 4 222 9 333 MPF:Demand 444 MPF Matlab argument 'second' failed mustBePositive")
 mpf_add_differential_case(
   matlab-invocation-context matlab examples/matlab/invocation_context.m
-  "0 0 0 1 1 2 2 12 3 3 13 23 1 101 0 1 1 2 2 102 1 9 1 0 0 0 2 42")
+  "0 0 0 1 1 2 2 12 3 3 13 23 1 101 0 1 7 2 7 102 1 9 1 0 0 0 2 42")
 mpf_add_differential_case(
   matlab-argument-relational-validators matlab
   examples/matlab/argument_relational_validators.m "3 2")
