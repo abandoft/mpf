@@ -159,7 +159,7 @@ message fragment 的 R2024b 基线，新增损坏回归拒绝错误 `ans`、忽�
 run [37091387836](https://github.com/abandoft/mpf/actions/runs/37091387836)，完整源码 SHA
 `153bce9eb0258c7c2adfa324008ced9402c50a3e`。观察覆盖 28 个标准 validator、已核验的
 类型前置 identity、文本接受与区间边界；该次 run 尚未包含随后新增的目标 identity fixture。
-新的 `matlab_validator_exception_identity.m` 执行 80 项输入/输出失败与两组文本接受，
+`matlab_validator_exception_identity.m` 的初始 82-token 版本执行 80 项输入/输出失败与两组文本接受，
 由两个目标及官方 runner 独立执行；native verifier 复核该原始源码的独立 provenance、
 快照 SHA-256、82 个输出 token 和冻结观察，不过滤警告。synthetic verifier 负向测试新增
 缺失/错误来源、类型/库存、前置错误 identity、消息 context、snapshot、目标跳过/错序/重复字段拒绝。
@@ -172,8 +172,17 @@ identity fixture，但 verifier 拒绝最后两个 token：R2024b 对空 char �
 报错，两个目标与旧示例却把它当作 numeric 接受。保留该失败证据，修正两个 runtime 的
 class 前置检查与旧 `arguments.m`（改用真正的空 double），不照搬最新 R2026b 页面中的
 空值免检描述；普通差分 baseline 按原生 identity 校正。额外采集 28 个 validator 的
-direct/input/output × empty-char/empty-double 共 168 项，用于后续完整类型矩阵审计；
-新增采集只有实际执行并冻结后才可计作验收。
+direct/input/output × empty-char/empty-double 共 168 项。run
+[37094163608](https://github.com/abandoft/mpf/actions/runs/37094163608) / 完整源码 SHA
+`8dce8ea5b21e63cc2c9a534858c13bad80a05062` 的实际原生执行与全部验证步骤成功，
+82 个 token 与两个执行目标一致；168 项空值观察现冻结于独立 contract 并由独立 helper
+逐项检查。该矩阵发现空 char 被错误视为 `1×0` 的 row/vector，两个 runtime 已改为规范
+`0×0`。当前 fixture 增加 112 项独立输入/输出执行，共 194 个 token；普通差分和严格 C++
+检查已接入，新增源码的原生 parity 仍须在对应提交上实际运行，不能追认旧 run。
+synthetic verifier 另拒绝缺失/错序矩阵、非 Boolean outcome、错误 validator/cause/context、
+错误接受空值与成功记录残留 exception；这不是完整 logical/complex/sparse storage-class 审计。
+core 与 empty-validator contract 作为独立 CTest、使用不同 build 子目录并保留各自 30 秒预算；
+verifier 先提取 matrix/record，再检查字段，避免每个字段反复解析整份 native JSON。
 
 Analyzer 生命周期回归测试主动收紧 expression side-table capacity，再通过 Matlab 默认参数的
 嵌套 call、scalar/multi-axis selector、slice bound、indexed mutation、Python tuple/default
