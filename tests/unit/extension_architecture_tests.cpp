@@ -79,7 +79,7 @@ TEST_CASE("frontend catalog rejects duplicate registrations") {
   REQUIRE(mpf::detail::matlab_frontend().manifest.features.contains(
       mpf::detail::FrontendFeature::exception_handling));
   REQUIRE(std::string_view(mpf::detail::matlab_frontend().manifest.ast_schema) ==
-          "mpf.matlab.ast.v10");
+          "mpf.matlab.ast.v11");
   REQUIRE(
       (mpf::detail::typescript_frontend().manifest.maximum_version == mpf::LanguageVersion{6, 0}));
   malformed = mpf::detail::python_frontend();

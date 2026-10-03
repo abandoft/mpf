@@ -548,10 +548,30 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
            << " sparse-duplicate "
            << static_cast<int>(statement.plan.sparse_mutation.duplicate_policy) << " sparse-zero "
            << static_cast<int>(statement.plan.sparse_mutation.zero_policy) << " targets "
-           << statement.plan.targets.size() << " assignment-leaves "
+           << statement.plan.receivers.size() << " assignment-leaves "
            << statement.plan.assignment_leaves.size() << " selectors "
            << statement.plan.selectors.size() << " returns " << statement.plan.return_names.size()
            << " exception-handler-line " << statement.exception_handler_line;
+    if (!statement.plan.receivers.empty()) {
+      output << " receiver-abi [";
+      for (std::size_t index = 0U; index < statement.plan.receivers.size(); ++index) {
+        if (index != 0U) output << ',';
+        const auto& receiver = statement.plan.receivers[index];
+        output << receiver.result_index << ':' << static_cast<unsigned>(receiver.form)
+               << ":symbol=@s" << receiver.symbol.value() << ":name=" << std::quoted(receiver.name)
+               << ":access=" << static_cast<unsigned>(receiver.access)
+               << ":at=" << receiver.location.line << ':' << receiver.location.column
+               << ":origin=%h" << receiver.origin.value();
+        if (index < statement.source_receivers.size()) {
+          const auto& source = statement.source_receivers[index];
+          output << ":source=!i" << source.instruction.value()
+                 << ":opcode=" << static_cast<unsigned>(source.opcode) << ":argument=%v"
+                 << source.argument.value() << ":storage=!m" << source.storage.value()
+                 << ":result=%v" << source.result.value();
+        }
+      }
+      output << ']';
+    }
     dump_argument_default_details(output, statement.plan, 0);
     dump_argument_input_details(output, statement.plan, 0);
     if (!statement.plan.argument_entries.empty()) {
@@ -712,7 +732,7 @@ void dump_target_statements(std::ostream& output, const std::vector<Statement>& 
 template <typename Program>
 void dump_target_lir_body(std::ostream& output, const Program& program,
                           const std::string_view target) {
-  output << target << "-semantic-lir-v61 revision " << program.revision << " nodes "
+  output << target << "-semantic-lir-v62 revision " << program.revision << " nodes "
          << program.node_count << " runtime 0x" << std::hex << program.runtime.bits << std::dec
          << '\n';
   output << "dependencies";

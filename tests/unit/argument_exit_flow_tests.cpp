@@ -481,7 +481,7 @@ TEST_CASE(
 TEST_CASE("MIR and target dumps expose shared output control storage and provenance") {
   const auto program = lower();
   const auto dump = dump_mir(program);
-  REQUIRE(dump.find("mir-v51") != std::string::npos);
+  REQUIRE(dump.find("mir-v52") != std::string::npos);
   REQUIRE(dump.find("argument-exit owner=") != std::string::npos);
   REQUIRE(dump.find("return-source origin=") != std::string::npos);
   REQUIRE(dump.find("argument-output ordinal=0 workspace=") != std::string::npos);
@@ -493,7 +493,7 @@ TEST_CASE("MIR and target dumps expose shared output control storage and provena
   dump_target_lir_body(javascript_dump, javascript, "javascript");
   dump_target_lir_body(cpp_dump, cpp, "cpp");
   for (const auto& target : {javascript_dump.str(), cpp_dump.str()}) {
-    REQUIRE(target.find("semantic-lir-v61") != std::string::npos);
+    REQUIRE(target.find("semantic-lir-v62") != std::string::npos);
     REQUIRE(target.find("argument-exit-abi ") != std::string::npos);
     REQUIRE(target.find("argument-return-exit ^b") != std::string::npos);
     REQUIRE(target.find(":workspace=!m") != std::string::npos);
@@ -524,8 +524,8 @@ TEST_CASE("partial Matlab output calls select typed prefixes without truncating 
   const std::vector<ValueType> types{ValueType::real, ValueType::boolean};
   REQUIRE(javascript.statements.front().expression.tuple_types == types);
   REQUIRE(cpp.statements.front().expression.tuple_types == types);
-  REQUIRE(javascript.statements.front().plan.targets.size() == 2U);
-  REQUIRE(cpp.statements.front().plan.targets.size() == 2U);
+  REQUIRE(javascript.statements.front().plan.receivers.size() == 2U);
+  REQUIRE(cpp.statements.front().plan.receivers.size() == 2U);
   REQUIRE(javascript.statements.back().source_argument_outputs.size() == 3U);
   REQUIRE(cpp.statements.back().source_argument_outputs.size() == 3U);
   const auto optimized = mir::run_default_optimization_pipeline(program);

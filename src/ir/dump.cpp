@@ -4,6 +4,8 @@
 #include <sstream>
 #include <type_traits>
 
+#include "compiler/output_receiver_dump.hpp"
+
 namespace mpf::detail {
 namespace {
 
@@ -35,6 +37,11 @@ void dump_hir_statements(std::ostringstream& output, const std::vector<hir::Stat
            << " line=" << statement.line
            << " exception-handler-line=" << statement.exception_handler_line
            << " implicit-result=" << enum_value(statement.implicit_result) << '\n';
+    if (!statement.receivers.empty()) {
+      output << std::string((depth + 1U) * 2U, ' ') << "output-receivers ";
+      dump_output_receiver_list(output, statement.receivers);
+      output << '\n';
+    }
     dump_hir_expression(output, statement.expression, depth + 1U);
     dump_hir_expression(output, statement.secondary_expression, depth + 1U);
     dump_hir_expression(output, statement.tertiary_expression, depth + 1U);
@@ -91,7 +98,17 @@ void dump_normalized_hir_statements(std::ostringstream& output,
       if (index != 0) output << ',';
       output << std::quoted(statement.return_names[index]);
     }
-    output << "]\n";
+    output << ']';
+    if (!statement.receivers.empty()) {
+      output << " receivers=[";
+      for (std::size_t index = 0U; index < statement.receivers.size(); ++index) {
+        if (index != 0U) output << ',';
+        const auto& receiver = statement.receivers[index];
+        output << (receiver.binds() ? "binding" : "discard") << ':' << std::quoted(receiver.name);
+      }
+      output << ']';
+    }
+    output << '\n';
     dump_normalized_hir_expression(output, statement.expression, depth + 1U);
     dump_normalized_hir_expression(output, statement.secondary_expression, depth + 1U);
     dump_normalized_hir_expression(output, statement.tertiary_expression, depth + 1U);
@@ -203,7 +220,7 @@ void dump_memory_accesses(std::ostringstream& output,
 
 std::string dump_hir(const hir::Program& program) {
   std::ostringstream output;
-  output << "hir-v5 language=" << enum_value(program.language) << " nodes=" << program.node_count
+  output << "hir-v6 language=" << enum_value(program.language) << " nodes=" << program.node_count
          << " revision=" << program.revision << '\n';
   output << "semantics version=" << program.semantics.language_version.major << '.'
          << program.semantics.language_version.minor
@@ -227,7 +244,7 @@ std::string dump_normalized_hir(const hir::Program& program) {
 
 std::string dump_semantics(const hir::SemanticTable& table) {
   std::ostringstream output;
-  output << "semantic-v41 hir-nodes=" << table.hir_node_count
+  output << "semantic-v42 hir-nodes=" << table.hir_node_count
          << " hir-revision=" << table.hir_revision << " expressions=" << table.expressions.size()
          << " statements=" << table.statements.size() << '\n';
   for (std::size_t id = 1; id < table.nodes.size(); ++id) {
@@ -510,7 +527,7 @@ std::string dump_semantics(const hir::SemanticTable& table) {
 
 std::string dump_mir(const mir::Program& program) {
   std::ostringstream output;
-  output << "mir-v51 language=" << enum_value(program.source_language)
+  output << "mir-v52 language=" << enum_value(program.source_language)
          << " version=" << program.semantics.language_version.major << '.'
          << program.semantics.language_version.minor << " hir-nodes=" << program.hir_node_count
          << " expressions=" << (program.expressions.empty() ? 0U : program.expressions.size() - 1U)
@@ -737,6 +754,10 @@ std::string dump_mir(const mir::Program& program) {
     dump_ids(output, statement.alternative, "%mstmt");
     output << " origin=%h" << statement.origin.value()
            << " exception-handler-line=" << statement.exception_handler_line;
+    if (!statement.receivers.empty()) {
+      output << " output-receivers=";
+      dump_output_receiver_list(output, statement.receivers);
+    }
     output << " argument-validations=";
     dump_argument_validations(output, statement.argument_validations);
     if (!statement.argument_validator_sources.empty()) {
