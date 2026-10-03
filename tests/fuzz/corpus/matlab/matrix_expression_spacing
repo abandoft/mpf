@@ -1,0 +1,8 @@
+values = [1 + 2, 3 - 1];
+disp(values(1));
+values = [1 +2 -3];
+disp(numel(values));
+column_values = [(1 + 2); (5 - 1)];
+disp(column_values(2));
+values = [1 .* 2, 8 ./ 2, 2 .^ 3];
+disp(values(3));
