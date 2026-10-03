@@ -1,0 +1,311 @@
+{
+  "schemaVersion": 1,
+  "matlabRelease": "R2024b",
+  "origin": {
+    "run": "https://github.com/abandoft/mpf/actions/runs/37080926914",
+    "sourceRevision": "a5cc64247f9fb47750f5e903a62fa08df962aaef",
+    "matlabVersion": "24.2.0.3361896 (R2024b) Update 10"
+  },
+  "builtinAvailability": {
+    "isargout": 0
+  },
+  "cases": [
+    {
+      "name": "conditional-one",
+      "succeeded": true,
+      "values": 1,
+      "valueClass": "double",
+      "valueSize": [
+        1,
+        1
+      ],
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": ""
+    },
+    {
+      "name": "conditional-two",
+      "succeeded": true,
+      "values": [
+        2,
+        12
+      ],
+      "valueClass": "double",
+      "valueSize": [
+        1,
+        2
+      ],
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": ""
+    },
+    {
+      "name": "validated-conditional-one",
+      "succeeded": true,
+      "values": 1,
+      "valueClass": "double",
+      "valueSize": [
+        1,
+        1
+      ],
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": ""
+    },
+    {
+      "name": "validated-conditional-two",
+      "succeeded": true,
+      "values": [
+        1,
+        1
+      ],
+      "valueClass": "double",
+      "valueSize": [
+        1,
+        2
+      ],
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": ""
+    },
+    {
+      "name": "missing-requested-first",
+      "succeeded": false,
+      "values": [],
+      "valueClass": "",
+      "valueSize": [],
+      "exceptionIdentifier": "MATLAB:unassignedOutputs",
+      "exceptionMessageContains": "Output argument \"output\""
+    },
+    {
+      "name": "missing-requested-second",
+      "succeeded": false,
+      "values": [],
+      "valueClass": "",
+      "valueSize": [],
+      "exceptionIdentifier": "MATLAB:unassignedOutputs",
+      "exceptionMessageContains": "Output argument \"second\""
+    },
+    {
+      "name": "ignored-missing-second",
+      "succeeded": false,
+      "values": [],
+      "valueClass": "",
+      "valueSize": [],
+      "exceptionIdentifier": "MATLAB:unassignedOutputs",
+      "exceptionMessageContains": "Output argument \"second\""
+    },
+    {
+      "name": "ignored-missing-first",
+      "succeeded": false,
+      "values": [],
+      "valueClass": "",
+      "valueSize": [],
+      "exceptionIdentifier": "MATLAB:unassignedOutputs",
+      "exceptionMessageContains": "Output argument \"first\""
+    },
+    {
+      "name": "ignored-count",
+      "succeeded": true,
+      "values": [
+        3,
+        23
+      ],
+      "valueClass": "double",
+      "valueSize": [
+        1,
+        2
+      ],
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": ""
+    },
+    {
+      "name": "assigned-unrequested-validation",
+      "succeeded": false,
+      "values": [],
+      "valueClass": "",
+      "valueSize": [],
+      "exceptionIdentifier": "MATLAB:validators:mustBePositive",
+      "exceptionMessageContains": "Invalid output 'second'."
+    },
+    {
+      "name": "assigned-discarded-validation",
+      "succeeded": false,
+      "values": [],
+      "valueClass": "",
+      "valueSize": [],
+      "exceptionIdentifier": "MATLAB:validators:mustBePositive",
+      "exceptionMessageContains": "Invalid output 'second'."
+    },
+    {
+      "name": "missing-first-versus-second-validator",
+      "succeeded": false,
+      "values": [],
+      "valueClass": "",
+      "valueSize": [],
+      "exceptionIdentifier": "MATLAB:validators:mustBePositive",
+      "exceptionMessageContains": "Invalid output 'second'."
+    },
+    {
+      "name": "first-validator-versus-second-missing",
+      "succeeded": false,
+      "values": [],
+      "valueClass": "",
+      "valueSize": [],
+      "exceptionIdentifier": "MATLAB:validators:mustBePositive",
+      "exceptionMessageContains": "Invalid output 'first'."
+    },
+    {
+      "name": "return-outside-body-handler",
+      "succeeded": false,
+      "values": [],
+      "valueClass": "",
+      "valueSize": [],
+      "exceptionIdentifier": "MATLAB:validators:mustBePositive",
+      "exceptionMessageContains": "Invalid output 'output'."
+    },
+    {
+      "name": "shared-input-output",
+      "succeeded": true,
+      "values": true,
+      "valueClass": "logical",
+      "valueSize": [
+        1,
+        1
+      ],
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": ""
+    },
+    {
+      "name": "default-count-one",
+      "succeeded": true,
+      "values": 7,
+      "valueClass": "double",
+      "valueSize": [
+        1,
+        1
+      ],
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": ""
+    },
+    {
+      "name": "default-count-two",
+      "succeeded": true,
+      "values": [
+        7,
+        2
+      ],
+      "valueClass": "double",
+      "valueSize": [
+        1,
+        2
+      ],
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": ""
+    },
+    {
+      "name": "parenthesized-ans",
+      "succeeded": true,
+      "values": 0,
+      "valueClass": "double",
+      "valueSize": [
+        1,
+        1
+      ],
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": ""
+    },
+    {
+      "name": "bare-ans",
+      "succeeded": true,
+      "values": 0,
+      "valueClass": "double",
+      "valueSize": [
+        1,
+        1
+      ],
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": ""
+    },
+    {
+      "name": "void-ans-retained",
+      "succeeded": true,
+      "values": 29,
+      "valueClass": "double",
+      "valueSize": [
+        1,
+        1
+      ],
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": ""
+    },
+    {
+      "name": "absent-ans-retained",
+      "succeeded": true,
+      "values": 31,
+      "valueClass": "double",
+      "valueSize": [
+        1,
+        1
+      ],
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": ""
+    },
+    {
+      "name": "default-count-zero",
+      "succeeded": true,
+      "values": 7,
+      "valueClass": "double",
+      "valueSize": [
+        1,
+        1
+      ],
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": ""
+    },
+    {
+      "name": "failed-output-ans",
+      "succeeded": false,
+      "values": 53,
+      "valueClass": "double",
+      "valueSize": [
+        1,
+        1
+      ],
+      "exceptionIdentifier": "MATLAB:validators:mustBePositive",
+      "exceptionMessageContains": "Invalid output 'second'."
+    },
+    {
+      "name": "restricted-default-nargout-bare",
+      "succeeded": false,
+      "values": [],
+      "valueClass": "",
+      "valueSize": [],
+      "exceptionIdentifier": "MATLAB:functionValidation:RestrictedExternal",
+      "exceptionMessageContains": "Use of function 'nargout' is not supported in arguments blocks."
+    },
+    {
+      "name": "restricted-default-nargout-call",
+      "succeeded": false,
+      "values": [],
+      "valueClass": "",
+      "valueSize": [],
+      "exceptionIdentifier": "MATLAB:functionValidation:RestrictedExternal",
+      "exceptionMessageContains": "Use of function 'nargout' is not supported in arguments blocks."
+    },
+    {
+      "name": "restricted-input-validator-nargout",
+      "succeeded": false,
+      "values": [],
+      "valueClass": "",
+      "valueSize": [],
+      "exceptionIdentifier": "MATLAB:functionValidation:RestrictedExternal",
+      "exceptionMessageContains": "Use of function 'nargout' is not supported in arguments blocks."
+    },
+    {
+      "name": "restricted-output-validator-nargout",
+      "succeeded": false,
+      "values": [],
+      "valueClass": "",
+      "valueSize": [],
+      "exceptionIdentifier": "MATLAB:functionValidation:RestrictedExternal",
+      "exceptionMessageContains": "Use of function 'nargout' is not supported in arguments blocks."
+    }
+  ]
+}

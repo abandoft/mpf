@@ -16,15 +16,22 @@ function mpf_run_reference(project_root, output_root)
     case_name = 'matlab-invocation-context';
     relative_source = 'examples/matlab/invocation_context.m';
     input = fullfile(project_root, relative_source);
-    snapshot = fullfile(output_root, [case_name, '.m']);
+    % run() enters the source directory. Execute a byte-identical, correctly named
+    % copy without unrelated example files that could shadow MATLAB built-ins.
+    snapshot_directory = fullfile(output_root, 'source');
+    if ~isfolder(snapshot_directory)
+        mkdir(snapshot_directory);
+    end
+    relative_snapshot = 'source/invocation_context.m';
+    snapshot = fullfile(snapshot_directory, 'invocation_context.m');
     copyfile(input, snapshot);
-    transcript = execute_source(input);
+    transcript = execute_source(snapshot);
     write_utf8(fullfile(output_root, [case_name, '.stdout']), transcript);
 
     provenance = struct('schemaVersion', 1, 'matlabRelease', actual_release, ...
         'matlabVersion', version(), 'sourceRevision', source_revision, ...
         'caseName', case_name, 'source', relative_source, ...
-        'sourceSnapshot', [case_name, '.m']);
+        'sourceSnapshot', relative_snapshot);
     write_utf8(fullfile(output_root, 'provenance.json'), ...
         jsonencode(provenance, 'PrettyPrint', true));
 
