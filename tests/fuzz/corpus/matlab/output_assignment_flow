@@ -1,0 +1,32 @@
+[first, ~, third] = choose(3);
+disp(first);
+disp(third);
+
+function [first, second, third] = choose(flag)
+arguments
+flag (1,1) double
+end
+arguments (Output)
+first (1,1) double {mustBePositive}
+second (1,1) logical
+third (1,1) double
+end
+first = 1;
+second = 2;
+third = 3;
+while flag > 0
+    try
+        if flag > 1
+            first = 4;
+        else
+            second = 5;
+        end
+        if flag > 2
+            error('MPF:AssignmentProbe', 'after successful output writes');
+        end
+    catch exception
+        third = 6;
+    end
+    flag = flag - 1;
+end
+end

@@ -14,6 +14,10 @@ Mutations run through both independent target ABIs and the frame/query/source ve
 The output-receiver seed adds single brackets, mixed/repeated/all ignored slots, scalar
 builtin results, and nested actual calls. It exercises full positional demand without fake
 discard bindings, duplicated evaluation, or suppressed output validation.
+The output-assignment-flow seed combines validated outputs, branches, loop backedges,
+body exceptions, and mixed receivers. It exercises the independent four-state assignment
+analysis and pre-commit exception edges through both pipelines. Its outputs remain definitely
+assigned: the seed does not claim that executable conditional-output presence is implemented.
 
 Clang/libFuzzer builds are enabled with `-DMPF_BUILD_FUZZERS=ON`. This build mode instruments
 the production core, both enabled backends, and the facade with
