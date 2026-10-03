@@ -52,21 +52,85 @@ set(result "case=${case_name}\ninput=${SOURCE_DIR}/examples/matlab/invocation_co
 string(JOIN "" result ${result})
 set(result_file "${TEST_BINARY_DIR}/synthetic-target-result.txt")
 
+# Structural verifier fixtures are not a MATLAB execution or target parity evidence.
+file(READ "${SOURCE_DIR}/tests/reference/matlab/validator-semantics-contract.json" validator_contract)
+string(JSON validator_cases GET "${validator_contract}" cases)
+string(JSON validator_count LENGTH "${validator_cases}")
+math(EXPR validator_last "${validator_count} - 1")
+foreach(index RANGE 0 ${validator_last})
+  string(JSON message GET "${validator_cases}" ${index} exceptionMessageContains)
+  string(JSON success GET "${validator_cases}" ${index} succeeded)
+  if(NOT success)
+    string(APPEND message " Synthetic verifier fixture; not a MATLAB execution.")
+  endif()
+  string(REPLACE "\\" "\\\\" message "${message}")
+  string(REPLACE "\"" "\\\"" message "${message}")
+  string(JSON validator_cases REMOVE "${validator_cases}" ${index} exceptionMessageContains)
+  string(JSON validator_cases SET "${validator_cases}" ${index} exceptionMessage "\"${message}\"")
+endforeach()
+set(validator_observations "{\"schemaVersion\":1,\"matlabRelease\":\"R2024b\","
+  "\"matlabVersion\":\"synthetic verifier fixture, not runtime evidence\","
+  "\"sourceRevision\":\"${revision}\",\"cases\":${validator_cases}}")
+string(JOIN "" validator_observations ${validator_observations})
+set(validator_parity_provenance "{\"schemaVersion\":1,\"matlabRelease\":\"R2024b\","
+  "\"matlabVersion\":\"synthetic verifier fixture, not runtime evidence\","
+  "\"sourceRevision\":\"${revision}\",\"caseName\":\"matlab-validator-identities\","
+  "\"source\":\"tests/fixtures/matlab_validator_exception_identity.m\","
+  "\"sourceSnapshot\":\"source/matlab_validator_exception_identity.m\"}")
+string(JOIN "" validator_parity_provenance ${validator_parity_provenance})
+foreach(index RANGE 0 ${validator_last})
+  string(JSON name GET "${validator_cases}" ${index} name)
+  string(JSON identifier GET "${validator_cases}" ${index} exceptionIdentifier)
+  set(expected_${name} "${identifier}")
+endforeach()
+set(validator_keys
+  numeric numeric_or_logical floating real finite
+  non_nan positive nonpositive nonnegative negative
+  nonzero integer nonempty scalar_or_empty vector
+  row column matrix nonmissing nonzero_length_text
+  text text_scalar valid_variable_name greater_than greater_than_or_equal
+  less_than less_than_or_equal in_range positive-complex positive-text
+  integer-complex integer-text valid-variable-name-type greater-than-complex greater-than-text
+  nonzero-length-text-empty-double range-exclusive range-exclude-lower range-exclude-upper
+)
+set(validator_tokens)
+foreach(key IN LISTS validator_keys)
+  foreach(context input output)
+    list(APPEND validator_tokens "${expected_${key}-${context}}")
+  endforeach()
+endforeach()
+list(APPEND validator_tokens accepted-text accepted-text accepted-empty accepted-empty)
+string(JOIN " " validator_stdout ${validator_tokens})
+set(validator_result "case=matlab-validator-identities\n"
+  "input=${SOURCE_DIR}/tests/fixtures/matlab_validator_exception_identity.m\n"
+  "node=synthetic-node\ncxx-compiler=synthetic-compiler\n"
+  "javascript=${validator_stdout}\ncpp=${validator_stdout}\n")
+string(JOIN "" validator_result ${validator_result})
+set(validator_result_file "${TEST_BINARY_DIR}/synthetic-validator-target-result.txt")
+
 function(reset_fixture)
   file(WRITE "${reference}/provenance.json" "${provenance}")
   file(WRITE "${reference}/output-semantics.json" "${observations}")
+  file(WRITE "${reference}/validator-semantics.json" "${validator_observations}")
+  file(WRITE "${reference}/validator-parity-provenance.json" "${validator_parity_provenance}")
+  file(WRITE "${reference}/matlab-validator-identities.stdout" "${validator_stdout}\n")
   file(WRITE "${reference}/${case_name}.stdout" "1\r\n   2\n")
   file(MAKE_DIRECTORY "${reference}/source")
   file(REMOVE "${reference}/${snapshot}")
   configure_file("${SOURCE_DIR}/examples/matlab/invocation_context.m"
     "${reference}/${snapshot}" COPYONLY)
+  file(REMOVE "${reference}/source/matlab_validator_exception_identity.m")
+  configure_file("${SOURCE_DIR}/tests/fixtures/matlab_validator_exception_identity.m"
+    "${reference}/source/matlab_validator_exception_identity.m" COPYONLY)
   file(WRITE "${result_file}" "${result}")
+  file(WRITE "${validator_result_file}" "${validator_result}")
 endfunction()
 
 function(check_fixture expected diagnostic)
   execute_process(COMMAND "${CMAKE_COMMAND}"
     "-DSOURCE_DIR=${SOURCE_DIR}" "-DREFERENCE_DIR=${reference}"
     "-DDIFFERENTIAL_RESULT=${result_file}" "-DSOURCE_REVISION=${revision}"
+    "-DVALIDATOR_DIFFERENTIAL_RESULT=${validator_result_file}"
     -P "${SOURCE_DIR}/tests/cmake/verify_matlab_reference.cmake"
     RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error)
   if(expected STREQUAL "success")
@@ -206,4 +270,53 @@ if(link_status STREQUAL "0")
 else()
   message(STATUS "Reference snapshot symlink fixture unavailable: ${link_status}")
 endif()
+reset_fixture()
+file(REMOVE "${reference}/validator-semantics.json")
+check_fixture(failure "Missing native reference artifact")
+reset_fixture()
+string(JSON invalid SET "${validator_observations}" sourceRevision "\"wrong-revision\"")
+file(WRITE "${reference}/validator-semantics.json" "${invalid}")
+check_fixture(failure "validator revision differs")
+reset_fixture()
+string(JSON invalid SET "${validator_observations}" cases 0 succeeded "\"false\"")
+file(WRITE "${reference}/validator-semantics.json" "${invalid}")
+check_fixture(failure "outcome/cause metadata has invalid types")
+reset_fixture()
+string(JSON invalid SET "${validator_observations}" cases 0 exceptionIdentifier "\"MPF:TypeError\"")
+file(WRITE "${reference}/validator-semantics.json" "${invalid}")
+check_fixture(failure "no complete native exception")
+reset_fixture()
+string(JSON invalid SET "${validator_observations}" cases 84 exceptionIdentifier
+  "\"MATLAB:validators:mustBePositive\"")
+file(WRITE "${reference}/validator-semantics.json" "${invalid}")
+check_fixture(failure "differs from the R2024b baseline")
+reset_fixture()
+string(JSON invalid REMOVE "${validator_observations}" cases 0)
+file(WRITE "${reference}/validator-semantics.json" "${invalid}")
+check_fixture(failure "observation inventory is incomplete")
+reset_fixture()
+string(JSON invalid SET "${validator_observations}" cases 2 exceptionMessage "\"Wrong output context\"")
+file(WRITE "${reference}/validator-semantics.json" "${invalid}")
+check_fixture(failure "exception context/message differs")
+reset_fixture()
+file(APPEND "${reference}/source/matlab_validator_exception_identity.m" "\n% corrupted snapshot\n")
+check_fixture(failure "validator source snapshot differs")
+reset_fixture()
+string(JSON invalid SET "${validator_parity_provenance}" caseName "\"wrong-case\"")
+file(WRITE "${reference}/validator-parity-provenance.json" "${invalid}")
+check_fixture(failure "invalid runtime/revision/source provenance")
+reset_fixture()
+file(WRITE "${reference}/matlab-validator-identities.stdout" "MATLAB:validators:mustBePositive")
+check_fixture(failure "fixture output differs")
+reset_fixture()
+string(REPLACE "javascript=${validator_stdout}" "javascript=wrong-output" invalid "${validator_result}")
+file(WRITE "${validator_result_file}" "${invalid}")
+check_fixture(failure "validator identity execution mismatch")
+reset_fixture()
+string(REPLACE "case=matlab-validator-identities" "case=wrong-source" invalid "${validator_result}")
+file(WRITE "${validator_result_file}" "${invalid}")
+check_fixture(failure "did not execute the native validator source")
+reset_fixture()
+file(APPEND "${validator_result_file}" "cpp=duplicate\n")
+check_fixture(failure "Duplicate generated-target result field")
 message(STATUS "Verified synthetic native-reference contract fixtures; no MATLAB execution claim")
