@@ -1,22 +1,22 @@
 ## 0.8.0
 
-- Matlab `arguments` now supports `mustBeGreaterThan`, `mustBeGreaterThanOrEqual`, `mustBeLessThan`, and `mustBeLessThanOrEqual`.
+- Matlab `arguments` now supports `mustBeGreaterThan`, `mustBeGreaterThanOrEqual`, `mustBeLessThan`, and `mustBeLessThanOrEqual`. Relational and range validators accept finite numeric literals, previously converted scalar inputs, and scalar input references in output validation as thresholds.
 - `mustBeInRange` now supports closed, open, and half-open intervals, including both endpoint-exclusion flags together.
-- The 23 existing standard validators now accept explicit `validator(value)` calls with the same semantics as their bare forms.
-- Relational and range validators accept finite numeric literals, previously converted scalar inputs, and scalar input references in output validation as thresholds.
+- The 23 existing standard validators now accept explicit `validator(value)` calls with the same semantics as their bare forms. Local functions, formals, outputs, and assignments that shadow validator names produce focused diagnostics instead of invoking the wrong builtin.
 - Numeric thresholds preserve binary64 rounding, signed zero, subnormals, and underflow results, while overflowing values are rejected explicitly.
 - Positional defaults can lazily call forward-declared local functions; supplied arguments skip their defaults, and nested short-circuit expressions evaluate only the required paths.
 - Argument validation now preserves native Matlab validator exception identifiers and input/output context, including prerequisite failures for invalid types. Each declaration completes its default, conversion, and validation before the next argument is processed, preserving the first error. Empty character values are no longer mistaken for numeric values or row/vector arrays.
 - Generated C++17 evaluates nontrivial multiple Matlab arguments in source order and completes actual-argument evaluation before parameter validation begins.
 - Fixed scalar/array representation for singleton inputs and array defaults in JavaScript while preserving declared dimensions and element order.
 - Matlab `length` now returns 0 for arrays with any zero extent; both `length` and `numel` also support numeric, logical, and complex scalars.
-- Local functions, formals, outputs, and assignments that shadow standard validator names now produce focused diagnostics instead of invoking the wrong builtin.
 - Generated C++17 no longer allocates temporary flatten buffers for compatible scalar inputs or flattens and rebuilds arrays with matching types and shapes.
 - Output class and size conversions now retain the function's internal workspace values while giving callers correctly typed logical, numeric, complex, and reshaped results, including functions that share an input and output name.
 - Output conversion and validation now run once outside function-body exception handlers, preserving early and loop returns and the first validation failure.
 - Fixed Matlab calls that receive only the first or several initial outputs, preserving normalized result types and shapes without truncating output validation.
 - Unused Matlab function calls now avoid unnecessary first-output projections in both targets while preserving execution, validation, exceptions, and implicit command results. Discarded C++ expressions also compile with strict warnings.
 - Translation is faster for branch-heavy functions, including Matlab functions with many early returns and output-validation declarations.
+- Fixed spurious translation failures when Matlab values change across branches, loops, or exception handlers. JavaScript supports scalar/array rebinding, both targets support compatible array length changes, and C++ reports unsupported type or rank changes explicitly.
+- Matlab matrix literals now preserve spaced arithmetic such as `[x, x + 1, x - 2]`, while distinguishing unary signs, parenthesized expressions, function arguments, and dotted operators.
 - Matlab local functions can now use `nargout` and `nargout()` in their bodies to read the current invocation's requested output count, including discarded calls, partial results, and independently nested recursive calls. Direct queries in `arguments` blocks are rejected.
 - Bare Matlab local calls now support omitted default inputs and resolve names within their actual scope, so an unrelated same-named parameter no longer suppresses a function call.
 - Matlab bracket assignments now support ignored output positions with `~` without changing the callee's output count or skipping validation, and single receivers such as `[value] = f()` correctly accept scalar and multi-output results in both targets.

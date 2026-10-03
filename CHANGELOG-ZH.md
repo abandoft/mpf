@@ -1,22 +1,22 @@
 ## 0.8.0
 
-- Matlab `arguments` 现支持 `mustBeGreaterThan`、`mustBeGreaterThanOrEqual`、`mustBeLessThan` 和 `mustBeLessThanOrEqual`。
+- Matlab `arguments` 现支持 `mustBeGreaterThan`、`mustBeGreaterThanOrEqual`、`mustBeLessThan` 和 `mustBeLessThanOrEqual`；关系与区间 validator 可使用有限数值 literal、已转换的前序 scalar input，以及输出验证中的 scalar input 引用作为阈值。
 - `mustBeInRange` 现支持闭区间、开区间和半开区间，以及同时声明两端排除标志。
-- 23 个已有标准 validator 现可使用显式 `validator(value)` 调用形式，与 bare form 保持相同语义。
-- 关系与区间 validator 可使用有限数值 literal、已转换的前序 scalar input，以及输出验证中的 scalar input 引用作为阈值。
+- 23 个已有标准 validator 现可使用显式 `validator(value)` 调用形式，与 bare form 保持相同语义；本地函数、formal、输出和赋值 binding 遮蔽 validator 名称时，现报告聚焦诊断，不再错误调用同名标准 builtin。
 - 数值阈值现保持 binary64 rounding、signed zero、subnormal 和下溢结果，并明确拒绝溢出值。
 - positional default 现可惰性调用前向声明的本地函数；supplied 参数跳过 default，嵌套短路仍只求值实际需要的路径。
 - 参数验证现保留原生 Matlab validator 的异常标识与输入/输出上下文，包括类型不符时的前置检查错误；每条声明完成默认值、转换和验证后才处理下一参数，保持首错顺序。空字符值不再被误判为 numeric 或 row/vector 数组。
 - 生成的 C++17 现会按 Matlab 源顺序求值非平凡的多个实参，并在进入参数验证前完成实参求值。
 - 修复 JavaScript 中 singleton input 和 array default 的 scalar/array 表示，保持声明的维度和元素顺序。
 - `length` 现对任一零 extent 的 Matlab 数组返回 0；`length` 和 `numel` 同时支持 numeric、logical 和 complex scalar。
-- 本地函数、formal、输出和赋值 binding 遮蔽标准 validator 名称时，现报告聚焦诊断，不再错误调用同名标准 builtin。
 - 生成的 C++17 对相容的 scalar 参数不再分配临时 flatten buffer；同类型、同 shape 的数组也不再展开重建。
 - 输出的 class/size 转换现保留函数内部的计算值，并向调用方提供类型正确的 logical、numeric、complex 和重塑结果；输入与输出同名的函数也会保留已初始化的输入值。
 - 输出转换与验证现仅在函数体异常处理之外执行一次，保持提前返回、循环返回和验证首错顺序，内部 catch 不再误捕获返回边界失败。
 - 修复 Matlab 多输出函数仅接收首个或前几个输出时的类型处理，保留转换后结果的类型与形状，不截断输出校验。
 - 未接收结果的 Matlab 函数调用现会在两个目标中省略无用首值投影，同时保留调用执行、验证、异常和命令隐式结果；C++ 丢弃表达式也可通过严格警告编译。
 - 优化多分支函数的转译性能，包括含大量提前返回与输出验证声明的 Matlab 函数。
+- 修复 Matlab 变量在分支、循环或异常处理中重新赋值时的错误拒绝；JavaScript 支持 scalar/array 重新绑定，两个目标都支持相容数组改变长度，C++ 不支持的类型或 rank 变化会被明确诊断。
+- Matlab 矩阵 literal 现正确保留 `[x, x + 1, x - 2]` 这类带空格算术表达式，并区分一元正负号、括号表达式、函数实参与点运算符。
 - Matlab local function 正文现可使用 `nargout` 或 `nargout()` 读取当前调用的输出需求数，覆盖丢弃结果、部分多输出接收和相互隔离的嵌套递归调用；直接在 `arguments` 块内查询会被拒绝。
 - Matlab 裸 local call 现支持省略带默认值的输入，并按实际作用域解析名称，其他作用域中的同名参数不再抑制函数调用。
 - Matlab 方括号赋值现支持以 `~` 忽略指定输出位置，不改变函数的输出需求数或跳过校验；`[value] = f()` 这类单槽接收也可在两个目标中正确接收标量及多输出结果。
