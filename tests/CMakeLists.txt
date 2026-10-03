@@ -8,6 +8,7 @@ add_executable(mpf-tests
   unit/argument_exit_flow_tests.cpp
   unit/output_demand_tests.cpp
   unit/output_receiver_tests.cpp
+  unit/output_assignment_tests.cpp
   unit/invocation_context_tests.cpp
   unit/matlab_bare_call_tests.cpp
   unit/copy_propagation_tests.cpp
