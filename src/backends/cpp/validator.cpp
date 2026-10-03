@@ -564,7 +564,8 @@ void validate_statements(const mir::Program& program, const std::vector<MirState
     }
 
     if (statement->kind == StatementKind::multi_assignment) {
-      for (std::size_t index = 0; index < statement->target_names.size(); ++index) {
+      for (std::size_t index = 0; index < statement->receivers.size(); ++index) {
+        if (!statement->receivers[index].binds()) continue;
         const auto previous =
             index < attributes->targets.size()
                 ? mir::value_type(program, attributes->targets[index].previous_type)
@@ -575,7 +576,7 @@ void validate_statements(const mir::Program& program, const std::vector<MirState
         if (previous != ValueType::unknown && current != ValueType::unknown &&
             join_types(previous, current) == ValueType::unknown) {
           add_error(diagnostics, statement->line, "MPF2007",
-                    "C++17 target cannot represent variable '" + statement->target_names[index] +
+                    "C++17 target cannot represent variable '" + statement->receivers[index].name +
                         "' changing from " + to_string(previous) + " to " + to_string(current));
         }
         const auto previous_element =
@@ -590,7 +591,7 @@ void validate_statements(const mir::Program& program, const std::vector<MirState
             join_types(previous_element, current_element) == ValueType::unknown) {
           add_error(diagnostics, statement->line, "MPF2020",
                     "C++17 target cannot change an array/list element type for variable '" +
-                        statement->target_names[index] + "'");
+                        statement->receivers[index].name + "'");
         }
       }
       if (statement->has_target_pattern) {

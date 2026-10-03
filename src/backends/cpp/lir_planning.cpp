@@ -7,6 +7,7 @@
 
 #include "argument_input_plan.hpp"
 #include "backends/common/identifier_mangler.hpp"
+#include "backends/common/output_receiver_sources.hpp"
 #include "function_dependencies.hpp"
 #include "mpf/version.hpp"
 
@@ -396,8 +397,9 @@ void collect_declarations(const std::vector<lir::Statement>& statements,
                                leaf->shape, leaf->array_storage, dynamic_extent, leaf));
         }
       } else {
-        for (std::size_t index = 0; index < statement.target_names.size(); ++index) {
-          const auto& name = statement.target_names[index];
+        for (std::size_t index = 0; index < statement.receivers.size(); ++index) {
+          if (!statement.receivers[index].binds()) continue;
+          const auto& name = statement.receivers[index].name;
           const auto symbol = index < statement.target_symbols.size()
                                   ? statement.target_symbols[index]
                                   : SymbolId{};
@@ -421,9 +423,10 @@ void collect_declarations(const std::vector<lir::Statement>& statements,
           const auto array_storage = index < statement.target_array_storage.size()
                                          ? statement.target_array_storage[index]
                                          : ArrayStorageFormat::unknown;
-          declarations.push_back(make_declaration(symbol, name, &statement.expression, type,
-                                                  numeric_type, element_type, element_numeric_type,
-                                                  shape, array_storage, index));
+          declarations.push_back(
+              make_declaration(symbol, name, &statement.expression, type, numeric_type,
+                               element_type, element_numeric_type, shape, array_storage,
+                               statement.receivers.size() == 1U ? dynamic_extent : index));
         }
       }
     } else if (statement.kind == StatementKind::try_statement) {
@@ -617,7 +620,7 @@ void plan_statement_temporaries(lir::SemanticProgram& program,
     }
     if (statement.kind == StatementKind::select_case) {
       add_temporary(program, used, statement.id, lir::TemporaryRole::select_value);
-    } else if (statement.kind == StatementKind::multi_assignment) {
+    } else if (needs_tuple_receiver_temporary(statement)) {
       add_temporary(program, used, statement.id, lir::TemporaryRole::assignment_value);
     } else if (statement.kind == StatementKind::while_loop && !statement.alternative.empty()) {
       add_temporary(program, used, statement.id, lir::TemporaryRole::loop_completed);
@@ -897,7 +900,7 @@ void verify_statement_resources(const lir::SemanticProgram& program,
   for (const auto& statement : statements) {
     if (statement.parameter_symbols.size() != statement.parameters.size() ||
         statement.return_symbols.size() != statement.return_names.size() ||
-        statement.target_symbols.size() != statement.target_names.size()) {
+        statement.target_symbols.size() != statement.receivers.size()) {
       add_error(diagnostics, {statement.line, 1},
                 "cpp LIR symbol identity arrays have inconsistent arity");
     }
@@ -982,7 +985,7 @@ void verify_statement_resources(const lir::SemanticProgram& program,
     if (statement.kind == StatementKind::select_case) {
       require_temporary(program, statement.id, lir::TemporaryRole::select_value, 0, expected, names,
                         diagnostics, {statement.line, 1});
-    } else if (statement.kind == StatementKind::multi_assignment) {
+    } else if (needs_tuple_receiver_temporary(statement)) {
       require_temporary(program, statement.id, lir::TemporaryRole::assignment_value, 0, expected,
                         names, diagnostics, {statement.line, 1});
     } else if (statement.kind == StatementKind::while_loop && !statement.alternative.empty()) {

@@ -18,6 +18,7 @@
 #include "ir/argument_exit_flow.hpp"
 #include "ir/ids.hpp"
 #include "ir/invocation_context.hpp"
+#include "ir/output_receiver_source.hpp"
 #include "ir/parameter_default_flow.hpp"
 #include "ir/semantics.hpp"
 
@@ -289,6 +290,23 @@ enum class IndexForm : std::uint8_t {
 
 enum class VariableAccess : std::uint8_t { direct, optional_value };
 
+enum class ReceiverForm : std::uint8_t { binding, discard };
+struct ReceiverPlan {
+  ReceiverForm form{ReceiverForm::discard};
+  SymbolId symbol{};
+  std::string name;
+  VariableAccess access{VariableAccess::direct};
+  std::size_t result_index{0U};
+  SourceLocation location{};
+  HirNodeId origin{};
+  friend bool operator==(const ReceiverPlan& left, const ReceiverPlan& right) noexcept {
+    return left.form == right.form && left.symbol == right.symbol && left.name == right.name &&
+           left.access == right.access && left.result_index == right.result_index &&
+           left.location.line == right.location.line &&
+           left.location.column == right.location.column && left.origin == right.origin;
+  }
+};
+
 struct ComparisonPlan {
   ComparisonForm form{ComparisonForm::infix};
   std::string token;
@@ -547,6 +565,8 @@ enum class StatementForm : std::uint8_t {
   assignment,
   multi_pattern,
   multi_tuple,
+  multi_scalar,
+  multi_discard,
   indexed_element_assignment,
   indexed_section_assignment,
   print_empty,
@@ -691,8 +711,7 @@ struct StatementPlan {
   std::vector<std::size_t> replacement_selection_shape;
   std::vector<std::size_t> replacement_value_shape;
   SparseMutationPlan sparse_mutation;
-  std::vector<std::string> targets;
-  std::vector<VariableAccess> target_accesses;
+  std::vector<ReceiverPlan> receivers;
   std::vector<AssignmentLeafPlan> assignment_leaves;
   std::vector<SelectorForm> selectors;
   std::vector<std::string> return_names;
@@ -745,6 +764,7 @@ struct TranslationUnitPlan {
 
 struct Expression {
   LirNodeId id{};
+  ValueId source_value{};
   HirNodeId origin{};
   SourceLocation location{};
   ExpressionKind kind{ExpressionKind::invalid};
@@ -882,7 +902,8 @@ struct Statement {
   std::vector<std::vector<std::size_t>> return_shapes;
   bool return_sequence_is_list{false};
   std::vector<ValueMetadata> return_sequence_elements;
-  std::vector<std::string> target_names;
+  std::vector<OutputReceiver> receivers;
+  std::vector<mir::OutputReceiverSource> source_receivers;
   std::vector<SymbolId> target_symbols;
   AssignmentPattern target_pattern;
   bool has_target_pattern{false};
