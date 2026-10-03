@@ -1024,14 +1024,31 @@ class Renderer final {
       case javascript::lir::StatementForm::multi_destructure:
         indentation();
         output_ << '[';
-        for (std::size_t index = 0; index < statement.plan.targets.size(); ++index) {
+        for (std::size_t index = 0; index < statement.plan.receivers.size(); ++index) {
           if (index != 0) output_ << ", ";
-          emit_variable_name(index < statement.target_symbols.size()
-                                 ? statement.target_symbols[index]
-                                 : SymbolId{},
-                             statement.plan.targets[index], statement.plan.target_accesses[index]);
+          const auto& receiver = statement.plan.receivers[index];
+          mark(receiver.location, receiver.origin);
+          if (receiver.form == javascript::lir::ReceiverForm::binding)
+            emit_variable_name(receiver.symbol, receiver.name, receiver.access);
         }
+        if (statement.plan.receivers.back().form == javascript::lir::ReceiverForm::discard)
+          output_ << ',';
         output_ << "] = ";
+        emit_expression(statement.expression);
+        output_ << ";\n";
+        break;
+      case javascript::lir::StatementForm::multi_scalar: {
+        const auto& receiver = statement.plan.receivers.front();
+        indentation();
+        mark(receiver.location, receiver.origin);
+        emit_variable_name(receiver.symbol, receiver.name, receiver.access);
+        output_ << " = ";
+        emit_expression(statement.expression);
+        output_ << ";\n";
+        break;
+      }
+      case javascript::lir::StatementForm::multi_discard:
+        indentation();
         emit_expression(statement.expression);
         output_ << ";\n";
         break;
