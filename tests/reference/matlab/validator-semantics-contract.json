@@ -1,0 +1,1169 @@
+{
+  "schemaVersion": 1,
+  "matlabRelease": "R2024b",
+  "referenceRun": "https://github.com/abandoft/mpf/actions/runs/37091387836",
+  "referenceRevision": "153bce9eb0258c7c2adfa324008ced9402c50a3e",
+  "cases": [
+    {
+      "name": "numeric-direct",
+      "validator": "mustBeNumeric",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumeric",
+      "exceptionMessageContains": "Value must be numeric.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "numeric-input",
+      "validator": "mustBeNumeric",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumeric",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be numeric.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "numeric-output",
+      "validator": "mustBeNumeric",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumeric",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be numeric.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "numeric_or_logical-direct",
+      "validator": "mustBeNumericOrLogical",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumericOrLogical",
+      "exceptionMessageContains": "Value must be numeric or logical.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "numeric_or_logical-input",
+      "validator": "mustBeNumericOrLogical",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumericOrLogical",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be numeric or logical.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "numeric_or_logical-output",
+      "validator": "mustBeNumericOrLogical",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumericOrLogical",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be numeric or logical.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "floating-direct",
+      "validator": "mustBeFloat",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeFloat",
+      "exceptionMessageContains": "Value must be a floating-point array.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "floating-input",
+      "validator": "mustBeFloat",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeFloat",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be a floating-point array.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "floating-output",
+      "validator": "mustBeFloat",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeFloat",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be a floating-point array.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "real-direct",
+      "validator": "mustBeReal",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeReal",
+      "exceptionMessageContains": "Value must be real.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "real-input",
+      "validator": "mustBeReal",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeReal",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be real.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "real-output",
+      "validator": "mustBeReal",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeReal",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be real.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "finite-direct",
+      "validator": "mustBeFinite",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeFinite",
+      "exceptionMessageContains": "Value must be finite.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "finite-input",
+      "validator": "mustBeFinite",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeFinite",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be finite.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "finite-output",
+      "validator": "mustBeFinite",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeFinite",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be finite.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "non_nan-direct",
+      "validator": "mustBeNonNan",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonNan",
+      "exceptionMessageContains": "Value must not be NaN.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "non_nan-input",
+      "validator": "mustBeNonNan",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonNan",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must not be NaN.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "non_nan-output",
+      "validator": "mustBeNonNan",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonNan",
+      "exceptionMessageContains": "Invalid output 'result'. Value must not be NaN.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "positive-direct",
+      "validator": "mustBePositive",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBePositive",
+      "exceptionMessageContains": "Value must be positive.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "positive-input",
+      "validator": "mustBePositive",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBePositive",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be positive.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "positive-output",
+      "validator": "mustBePositive",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBePositive",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be positive.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonpositive-direct",
+      "validator": "mustBeNonpositive",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonpositive",
+      "exceptionMessageContains": "Value must not be positive.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonpositive-input",
+      "validator": "mustBeNonpositive",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonpositive",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must not be positive.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonpositive-output",
+      "validator": "mustBeNonpositive",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonpositive",
+      "exceptionMessageContains": "Invalid output 'result'. Value must not be positive.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonnegative-direct",
+      "validator": "mustBeNonnegative",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonnegative",
+      "exceptionMessageContains": "Value must be nonnegative.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonnegative-input",
+      "validator": "mustBeNonnegative",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonnegative",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be nonnegative.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonnegative-output",
+      "validator": "mustBeNonnegative",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonnegative",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be nonnegative.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "negative-direct",
+      "validator": "mustBeNegative",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNegative",
+      "exceptionMessageContains": "Value must be negative.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "negative-input",
+      "validator": "mustBeNegative",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNegative",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be negative.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "negative-output",
+      "validator": "mustBeNegative",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNegative",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be negative.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonzero-direct",
+      "validator": "mustBeNonzero",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzero",
+      "exceptionMessageContains": "Value must not be zero.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonzero-input",
+      "validator": "mustBeNonzero",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzero",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must not be zero.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonzero-output",
+      "validator": "mustBeNonzero",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzero",
+      "exceptionMessageContains": "Invalid output 'result'. Value must not be zero.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "integer-direct",
+      "validator": "mustBeInteger",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInteger",
+      "exceptionMessageContains": "Value must be integer.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "integer-input",
+      "validator": "mustBeInteger",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInteger",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be integer.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "integer-output",
+      "validator": "mustBeInteger",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInteger",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be integer.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonempty-direct",
+      "validator": "mustBeNonempty",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonempty",
+      "exceptionMessageContains": "Value must not be empty.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonempty-input",
+      "validator": "mustBeNonempty",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonempty",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must not be empty.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonempty-output",
+      "validator": "mustBeNonempty",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonempty",
+      "exceptionMessageContains": "Invalid output 'result'. Value must not be empty.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "scalar_or_empty-direct",
+      "validator": "mustBeScalarOrEmpty",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeScalarOrEmpty",
+      "exceptionMessageContains": "Value must be scalar or empty.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "scalar_or_empty-input",
+      "validator": "mustBeScalarOrEmpty",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeScalarOrEmpty",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be scalar or empty.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "scalar_or_empty-output",
+      "validator": "mustBeScalarOrEmpty",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeScalarOrEmpty",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be scalar or empty.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "vector-direct",
+      "validator": "mustBeVector",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeVector",
+      "exceptionMessageContains": "Value must be a 1-by-n vector or an n-by-1 vector.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "vector-input",
+      "validator": "mustBeVector",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeVector",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be a 1-by-n vector or an n-by-1 vector.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "vector-output",
+      "validator": "mustBeVector",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeVector",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be a 1-by-n vector or an n-by-1 vector.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "row-direct",
+      "validator": "mustBeRow",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeRow",
+      "exceptionMessageContains": "Value must be a row vector.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "row-input",
+      "validator": "mustBeRow",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeRow",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be a row vector.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "row-output",
+      "validator": "mustBeRow",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeRow",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be a row vector.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "column-direct",
+      "validator": "mustBeColumn",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeColumn",
+      "exceptionMessageContains": "Value must be a column vector.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "column-input",
+      "validator": "mustBeColumn",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeColumn",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be a column vector.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "column-output",
+      "validator": "mustBeColumn",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeColumn",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be a column vector.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "matrix-direct",
+      "validator": "mustBeMatrix",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeMatrix",
+      "exceptionMessageContains": "Value must be a matrix.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "matrix-input",
+      "validator": "mustBeMatrix",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeMatrix",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be a matrix.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "matrix-output",
+      "validator": "mustBeMatrix",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeMatrix",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be a matrix.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonmissing-direct",
+      "validator": "mustBeNonmissing",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonmissing",
+      "exceptionMessageContains": "Value must not have missing data.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonmissing-input",
+      "validator": "mustBeNonmissing",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonmissing",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must not have missing data.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonmissing-output",
+      "validator": "mustBeNonmissing",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonmissing",
+      "exceptionMessageContains": "Invalid output 'result'. Value must not have missing data.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonzero_length_text-direct",
+      "validator": "mustBeNonzeroLengthText",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzeroLengthText",
+      "exceptionMessageContains": "Value must be text with one or more characters.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonzero_length_text-input",
+      "validator": "mustBeNonzeroLengthText",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzeroLengthText",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be text with one or more characters.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonzero_length_text-output",
+      "validator": "mustBeNonzeroLengthText",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzeroLengthText",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be text with one or more characters.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "text-direct",
+      "validator": "mustBeText",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeText",
+      "exceptionMessageContains": "Value must be a character vector, string array, or cell array of character vectors.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "text-input",
+      "validator": "mustBeText",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeText",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be a character vector, string array, or cell array of character vectors.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "text-output",
+      "validator": "mustBeText",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeText",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be a character vector, string array, or cell array of character vectors.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "text_scalar-direct",
+      "validator": "mustBeTextScalar",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeTextScalar",
+      "exceptionMessageContains": "Value must be a character vector or string scalar.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "text_scalar-input",
+      "validator": "mustBeTextScalar",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeTextScalar",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be a character vector or string scalar.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "text_scalar-output",
+      "validator": "mustBeTextScalar",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeTextScalar",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be a character vector or string scalar.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "valid_variable_name-direct",
+      "validator": "mustBeValidVariableName",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeValidVariableName",
+      "exceptionMessageContains": "These are not valid variable names: '1bad'.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "valid_variable_name-input",
+      "validator": "mustBeValidVariableName",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeValidVariableName",
+      "exceptionMessageContains": "Invalid argument at position 1. These are not valid variable names: '1bad'.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "valid_variable_name-output",
+      "validator": "mustBeValidVariableName",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeValidVariableName",
+      "exceptionMessageContains": "Invalid output 'result'. These are not valid variable names: '1bad'.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "greater_than-direct",
+      "validator": "mustBeGreaterThan",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeGreaterThan",
+      "exceptionMessageContains": "Value must be greater than 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "greater_than-input",
+      "validator": "mustBeGreaterThan",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeGreaterThan",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be greater than 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "greater_than-output",
+      "validator": "mustBeGreaterThan",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeGreaterThan",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be greater than 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "greater_than_or_equal-direct",
+      "validator": "mustBeGreaterThanOrEqual",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeGreaterThanOrEqual",
+      "exceptionMessageContains": "Value must be greater than or equal to 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "greater_than_or_equal-input",
+      "validator": "mustBeGreaterThanOrEqual",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeGreaterThanOrEqual",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be greater than or equal to 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "greater_than_or_equal-output",
+      "validator": "mustBeGreaterThanOrEqual",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeGreaterThanOrEqual",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be greater than or equal to 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "less_than-direct",
+      "validator": "mustBeLessThan",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeLessThan",
+      "exceptionMessageContains": "Value must be less than 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "less_than-input",
+      "validator": "mustBeLessThan",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeLessThan",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be less than 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "less_than-output",
+      "validator": "mustBeLessThan",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeLessThan",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be less than 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "less_than_or_equal-direct",
+      "validator": "mustBeLessThanOrEqual",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeLessThanOrEqual",
+      "exceptionMessageContains": "Value must be less than or equal to 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "less_than_or_equal-input",
+      "validator": "mustBeLessThanOrEqual",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeLessThanOrEqual",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be less than or equal to 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "less_than_or_equal-output",
+      "validator": "mustBeLessThanOrEqual",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeLessThanOrEqual",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be less than or equal to 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "in_range-direct",
+      "validator": "mustBeInRange",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInRange",
+      "exceptionMessageContains": "Value must be greater than or equal to 0, and less than or equal to 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "in_range-input",
+      "validator": "mustBeInRange",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInRange",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be greater than or equal to 0, and less than or equal to 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "in_range-output",
+      "validator": "mustBeInRange",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInRange",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be greater than or equal to 0, and less than or equal to 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "positive-complex-direct",
+      "validator": "mustBePositive",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeReal",
+      "exceptionMessageContains": "Value must be real.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "positive-complex-input",
+      "validator": "mustBePositive",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeReal",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be real.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "positive-complex-output",
+      "validator": "mustBePositive",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeReal",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be real.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "positive-text-direct",
+      "validator": "mustBePositive",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumericOrLogical",
+      "exceptionMessageContains": "Value must be numeric or logical.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "positive-text-input",
+      "validator": "mustBePositive",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumericOrLogical",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be numeric or logical.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "positive-text-output",
+      "validator": "mustBePositive",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumericOrLogical",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be numeric or logical.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "integer-complex-direct",
+      "validator": "mustBeInteger",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeReal",
+      "exceptionMessageContains": "Value must be real.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "integer-complex-input",
+      "validator": "mustBeInteger",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeReal",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be real.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "integer-complex-output",
+      "validator": "mustBeInteger",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeReal",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be real.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "integer-text-direct",
+      "validator": "mustBeInteger",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumericOrLogical",
+      "exceptionMessageContains": "Value must be numeric or logical.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "integer-text-input",
+      "validator": "mustBeInteger",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumericOrLogical",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be numeric or logical.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "integer-text-output",
+      "validator": "mustBeInteger",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumericOrLogical",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be numeric or logical.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "finite-text-direct",
+      "validator": "mustBeFinite",
+      "context": "direct",
+      "succeeded": true,
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": null,
+      "causeIdentifiers": []
+    },
+    {
+      "name": "finite-text-input",
+      "validator": "mustBeFinite",
+      "context": "input",
+      "succeeded": true,
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": null,
+      "causeIdentifiers": []
+    },
+    {
+      "name": "finite-text-output",
+      "validator": "mustBeFinite",
+      "context": "output",
+      "succeeded": true,
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": null,
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonmissing-text-direct",
+      "validator": "mustBeNonmissing",
+      "context": "direct",
+      "succeeded": true,
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": null,
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonmissing-text-input",
+      "validator": "mustBeNonmissing",
+      "context": "input",
+      "succeeded": true,
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": null,
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonmissing-text-output",
+      "validator": "mustBeNonmissing",
+      "context": "output",
+      "succeeded": true,
+      "exceptionIdentifier": "",
+      "exceptionMessageContains": null,
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonzero-length-text-type-direct",
+      "validator": "mustBeNonzeroLengthText",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzeroLengthText",
+      "exceptionMessageContains": "Value must be a character vector, string array, or cell array of character vectors.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonzero-length-text-type-input",
+      "validator": "mustBeNonzeroLengthText",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzeroLengthText",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be a character vector, string array, or cell array of character vectors.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonzero-length-text-type-output",
+      "validator": "mustBeNonzeroLengthText",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzeroLengthText",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be a character vector, string array, or cell array of character vectors.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "valid-variable-name-type-direct",
+      "validator": "mustBeValidVariableName",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzeroLengthText",
+      "exceptionMessageContains": "Value must be text with one or more characters.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "valid-variable-name-type-input",
+      "validator": "mustBeValidVariableName",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzeroLengthText",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be text with one or more characters.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "valid-variable-name-type-output",
+      "validator": "mustBeValidVariableName",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzeroLengthText",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be text with one or more characters.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "greater-than-complex-direct",
+      "validator": "mustBeGreaterThan",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeReal",
+      "exceptionMessageContains": "Value must be real.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "greater-than-complex-input",
+      "validator": "mustBeGreaterThan",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeReal",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be real.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "greater-than-complex-output",
+      "validator": "mustBeGreaterThan",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeReal",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be real.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "greater-than-text-direct",
+      "validator": "mustBeGreaterThan",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumericOrLogical",
+      "exceptionMessageContains": "Value must be numeric or logical.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "greater-than-text-input",
+      "validator": "mustBeGreaterThan",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumericOrLogical",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be numeric or logical.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "greater-than-text-output",
+      "validator": "mustBeGreaterThan",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNumericOrLogical",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be numeric or logical.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonzero-length-text-empty-double-direct",
+      "validator": "mustBeNonzeroLengthText",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzeroLengthText",
+      "exceptionMessageContains": "Value must be a character vector, string array, or cell array of character vectors.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonzero-length-text-empty-double-input",
+      "validator": "mustBeNonzeroLengthText",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzeroLengthText",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be a character vector, string array, or cell array of character vectors.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "nonzero-length-text-empty-double-output",
+      "validator": "mustBeNonzeroLengthText",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeNonzeroLengthText",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be a character vector, string array, or cell array of character vectors.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "text-scalar-char-matrix-direct",
+      "validator": "mustBeTextScalar",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeTextScalar",
+      "exceptionMessageContains": "Value must be a character vector or string scalar.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "text-scalar-char-matrix-input",
+      "validator": "mustBeTextScalar",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeTextScalar",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be a character vector or string scalar.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "text-scalar-char-matrix-output",
+      "validator": "mustBeTextScalar",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeTextScalar",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be a character vector or string scalar.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "range-exclusive-direct",
+      "validator": "mustBeInRange",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInRange",
+      "exceptionMessageContains": "Value must be greater than 0, and less than 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "range-exclusive-input",
+      "validator": "mustBeInRange",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInRange",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be greater than 0, and less than 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "range-exclusive-output",
+      "validator": "mustBeInRange",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInRange",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be greater than 0, and less than 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "range-exclude-lower-direct",
+      "validator": "mustBeInRange",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInRange",
+      "exceptionMessageContains": "Value must be greater than 0, and less than or equal to 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "range-exclude-lower-input",
+      "validator": "mustBeInRange",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInRange",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be greater than 0, and less than or equal to 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "range-exclude-lower-output",
+      "validator": "mustBeInRange",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInRange",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be greater than 0, and less than or equal to 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "range-exclude-upper-direct",
+      "validator": "mustBeInRange",
+      "context": "direct",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInRange",
+      "exceptionMessageContains": "Value must be greater than or equal to 0, and less than 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "range-exclude-upper-input",
+      "validator": "mustBeInRange",
+      "context": "input",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInRange",
+      "exceptionMessageContains": "Invalid argument at position 1. Value must be greater than or equal to 0, and less than 1.",
+      "causeIdentifiers": []
+    },
+    {
+      "name": "range-exclude-upper-output",
+      "validator": "mustBeInRange",
+      "context": "output",
+      "succeeded": false,
+      "exceptionIdentifier": "MATLAB:validators:mustBeInRange",
+      "exceptionMessageContains": "Invalid output 'result'. Value must be greater than or equal to 0, and less than 1.",
+      "causeIdentifiers": []
+    }
+  ]
+}
