@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "compiler/argument_invocation.hpp"
+#include "compiler/output_receiver_dump.hpp"
 #include "ir/semantic_table.hpp"
 
 namespace mpf::detail {
@@ -172,7 +173,7 @@ class HirLowerer final {
           {call.declaration, call.validator, expression(call.expression)});
     }
     result.return_names = std::move(node.return_names);
-    result.target_names = std::move(node.target_names);
+    result.receivers = std::move(node.receivers);
     result.has_target_pattern = node.has_target_pattern;
     result.case_selectors.reserve(node.case_selectors.size());
     for (auto& value : node.case_selectors) result.case_selectors.push_back(selector(value));
@@ -307,6 +308,13 @@ std::vector<Diagnostic> verify_typed_ast(const ArenaProgram<Tag>& ast,
     if (node.exported && node.kind != StatementKind::function) {
       add_error({node.line, 1}, "only a function AST node may be explicitly exported");
     }
+    if ((!node.receivers.empty() && node.kind != StatementKind::multi_assignment) ||
+        (node.kind == StatementKind::multi_assignment && node.receivers.empty()))
+      add_error({node.line, 1}, "frontend AST output receiver inventory has no assignment owner");
+    for (const auto& receiver : node.receivers) {
+      if (!receiver.valid() || (!receiver.binds() && ast.language != SourceLanguage::matlab))
+        add_error(receiver.location, "frontend AST output receiver is malformed or foreign");
+    }
     if (!node.return_names.empty() &&
         (node.kind != StatementKind::function &&
          (expected != SourceLanguage::matlab || node.kind != StatementKind::return_statement))) {
@@ -429,6 +437,12 @@ std::string dump_typed_ast(const ArenaProgram<Tag>& ast, const std::string_view 
     output << '%' << index << ' ' << (record.kind == AstNodeKind::expression ? "expr" : "stmt")
            << " slot=" << record.index << " @" << record.origin.line << ':' << record.origin.column
            << '\n';
+    if (record.kind == AstNodeKind::statement && record.index < ast.statements.size() &&
+        !ast.statements[record.index].receivers.empty()) {
+      output << "  output-receivers ";
+      dump_output_receiver_list(output, ast.statements[record.index].receivers);
+      output << '\n';
+    }
   }
   return output.str();
 }

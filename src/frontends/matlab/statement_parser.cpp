@@ -205,6 +205,27 @@ class Parser final {
     return valid && !expect_identifier && !output.empty();
   }
 
+  bool parse_output_receivers(const MatlabStatementLine& line, const std::size_t first,
+                              const std::size_t last, std::vector<OutputReceiver>& output) {
+    bool expect_receiver = true;
+    for (std::size_t token = first; token < last; ++token) {
+      const auto& item = line.tokens[token];
+      if (item.kind == Kind::comma) {
+        if (expect_receiver) return false;
+        expect_receiver = true;
+        continue;
+      }
+      const bool discard = item.kind == Kind::other && item.text == "~";
+      if (item.kind != Kind::identifier && !discard) return false;
+      if (!expect_receiver && (token == first || item.begin <= line.tokens[token - 1U].end))
+        return false;
+      output.push_back({discard ? OutputReceiverKind::discard : OutputReceiverKind::binding,
+                        discard ? std::string{} : item.text, item.location});
+      expect_receiver = false;
+    }
+    return !expect_receiver && !output.empty();
+  }
+
   bool parse_function_signature(const MatlabStatementLine& line, Statement& statement) {
     const auto count = token_count(line);
     if (count < 2 || line.tokens[0].kind != Kind::keyword_function) return false;
@@ -587,12 +608,13 @@ class Parser final {
       if (equal == 1 && line.tokens[0].kind == Kind::identifier) {
         statement.kind = StatementKind::assignment;
         statement.name = line.tokens[0].text;
-      } else if (equal >= 4 && line.tokens[0].kind == Kind::left_bracket &&
+      } else if (equal >= 3 && line.tokens[0].kind == Kind::left_bracket &&
                  matching_token(line, 0) == equal - 1) {
         statement.kind = StatementKind::multi_assignment;
-        if (!parse_identifier_list(line, 1, equal - 1, statement.target_names, true)) {
-          frontend::unsupported(diagnostics_, line.source.number,
-                                "Matlab multi-output assignment requires an identifier list");
+        if (!parse_output_receivers(line, 1, equal - 1, statement.receivers)) {
+          frontend::unsupported(
+              diagnostics_, line.source.number,
+              "Matlab output receiver list requires names or standalone '~' slots");
           ++index_;
           return;
         }
