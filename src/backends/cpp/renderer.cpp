@@ -1540,21 +1540,37 @@ class Renderer final {
         if (statement.plan.form == cpp::lir::StatementForm::multi_pattern) {
           emit_python_assignment_pattern(statement.plan.assignment_leaves, temporary);
         } else {
-          for (std::size_t index = 0; index < statement.plan.targets.size(); ++index) {
+          for (const auto& receiver : statement.plan.receivers) {
+            if (receiver.form == cpp::lir::ReceiverForm::discard) continue;
             indentation();
-            output_ << mangler_->name(index < statement.target_symbols.size()
-                                          ? statement.target_symbols[index]
-                                          : SymbolId{},
-                                      statement.plan.targets[index]);
-            if (statement.plan.target_accesses[index] == cpp::lir::VariableAccess::optional_value) {
+            mark(receiver.location, receiver.origin);
+            output_ << mangler_->name(receiver.symbol, receiver.name);
+            if (receiver.access == cpp::lir::VariableAccess::optional_value) {
               output_ << ".value()";
             }
             output_ << " = ";
-            output_ << "std::get<" << index << ">(" << temporary << ");\n";
+            output_ << "std::get<" << receiver.result_index << ">(" << temporary << ");\n";
           }
         }
         break;
       }
+      case cpp::lir::StatementForm::multi_scalar: {
+        const auto& receiver = statement.plan.receivers.front();
+        indentation();
+        mark(receiver.location, receiver.origin);
+        output_ << mangler_->name(receiver.symbol, receiver.name);
+        if (receiver.access == cpp::lir::VariableAccess::optional_value) output_ << ".value()";
+        output_ << " = ";
+        emit_expression(statement.expression);
+        output_ << ";\n";
+        break;
+      }
+      case cpp::lir::StatementForm::multi_discard:
+        indentation();
+        output_ << "(void)(";
+        emit_expression(statement.expression);
+        output_ << ");\n";
+        break;
       case cpp::lir::StatementForm::indexed_element_assignment:
       case cpp::lir::StatementForm::indexed_section_assignment:
         indentation();
