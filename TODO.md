@@ -25,7 +25,8 @@ typed `InvocationFrame`/`InvocationDemand` 已将 count 传入每次 callee，�
 default ordinal 不受污染。post-binding normalization 补齐 default-input 裸调用与 scope
 遮蔽，parser 不再全文件扫描猜测。typed 忽略接收槽已实现；条件 presence 与完整 `ans` 仍未实现。
 当前标准 validator runtime 保留已核验的原生异常 identity、输入 position/输出名称以及
-numeric/logical/realness 前置首错；空值免检不被前置类型检查误伤。完整 class/size/custom
+numeric/logical/realness 前置首错；空 char 不被误判为 numeric，真正空 numeric 保持。
+空 logical/complex/sparse 与一般动态数组的 storage-class identity 仍须进一步审计。完整 class/size/custom
 validator 错误和所有类型组合尚未完成，用户日志不以原生探针或测试数量代替功能更新。
 本轮先补齐功能及跨层验证，不把内部测试数量、覆盖率或门禁调整写成用户更新条目；
 真实用户更新累计达到 8–20 条后再定版发布。
@@ -136,7 +137,8 @@ validator 错误和所有类型组合尚未完成，用户日志不以原生探�
     - [x] typed output receiver：Matlab AST v11/HIR v6 逐位置保存 binding/discard 与源坐标，NameTable 不为忽略位建立 symbol；MIR v52 逐位置生成 store/discard_output，共用单次 RHS，无 discarded storage/result/memory access。双目标 LIR v62 各自拥有 scalar/tuple/discard 与 resident provenance，replanning 不能掩盖槽位/绑定/来源污染；`[value]`、混合/重复/全忽略位、typed 单槽 probe、严格生成编译、已赋值忽略输出验证、source map、fuzz 与既有 32 函数性能场景有专项覆盖。扩展源码原生 parity 已核验，条件缺失值仍待 presence
     - [ ] 完整 `ans` 与 presence-aware receiver：括号/裸零需求调用在成功且首值存在时更新，void/absent/failed 保留旧值；条件缺失值在完整 requested prefix（含 `~`）中仍报错。两端各自拥有 presence-aware return/receiver、verifier、严格生成编译与 native parity，不把已赋值槽的忽略接收冒称完整输出语义
     - [ ] Matlab validation 完整异常身份：class/size conversion、其余/custom validator、一般对象和所有支持类型/阈值组合仍须核验原生 identity 与首错顺序；不能只比较错误文本或把所有失败折叠为一个 ID
-      - [x] 当前 28 个标准 validator 的原生 identity 纵切面：run 37091387836 / 完整 SHA `153bce9eb0258c7c2adfa324008ced9402c50a3e` 实际采集并冻结 129 项直接/输入/输出观察。两个独立目标 runtime 保留 `MATLAB:validators:*`、输入 formal position/输出名称，以及已核验的 numeric/logical/realness 前置 ID；empty-value exemption 保持。78 项失败、文本/空 char 接受构成 82-token 原始 fixture，进入双目标差分/严格 C++、native workflow、fuzz；目标 dependency closure 与 replanning 丢失 exception feature 独立拒绝，synthetic native verifier 拒绝缺失/污染 provenance/库存/状态/前置 ID/context/snapshot/执行结果。129 项采集不等于随后新增目标 fixture 的原生 parity，必须核验其实际远程步骤和产物后再记真实验收
+      - [x] 当前 28 个标准 validator 的原生 identity 纵切面：run 37091387836 / 完整 SHA `153bce9eb0258c7c2adfa324008ced9402c50a3e` 实际采集并冻结 129 项直接/输入/输出观察。两个独立目标 runtime 保留 `MATLAB:validators:*`、输入 formal position/输出名称，以及已核验的 numeric/logical/realness 前置 ID。80 项失败与两组文本接受构成 82-token 原始 fixture，进入双目标差分/严格 C++、native workflow、fuzz；目标 dependency closure 与 replanning 丢失 exception feature 独立拒绝，synthetic native verifier 拒绝缺失/污染 provenance/库存/状态/前置 ID/context/snapshot/执行结果。129 项采集不等于随后新增目标 fixture 的原生 parity，必须核验其实际远程步骤和产物后再记真实验收
+      - [x] 原生空 char class 错误复现与修复：run 37093296126 已实际执行两端/原始源码与 129 项观察，verifier 正确拒绝最后两个空 char token；两个目标和旧 `arguments.m` 都把空 char 当作 numeric。按真实 R2024b identity 修正前置 type/class 检查，旧示例改用真正空 double，保留失败证据，不用最新 R2026b 空值忽略文档覆盖旧版本实际行为
       - [ ] 扩展 native 拒错矩阵覆盖每个 validator 的 text/logical/real/complex/empty、阈值类型/非有限值与 class/size conversion；当前已核验主路径与少量前置路径不能冒称全组合完成，尾部消息仍不承诺原生本地化逐字等价
   - [ ] 一般 mutable CFG join：同一绑定在 try 正常/handler 路径拥有不同 scalar/array type/shape 时，storage-entry metadata 不能作为所有 phi actual 的类型；修正 typed value merge 与 memory/version 合同，JavaScript 动态表示和 C++ capability 拒绝应在目标层各自处理，而不是公共 MIR 报 MPF0006。本轮 scalar→array 多输出重新绑定复现已定位，暂不混入输出验证示例掩盖问题
   - [x] 双目标入口首错顺序修复：MIR 明确 callee-entry adaptation；C++ 私有 raw-input template ABI 将 supplied conversion/default/validator 按声明交错执行，碰撞安全 raw/type 临时身份与 optional access 独立验证。非平凡多实参在进入验证前有序求值；兼容 scalar conversion 无 flatten 分配、同类型同 shape 数组不重建。双目标差分固定后续尺寸错误不得覆盖前序 validator、后续 default IO 抑制、supplied default 跳过及已转换前序参数引用；不将其冒称完整 resident validation CFG
