@@ -143,7 +143,7 @@ MATLAB 版本、完整提交 SHA、源文件快照、原始 transcript 和两端
 input/output 同名、`ans` 与 default/input-validator/output-validator 的直接 query
 限制。首轮真实 R2024b 已拒绝 fixture 中的直接 `nargout` default，编译器同步增加
 binding-aware 拒错；合法源码与独立非法定义观察分开。这是剩余功能的语义依据，不表示 MPF 已支持这些
-源程序；当前 parity 只覆盖 invocation-context。普通 CTest 的 verifier-contract
+源程序；当前 parity 覆盖 invocation-context 与独立标准 validator identity fixture。普通 CTest 的 verifier-contract
 使用明确标记的 synthetic fixture 检验错误拒绝逻辑，不运行 MATLAB，也不能代替
 原生执行证据。0.8.0 输出验收与发布门禁接入仍保持未完成。运行方式与证据范围见
 [原生对照指南](../tests/reference/matlab/README.md)。
@@ -154,6 +154,18 @@ binding-aware 拒错；合法源码与独立非法定义观察分开。这是剩
 message fragment 的 R2024b 基线，新增损坏回归拒绝错误 `ans`、忽略槽异常身份、
 验证/缺失顺序和伪造 `isargout` availability。synthetic fixtures 只检验这套 verifier，
 并明确标记其非运行证据身份。
+
+标准 validator 另有 129 项直接/输入/输出原生观察，冻结自 R2024b Update 10
+run [37091387836](https://github.com/abandoft/mpf/actions/runs/37091387836)，完整源码 SHA
+`153bce9eb0258c7c2adfa324008ced9402c50a3e`。观察覆盖 28 个标准 validator、已核验的
+类型前置 identity、文本接受与区间边界；该次 run 尚未包含随后新增的目标 identity fixture。
+新的 `matlab_validator_exception_identity.m` 执行 78 项输入/输出失败与文本/空 char 接受，
+由两个目标及官方 runner 独立执行；native verifier 复核该原始源码的独立 provenance、
+快照 SHA-256、82 个输出 token 和冻结观察，不过滤警告。synthetic verifier 负向测试新增
+缺失/错误来源、类型/库存、前置错误 identity、消息 context、snapshot、目标跳过/错序/重复字段拒绝。
+`argument_exception_tests.cpp` 检查目标 runtime dependency closure 与去掉 exception feature
+后 replanning 仍拒绝；fuzz 另覆盖复数/文本前置失败和输出区间验证。消息尾部仍是 MPF 诊断文本，
+不冒称所有原生消息或 class/size/custom validator 异常已对齐。
 
 Analyzer 生命周期回归测试主动收紧 expression side-table capacity，再通过 Matlab 默认参数的
 嵌套 call、scalar/multi-axis selector、slice bound、indexed mutation、Python tuple/default
@@ -232,10 +244,10 @@ deployment target，避免用 Clang/libc++ 链接 GCC/libstdc++ 包造成测试�
 
 - 22 个 Python case：CPython 3.14、Node.js、生成 C++17 与 oracle 四路比较；
 - 19 个 Fortran case：gfortran 严格 `-std=f2018` reference mode、Node.js、生成 C++17 与 oracle 四路比较；`MPF_FORTRAN_REFERENCE_STANDARD` 可在工具链支持后切换到 `f2023`；
-- 82 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较；
+- 83 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较；
 - 4 个 TypeScript case：Node.js 24 直接执行可擦除类型的 source、生成 JavaScript、生成 C++17 与声明式 oracle 四路比较；覆盖 basic、typed array、lexical block 和 canonical `for`，完整 type-check 仍待接入与 manifest 匹配的 `tsc`。
 
-在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 127 个 case 共执行 299 条程序输出路径：127 条生成 JavaScript/Node.js、127 条生成 C++17、22 条 CPython、19 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。Matlab `arguments.m` 固定 input/output、class/validator、ordered default、logical/char/empty validator 语义与 R2024b variable-name 成功路径，`argument_conversion.m` 固定 N 维 scalar expansion、column-to-row reshape，以及前序参数完成 logical conversion 后才求值的 default。`argument_default_control_flow.m` 固定 supplied/omitted/empty、默认值的 IO/异常/嵌套短路，以及 logical scalar/array 的 class conversion/validation；C++ runtime 需将 `vector<bool>` proxy 还原为实际 scalar 再转换/检查，不能依赖 libc++/libstdc++ 的 proxy 类型一致。其余 matrix/sparse/control/exception/dynamic-assignment corpus 继续固定各自已记录合同；所有 case 均执行两个目标 runtime。64 项 runtime-rejection 测试另覆盖 complex-storage realness、非法/超长变量名和既有 shape/broadcast/division/mutation/sparse ABI 污染边界。
+在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 128 个 case 共执行 301 条程序输出路径：128 条生成 JavaScript/Node.js、128 条生成 C++17、22 条 CPython、19 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。Matlab `arguments.m` 固定 input/output、class/validator、ordered default、logical/char/empty validator 语义与 R2024b variable-name 成功路径，`argument_conversion.m` 固定 N 维 scalar expansion、column-to-row reshape，以及前序参数完成 logical conversion 后才求值的 default。`argument_default_control_flow.m` 固定 supplied/omitted/empty、默认值的 IO/异常/嵌套短路，以及 logical scalar/array 的 class conversion/validation；C++ runtime 需将 `vector<bool>` proxy 还原为实际 scalar 再转换/检查，不能依赖 libc++/libstdc++ 的 proxy 类型一致。`matlab-validator-identities` 固定已核验的标准异常 identity 与类型前置失败，保持空值免检。其余 matrix/sparse/control/exception/dynamic-assignment corpus 继续固定各自已记录合同；所有 case 均执行两个目标 runtime。64 项 runtime-rejection 测试另覆盖 complex-storage realness、非法/超长变量名和既有 shape/broadcast/division/mutation/sparse ABI 污染边界。
 
 `shape_mutation.m` 额外固定 dense direct alias 与 local-function 参数在 growth/write 后仍保持 Matlab value semantics；`complex_sparse_storage.m` 同时固定 sparse copy 在 assignment/growth/zero erase 后通过 immutable root replacement 隔离旧 alias。
 

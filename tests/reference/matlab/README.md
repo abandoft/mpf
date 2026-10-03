@@ -4,18 +4,29 @@ This directory runs original MATLAB source on **R2024b**. It is not a frontend g
 fixture directory: the observation runner deliberately uses MATLAB constructs that MPF
 has not yet implemented, including function handles and conditionally missing outputs.
 
-The manual/reusable `Matlab Reference` workflow has two distinct results:
+The manual/reusable `Matlab Reference` workflow has three distinct results:
 
 1. `invocation_context.m` is executed by MATLAB and compared with the actual generated
    JavaScript and strictly compiled C++ results from the differential runner. Its current
    receiver coverage includes single brackets, mixed/repeated/all ignored slots, nested
    actual evaluation, scalar and parameter-dependent tuple results, rejected assigned
    outputs despite discards, and retaining the caller's `ans`.
-2. Twenty-seven native observations record conditional output assignment, missing requested
+2. `matlab_validator_exception_identity.m` executes 78 failing input/output paths plus
+   accepted text and empty-character paths. The workflow compares all 82 tokens from the
+   original native source with both generated targets, including the standard validator
+   identities and prerequisite errors. It preserves a separate byte-identical snapshot,
+   full revision/runtime provenance, raw transcript, and strict generated C++ evidence.
+3. Twenty-seven native output observations record conditional output assignment, missing requested
    outputs, ignored receiver positions/count, validation/error ordering, defaults, shared
    input/output bindings, scoped `ans`, and forbidden direct invocation queries in argument
    defaults/input validators/output validators. They are ground truth for pending implementation,
    **not evidence that MPF already supports those cases**.
+   Another 129 native validator observations record direct/input/output identities, known
+   type prerequisites, text acceptance, and range boundaries. The frozen baseline comes from
+   actual R2024b Update 10 run [37091387836](https://github.com/abandoft/mpf/actions/runs/37091387836)
+   at full revision `153bce9eb0258c7c2adfa324008ced9402c50a3e`; every execution and verification
+   step passed. That observation run predates the target identity fixture, so it is not by
+   itself proof that the subsequently changed targets pass native parity.
 
 The first actual R2024b run rejected a direct `nargout` default that MPF had incorrectly
 accepted. Legal execution fixtures now evaluate defaults through a separate helper; the compiler has a binding-aware
@@ -47,6 +58,11 @@ first-error message fragments, and builtin availability from R2024b Update 10 ru
 [37080926914](https://github.com/abandoft/mpf/actions/runs/37080926914). That run successfully
 executed MATLAB and collected all 27 cases; its final parity check rejected the unrelated
 directory warning. The frozen native contract is a regression baseline, not MPF parity.
+`validator-semantics-contract.json` separately freezes the 129 native validator outcomes,
+contexts, prerequisite IDs, first message fragments, and causes; the verifier requires both
+baselines and rejects missing, mistyped, reordered, or changed observations. Native identity
+and message context do not imply byte-identical localized message tails, complete class/size
+conversion errors, every type combination, or unimplemented/custom validator support.
 
 Expanded receiver parity was subsequently verified by actual R2024b Update 10 run
 [37086893737](https://github.com/abandoft/mpf/actions/runs/37086893737) at full revision
