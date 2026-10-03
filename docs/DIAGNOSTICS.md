@@ -137,7 +137,7 @@ TypeScript statement lexer 诊断使用 `MPF19xx`：`MPF1901` 表示 block comme
 | `MPF2054` | Matlab sparse 操作超出静态 real/logical/complex rank-2 canonical CSC storage 子集，例如尚未实现的 rectangular solve、complex sparse scalar-product/element-wise/power/solve 或动态 source shape，或 constructor/index/mutation/reshape/product/arithmetic/logical/reduction/power storage、shape 与 value-domain contract 无法保持；已支持的 matrix product、`+`/`-`、`~`/`&`/`|` 要求可静态验证 shape/domain 或 compatible-size 与 preserve-sparse/materialize-dense 计划，complex sparse product 与 `+`/`-` 还要求 finite-complex value-domain plan，`all`/`any` 要求静态 axis/shape 及 preserve-sparse/scalar-full 计划，方阵 `^` 要求非负 ECMAScript-safe integer exponent；非有限 scalar/result 由目标 runtime 稳定拒绝 |
 | `MPF2056` | Matlab exception binding 访问了当前合同之外的 `MException` 公开属性；0.7.8 仅授权 `identifier` 与 `message`，cause/stack/correction 对象属性仍失败关闭 |
 | `MPF2057` | Matlab `MException`、`error`、`throw`、`throwAsCaller`、`rethrow`、`addCause` 或 `getReport` 的参数数量、类型、identifier、格式值或静态 option 不满足当前异常合同 |
-| `MPF2059` | 未被源 binding 遮蔽的 Matlab `nargout` query 不在函数 workspace，或使用尚未支持的 `nargout(fun)` introspection；当前仅支持函数/default 内的裸 `nargout` 与零参数 `nargout()` |
+| `MPF2059` | 未被源 binding 遮蔽的 Matlab `nargout` query 不在函数 workspace、直接出现在 `arguments` default/validator 中，或使用尚未支持的 `nargout(fun)` introspection；当前仅支持函数正文内的裸 `nargout` 与零参数 `nargout()` |
 | `MPF2060` | Matlab `arguments` declaration 的 formal 对应、顺序、可选性、scalar/NDArray ABI 无效；绑定后的标准 validator call arity、validated argument、threshold/flag ABI 无效，阈值 literal 溢出，或 input reference 不可见/不是可表示 scalar |
 | `MPF2061` | 目标后端无法精确保持 Matlab `arguments` 在已知调用边界上的 class/size conversion |
 | `MPF2062` | Matlab validator 名称已解析为源 local function/variable，而当前尚无可执行的 validation-sequence MIR；拒绝把它替换成同名标准 builtin |

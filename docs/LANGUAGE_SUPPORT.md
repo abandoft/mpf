@@ -80,9 +80,12 @@ custom validator 的职责依据官方 [validation functions](https://www.mathwo
 表述为完整输出验证支持。当前 source demand 与所选值 arity 已分离：语句为 0、
 普通表达式/default 为 1、静态多接收为位置数，命令隐式 `ans` 不改变需求数。无 receiver
 语句在两端省略无用首值投影，但保留调用、输出验证及异常。开发分支已把需求作为独立
-typed count 传入每次 local invocation；函数体和 positional default 可使用裸 `nargout`
+typed count 传入每次 local invocation；函数体可使用裸 `nargout`
 或 `nargout()`，递归调用各自隔离。`nargout(fun)`、条件 presence 和 `~` 接收槽仍不支持；
-script 顶层 query 或不支持的 introspection 以 `MPF2059` 拒绝。源同名变量/formal/function
+script 顶层 query、不支持的 introspection 或 `arguments` 块内的直接 query 以
+`MPF2059` 拒绝。默认值/validator 表达式中的嵌套 query 同样拒绝；已绑定的同名
+input 变量不是 query，独立 helper 函数正文中的 query 读取 helper 自身 frame。
+源同名变量/formal/function
 仍按正常 binding 处理。裸 local 调用在名称绑定后规范化，支持全部输入可省略的函数；
 其他 scope 中的同名参数不再影响调用，required input 缺失仍报告普通 arity 错误。
 生成函数的外部入口默认单输出 count；外部调用若需 0/N，须在全部逻辑实参后显式
