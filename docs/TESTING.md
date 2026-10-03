@@ -159,13 +159,21 @@ message fragment 的 R2024b 基线，新增损坏回归拒绝错误 `ans`、忽�
 run [37091387836](https://github.com/abandoft/mpf/actions/runs/37091387836)，完整源码 SHA
 `153bce9eb0258c7c2adfa324008ced9402c50a3e`。观察覆盖 28 个标准 validator、已核验的
 类型前置 identity、文本接受与区间边界；该次 run 尚未包含随后新增的目标 identity fixture。
-新的 `matlab_validator_exception_identity.m` 执行 78 项输入/输出失败与文本/空 char 接受，
+新的 `matlab_validator_exception_identity.m` 执行 80 项输入/输出失败与两组文本接受，
 由两个目标及官方 runner 独立执行；native verifier 复核该原始源码的独立 provenance、
 快照 SHA-256、82 个输出 token 和冻结观察，不过滤警告。synthetic verifier 负向测试新增
 缺失/错误来源、类型/库存、前置错误 identity、消息 context、snapshot、目标跳过/错序/重复字段拒绝。
 `argument_exception_tests.cpp` 检查目标 runtime dependency closure 与去掉 exception feature
 后 replanning 仍拒绝；fuzz 另覆盖复数/文本前置失败和输出区间验证。消息尾部仍是 MPF 诊断文本，
 不冒称所有原生消息或 class/size/custom validator 异常已对齐。
+
+run [37093296126](https://github.com/abandoft/mpf/actions/runs/37093296126) 实际执行了原始
+identity fixture，但 verifier 拒绝最后两个 token：R2024b 对空 char 的 `mustBeNumeric`
+报错，两个目标与旧示例却把它当作 numeric 接受。保留该失败证据，修正两个 runtime 的
+class 前置检查与旧 `arguments.m`（改用真正的空 double），不照搬最新 R2026b 页面中的
+空值免检描述；普通差分 baseline 按原生 identity 校正。额外采集 28 个 validator 的
+direct/input/output × empty-char/empty-double 共 168 项，用于后续完整类型矩阵审计；
+新增采集只有实际执行并冻结后才可计作验收。
 
 Analyzer 生命周期回归测试主动收紧 expression side-table capacity，再通过 Matlab 默认参数的
 嵌套 call、scalar/multi-axis selector、slice bound、indexed mutation、Python tuple/default
@@ -247,7 +255,7 @@ deployment target，避免用 Clang/libc++ 链接 GCC/libstdc++ 包造成测试�
 - 83 个 Matlab case：Node.js、生成 C++17 与 oracle 三路比较；
 - 4 个 TypeScript case：Node.js 24 直接执行可擦除类型的 source、生成 JavaScript、生成 C++17 与声明式 oracle 四路比较；覆盖 basic、typed array、lexical block 和 canonical `for`，完整 type-check 仍待接入与 manifest 匹配的 `tsc`。
 
-在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 128 个 case 共执行 301 条程序输出路径：128 条生成 JavaScript/Node.js、128 条生成 C++17、22 条 CPython、19 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。Matlab `arguments.m` 固定 input/output、class/validator、ordered default、logical/char/empty validator 语义与 R2024b variable-name 成功路径，`argument_conversion.m` 固定 N 维 scalar expansion、column-to-row reshape，以及前序参数完成 logical conversion 后才求值的 default。`argument_default_control_flow.m` 固定 supplied/omitted/empty、默认值的 IO/异常/嵌套短路，以及 logical scalar/array 的 class conversion/validation；C++ runtime 需将 `vector<bool>` proxy 还原为实际 scalar 再转换/检查，不能依赖 libc++/libstdc++ 的 proxy 类型一致。`matlab-validator-identities` 固定已核验的标准异常 identity 与类型前置失败，保持空值免检。其余 matrix/sparse/control/exception/dynamic-assignment corpus 继续固定各自已记录合同；所有 case 均执行两个目标 runtime。64 项 runtime-rejection 测试另覆盖 complex-storage realness、非法/超长变量名和既有 shape/broadcast/division/mutation/sparse ABI 污染边界。
+在 Node.js、CPython 和 gfortran 均可用的工具完整环境中，这 128 个 case 共执行 301 条程序输出路径：128 条生成 JavaScript/Node.js、128 条生成 C++17、22 条 CPython、19 条 gfortran 和 4 条 Node.js source TypeScript 路径；此外每个 case 都有一条声明式 oracle 基线。Matlab `arguments.m` 固定 input/output、class/validator、ordered default、logical/char/empty validator 语义与 R2024b variable-name 成功路径，`argument_conversion.m` 固定 N 维 scalar expansion、column-to-row reshape，以及前序参数完成 logical conversion 后才求值的 default。`argument_default_control_flow.m` 固定 supplied/omitted/empty、默认值的 IO/异常/嵌套短路，以及 logical scalar/array 的 class conversion/validation；C++ runtime 需将 `vector<bool>` proxy 还原为实际 scalar 再转换/检查，不能依赖 libc++/libstdc++ 的 proxy 类型一致。`matlab-validator-identities` 固定已核验的标准异常 identity 与类型前置失败，区分 R2024b 的空 char 拒错与真正空 numeric。其余 matrix/sparse/control/exception/dynamic-assignment corpus 继续固定各自已记录合同；所有 case 均执行两个目标 runtime。64 项 runtime-rejection 测试另覆盖 complex-storage realness、非法/超长变量名和既有 shape/broadcast/division/mutation/sparse ABI 污染边界。
 
 `shape_mutation.m` 额外固定 dense direct alias 与 local-function 参数在 growth/write 后仍保持 Matlab value semantics；`complex_sparse_storage.m` 同时固定 sparse copy 在 assignment/growth/zero erase 后通过 immutable root replacement 隔离旧 alias。
 

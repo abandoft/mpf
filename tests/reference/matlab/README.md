@@ -11,8 +11,8 @@ The manual/reusable `Matlab Reference` workflow has three distinct results:
    receiver coverage includes single brackets, mixed/repeated/all ignored slots, nested
    actual evaluation, scalar and parameter-dependent tuple results, rejected assigned
    outputs despite discards, and retaining the caller's `ans`.
-2. `matlab_validator_exception_identity.m` executes 78 failing input/output paths plus
-   accepted text and empty-character paths. The workflow compares all 82 tokens from the
+2. `matlab_validator_exception_identity.m` executes 80 failing input/output paths plus
+   accepted text paths. The workflow compares all 82 tokens from the
    original native source with both generated targets, including the standard validator
    identities and prerequisite errors. It preserves a separate byte-identical snapshot,
    full revision/runtime provenance, raw transcript, and strict generated C++ evidence.
@@ -27,6 +27,15 @@ The manual/reusable `Matlab Reference` workflow has three distinct results:
    at full revision `153bce9eb0258c7c2adfa324008ced9402c50a3e`; every execution and verification
    step passed. That observation run predates the target identity fixture, so it is not by
    itself proof that the subsequently changed targets pass native parity.
+
+The expanded fixture was actually executed by R2024b Update 10 in
+[37093296126](https://github.com/abandoft/mpf/actions/runs/37093296126), but its verifier correctly
+rejected the final two tokens: native `mustBeNumeric('')` failed, while both generated targets
+and an older example accepted empty char as numeric. That failed run is preserved, not counted
+as acceptance. Both runtimes and the example are corrected from the native evidence; the
+latest online documentation's empty-value exemption is not a substitute for R2024b semantics.
+An additional 168 direct/input/output empty-char/empty-double observations are collected for
+the continuing type audit; collecting them alone does not claim complete generated-target parity.
 
 The first actual R2024b run rejected a direct `nargout` default that MPF had incorrectly
 accepted. Legal execution fixtures now evaluate defaults through a separate helper; the compiler has a binding-aware
